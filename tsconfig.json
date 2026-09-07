@@ -12,5 +12,6 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true
-  }
+  },
+  "exclude": ["context/repos/**", "node_modules/**", "out/**", "dist/**"]
 }

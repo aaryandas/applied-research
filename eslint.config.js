@@ -13,15 +13,22 @@ export default tseslint.config(
       'coverage/**',
       'test-results/**',
       'playwright-report/**',
-      'docs/**',
+      'context/repos/**',
       'design-system/**',
-      'references/**',
       '.*/*',
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  { languageOptions: { globals: globals.node } },
+  {
+    languageOptions: { globals: globals.node },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: ['**/context/repos/**', 'context/repos/**'] },
+      ],
+    },
+  },
   {
     files: ['src/renderer/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
@@ -35,7 +42,14 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          patterns: ['node:*', 'electron', '**/main/**', '**/preload/**'],
+          patterns: [
+            'node:*',
+            'electron',
+            '**/main/**',
+            '**/preload/**',
+            '**/context/repos/**',
+            'context/repos/**',
+          ],
         },
       ],
     },

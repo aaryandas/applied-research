@@ -20,11 +20,11 @@ Visit `http://127.0.0.1:8765`. No install, build step, account, or API key is re
 - `CASE-STUDY.md`: design rationale and decisions against the first teardown.
 - `INTEGRATION.md`: component contracts and the production renderer handoff.
 - `evidence/`: browser screenshots, contrast calculations, review and verification records.
-- `../PRODUCT.md` and `../DESIGN.md`: product truth and the finished visual-system contract.
+- `../context/product.md` and `../context/design.md`: product truth and the finished visual-system contract.
 
 ## Try the historical interaction specimens
 
-The reference retains its earlier Workbench and counter/idea vocabulary. Root `PRODUCT.md` supersedes that behavior for new application development.
+The reference retains its earlier Workbench and counter/idea vocabulary. Root `context/product.md` supersedes that behavior for new application development.
 
 1. Enter the workspace, read the example, and inspect its citation. Escape closes the source preview and restores focus.
 2. Write a note, counter, or idea. Save it, then inspect the Workbench and Playbook. Counts share the same state.
@@ -37,4 +37,4 @@ Storage is browser-local, namespaced `applied-research-field-atlas-v2`. When una
 
 ## Scope
 
-This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown are preserved in the [Obsidian knowledge base](../docs/knowledge-base.md). Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.
+This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown are preserved in the [Obsidian knowledge base](../context/knowledge-base.md). Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.

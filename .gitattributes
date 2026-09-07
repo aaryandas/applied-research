@@ -4,3 +4,5 @@
 *.pdf binary
 *.woff2 binary
 *.ttf binary
+
+context/repos/** linguist-vendored

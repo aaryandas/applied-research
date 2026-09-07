@@ -1,6 +1,6 @@
 # Integrating Field Atlas into the Electron renderer
 
-The repository now has an Electron/React development scaffold. Root `PRODUCT.md` governs product behavior; `DESIGN.md` governs visual language. This standalone reference demonstrates earlier paper-reader and Workbench interactions. Those are specimens, not the current product scope or event schema. The current learning workbench centers the Learning Path, external activities, returned results, Canvas, and Playbook.
+The repository now has an Electron/React development scaffold. Root `context/product.md` governs product behavior; `context/design.md` governs visual language. This standalone reference demonstrates earlier paper-reader and Workbench interactions. Those are specimens, not the current product scope or event schema. The current learning workbench centers the Learning Path, external activities, returned results, Canvas, and Playbook.
 
 ## Adopt first
 

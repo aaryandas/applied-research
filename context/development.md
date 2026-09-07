@@ -36,6 +36,6 @@ No environment file is needed today. Keep future `.env` files and real vaults ou
 
 ## Adding work
 
-Add source beside its owning module, focused tests beside source, and cross-process checks under `tests/e2e/`. Keep `PRODUCT.md` current when a product decision changes. Keep accepted engineering decisions beside the implementation; put exploratory research and historical context in the [Obsidian knowledge base](knowledge-base.md).
+Add source beside its owning module, focused tests beside source, and cross-process checks under `tests/e2e/`. Keep `context/product.md` current when a product decision changes. Keep accepted engineering decisions beside the implementation; put exploratory research and historical context in the [Obsidian knowledge base](knowledge-base.md).
 
 Use exact dependency versions and commit both manifest and lockfile. Dependabot proposes npm and Actions updates weekly. Review Electron/tool compatibility and re-run packaging when accepting updates.

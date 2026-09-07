@@ -1,30 +1,54 @@
-# Development instructions
+# Applied Research — agent instructions
 
-Read `PRODUCT.md`, `CONTEXT.md`, and `docs/architecture.md` before changing application behavior. `README.md` is the entry point for setup and commands.
+This is the shared entry point for coding agents. `CLAUDE.md` imports this file.
 
-## Sources of truth
+## Project
 
-- Current product decisions: `PRODUCT.md` and `CONTEXT.md`.
-- Current engineering: `docs/architecture.md`, checked-in configuration and lockfile.
-- Visual language: `DESIGN.md`; port selectively from `design-system/`.
-- Historical plans, research, decision transcripts, and comparison captures live in Obsidian; see `docs/knowledge-base.md`. Consult them only when the task needs that context. They are not build dependencies or current instructions.
-- Keep this repository focused on implementation and current engineering decisions. Put new research notes and design exploration in the knowledge base. Verify dated external findings before relying on them, and never import third-party comparison material as application assets.
+Applied Research is a learning workbench for builders. Learning paths lead from enough understanding to practical work in the learner’s own tools, then imported results, reflection, and the next step. Source-led research is a secondary flow. See the product context before changing behavior.
 
-## Implementation
+The repository currently implements a development scaffold: Electron, React, strict TypeScript, an isolated preload bridge, and CI/release workflows. Learning paths, ingestion, persistence, experiments, and AI are not implemented. Electron is the provisional desktop choice; storage, AI providers, hosting, sync, and detailed backend boundaries remain open. Effect v3 source is available as a reference; it is not an installed application dependency.
 
-- Node 24 LTS, npm with `npm ci`, exact dependencies and committed lockfile.
-- Keep main, preload, and renderer separate. Renderer never receives credentials, arbitrary filesystem access, raw IPC, or SQL.
-- Keep context isolation, sandboxing, navigation restrictions, and permission denial. Add named, validated bridge operations only as required.
-- Use strict TypeScript and small modules with useful interfaces. Do not create empty packages, generic repositories, DI containers, or speculative adapters.
-- Add dependencies only for implemented needs. Storage, AI providers, sync, and cloud hosting remain undecided.
-- Human insights and theses remain human-authored. AI interpretations must not be stored as human conclusions.
-- Source citations and imported experimental results need distinct provenance. A working artifact is not proof of mastery.
-- No real vaults, credentials, or private experiment data in the repository or fixtures.
+## Read only what the task needs
 
-## Verification
+[Context index](context/README.md) describes authority and ownership. Do not load the whole context directory or its vendored repositories.
 
-Run `npm run check` for code/config changes, then `npm run test:e2e` for Electron or renderer changes. For packaging changes, run `npm run package` and `npm run test:packaged`. Linux smoke tests use `xvfb-run --auto-servernum` when no display is available.
+| Task                                         | Read                                                                           |
+| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| Product behavior, scope, learning loop       | [Product](context/product.md), [domain](context/domain.md)                     |
+| Process boundaries, backend design, security | [Architecture](context/architecture.md), [conventions](context/conventions.md) |
+| Find implementation and tests                | [Code map](context/code-map.md)                                                |
+| UI and visual assets                         | [Design](context/design.md), then the relevant `design-system/` reference      |
+| Setup, commands, CI                          | [Development](context/development.md)                                          |
+| Packaging, releases, Sonar                   | [Releases](context/releases.md)                                                |
+| Effect APIs and patterns                     | [Effect guide](context/effect.md), then specific upstream source/tests         |
+| Historical research or decisions             | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes    |
 
-Keep tests focused on observable behavior and real risk. Domain tests belong next to source; process-level behavior is exercised in `tests/e2e/`. Do not make empty tests pass silently or weaken gates to get green CI.
+## Working rules
 
-Workflow actions are pinned to full commit hashes. PR code receives no provider, signing, or Sonar secrets. Releases are unsigned draft candidates until distribution/signing is intentionally configured; never call them production-ready.
+- Use Node 24 LTS and npm, exact dependencies, and the committed lockfile. Install with `npm ci`.
+- Keep main, preload, and renderer separate. Preserve sandboxing, context isolation, navigation restrictions, and permission denial. Expose only named, validated bridge operations; never raw IPC, credentials, SQL, or arbitrary filesystem access.
+- Keep TypeScript strict and modules focused. Add abstractions and dependencies for implemented needs, not speculative future layers.
+- Human insights and theses remain human-authored. Keep AI interpretations distinguishable. Source citations and experimental results need distinct provenance; a working artifact does not prove mastery.
+- Keep real vault contents, credentials, and private experiment data out of application fixtures.
+- Make changes within the requested scope. Read the owning context page before changing its contract; update that page and the code map when responsibilities change.
+- Keep current decisions in `context/`. Put exploratory research and historical evidence in Obsidian. Use temporary storage for tool sessions and captures, not new root documentation folders.
+
+## Effect reference
+
+`context/repos/effect/` is a pinned, read-only upstream subtree. Search specific modules and tests when working on Effect; do not scan it as application code, import from it, format it, or edit it incidentally. Its upstream contributor instructions describe that upstream project, not this application’s npm workflow. Updates must deliberately select and record a reviewed release; see [provenance and update instructions](context/effect.md).
+
+## Commands and checks
+
+```sh
+npm ci
+npm run dev
+npm run check          # formatting, lint, types, unit coverage, build
+npm run test:e2e       # built Electron smoke tests
+npm run package
+npm run test:packaged
+npm run dist          # unsigned installer candidates
+```
+
+Run `check` for code/config changes, Electron smoke tests for main/preload/renderer changes, and packaging plus packaged smoke tests for packaging changes. Linux desktop checks need a display or `xvfb-run --auto-servernum`. Test observable behavior and real risk; never weaken gates to get green CI.
+
+Actions use full commit pins. PR code receives no provider, signing, or Sonar secrets. Releases remain unsigned draft candidates until signing/distribution is configured. Detailed conventions and operational limitations remain in the linked context pages.
