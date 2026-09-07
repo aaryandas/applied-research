@@ -1,0 +1,91 @@
+<meta charset="utf-8">
+<title>Frontier — Capstone Proposal</title>
+<style>
+  @page { margin: 1in; }
+  body { font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; line-height: 1.5; color: #1a1a1a; max-width: 7in; margin: 0 auto; }
+  h1 { font-size: 22pt; margin-bottom: 2pt; }
+  .subtitle { color: #555; margin-top: 0; font-size: 11pt; }
+  h2 { font-size: 14pt; margin-top: 18pt; margin-bottom: 6pt; border-bottom: 1px solid #ccc; padding-bottom: 2pt; }
+  h3 { font-size: 11.5pt; margin-top: 12pt; margin-bottom: 4pt; }
+  p, li { margin: 4pt 0; }
+  ul { margin: 4pt 0; padding-left: 18pt; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10.5pt; }
+  th, td { border: 1px solid #bbb; padding: 4pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  .meta { font-size: 10.5pt; color: #444; }
+  em.wt { color: #666; }
+</style>
+
+<h1>Frontier <em class="wt" style="font-size:12pt;">(working title)</em></h1>
+<p class="subtitle">An all-in-one research assistant for builders — one knowledge substrate that levels up both you and your agents.</p>
+<p class="meta"><strong>Track:</strong> Product &nbsp;·&nbsp; <strong>Team:</strong> 3 people &nbsp;·&nbsp; <strong>Demo Day:</strong> September 9, 2026</p>
+
+<h2>The Problem</h2>
+<p>Builders need to get to the frontier of a topic fast — the science, the evidence, the techniques, the market — and today that means a dozen tabs: Google Scholar, arXiv PDFs read one by one, competitor pricing pages, Reddit threads. The friction isn't finding information; it's the constant context switching and the slow, manual work of synthesizing scattered sources into working expertise.</p>
+<p>The problem has doubled. Builders now need to level up <strong>two</strong> learners: themselves, and their AI agents. The research you do to understand a domain and the context your agents need to perform well in that domain are the same knowledge — but no tool treats them that way. Elicit and SciSpace help humans read papers; retrieval pipelines feed agents raw chunks. Nothing bridges them.</p>
+
+<h2>The Thesis: Context Is the Product</h2>
+<p>There are two kinds of context, and one system should produce both:</p>
+<ul>
+  <li><strong>Human context</strong> — helping a person find and learn information as fast as possible, with minimal friction and context switching. This spans <em>academic/research context</em> (papers, evidence, concepts, libraries, architectural approaches) and <em>market context</em> (markets, competitors, pricing).</li>
+  <li><strong>Agentic context</strong> — finding and distilling the best research into the highest-quality context for an agent working in a particular domain or project.</li>
+</ul>
+<p>Our core design decision: <strong>one living knowledge base per project, two views.</strong> You point the system at a topic; it ingests and synthesizes sources into a structured, citation-grounded knowledge base. A human view makes learning it fast and intuitive. An agent view exports the same knowledge as high-quality agent context. No existing product cleanly solves both.</p>
+
+<h2>What We're Building</h2>
+<h3>The substrate: a living, cited knowledge base</h3>
+<p>Ingestion from academic APIs (Semantic Scholar, arXiv), user-uploaded PDFs, and live web sources. An LLM synthesis pipeline distills these into interlinked topic pages where <strong>every claim links to the exact passage in its source</strong>. The citation graph ranks what's foundational versus what's frontier.</p>
+
+<h3>The human view: map and terrain</h3>
+<ul>
+  <li><strong>Map — synthesis pages:</strong> per-topic digests of the state of the art, key results, open questions, and disagreements between papers — so you navigate the frontier instead of reading papers one by one.</li>
+  <li><strong>Terrain — the augmented reader:</strong> our signature interaction. Read any paper in-app; select any term or claim and get an inline explanation, definition, or "what do other papers say" — powered by the knowledge base, with zero tab-switching.</li>
+  <li><strong>Path to the frontier:</strong> a generated reading path per topic, ordered from foundational to frontier using the citation graph and concept dependencies.</li>
+  <li><strong>Market map:</strong> the same pipeline pointed at the market — a synthesized, source-cited page of competitors, pricing, positioning, and gaps, browsable in the same interface.</li>
+</ul>
+
+<h3>The agent view: distilled packs + live retrieval</h3>
+<ul>
+  <li><strong>Context packs:</strong> a curated, distilled set of markdown files — domain overview, key concepts, best practices, pitfalls, market landscape, all with citations — dropped straight into an agent's context (e.g., as a CLAUDE.md/skill for Claude Code).</li>
+  <li><strong>MCP server:</strong> the live drill-down layer — the agent queries the knowledge base mid-task for specific claims with citations, mirroring the human map-and-terrain design.</li>
+</ul>
+
+<h2>Why It's Hard to Copy</h2>
+<p>A weekend clone is a chat wrapper over search — that's not this. The defensible core is the <strong>single substrate serving both consumers</strong>: a synthesis pipeline whose output is simultaneously (a) trustworthy enough for a human to learn from, because every claim is one click from its source passage, and (b) structured enough to measurably improve agent performance. The citation-grounded synthesis, the citation-graph-derived frontier paths, and the round trip from human-verified knowledge to agent context are real engineering with compounding quality — not a prompt.</p>
+
+<h2>Validation Plan</h2>
+<table>
+  <tr><th>Claim</th><th>Test</th><th>Measure</th></tr>
+  <tr>
+    <td>Context packs level up agents</td>
+    <td>A/B benchmark: same agent (Claude Code), same builder tasks in a chosen domain, with vs. without the pack</td>
+    <td>Rubric-scored output quality: correctness, use of domain best practices, citation accuracy</td>
+  </tr>
+  <tr>
+    <td>Humans reach the frontier faster with less friction</td>
+    <td>Timed within-subjects study, ~6 recruited classmates: answer frontier questions on a topic using our tool vs. their normal workflow</td>
+    <td>Time to answer, answer accuracy, count of context switches (tab switches)</td>
+  </tr>
+  <tr>
+    <td>Synthesis is trustworthy</td>
+    <td>Citation-faithfulness spot checks: sampled claims verified against their cited passages</td>
+    <td>% of sampled claims supported by their source</td>
+  </tr>
+</table>
+<p>User feedback from the study is the validation evidence presented at Demo Day, per the product-track requirements.</p>
+
+<h2>12-Day Plan</h2>
+<table>
+  <tr><th>Days</th><th>Goal</th></tr>
+  <tr><td>1–4</td><td><strong>Substrate.</strong> Academic ingestion (Semantic Scholar/arXiv + PDF upload through one paper pipeline), synthesis into the knowledge base, first cited map pages.</td></tr>
+  <tr><td>5–8</td><td><strong>The two views.</strong> Augmented reader with inline lookup; path-to-frontier; market-map adapter and page; context-pack export + MCP server; deployed.</td></tr>
+  <tr><td>9–12</td><td><strong>Proof.</strong> Feature freeze → run the user study and agent A/B benchmark, fix what testing exposes, build the deck.</td></tr>
+</table>
+<p><strong>Team split:</strong> one on the ingestion/synthesis pipeline (academic + market adapters), one on the web app (map, reader, paths), one on agent exports (packs, MCP) and evals.</p>
+<p><strong>Stretch goals:</strong> technical-web ingestion (library docs, GitHub, engineering blogs); adaptive explanation depth calibrated to the reader's level (an area we want to explore/research).</p>
+
+<h2>Build-in-Public Plan</h2>
+<p>Each of the 3 team members posts on X throughout the build (5+ posts each), sequenced to the plan: (1) the thesis — two kinds of context, one substrate; (2) first synthesized frontier map from real papers; (3) the augmented reader inline-lookup clip; (4) the agent A/B result — same agent, with and without the pack; (5) demo-day launch. Targets per person: 150+ engagements, 25+ followers, ≥1 external repost.</p>
+
+<h2>The Demo</h2>
+<p>One loop, end to end, in under ten minutes: pick a topic → watch the frontier map and market map build with citations → read a paper with inline concept lookup, no tabs → generate the path to the frontier → export the context pack → run the same agent task with and without it and show the difference — then the numbers from the user study.</p>

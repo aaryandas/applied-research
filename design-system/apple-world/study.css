@@ -1,0 +1,19 @@
+/* Layout only. Typography, buttons, focus, motion and dialogs come from Field Atlas's actual styles.css. */
+html { scroll-padding-top: 0; }
+.study-toolbar { display: flex; align-items: center; justify-content: space-between; padding: var(--space-4) var(--space-6); gap: var(--space-6); border-bottom: 1px solid var(--line); }
+.study-toolbar>div { display: flex; align-items: baseline; gap: var(--space-4); }
+.study-toolbar strong { font-size: var(--text-sm); font-weight: 600; }
+.study-toolbar nav { display: flex; gap: var(--space-2); align-items: center; }
+.study-toolbar a { display: inline-flex; align-items: center; text-decoration: none; }
+.opening-screen { position: relative; aspect-ratio: 1440 / 900; isolation: isolate; background: var(--field); overflow: hidden; }
+.desktop-canvas { position: absolute; width: 1440px; height: 900px; transform-origin: top left; }
+.world-art { display: block; width: 100%; height: 100%; object-fit: contain; }
+.opening-interface { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 420px; max-width: 36%; color: var(--field-ink); text-align: center; }
+.opening-interface h3 { color: var(--field-ink); }
+.brief-rule { height: 1px; background: var(--field-ink); opacity: .5; margin: var(--space-4) 0 var(--space-4); }
+.opening-actions { display: flex; gap: var(--space-3); justify-content: center; }
+.opening-actions .button-cream { margin-top: 0; }
+.opening-screen :focus-visible { outline-color: var(--field-ink); }
+.study-footer { display: flex; justify-content: space-between; gap: var(--space-6); padding: var(--space-4) var(--space-6); }
+@media(max-width:1000px) { .study-toolbar>div { flex-direction: column; gap: 2px; } .study-footer { flex-direction: column; gap: 4px; } }
+@media(max-width:700px) { .study-toolbar { align-items: start; flex-direction: column; gap: var(--space-2); } .study-toolbar nav { flex-wrap: wrap; } .study-footer { min-width: 0; } }

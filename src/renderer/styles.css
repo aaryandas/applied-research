@@ -1,0 +1,55 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  color: #f3efe4;
+  background: #172a35;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 850px;
+  margin: 0 auto;
+  padding: 96px 48px;
+}
+.eyebrow {
+  color: #b9d8ed;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+h1 {
+  max-width: 650px;
+  font-family: Georgia, serif;
+  font-size: clamp(36px, 5vw, 60px);
+  font-weight: 400;
+  line-height: 1.12;
+}
+.intro {
+  max-width: 570px;
+  font-size: 20px;
+  line-height: 1.65;
+  color: #b4c2c7;
+}
+section {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid #405661;
+}
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+section p {
+  max-width: 600px;
+  line-height: 1.6;
+  color: #b4c2c7;
+}
+.runtime {
+  font-size: 13px;
+}

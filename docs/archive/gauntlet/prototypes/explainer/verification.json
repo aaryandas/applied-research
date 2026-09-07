@@ -1,0 +1,38 @@
+{
+  "offer-1": 1,
+  "offer-2": 1,
+  "offer-3": 0,
+  "belowOnlyYDelta": 0,
+  "readyAfterLongWait": 1,
+  "captionHighlights": 4,
+  "scrubKeyboard": "8.05",
+  "closeYDelta": 0,
+  "focusAfterClose": "origin",
+  "followupRecorded": "Why does the largest weight stay below one?",
+  "newVersion": "explainer-2",
+  "export": "attention-explainer-frame.svg",
+  "canvasCaptionReturnsToReader": 1,
+  "narrowOverflow": false,
+  "reducedMotionPaused": "Play",
+  "typography": {
+    "font": "Newsreader, serif",
+    "size": "18px",
+    "line": "27.9px",
+    "measure": "693.396px"
+  },
+  "errors": [],
+  "canvasUsesPrototype17": true,
+  "canvasEventCards": 12,
+  "canvasCardBounds": {
+    "x": 375.5,
+    "y": 493.25,
+    "width": 589.900146484375,
+    "height": 382.5
+  },
+  "canvasPanDelta": {
+    "x": 50,
+    "y": 30
+  },
+  "sharedTimelineAfterReturn": "7",
+  "draftSurvivesSwitch": "Keep this unfinished question"
+}

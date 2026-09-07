@@ -1,0 +1,7 @@
+{
+  "pan": true,
+  "dragConnector": true,
+  "parentPreserved": true,
+  "cancelPreservesCards": true,
+  "method": "Pointer-event handler simulation"
+}
