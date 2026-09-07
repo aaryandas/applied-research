@@ -23,6 +23,8 @@ The repository currently implements a development scaffold: Electron, React, str
 | Effect APIs and patterns                     | [Effect guide](context/effect.md), then specific upstream source/tests            |
 | Historical research or decisions             | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes       |
 
+Before choosing or replacing technology, read the [decision audit](context/decision-audit.md). It records prior selections, later revisions, missing interview evidence, and discrepancies with this scaffold. Installed tooling is not proof of a founder decision.
+
 ## Working rules
 
 - Use Node 24 LTS and npm, exact dependencies, and the committed lockfile. Install with `npm ci`.

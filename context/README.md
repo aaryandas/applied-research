@@ -19,3 +19,5 @@ Start at [AGENTS.md](../AGENTS.md). This folder holds the complete maintained pr
 Product and domain pages govern current product intent. Architecture and checked-in code/configuration distinguish implemented behavior from proposals. The design reference includes historical specimens; its visual guidance does not override current product scope. If code and accepted intent disagree, surface the discrepancy rather than treating it as a new decision.
 
 The original product, domain, design, and engineering documents were relocated in full. New accepted decisions belong on their owning page. Historical material remains accessible through the knowledge base. `repos/` contains explicitly requested third-party source references, not more product context; load individual files only when needed.
+
+Before stack or architecture decisions, read the [technology decision audit](decision-audit.md). Prior decisions were not all withdrawn merely because their source documents were archived; the audit distinguishes recorded choices from implementation status and missing evidence.

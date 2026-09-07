@@ -1,5 +1,7 @@
 # Applied Research
 
+See the [decision audit](decision-audit.md) before interpreting open/unimplemented items below: several have prior recorded selections or later revisions that need reconciliation.
+
 ## Current direction
 
 A **learning workbench for product builders and hobbyists**. Learning Path is the primary use case. Analyzing sources and following curiosity is a secondary entry into the same experience.

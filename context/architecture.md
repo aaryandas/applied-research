@@ -1,5 +1,7 @@
 # Development foundation
 
+See the [decision audit](decision-audit.md) before interpreting open/unimplemented items below: several have prior recorded selections or later revisions that need reconciliation.
+
 The implemented foundation is a single Electron application package with React, TypeScript, electron-vite, and handwritten CSS. Node 24 LTS runs development tools. Electron carries its own runtime; the lockfile pins the actual versions. Vite 7 is intentional because electron-vite 5 declares compatibility through Vite 7.
 
 This scaffold implements lifecycle, renderer isolation, a minimal preload bridge, and a clearly labeled development screen. It does not implement a sample database, fake AI, or a speculative domain schema.
