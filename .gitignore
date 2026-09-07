@@ -22,14 +22,8 @@ test-results/
 .impeccable/
 .lavish/
 .scratch/
-# Local comparison captures and downloaded third-party code are not redistributable.
-references/*
-!references/README.md
-# Original design imports remain available locally, outside the source repository.
-docs/archive/designs/**/*.html
-docs/archive/designs/**/*.js
-docs/archive/designs/**/*.png
-docs/archive/designs/**/*.jpg
-docs/archive/designs/**/*.json
-docs/archive/designs/**/*.txt
+# Historical research and comparison captures belong in the external knowledge base.
+/docs/archive/
+/docs/research/
+/references/
 release-artifacts/

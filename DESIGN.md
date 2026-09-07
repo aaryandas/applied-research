@@ -298,4 +298,4 @@ Motion uses 150 ms press feedback, 220 ms reveal/settle, and 700 ms one-time arr
 
 ## Development scope
 
-This document specifies the visual reference. Workbench grids, counter/idea actions, sample persistence, and paper-only flows describe historical specimens. Current product behavior is governed by [PRODUCT.md](PRODUCT.md); application responsibilities are in [architecture](docs/architecture/README.md). Do not port the historical event schema or tab hierarchy into the learning workbench.
+This document specifies the visual reference. Workbench grids, counter/idea actions, sample persistence, and paper-only flows describe historical specimens. Current product behavior is governed by [PRODUCT.md](PRODUCT.md); application responsibilities are in [architecture](docs/architecture.md). Do not port the historical event schema or tab hierarchy into the learning workbench.

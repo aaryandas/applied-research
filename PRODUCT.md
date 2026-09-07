@@ -33,4 +33,4 @@ The current deliverable is an Electron + React + TypeScript development foundati
 
 Still open: detailed lesson/activity/result contracts, import formats, completion and assessment policy, first-release scope, storage, AI providers, authentication, telemetry defaults, sync, cloud compute, signing, and hosting. There is no inherited capstone deadline.
 
-See [the decision record](docs/product/decision-record.md) for accepted discussions and labeled proposals. Older PRDs and surface specs are archived and cannot override this document.
+Historical discussions, research, and superseded specifications live in the [Obsidian knowledge base](docs/knowledge-base.md). This document contains the current product direction and takes precedence over that historical material.

@@ -23,32 +23,31 @@ npm run test:packaged
 npm run dist        # unsigned installers for the current platform
 ```
 
-Linux desktop tests need a display; on CI use `xvfb-run --auto-servernum npm run test:e2e` (and the same wrapper for `test:packaged`). See [development](docs/development/README.md) for prerequisites and troubleshooting.
+Linux desktop tests need a display; on CI use `xvfb-run --auto-servernum npm run test:e2e` (and the same wrapper for `test:packaged`). See [development](docs/development.md) for prerequisites and troubleshooting.
 
 ## Read before building
 
 1. [PRODUCT.md](PRODUCT.md): current product direction and unresolved scope.
 2. [CONTEXT.md](CONTEXT.md): current domain vocabulary.
-3. [Architecture](docs/architecture/README.md): scaffold responsibilities and dependency rules.
-4. [Development and CI](docs/development/README.md), [releases and Sonar](docs/development/releases.md).
+3. [Architecture](docs/architecture.md): scaffold responsibilities and dependency rules.
+4. [Development and CI](docs/development.md), [releases and Sonar](docs/releases.md).
 5. [DESIGN.md](DESIGN.md): visual language; [design-system](design-system/README.md) is the standalone visual reference.
 
-The [decision record](docs/product/decision-record.md) preserves this session's reasoning. [Historical documents](docs/archive/README.md) and [research](docs/research/) are supporting evidence, not current implementation instructions.
+Historical plans, research, and design evidence are in the [Obsidian knowledge base](docs/knowledge-base.md). The repo retains only the context needed to build the current product.
 
 ## Repository layout
 
-| Location         | Purpose                                                                 |
-| ---------------- | ----------------------------------------------------------------------- |
-| `src/main/`      | Electron lifecycle, privileged operations, navigation policy            |
-| `src/preload/`   | Small typed bridge exposed through contextBridge                        |
-| `src/renderer/`  | React renderer and styles; no Node or Electron imports                  |
-| `src/contracts/` | Serializable types shared across process seams                          |
-| `tests/`         | Test setup and real Electron smoke tests; unit tests live beside source |
-| `scripts/`       | Packaging verification and release tooling                              |
-| `.github/`       | CI, release, Sonar, and dependency updates                              |
-| `docs/`          | Active product/engineering documents and labeled historical evidence    |
-| `design-system/` | Visual reference and owned assets, excluded from application packaging  |
-| `references/`    | Local comparison material; captures/downloaded code excluded from Git   |
+| Location         | Purpose                                                                         |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `src/main/`      | Electron lifecycle, privileged operations, navigation policy                    |
+| `src/preload/`   | Small typed bridge exposed through contextBridge                                |
+| `src/renderer/`  | React renderer and styles; no Node or Electron imports                          |
+| `src/contracts/` | Serializable types shared across process seams                                  |
+| `tests/`         | Test setup and real Electron smoke tests; unit tests live beside source         |
+| `scripts/`       | Packaging verification and release tooling                                      |
+| `.github/`       | CI, release, Sonar, and dependency updates                                      |
+| `docs/`          | Architecture, development, release instructions, and the knowledge-base pointer |
+| `design-system/` | Visual reference and owned assets, excluded from application packaging          |
 
 GitHub: [aaryandas/applied-research](https://github.com/aaryandas/applied-research). Planning: [Linear](https://linear.app/aaryan-das/project/applied-research-64943086779b).
 

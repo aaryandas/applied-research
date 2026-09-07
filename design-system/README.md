@@ -37,4 +37,4 @@ Storage is browser-local, namespaced `applied-research-field-atlas-v2`. When una
 
 ## Scope
 
-This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown remain in `../docs/archive/designs/`. Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.
+This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown are preserved in the [Obsidian knowledge base](../docs/knowledge-base.md). Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.

@@ -18,7 +18,7 @@ Only the draft-release job has `contents: write`. It uses the `release` environm
 
 ## SonarQube Community Build
 
-Sonar is optional and supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan references, archives, generated output, or the design-system study.
+Sonar is optional and supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
 
 Enable after creating a project on a reachable SonarQube Community Build instance:
 

@@ -6,10 +6,7 @@ playwright-report/
 test-results/
 package-lock.json
 LICENSE
-docs/archive/
-docs/research/
 design-system/
-references/
 .gstack/
 .scratch/
 .impeccable/

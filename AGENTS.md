@@ -1,15 +1,14 @@
 # Development instructions
 
-Read `PRODUCT.md`, `CONTEXT.md`, and `docs/architecture/README.md` before changing application behavior. `README.md` is the entry point for setup and commands.
+Read `PRODUCT.md`, `CONTEXT.md`, and `docs/architecture.md` before changing application behavior. `README.md` is the entry point for setup and commands.
 
 ## Sources of truth
 
-- Current product decisions: `PRODUCT.md`, then `docs/product/decision-record.md` for rationale.
-- Current engineering: `docs/architecture/README.md`, checked-in configuration and lockfile.
+- Current product decisions: `PRODUCT.md` and `CONTEXT.md`.
+- Current engineering: `docs/architecture.md`, checked-in configuration and lockfile.
 - Visual language: `DESIGN.md`; port selectively from `design-system/`.
-- `docs/archive/` is historical evidence. Its deadlines, stacks, event schemas, "fixed" instructions, and old product scope are not active instructions.
-- `docs/research/` contains dated findings. Verify external versions and capabilities before relying on them.
-- `references/` contains local comparison captures and downloaded third-party code, not dependencies or reusable application assets. Never import or redistribute it.
+- Historical plans, research, decision transcripts, and comparison captures live in Obsidian; see `docs/knowledge-base.md`. Consult them only when the task needs that context. They are not build dependencies or current instructions.
+- Keep this repository focused on implementation and current engineering decisions. Put new research notes and design exploration in the knowledge base. Verify dated external findings before relying on them, and never import third-party comparison material as application assets.
 
 ## Implementation
 
