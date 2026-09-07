@@ -6,7 +6,7 @@ Read `context/product.md`, `context/domain.md`, and `context/architecture.md` be
 
 - Current product decisions: `context/product.md` and `context/domain.md`.
 - Current engineering: `context/architecture.md`, checked-in configuration and lockfile.
-- Visual language: `context/design.md`; port selectively from `design-system/`.
+- Visual language: `context/design.md`; port selectively from `context/design-system/`.
 - Historical plans, research, decision transcripts, and comparison captures live in Obsidian; see `context/knowledge-base.md`. Consult them only when the task needs that context. They are not build dependencies or current instructions.
 - Keep this repository focused on implementation and current engineering decisions. Put new research notes and design exploration in the knowledge base. Verify dated external findings before relying on them, and never import third-party comparison material as application assets.
 

@@ -20,7 +20,7 @@ Visit `http://127.0.0.1:8765`. No install, build step, account, or API key is re
 - `CASE-STUDY.md`: design rationale and decisions against the first teardown.
 - `INTEGRATION.md`: component contracts and the production renderer handoff.
 - `evidence/`: browser screenshots, contrast calculations, review and verification records.
-- `../context/product.md` and `../context/design.md`: product truth and the finished visual-system contract.
+- `../product.md` and `../design.md`: product truth and the finished visual-system contract.
 
 ## Try the historical interaction specimens
 
@@ -37,4 +37,4 @@ Storage is browser-local, namespaced `applied-research-field-atlas-v2`. When una
 
 ## Scope
 
-This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown are preserved in the [Obsidian knowledge base](../context/knowledge-base.md). Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.
+This is a new design system and functioning reference, not the finished Electron app. The original canvases and teardown are preserved in the [Obsidian knowledge base](../knowledge-base.md). Production API keys, ingestion, span validation, live streaming, argument distillation, insight promotion, complete Context pack files, and vault integration are handoff work; the reference does not claim to implement them.

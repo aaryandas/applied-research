@@ -12,16 +12,16 @@ The repository currently implements a development scaffold: Electron, React, str
 
 [Context index](context/README.md) describes authority and ownership. Do not load the whole context directory or its vendored repositories.
 
-| Task                                         | Read                                                                           |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
-| Product behavior, scope, learning loop       | [Product](context/product.md), [domain](context/domain.md)                     |
-| Process boundaries, backend design, security | [Architecture](context/architecture.md), [conventions](context/conventions.md) |
-| Find implementation and tests                | [Code map](context/code-map.md)                                                |
-| UI and visual assets                         | [Design](context/design.md), then the relevant `design-system/` reference      |
-| Setup, commands, CI                          | [Development](context/development.md)                                          |
-| Packaging, releases, Sonar                   | [Releases](context/releases.md)                                                |
-| Effect APIs and patterns                     | [Effect guide](context/effect.md), then specific upstream source/tests         |
-| Historical research or decisions             | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes    |
+| Task                                         | Read                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------------- |
+| Product behavior, scope, learning loop       | [Product](context/product.md), [domain](context/domain.md)                        |
+| Process boundaries, backend design, security | [Architecture](context/architecture.md), [conventions](context/conventions.md)    |
+| Find implementation and tests                | [Code map](context/code-map.md)                                                   |
+| UI and visual assets                         | [Design](context/design.md), then the relevant `context/design-system/` reference |
+| Setup, commands, CI                          | [Development](context/development.md)                                             |
+| Packaging, releases, Sonar                   | [Releases](context/releases.md)                                                   |
+| Effect APIs and patterns                     | [Effect guide](context/effect.md), then specific upstream source/tests            |
+| Historical research or decisions             | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes       |
 
 ## Working rules
 

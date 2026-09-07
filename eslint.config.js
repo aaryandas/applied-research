@@ -14,7 +14,7 @@ export default tseslint.config(
       'test-results/**',
       'playwright-report/**',
       'context/repos/**',
-      'design-system/**',
+      'context/design-system/**',
       '.*/*',
     ],
   },

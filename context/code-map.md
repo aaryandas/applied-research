@@ -16,7 +16,7 @@ This map describes the scaffold, not proposed features. Read [architecture](arch
 | `electron-builder.yml`         | Installer configuration and packaged file scope                   |
 | `.github/workflows/verify.yml` | Shared cross-platform verification                                |
 | `.github/workflows/`           | Pull request CI, candidate releases and optional Sonar analysis   |
-| `design-system/`               | Standalone visual reference; not shipped with the scaffold        |
+| `context/design-system/`       | Standalone visual reference; not shipped with the scaffold        |
 | `context/repos/effect/`        | Read-only upstream reference; not application code                |
 
 Unit tests live beside their source. Persistence, learning-path orchestration, provider integrations, and backend services do not yet have implementations or finalized module interfaces. Add map entries when those responsibilities exist.

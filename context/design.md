@@ -167,7 +167,7 @@ components:
 
 Field Atlas brings the engraved scientific illustration and editorial character of the chosen World Labs inspiration into an original Applied Research identity. Mineral blue holds exploration; warm, opaque paper holds sustained attention. Source Serif 4 gives expression and reading one coherent voice, while Hanken Grotesk keeps tools precise.
 
-The durable signature is the distinction between source material, AI assistance, and human writing, carried through type, surface, margin, and explicit labels. Density follows the work: open measures for a paper, compact metadata and controls around it. The illustrated arrival and this reference’s section sequence are surface decisions recorded in [DIRECTION.md](../design-system/DIRECTION.md), not a required hero or page template for every screen.
+The durable signature is the distinction between source material, AI assistance, and human writing, carried through type, surface, margin, and explicit labels. Density follows the work: open measures for a paper, compact metadata and controls around it. The illustrated arrival and this reference’s section sequence are surface decisions recorded in [DIRECTION.md](design-system/DIRECTION.md), not a required hero or page template for every screen.
 
 **Key Characteristics:**
 
@@ -176,7 +176,7 @@ The durable signature is the distinction between source material, AI assistance,
 - Serif source/human text, inset sans-serif assistance, and literal authorship/status labels.
 - Quiet local feedback, visible initial arrival, and immediate reduced-motion equivalents.
 
-This is a source-scan record of the implemented standalone reference in `design-system/`, dated 2026-09-05. The frontmatter records implemented primitives; semantic CSS in [tokens.css](../design-system/tokens.css), final cascading rules in [styles.css](../design-system/styles.css), and behavior in [app.js](../design-system/app.js) are its source. The [case study](../design-system/CASE-STUDY.md) explains design tradeoffs. Review disposition and evidence live in [finish-review.md](../design-system/evidence/finish-review.md); this document does not declare final acceptance or full accessibility conformance.
+This is a source-scan record of the implemented standalone reference in `context/design-system/`, dated 2026-09-05. The frontmatter records implemented primitives; semantic CSS in [tokens.css](design-system/tokens.css), final cascading rules in [styles.css](design-system/styles.css), and behavior in [app.js](design-system/app.js) are its source. The [case study](design-system/CASE-STUDY.md) explains design tradeoffs. Review disposition and evidence live in [finish-review.md](design-system/evidence/finish-review.md); this document does not declare final acceptance or full accessibility conformance.
 
 ## Colors
 
@@ -194,7 +194,7 @@ Mineral blue, warm paper, graphite, and human ink give each voice a distinct rol
 
 `paper` is the environment and tool-rail ground; `surface` is the main reading/input plane; `surface-subtle` separates supporting areas. `ink` carries primary text, `muted` metadata, `line` dividers, and `line-strong` field/tag outlines. Evening replaces each role explicitly rather than inverting the page. Cream action foreground/hover colors are scoped to illustrated surfaces.
 
-`success` and `danger` carry saved/attention states alongside explanatory text. `focus` is the keyboard outline. Flat semantic pair contrast evidence exists in `design-system/evidence/contrast.json`; it does not establish contrast over every image crop.
+`success` and `danger` carry saved/attention states alongside explanatory text. `focus` is the keyboard outline. Flat semantic pair contrast evidence exists in `context/design-system/evidence/contrast.json`; it does not establish contrast over every image crop.
 
 **The Three Voices Rule.** Source material, AI assistance, and human writing must remain distinguishable through words as well as visual treatment. Authorship and source verification are separate labels.
 
@@ -204,7 +204,7 @@ Mineral blue, warm paper, graphite, and human ink give each voice a distinct rol
 
 **Reading and display:** Source Serif 4, Georgia, serif. Local normal weights 300, 400, and 600 plus 400 italic.
 
-**Interface and metadata:** Hanken Grotesk, Arial, sans-serif. Local normal weights 400, 500, and 600. Both families use `font-display: swap`; [fonts.css](../design-system/fonts.css) resolves to seven TTF files in `design-system/assets/fonts/`, with both SIL Open Font Licenses alongside them. No third font family is required; incidental code samples use the browser monospace default.
+**Interface and metadata:** Hanken Grotesk, Arial, sans-serif. Local normal weights 400, 500, and 600. Both families use `font-display: swap`; [fonts.css](design-system/fonts.css) resolves to seven TTF files in `context/design-system/assets/fonts/`, with both SIL Open Font Licenses alongside them. No third font family is required; incidental code samples use the browser monospace default.
 
 The serif spans expressive titles and long reading; italic adds a second register within that family. The sans keeps navigation, assistance, labels, and state information compact. There is no single mathematical type ratio: the implemented hierarchy is fluid by role.
 
@@ -228,9 +228,9 @@ The spacing tokens span quarter-rem to six-rem steps as recorded in frontmatter.
 
 At ≤1100 px, the Reader rail narrows to 150 px and the argument moves below into three columns. At ≤760 px, page gutters become 22 px, the workspace has 12 px outer gutters, the paper navigation hides, and Reader, Workbench, authorship, and craft sections stack. Paper prose stays 18 px. The header shrinks from 88 to 76 px; its last secondary navigation link and theme text hide, while the theme button retains an accessible name. At ≤360 px the header tightens and the hero title is explicitly 44 px. The current hero centers the title above the tree and anchors the landscape to the bottom. These are the observed breakpoints, not a claim that all production window sizes have been validated.
 
-Original atlas art is retained in `design-system/assets/knowledge-tree.png` (1536 × 1024) and `knowledge-tree-portrait.png` (1024 × 1536). Runtime uses the matching `.webp` files. The portrait is separately art-directed for narrow atlas arrival/closing surfaces at ≤760 px, preserving continuous sky; the workspace retains landscape art. [TREE-ARTWORK.md](../design-system/assets/TREE-ARTWORK.md) records generation provenance. These are original Applied Research images informed by the user's reference, not copied World Labs assets.
+Original atlas art is retained in `context/design-system/assets/knowledge-tree.png` (1536 × 1024) and `knowledge-tree-portrait.png` (1024 × 1536). Runtime uses the matching `.webp` files. The portrait is separately art-directed for narrow atlas arrival/closing surfaces at ≤760 px, preserving continuous sky; the workspace retains landscape art. [TREE-ARTWORK.md](design-system/assets/TREE-ARTWORK.md) records generation provenance. These are original Applied Research images informed by the user's reference, not copied World Labs assets.
 
-For the actual desktop app opening screen, the user approved `design-system/apple-landscape/apple-landscape.webp` on September 5, 2026. Use the live centered prompt and shared components demonstrated in `design-system/apple-landscape/index.html`, with the monumental apple tree, continuous mountain valley, luminous clouds and visibly falling apple. Earlier apple studies are superseded. The broader system selection remains provisional. See [the approved brief](../design-system/apple-landscape/BRIEF.md) for prompts and contrast verification; no narrow-screen version of this artwork is approved yet.
+For the actual desktop app opening screen, the user approved `context/design-system/apple-landscape/apple-landscape.webp` on September 5, 2026. Use the live centered prompt and shared components demonstrated in `context/design-system/apple-landscape/index.html`, with the monumental apple tree, continuous mountain valley, luminous clouds and visibly falling apple. Earlier apple studies are superseded. The broader system selection remains provisional. See [the approved brief](design-system/apple-landscape/BRIEF.md) for prompts and contrast verification; no narrow-screen version of this artwork is approved yet.
 
 ## Elevation & Depth
 
