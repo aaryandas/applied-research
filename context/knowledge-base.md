@@ -1,8 +1,8 @@
 # External knowledge base
 
-Historical research, planning, design evidence, and product discussions live in **Obsidian Vault**, starting at **Applied Research Index**.
+Historical research, planning, design evidence, and product discussions live in **Obsidian Vault**, under **Applied Research/**, starting at **Applied Research Index**.
 
-[Open the Applied Research index in Obsidian](obsidian://open?vault=Obsidian%20Vault&file=Applied%20Research%20Index)
+[Open the Applied Research index in Obsidian](obsidian://open?vault=Obsidian%20Vault&file=Applied%20Research%2FApplied%20Research%20Index)
 
 The repository remains self-contained for development. Read `context/product.md`, `context/domain.md`, `context/design.md`, and the engineering guides here; the vault is optional context, not a build dependency. New exploratory research belongs in the vault. Keep accepted implementation decisions and contracts in the repo.
 
@@ -28,3 +28,9 @@ The index links to the existing Frontier brainstorming note. Historical deadline
 ## Tool artifacts
 
 The remaining `.gstack/`, `.impeccable/`, `.lavish/`, and empty `.scratch/` directories were migrated on 2026-09-07. **Applied Research - Tool Artifacts** is linked from the vault index and points to **Applied Research Tool Artifacts 2026-09-07.zip**. The archive preserves all 76 files and the original directory structure, with an accompanying manifest in the archive. Its SHA-256 is `ac21d3ac6d035dfe3b7b50aa7e4c46d3635c0b1f1698baa2b11c009394cb86fb`. The vault copy was read back and verified, and original source hashes were rechecked before removal.
+
+## Vault folder layout
+
+The 87 previously imported project files are organized under `Applied Research/`. `Sources/` holds preserved documents, `Sources/Archives/` holds original-file archives and manifests, and `Wiki/` holds topic indexes and future source-linked synthesis. The top-level index, `AGENTS.md`, `CLAUDE.md`, and append-only **Applied Research Log** describe navigation and maintenance. The supplied **LLM Wiki Pattern** is preserved in Sources.
+
+Every relocated file was hash-verified before the index was expanded. Original note names and wikilinks were retained; **Applied Research Folder Migration.json** maps former vault paths to current locations. Earlier manifests retain their historical paths and hashes. The existing Frontier brainstorming note remains in its original location.
