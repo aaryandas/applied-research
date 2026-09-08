@@ -8,6 +8,6 @@ if (!root) throw new Error('The application root is missing');
 
 createRoot(root).render(
   <StrictMode>
-    <App desktop={window.desktop.info} />
+    <App bridge={window.desktop} />
   </StrictMode>,
 );

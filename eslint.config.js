@@ -15,6 +15,8 @@ export default tseslint.config(
       'playwright-report/**',
       'context/repos/**',
       'context/design-system/**',
+      'context/design-references/**',
+      'context/design-handoff/prototype/**',
       '.*/*',
     ],
   },

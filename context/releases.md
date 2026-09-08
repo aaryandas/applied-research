@@ -2,6 +2,8 @@
 
 ## Pull requests and main
 
+See [testing and CI](testing.md) for test layers, Effect compatibility, observed remote results and pending activation decisions. Sonar hosting is tracked in [AR-9](https://linear.app/aaryan-das/issue/AR-9).
+
 `ci.yml` calls a reusable verification workflow on pull requests and pushes to main. The workflow runs locked installs, format/lint/type/unit/coverage/build checks, Electron smoke tests, unpacked packaging, and a packaged smoke test on Linux, Windows, and macOS. The final **CI gate** is the stable check to require in branch rules; it fails if any platform fails or is skipped.
 
 Actions are pinned to immutable revisions. Jobs have read-only repository permissions and bounded timeouts. Superseded PR runs are canceled. No signing, provider, or Sonar secrets are passed into the reusable PR verification workflow.
@@ -17,6 +19,8 @@ The candidate installers are **unsigned and not notarized**. The default Electro
 Only the draft-release job has `contents: write`. It uses the `release` environment. Configure environment protection and branch/tag restrictions in repository settings before using it for production release operations.
 
 ## SonarQube Community Build
+
+The founder selected [local-only Sonar](sonar-local.md) for current development. It is separate from the optional hosted-runner setup below; do not enable GitHub Sonar with a localhost URL.
 
 Sonar is optional and supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
 

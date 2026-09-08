@@ -12,3 +12,13 @@ context/design-system/
 .impeccable/
 .lavish/
 context/repos/
+
+# Generated Archify artifacts retain the byte identity recorded in their receipts.
+context/diagrams/*.html
+context/diagrams/*.json
+
+# Recovered design references are byte-preserved source evidence.
+context/design-references/
+
+# Portable design specimen preserves the exported visual source; not application code.
+context/design-handoff/prototype/

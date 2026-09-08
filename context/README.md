@@ -1,17 +1,22 @@
 # Project context
 
-Start at [AGENTS.md](../AGENTS.md). This folder holds the complete maintained project context, split by topic so agents can read selectively.
+Start at [AGENTS.md](../AGENTS.md). For the full desktop application build, open the **[current design and build handoff](design-handoff/README.md)** and its [gauntlet prompt](design-handoff/GAUNTLET-PROMPT.md) first. This folder holds the maintained project context, split by topic so agents can read selectively. The current target is [the full desktop app](full-app.md); [MVP status](mvp.md) describes only the existing implementation.
+
+The [active presearch session](presearch.md) reopens earlier commitments and records the limited new baseline explicitly stated during the session. Read it before treating the older product, domain, design or stack guidance below as reaffirmed.
 
 | Page                                        | Owns                                                        |
 | ------------------------------------------- | ----------------------------------------------------------- |
 | [Product](product.md)                       | Accepted direction, learning loop, scope and open decisions |
 | [Domain](domain.md)                         | Terms, identities, provenance and learning constraints      |
 | [Architecture](architecture.md)             | Implemented process boundaries and unresolved design        |
+| [Credentials](credentials.md)               | Approved backend-owned AI access and production replacement |
 | [Code map](code-map.md)                     | Where current behavior and checks live                      |
 | [Conventions](conventions.md)               | Detailed implementation and verification rules              |
 | [Design](design.md)                         | Full visual-system specification and reference provenance   |
 | [Design reference](design-system/README.md) | Standalone specimens, owned assets and visual evidence      |
 | [Development](development.md)               | Local setup and CI workflow                                 |
+| [Testing and CI](testing.md)                | Test layers, required checks and Effect testing adoption    |
+| [Local Sonar](sonar-local.md)               | Local dashboard, credentials, scan/start/stop commands      |
 | [Releases](releases.md)                     | Installer candidates, signing and Sonar configuration       |
 | [Effect](effect.md)                         | Pinned upstream source, API lookup and adoption boundaries  |
 | [Knowledge base](knowledge-base.md)         | Obsidian indexes and lossless migration records             |

@@ -1,0 +1,7 @@
+{
+  "session": "847c3937819e2596",
+  "uid": "3",
+  "selector": "aside#sidebar",
+  "prompt": "Remove these lines across the app because it makes it feel too boxy and not as forward thinking in terms of design",
+  "interpretation": "Remove structural separators and panel outlines across the prototype; retain fields, actionable outlined controls, semantic node outlines and graph connections."
+}

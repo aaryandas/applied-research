@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reader Workspace — Wireframe Review</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" integrity="sha384-/NNZlK8J6WoD6FfmmLzhqE1x/aTnlIJzc75uc+dFz8aI+/sD2ArUirQhs3hbeqBe" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" integrity="sha384-ai6dM6tUdx0lUGOHd8x3eGevvDdj0p+CPoJp7Ve+h+kRkt08XtqX/g3a+1cPYKCm" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js" integrity="sha384-v5YF9xS+gLRWdvrQ0u/WRbCkjSIH0NjHIPe8tBL1ZRrmI7PiSH6LLdzs0aAIMCuh" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where(.grid, .flex) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, td, th, .badge, .label) { overflow-wrap: anywhere; }
+  :where(img, svg, video, iframe) { max-width: 100%; }
+</style>
+</head>
+<body class="bg-base-200 text-base-content min-h-screen">
+<div class="max-w-6xl mx-auto px-6 py-10 space-y-8">
+
+  <header class="space-y-2">
+    <div class="flex items-center gap-3 flex-wrap">
+      <h1 class="text-3xl font-bold">Reader Workspace — Wireframe</h1>
+      <span class="badge badge-warning badge-soft">deliberately rough</span>
+    </div>
+    <p class="opacity-80 max-w-3xl">The core screen of the full loop: read a paper without ever leaving it. This sketch is about <b>layout and interaction mechanics</b>, not visual design. Review the five commitments below — each one is a bet we'll build on.</p>
+  </header>
+
+  <section class="card card-border bg-base-100">
+    <div class="card-body p-4">
+      <h2 class="card-title text-base">The screen</h2>
+      <p class="text-sm opacity-70">Live wireframe (scroll inside it). Numbers in the callouts below map to regions: ① left rail ② paper pane ③ anchored Q&A thread ④ argument sidebar ⑤ export.</p>
+      <iframe src="reader-wireframe-mock.html" title="Reader workspace wireframe" style="width:100%; height:740px; border:1px solid oklch(50% 0 0 / .3); border-radius:8px; background:#fafafa;"></iframe>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="text-xl font-bold mb-4">The five commitments</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="card card-border bg-base-100"><div class="card-body p-5">
+        <h3 class="card-title text-base">1 · Paper stays center-stage ③</h3>
+        <p class="text-sm">Highlight a passage → ask → the answer renders <b>under the highlight</b>, with a section citation. No chat panel, no new window. This is the direct attack on the mid-read rabbit hole (premise 2 — where your 10 hrs/week die).</p>
+        <span class="badge badge-primary badge-soft">kills the context break</span>
+      </div></div>
+      <div class="card card-border bg-base-100"><div class="card-body p-5">
+        <h3 class="card-title text-base">2 · Argument map = sidebar list, not canvas ④</h3>
+        <p class="text-sm">Claims with evidence meters, unstated warrants exposed, cross-source rebuttals ("Lost in the Middle" rebuts C2). Argument mapping failed for 200 years on construction cost + diagram-switching cost — a compact list anchored beside the text avoids both (premise 5).</p>
+        <span class="badge badge-primary badge-soft">the anti-Kialo move</span>
+      </div></div>
+      <div class="card card-border bg-base-100"><div class="card-body p-5">
+        <h3 class="card-title text-base">3 · Provenance tags everywhere</h3>
+        <p class="text-sm">Every element is labeled <span class="badge badge-ghost badge-xs">AI</span> or <span class="badge badge-accent badge-xs">YOU</span>. The brainlift doctrine as architecture, not guideline: AI constructs DOK1 scaffolding; DOK3/DOK4 fields literally cannot be AI-authored (premise 3).</p>
+        <span class="badge badge-primary badge-soft">doctrine in the schema</span>
+      </div></div>
+      <div class="card card-border bg-base-100"><div class="card-body p-5">
+        <h3 class="card-title text-base">4 · Dispute → POV draft ④</h3>
+        <p class="text-sm">Reacting to a claim (agree / dispute / unsure) is the capture mechanism. A dispute immediately offers a spiky-POV draft box — the "reaction engine" moment no competitor has. Reactions accumulate into the brainlift instead of being an end-of-session chore.</p>
+        <span class="badge badge-primary badge-soft">the wedge interaction</span>
+      </div></div>
+      <div class="card card-border bg-base-100 md:col-span-2"><div class="card-body p-5">
+        <h3 class="card-title text-base">5 · Export Context Pack as a first-class object ① ⑤</h3>
+        <p class="text-sm">The rail ends in <code>brainlift.md + agent-context.md</code> — only human-authored POVs included. Research ends in an artifact your coding agent builds from (premise 4, the unclaimed territory). Source discovery also lives in the rail ("+ Find sources…") so search never opens a new tab.</p>
+        <span class="badge badge-primary badge-soft">research → agent handoff</span>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="card card-border bg-base-100" data-lavish-question="wireframe-verdict">
+    <div class="card-body p-6">
+      <h2 class="card-title">Your verdict</h2>
+      <form onsubmit="event.preventDefault();
+        const fd = new FormData(event.currentTarget);
+        const verdict = fd.get('verdict');
+        if (!verdict) return;
+        const flags = [...fd.getAll('revisit')];
+        const notes = (fd.get('notes') || '').toString().trim();
+        let msg = 'Wireframe verdict: ' + verdict + '.';
+        if (flags.length) msg += ' Revisit commitments: ' + flags.join('; ') + '.';
+        if (notes) msg += ' Notes: ' + notes;
+        window.lavish.queuePrompt(msg, { tag: 'choice', text: 'Verdict: ' + verdict, element: event.currentTarget, queueKey: 'wireframe-verdict', data: { verdict, flags, notes } });">
+        <div class="space-y-4">
+          <div class="flex flex-col gap-2">
+            <label class="flex items-center gap-3 cursor-pointer"><input type="radio" name="verdict" value="Feels right — lock it as the reference layout" class="radio radio-primary radio-sm"> <span><b>Feels right</b> — lock this as the reference layout for the design doc</span></label>
+            <label class="flex items-center gap-3 cursor-pointer"><input type="radio" name="verdict" value="Right direction — iterate per my flags/notes" class="radio radio-primary radio-sm"> <span><b>Right direction, iterate</b> — flag the commitments to revisit below</span></label>
+            <label class="flex items-center gap-3 cursor-pointer"><input type="radio" name="verdict" value="Wrong direction — rethink the screen" class="radio radio-primary radio-sm"> <span><b>Wrong direction</b> — one of the bets is wrong for how I actually read</span></label>
+          </div>
+          <div class="divider my-1 text-xs opacity-60">flag commitments to revisit (optional)</div>
+          <div class="grid sm:grid-cols-2 gap-2 text-sm">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="revisit" value="1 anchored Q&A under highlights" class="checkbox checkbox-sm"> 1 · Anchored Q&A</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="revisit" value="2 argument sidebar (not canvas)" class="checkbox checkbox-sm"> 2 · Argument sidebar</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="revisit" value="3 AI/YOU provenance tags" class="checkbox checkbox-sm"> 3 · Provenance tags</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="revisit" value="4 dispute-to-POV capture" class="checkbox checkbox-sm"> 4 · Dispute → POV</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="revisit" value="5 export/context-pack in rail" class="checkbox checkbox-sm"> 5 · Export in rail</label>
+          </div>
+          <textarea name="notes" class="textarea textarea-bordered w-full" rows="3" placeholder="Anything specific — panel arrangement, missing elements, how you actually read papers…"></textarea>
+          <div class="card-actions justify-end">
+            <button type="submit" class="btn btn-primary">Queue verdict</button>
+          </div>
+          <p class="text-xs opacity-60">Queued answers are sent when you press <b>Send to Agent</b>. You can also annotate any element on this page directly.</p>
+        </div>
+      </form>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

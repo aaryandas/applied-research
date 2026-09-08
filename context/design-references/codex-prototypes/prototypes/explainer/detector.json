@@ -1,0 +1,197 @@
+[
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 48,
+    "snippet": "border-left:3px solid var(--rule)}.canvas-brief{position:absolute"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 25,
+    "snippet": "font-family: 'Fraunces"
+  },
+  {
+    "antipattern": "codex-grid-background",
+    "name": "Decorative grid-line background",
+    "description": "A decorative grid or line-field background drawn with hairline linear-gradient layers tiled by a fixed pixel cell is a recurring generated-UI signature. Reserve grid overlays for actual canvas, map, blueprint, or measurement surfaces; elsewhere use product structure or a plain surface.",
+    "severity": "advisory",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 48,
+    "snippet": "px-tiled hairline line-field background"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 4,
+    "snippet": "font-family: Familjen Grotesk is not declared in DESIGN.md typography",
+    "ignoreValue": "Familjen Grotesk"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 11,
+    "snippet": "font-family: Familjen Grotesk is not declared in DESIGN.md typography",
+    "ignoreValue": "Familjen Grotesk"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 18,
+    "snippet": "font-family: Familjen Grotesk is not declared in DESIGN.md typography",
+    "ignoreValue": "Familjen Grotesk"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 25,
+    "snippet": "font-family: Fraunces is not declared in DESIGN.md typography",
+    "ignoreValue": "Fraunces"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 32,
+    "snippet": "font-family: Martian Mono is not declared in DESIGN.md typography",
+    "ignoreValue": "Martian Mono"
+  },
+  {
+    "antipattern": "design-system-font",
+    "name": "Font outside DESIGN.md",
+    "description": "A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 40,
+    "snippet": "font-family: Newsreader is not declared in DESIGN.md typography",
+    "ignoreValue": "Newsreader"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 49,
+    "snippet": "font-size: 9px is off the DESIGN.md type ramp",
+    "ignoreValue": "9px"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 69,
+    "snippet": "font-size: 13px is off the DESIGN.md type ramp",
+    "ignoreValue": "13px"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 82,
+    "snippet": "Undocumented color rgba(255, 255, 255, 0.12) is outside DESIGN.md colors",
+    "ignoreValue": "rgba(255, 255, 255, 0.12)"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 106,
+    "snippet": "Undocumented color rgba(255, 255, 255, 0.55) is outside DESIGN.md colors",
+    "ignoreValue": "rgba(255, 255, 255, 0.55)"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 113,
+    "snippet": "Undocumented color rgba(255, 255, 255, 0.85) is outside DESIGN.md colors",
+    "ignoreValue": "rgba(255, 255, 255, 0.85)"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 121,
+    "snippet": "Undocumented color rgba(255, 255, 255, 0.4) is outside DESIGN.md colors",
+    "ignoreValue": "rgba(255, 255, 255, 0.4)"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 126,
+    "snippet": "Undocumented color #fff is outside DESIGN.md colors",
+    "ignoreValue": "#fff"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 133,
+    "snippet": "Undocumented color rgba(255, 255, 255, 0.12) is outside DESIGN.md colors",
+    "ignoreValue": "rgba(255, 255, 255, 0.12)"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/gauntlet/prototypes/explainer/index.html",
+    "line": 138,
+    "snippet": "font-size: 14px is off the DESIGN.md type ramp",
+    "ignoreValue": "14px"
+  }
+]

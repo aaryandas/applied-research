@@ -1,0 +1,425 @@
+<title>Lamp and Margin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Familjen+Grotesk:wght@400;500;600&family=Martian+Mono:wght@400;500&family=Fraunces:opsz,wght,WONK@9..144,300..500,1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#0C0F12;--surface:#14181C;--hairline:#22272C;--ink-1:#ECEAE4;--ink-2:#A9A6A0;--ink-3:#6F6D68;
+  --human:#EFE6CF;--lit:#FBD094;--lit-fill:#FEC57E;--lit-text:#0C0F12;--cold:#7BC7C9;--cold-fill:#56B6B9;--cold-text:#0C0F12;
+  --straw:#F5E5A8;--cream:#FFDEA9;--rose:#FFCFD8;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ground:#FBFAF7;--surface:#F3F1EC;--hairline:#E6E2DA;--ink-1:#1C1B18;--ink-2:#5A574F;--ink-3:#8E8A80;
+    --human:#1C1B18;--lit:#B9861E;--lit-fill:#F5E5A8;--lit-text:#1C1B18;--cold:#2B9094;--cold-fill:#C7EDEE;--cold-text:#1C1B18;
+  }
+}
+:root[data-theme="light"]{
+  --ground:#FBFAF7;--surface:#F3F1EC;--hairline:#E6E2DA;--ink-1:#1C1B18;--ink-2:#5A574F;--ink-3:#8E8A80;
+  --human:#1C1B18;--lit:#B9861E;--lit-fill:#F5E5A8;--lit-text:#1C1B18;--cold:#2B9094;--cold-fill:#C7EDEE;--cold-text:#1C1B18;
+}
+/* specimen panels carry their own complete token sets so both themes always render */
+.dk{--ground:#0C0F12;--surface:#14181C;--hairline:#22272C;--ink-1:#ECEAE4;--ink-2:#A9A6A0;--ink-3:#6F6D68;--human:#EFE6CF;--lit:#FBD094;--lit-fill:#FEC57E;--lit-text:#0C0F12;--cold:#7BC7C9;--cold-fill:#56B6B9;--cold-text:#0C0F12;--rule:#FBD094;--passage:rgba(251,208,148,.13)}
+.lt{--ground:#FBFAF7;--surface:#F3F1EC;--hairline:#E6E2DA;--ink-1:#1C1B18;--ink-2:#5A574F;--ink-3:#8E8A80;--human:#1C1B18;--lit:#B9861E;--lit-fill:#F5E5A8;--lit-text:#1C1B18;--cold:#2B9094;--cold-fill:#C7EDEE;--cold-text:#1C1B18;--rule:#A8742A;--passage:rgba(242,227,161,.32)}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink-1);font-family:'Familjen Grotesk',system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+main{max-width:1180px;margin:0 auto;padding:56px 32px 96px}
+.col{max-width:66ch}
+h1{font-family:'Fraunces',Georgia,serif;font-variation-settings:'opsz' 144,'WONK' 1;font-weight:400;font-size:44px;line-height:1.08;letter-spacing:-.01em;margin:0 0 20px;max-width:22ch;text-wrap:balance}
+h2{font-family:'Newsreader',Georgia,serif;font-weight:500;font-size:28px;line-height:1.2;margin:0 0 6px;text-wrap:balance}
+h3{font-family:'Familjen Grotesk',sans-serif;font-weight:600;font-size:15px;margin:28px 0 8px}
+p{margin:0 0 14px;color:var(--ink-1)}
+p.lede{font-family:'Newsreader',Georgia,serif;font-size:19px;line-height:1.5;color:var(--ink-1)}
+.mono{font-family:'Martian Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.eyebrow{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--hairline);margin-bottom:22px}
+section{padding:56px 0 0}
+section+section{margin-top:40px;border-top:1px solid var(--hairline)}
+.decision{font-family:'Newsreader',Georgia,serif;font-size:19px;line-height:1.45;padding:14px 0 14px 18px;border-left:3px solid var(--lit);margin:18px 0 22px;color:var(--ink-1)}
+.decision b{font-weight:500}
+ul{padding-left:18px;margin:0 0 14px}
+li{margin:0 0 6px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0 18px}
+th{text-align:left;font-weight:500;color:var(--ink-3);font-family:'Martian Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:8px 10px 8px 0;border-bottom:1px solid var(--hairline)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--hairline);vertical-align:top;color:var(--ink-1)}
+td.num,td code{font-family:'Martian Mono',monospace;font-size:12px;font-variant-numeric:tabular-nums}
+td code{color:var(--ink-2)}
+.tbl{overflow-x:auto}
+
+/* specimen grid: dark and light side by side */
+.spec{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0 10px}
+.panel{background:var(--ground);border:1px solid var(--hairline);padding:32px 36px;color:var(--ink-1);min-width:0}
+.panel .tag{font-family:'Martian Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:18px}
+.cap{font-size:13px;color:var(--ink-2);margin:0 0 14px}
+@media (max-width:860px){.spec{grid-template-columns:1fr}}
+
+/* reading specimens */
+.read{font-family:'Newsreader',Georgia,serif;font-size:17px;line-height:1.55;color:var(--ink-1)}
+.read p{margin:0 0 12px;color:var(--ink-1)}
+.read .hit{background:var(--passage);box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.card{background:var(--surface);border-left:2px solid var(--hairline);padding:12px 16px 10px;margin:4px 0 14px;font-family:'Familjen Grotesk',sans-serif;font-size:13.5px;line-height:1.5}
+.card .q{color:var(--ink-1);margin:0 0 6px}
+.card .a{color:var(--ink-2);margin:0 0 8px}
+.card .acts{color:var(--ink-2);display:flex;gap:16px;font-size:13px}
+.cite{font-family:'Martian Mono',monospace;font-size:11px;letter-spacing:.02em;color:var(--ink-3)}
+.human{position:relative;color:var(--human);margin-left:-28px;padding-left:24px;border-left:3px solid var(--rule)}
+.human.cur{margin-left:0;padding-left:0;border:0}
+.ask{font-family:'Newsreader',Georgia,serif;font-style:italic;color:var(--human)}
+
+/* buttons */
+.btnrow{display:grid;grid-template-columns:110px repeat(3,1fr);gap:10px 14px;align-items:center;font-size:13px;margin:10px 0}
+.btnrow .lab{color:var(--ink-3)}
+.btnrow .st{font-family:'Martian Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.b{display:inline-block;font-size:13px;padding:7px 12px;border-radius:2px;border:1px solid transparent;font-family:'Familjen Grotesk',sans-serif}
+.b.pri{background:var(--ink-1);color:var(--ground)}
+.b.pri.h{background:var(--cold-fill);color:var(--cold-text)}
+.b.pri.now{background:var(--ink-2);color:var(--ground)}
+.b.sec{border-color:var(--ink-3);color:var(--ink-1)}
+.b.sec.h{border-color:var(--cold);color:var(--ink-1);background:color-mix(in srgb,var(--cold-fill) 18%,transparent)}
+.b.sec.now{background:var(--surface);border-color:var(--ink-2)}
+.b.txt{padding:7px 0;color:var(--ink-2)}
+.b.txt.h{color:var(--ink-1);text-decoration:underline;text-decoration-color:var(--cold);text-underline-offset:4px;text-decoration-thickness:1.5px}
+.b.txt.now{color:var(--ink-1)}
+.citeh{color:var(--cold)}
+.lt .citeh{color:var(--ink-1);background:var(--cold-fill);padding:1px 5px;margin:0 -5px}
+
+/* hue study */
+.hue{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0 6px}
+.hue .p{padding:22px 24px;border:1px solid var(--hairline);background:var(--ground)}
+.hue .p .tag{font-family:'Martian Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
+.hue .p .ln{display:flex;align-items:baseline;gap:18px;margin:8px 0;font-size:14px}
+.hue .p .ln .cite{font-size:12px}
+.hue .p .ln .lab{width:120px;color:var(--ink-3);font-family:'Martian Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.hue .p .edge{height:1px;margin:14px 0 4px}
+@media (max-width:860px){.hue{grid-template-columns:1fr}}
+/* lamp study */
+.lamps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 8px}
+.lamp{position:relative;height:190px;background:#0C0F12;border:1px solid #22272C;overflow:hidden;isolation:isolate}
+.lamp::after{content:attr(data-l);position:absolute;left:14px;bottom:12px;font-family:'Martian Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#A9A6A0}
+.lamp i{position:absolute;inset:-20%;display:block;filter:blur(26px)}
+.lamp.straw i{background:radial-gradient(ellipse 45% 55% at 42% 50%,rgba(242,227,161,.42),rgba(242,227,161,.14) 45%,transparent 72%)}
+.lamp.amber i{background:radial-gradient(ellipse 45% 55% at 42% 50%,rgba(254,197,126,.42),rgba(254,197,126,.14) 45%,transparent 72%)}
+.lamp.screen i{background:radial-gradient(ellipse 45% 55% at 42% 50%,#8A5A1E,#3E2A12 45%,#000 72%);mix-blend-mode:screen}
+.lamp.wg{background:#120F0C;border-color:#241F1A}
+.lamp .w{position:absolute;left:14px;top:14px;font-family:'Newsreader',serif;font-size:15px;color:#ECEAE4;max-width:60%;line-height:1.35}
+@media (max-width:860px){.lamps{grid-template-columns:1fr}}
+.sw{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:10px 0 6px}
+.sw div{height:54px;border:1px solid var(--hairline);margin-bottom:34px}
+.sw span{display:block;font-family:'Martian Mono',monospace;font-size:10px;color:var(--ink-3);margin-top:58px;letter-spacing:.02em;line-height:1.3}
+
+/* spine */
+.rows{display:flex;flex-direction:column;border-top:1px solid var(--hairline);max-width:300px}
+.row{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.row .t{font-size:13px;color:var(--ink-1);line-height:1.3}
+.row .l{font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-top:3px}
+.spine{position:relative;width:22px;height:38px}
+.spine::before{content:"";position:absolute;left:10px;top:0;bottom:0;width:1px;background:var(--ink-3)}
+.spine b{position:absolute;height:1.5px;width:7px;background:var(--ink-2)}
+.spine b.L{left:3px}.spine b.R{left:11px;background:var(--human)}
+.spine.dead::before{background:var(--hairline)}
+.legend{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);margin:10px 0 0}
+.legend i{display:inline-block;width:10px;height:1.5px;vertical-align:middle;margin-right:6px;background:var(--ink-2)}
+.legend i.h{background:var(--human)}
+
+/* workbench */
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--hairline);margin:0 0 16px}
+.tabs span{font-family:'Martian Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:6px 0 8px}
+.tabs span.on{color:var(--ink-1);border-bottom:1.5px solid var(--ink-1)}
+.tabs span em{font-style:normal;color:var(--ink-3);margin-left:6px}
+.wb{display:grid;grid-template-columns:1.1fr 1fr;gap:26px}
+.grp{margin-bottom:14px}
+.grp .gl{font-family:'Martian Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);display:flex;justify-content:space-between;margin-bottom:6px}
+.grp .comp{display:flex;gap:3px;height:6px;margin-bottom:8px}
+.grp .comp i{display:block;height:100%;background:var(--ink-3)}
+.grp .comp i.h{background:var(--human)}
+.grp .r{font-size:13px;color:var(--ink-2);padding:3px 0}
+.grp .r.mine{font-family:'Newsreader',serif;font-size:14.5px;color:var(--human)}
+.field{font-family:'Newsreader',serif;font-size:16px;color:var(--human);border-bottom:1px solid var(--ink-3);padding:6px 0;margin-bottom:10px}
+.field.ph{color:var(--ink-3)}
+.flab{font-size:12.5px;color:var(--ink-2);margin:12px 0 2px}
+
+.asks{counter-reset:q}
+.asks li{margin:0 0 12px}
+.asks li b{font-weight:600}
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--hairline);font-size:12.5px;color:var(--ink-3)}
+</style>
+
+<main>
+<div class="eyebrow"><span class="mono">Applied Research · design pass 3 · 2026-09-03</span><span class="mono">Six decisions · specimens in both themes</span></div>
+<h1>Lamp and Margin</h1>
+<div class="col">
+<p class="lede">The revised system holds at the level of principle and fails at the level of physics. Everything below is one of two moves: make the human's presence unmistakable, and make each of the product's two colors mean exactly one thing.</p>
+<p>Numbers come from the live canvas converted to OKLCH, a perceptual color space where equal steps look equal. Three facts drive most of what follows.</p>
+<div class="tbl"><table>
+<tr><th>Token</th><th>Hex</th><th>Hue</th><th>Chroma</th><th>What it means</th></tr>
+<tr><td>ground, dark</td><td><code>#0C0F12</code></td><td class="num">248°</td><td class="num">.008</td><td>Basalt is blue. Every warm thing on it fights a cool ground.</td></tr>
+<tr><td>straw</td><td><code>#F2E3A1</code></td><td class="num">97°</td><td class="num">.086</td><td>Green side of yellow. Yellow is the one hue with no dark form: dimmed, it becomes olive.</td></tr>
+<tr><td>cream / rose</td><td><code>#F6E4CB #F2CFD3</code></td><td class="num">76° / 10°</td><td class="num">.039 / .040</td><td>Half straw's chroma. The run is not a run; it is one loud swatch and two faint ones.</td></tr>
+<tr><td>verdigris</td><td><code>#9FD8C8</code></td><td class="num">176°</td><td class="num">.063</td><td>The right instinct at the wrong coordinates. Hue and lightness are the mint of every developer tool; the cold accent below keeps the direction and moves the numbers.</td></tr>
+</table></div>
+</div>
+
+<!-- 1 -->
+<section>
+<div class="col">
+<span class="mono">1 · Human writing</span>
+<h2>Your words hang into the margin</h2>
+<div class="decision"><b>Decision.</b> A human paragraph breaks the column: it outdents into the left margin behind a 3px warm rule, set in the reading face, in cream on dark. The paper stays in the column. AI stays inset on a surface. Three positions, no labels.</div>
+<p>Ink warmth alone was a 1.03:1 difference, invisible by construction. Position is the strongest cue the eye has, and marginalia is the oldest convention for "a reader wrote here." The rule is the same object in both themes, lit on dark and pigment on light, so the grammar is one sentence: a warm line in the margin means you wrote this.</p>
+</div>
+<div class="spec">
+<div class="panel dk"><div class="tag">Dark · basalt</div>
+<div class="read">
+<p>We call our particular attention "Scaled Dot-Product Attention". <span class="hit">We compute the dot products of the query with all keys, divide each by √d<sub>k</sub>, and apply a softmax function</span> to obtain the weights on the values.</p>
+<div class="card"><div class="q">Why divide by √d<sub>k</sub> and not d<sub>k</sub>?</div><div class="a">If q and k have unit-variance components their dot product has variance d<sub>k</sub>; dividing by √d<sub>k</sub> restores unit variance. <span class="cite">§3.2.1</span></div><div class="acts"><span>Ask follow-up</span><span>Note in my words</span></div></div>
+<p class="human">So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking. I've been skipping this.</p>
+<p>The two most commonly used attention functions are additive attention, and dot-product attention.</p>
+</div></div>
+<div class="panel lt"><div class="tag">Light · warm paper</div>
+<div class="read">
+<p>We call our particular attention "Scaled Dot-Product Attention". <span class="hit">We compute the dot products of the query with all keys, divide each by √d<sub>k</sub>, and apply a softmax function</span> to obtain the weights on the values.</p>
+<div class="card"><div class="q">Why divide by √d<sub>k</sub> and not d<sub>k</sub>?</div><div class="a">If q and k have unit-variance components their dot product has variance d<sub>k</sub>; dividing by √d<sub>k</sub> restores unit variance. <span class="cite">§3.2.1</span></div><div class="acts"><span>Ask follow-up</span><span>Note in my words</span></div></div>
+<p class="human">So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking. I've been skipping this.</p>
+<p>The two most commonly used attention functions are additive attention, and dot-product attention.</p>
+</div></div>
+</div>
+<p class="cap">The passage tint on dark is now amber light rather than warm white, for the reason in section 3. The card's left rule stays a neutral hairline so the only warm rule on the page is yours. On light the rule is a sepia line, the same pigment as the wash but concentrated, so it clears the 3:1 floor for a graphic that carries meaning.</p>
+</section>
+
+<!-- 2 -->
+<section>
+<div class="col">
+<span class="mono">2 · Accent</span>
+<h2>Warm is what you made. Cold is what you can do.</h2>
+<div class="decision"><b>Decision.</b> Two hues, two meanings, never on the same pixel. Warm belongs to content the human produced: the reacted passage, the margin rule, the lamp. Cold belongs to the interface offering itself: hover, active, the citation under the cursor, the frontier line on the map. The cold is a low-chroma teal at hue 198°, not mint.</div>
+<p>Your objection is the correct one and it is color theory, not preference. A hue carries meaning only by contrast with another hue. When the wash, the handwriting, the lamp, and the hover all sit in one warm family, the eye reads "warm" once and stops. Nothing in the chrome can announce itself, and the product goes flat exactly where you want it to feel alive. The 1b revision's mistake was not adding a second hue; it was the hue's coordinates.</p>
+<p>Why 198° and why this chroma:</p>
+<ul>
+<li><b>Opposition, not complement.</b> The warm run centers near 55°. Its exact complement is 235°, which is blue, which you rejected. At 198° the cold sits far enough across the wheel to separate cleanly from every warm in the system while staying out of blue.</li>
+<li><b>Lightness sets the hierarchy.</b> Verdigris at lightness .84 sat almost level with the paper's ink at .94, so controls competed with content. The cold is set at .78 on dark, always beneath the reading ink and above the secondary ink. On light it never appears as text at all; see section 7. Content stays the brightest thing in the room.</li>
+<li><b>Chroma separates ink from glow.</b> Teal at high lightness drifts green and reads as mint, the Bezold-Brücke shift. Lower lightness pulls it back toward petrol. Chroma .075 on dark and .085 on light is enough to be unmistakably a color and not enough to fluoresce.</li>
+<li><b>It is native to basalt.</b> The ground is 248°. A 198° accent is analogous to it, fifty degrees away, so on dark the cold feels like it belongs to the room and the warm lamp is the visitor. On warm paper at 91° the same hue is near-complementary, so it carries more weight there with less chroma, which is why the light-mode wash drops to chroma .04 and the light-mode line to lightness .60.</li>
+</ul>
+<div class="hue">
+<div class="p dk"><div class="tag">Dark · verdigris now → cold proposed</div>
+<div class="ln"><span class="lab">hue · chroma · L</span><span class="cite" style="color:#9FD8C8">175° · .063 · .84</span><span class="cite" style="color:#7BC7C9">198° · .075 · .78</span></div>
+<div class="ln"><span class="lab">citation hover</span><span class="cite" style="color:#9FD8C8">Vaswani 2017 · §3.2.1</span><span class="cite" style="color:#7BC7C9">Vaswani 2017 · §3.2.1</span></div>
+<div class="ln"><span class="lab">hex</span><span class="cite">#9FD8C8</span><span class="cite">#7BC7C9 · fill #56B6B9</span></div>
+<div class="edge" style="background:linear-gradient(90deg,#9FD8C8 0 48%,transparent 48% 52%,#7BC7C9 52%)"></div>
+<div class="ln"><span class="lab">map edge line</span><span style="color:var(--ink-3);font-size:12px">left: now · right: proposed</span></div>
+</div>
+<div class="p lt"><div class="tag">Light · verdigris now → cold proposed</div>
+<div class="ln"><span class="lab">hue · chroma · L</span><span class="cite" style="color:#4E9A8A">178° · .080 · .63</span><span class="cite" style="color:#2B9094">198° · line .60 · wash .92</span></div>
+<div class="ln"><span class="lab">citation hover</span><span class="cite" style="color:#4E9A8A">Vaswani 2017 · §3.2.1</span><span class="cite" style="color:#1C1B18;background:#C7EDEE;padding:1px 5px">Vaswani 2017 · §3.2.1</span></div>
+<div class="ln"><span class="lab">hex</span><span class="cite">#4E9A8A</span><span class="cite">line #2B9094 · wash #C7EDEE</span></div>
+<div class="edge" style="background:linear-gradient(90deg,#4E9A8A 0 48%,transparent 48% 52%,#2B9094 52%)"></div>
+<div class="ln"><span class="lab">map edge line</span><span style="color:var(--ink-3);font-size:12px">left: now · right: proposed</span></div>
+</div>
+</div>
+<p class="cap">Dark: cold ink at 9.9:1 on ground. Light: cold never colors text; a hovered citation keeps its ink and takes a pastel wash behind it at 13.8:1, and the map edge is drawn in the concentrated line at 3.7:1.</p>
+</div>
+<div class="spec">
+<div class="panel dk"><div class="tag">Dark · rest → hover</div>
+<div class="btnrow"><span class="lab"></span><span class="st">rest</span><span class="st">hover · now</span><span class="st">hover · proposed</span>
+<span class="lab">Primary</span><span><span class="b pri">Save</span></span><span><span class="b pri now">Save</span></span><span><span class="b pri h">Save</span></span>
+<span class="lab">Secondary</span><span><span class="b sec">Find papers for this</span></span><span><span class="b sec now">Find papers for this</span></span><span><span class="b sec h">Find papers for this</span></span>
+<span class="lab">Text</span><span><span class="b txt">Note in my words</span></span><span><span class="b txt now">Note in my words</span></span><span><span class="b txt h">Note in my words</span></span>
+<span class="lab">Citation</span><span><span class="cite">§3.2.1</span></span><span><span class="cite" style="color:#9FD8C8">§3.2.1</span></span><span><span class="cite citeh">§3.2.1</span></span>
+</div></div>
+<div class="panel lt"><div class="tag">Light · rest → hover</div>
+<div class="btnrow"><span class="lab"></span><span class="st">rest</span><span class="st">hover · now</span><span class="st">hover · proposed</span>
+<span class="lab">Primary</span><span><span class="b pri">Save</span></span><span><span class="b pri now">Save</span></span><span><span class="b pri h">Save</span></span>
+<span class="lab">Secondary</span><span><span class="b sec">Find papers for this</span></span><span><span class="b sec now">Find papers for this</span></span><span><span class="b sec h">Find papers for this</span></span>
+<span class="lab">Text</span><span><span class="b txt">Note in my words</span></span><span><span class="b txt now">Note in my words</span></span><span><span class="b txt h">Note in my words</span></span>
+<span class="lab">Citation</span><span><span class="cite">§3.2.1</span></span><span><span class="cite" style="color:#4E9A8A">§3.2.1</span></span><span><span class="cite citeh">§3.2.1</span></span>
+</div></div>
+</div>
+<div class="col">
+<p class="cap">On dark the hovered primary fills with the cold and its text drops to ground. On light the fill is a pale cold wash and the text stays ink, the same lamp-versus-pigment split the warm family already follows, and the same reason the pastels can be accessible at all. The keyboard focus ring stays ink-1 so focus and hover never read as the same state.</p>
+<h3>The rule that keeps two hues honest</h3>
+<p>Warm and cold may sit beside each other but never on the same object. A hovered human note gets no cold, because the note is content; its margin rule stays warm and the only response is the cursor. The map's edge is the one place both hues meet, warm lamp fading into a cold hairline, and that is the picture the product is about: what you have made, and what it is offering next.</p>
+</div>
+</section>
+
+<!-- 3 -->
+<section>
+<div class="col">
+<span class="mono">3 · The lamp</span>
+<h2>Light adds. Paint mixes.</h2>
+<div class="decision"><b>Decision.</b> The dark-mode glow is amber, hue near 70°, composited with a screen blend rather than alpha. The pastel run is rebuilt at equal lightness and chroma. Basalt stays cool on purpose.</div>
+<p>Three pieces of color science explain why the current lamp is gray and why the earlier one was khaki.</p>
+<ul>
+<li><b>Yellow has no dark.</b> Every hue except yellow keeps its identity as it dims: dark red is maroon, dark blue is navy. Dark yellow is olive or brown, which the eye files under dirt and warning. Straw sits at 97°, on the green side of yellow, so any low-alpha straw over black lands in olive. The revision saw khaki and removed chroma, which produced fog. The fix is hue, not saturation. Move to 65° to 75°, the amber of tungsten and candle flame, and the dimmed states become warm brown instead of olive.</li>
+<li><b>Alpha is paint, screen is light.</b> Normal alpha blending interpolates toward the tint, so a 20% amber over basalt is a muddy mid-tone. Screen blending only adds luminance, which is what a lamp does. The same amber at screen never passes through mud on its way to dark.</li>
+<li><b>Dark surrounds drain color.</b> On a dark ground the eye adapts and perceived colorfulness drops, the Hunt effect. Light on dark needs more chroma than pigment on paper, not less. That is why the light theme's 32% straw works while the dark theme's 10% warm white does not.</li>
+</ul>
+</div>
+<div class="lamps">
+<div class="lamp straw" data-l="straw · alpha · now"><i></i><span class="w">Known territory</span></div>
+<div class="lamp amber" data-l="amber · alpha"><i></i><span class="w">Known territory</span></div>
+<div class="lamp screen" data-l="amber · screen · proposed"><i></i><span class="w">Known territory</span></div>
+</div>
+<div class="col">
+<p class="cap">Same radius, same blur, same peak intensity. Left is the current physics and hue. Middle changes only the hue. Right changes hue and blend. The grain layer is omitted here so the color speaks alone.</p>
+<h3>Rebuilding the run</h3>
+<p>The pastel run was eyeballed in hex, so straw carries twice the chroma of cream and rose and the watercolor wash goes flat past its first stop. Held at OKLCH lightness .92 and chroma .08, the three hues become one material at three temperatures. On dark, each gets a lit sibling at lightness .86 to .88, which is the highest lightness that still reads as color rather than white.</p>
+<div class="sw">
+<div style="background:#F2E3A1"><span>straw now</span></div><div style="background:#F6E4CB"><span>cream now</span></div><div style="background:#F2CFD3"><span>rose now</span></div>
+<div style="background:#F5E5A8"><span>straw .92/.08</span></div><div style="background:#FFDEA9"><span>cream .92/.08</span></div><div style="background:#FFCFD8"><span>rose .92/.08</span></div>
+</div>
+<h3>Why basalt stays blue</h3>
+<p>The ground at 248° is cool, and the first instinct is to warm it so the lamp stops fighting. Do not. Cool shadow against warm light is chiaroscuro, the oldest and most legible depth cue in painting, and it is why a lamp on a night desk reads as a lamp at all. A warm ground under a warm lamp is a sepia photograph. Keep basalt at 248° and let the surfaces near a lamp pick up a trace of it, the way a desk does.</p>
+<div class="lamps">
+<div class="lamp screen" data-l="cool ground · amber lamp"><i></i></div>
+<div class="lamp screen wg" data-l="warm ground · amber lamp"><i></i></div>
+<div class="lamp" data-l="ground alone · 248°" style="background:#0C0F12"></div>
+</div>
+</div>
+</section>
+
+<!-- 4 -->
+<section>
+<div class="col">
+<span class="mono">4 · The Explain card</span>
+<h2>A question is not a claim</h2>
+<div class="decision"><b>Decision.</b> Question and answer stay together on the surface. The provenance rule is narrowed to what it was always about: authorship of knowledge. Requests, labels, and navigation are exempt.</div>
+<p>You are right and the rule was over-reaching. Provenance exists so the reader can never mistake the AI's facts for their own insight. A question is neither. It is the title of the answer, and splitting the pair to satisfy a rule would trade a real cognitive unit for a doctrinal one. The rule now reads: surface holds what the AI asserts, ground holds what the human asserts, and a question belongs to whichever it heads.</p>
+<p>One refinement worth keeping from the split: the question is set in the reading face, italic, in your ink, still inside the card. It reads as your voice opening the exchange without leaving the unit.</p>
+<h3>The other rules, re-examined</h3>
+<div class="tbl"><table>
+<tr><th>Rule</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>No Highlight action</td><td>Holds</td><td>It is the thesis. Marking without saying is the habit the product exists to break.</td></tr>
+<tr><td>Never speaks first</td><td>Holds, with one exemption</td><td>Acknowledgement is not speaking first. Save needs a settle animation and undo, not silence.</td></tr>
+<tr><td>Shortcuts only in tooltips</td><td>Revise</td><td>The beachhead is engineers. Show the key inside the toolbar on hover, so the keyboard is learned where it is used.</td></tr>
+<tr><td>Mono only for coordinates</td><td>Holds</td><td>Once mono is everywhere it sorts nothing. The revision got this right.</td></tr>
+<tr><td>Card never exceeds viewport</td><td>Holds</td><td>A card is an answer, a layer is a source. Keep the distinction structural.</td></tr>
+<tr><td>Straw ink forbidden on dark</td><td>Holds, restated</td><td>No yellow ink on basalt, ever. Warm appears on dark only as light: the lamp and the passage tint. Chromatic ink on dark is the cold.</td></tr>
+<tr><td>Rose and cream never touch basalt</td><td>Replaced</td><td>Claude Design's rule, not yours. With the run equalized, lit rose is legal on dark as a wash stop, though the lamp itself stays a single amber.</td></tr>
+<tr><td>One wash per screen</td><td>Holds</td><td>One bold gesture per screen is the reference discipline you responded to.</td></tr>
+</table></div>
+</div>
+</section>
+
+<!-- 5 -->
+<section>
+<div class="col">
+<span class="mono">5 · Reaction state</span>
+<h2>Composition, not completion</h2>
+<div class="decision"><b>Decision.</b> Kill the meter. A fraction of paragraphs reacted to rewards reacting to everything, which is the highlighter habit wearing a bar. Replace it with the paper's spine: a thin line that shows where you reacted and, more importantly, whether you asked or said.</div>
+<p>The provocation the posture promises is seeing your own pattern. The pattern that matters is not how much of a paper you touched but what kind of touch it was. A paper with twelve Explains and no Notes is a paper you consumed. The spine draws that without a number: ticks on the left are questions the AI answered, ticks on the right are things you said in your own words. A left-heavy spine is the tool's only critique of you, and it never says a word.</p>
+<p>The same object works at three sizes. In the sidebar it is 22px tall beside the row. In the reader it is the scroll track, so the gutter you write in is also the map of where you have written. In the Workbench it is the project, one spine per paper, stacked by map layer.</p>
+</div>
+<div class="spec">
+<div class="panel dk"><div class="tag">Dark · sidebar rows</div>
+<div class="rows">
+<div class="row"><div class="spine"><b class="L" style="top:4px"></b><b class="L" style="top:10px"></b><b class="L" style="top:14px"></b><b class="L" style="top:22px"></b><b class="L" style="top:31px"></b></div><div><div class="t">Attention Is All You Need</div><div class="l">Scaled dot-product attention</div></div></div>
+<div class="row"><div class="spine"><b class="L" style="top:6px"></b><b class="R" style="top:9px"></b><b class="R" style="top:18px"></b><b class="L" style="top:24px"></b><b class="R" style="top:30px"></b></div><div><div class="t">Neural Machine Translation by Jointly Learning to Align</div><div class="l">Softmax · variance</div></div></div>
+<div class="row"><div class="spine dead"></div><div><div class="t">Efficient Attention: Attention with Linear Complexities</div><div class="l">Efficient attention</div></div></div>
+</div>
+<div class="legend"><span><i></i>asked</span><span><i class="h"></i>said in your words</span></div>
+</div>
+<div class="panel lt"><div class="tag">Light · sidebar rows</div>
+<div class="rows">
+<div class="row"><div class="spine"><b class="L" style="top:4px"></b><b class="L" style="top:10px"></b><b class="L" style="top:14px"></b><b class="L" style="top:22px"></b><b class="L" style="top:31px"></b></div><div><div class="t">Attention Is All You Need</div><div class="l">Scaled dot-product attention</div></div></div>
+<div class="row"><div class="spine"><b class="L" style="top:6px"></b><b class="R" style="top:9px"></b><b class="R" style="top:18px"></b><b class="L" style="top:24px"></b><b class="R" style="top:30px"></b></div><div><div class="t">Neural Machine Translation by Jointly Learning to Align</div><div class="l">Softmax · variance</div></div></div>
+<div class="row"><div class="spine dead"></div><div><div class="t">Efficient Attention: Attention with Linear Complexities</div><div class="l">Efficient attention</div></div></div>
+</div>
+<div class="legend"><span><i></i>asked</span><span><i class="h"></i>said in your words</span></div>
+</div>
+</div>
+<p class="cap">First row: read and only asked. Second: read and argued with. Third: unread. Human-ink on the right side is the one place the warm ink appears at rest, because those ticks are your words.</p>
+</section>
+
+<!-- 6 -->
+<section>
+<div class="col">
+<span class="mono">6 · Workbench and motion</span>
+<h2>The Workbench is the ladder</h2>
+<div class="decision"><b>Decision.</b> Drop Inbox and Thinking. The tabs are the rungs: <b>Reactions · Insights · Theses · Playbook</b>, each with its count. Every rung shows the rung below it as material on the left and a place to write on the right.</div>
+<p>"Thinking" fails the new-user test because it names a mental state, not a thing on screen, and "Inbox" imports email's guilt. The user's actual problem is synthesis under a weekly deadline: a pile of reactions has to become a few insights and one or two defended theses. Synthesis tools fail when they hand over a blank page. This product's answer is already written in its posture: render the state and let seeing provoke. So the Reactions rung is not a list, it is your reactions grouped by map layer with the asked-versus-said composition drawn per layer. A layer where you asked nine times and said nothing is an insight waiting for a sentence, and the field to write it is beside the evidence, not in another tab.</p>
+</div>
+<div class="spec">
+<div class="panel dk" style="grid-column:1 / -1">
+<div class="tabs"><span class="on">Reactions<em>38</em></span><span>Insights<em>6</em></span><span>Theses<em>2</em></span><span>Playbook</span></div>
+<div class="wb">
+<div>
+<div class="grp"><div class="gl"><span>Softmax · variance</span><span>9 asked · 0 said</span></div><div class="comp"><i style="width:100%"></i></div>
+<div class="r">Why does the gradient vanish for large logits?</div><div class="r">Is temperature the same knob as 1/√d<sub>k</sub>?</div><div class="r">What happens without the scaling at d<sub>k</sub>=512?</div></div>
+<div class="grp"><div class="gl"><span>Scaled dot-product attention</span><span>4 asked · 5 said</span></div><div class="comp"><i style="width:44%"></i><i class="h" style="width:56%"></i></div>
+<div class="r mine">So the scale is a variance fix, not a magic constant.</div><div class="r mine">Counter: the speed claim assumes optimized matmul kernels.</div><div class="r">Why divide by √d<sub>k</sub> and not d<sub>k</sub>?</div></div>
+</div>
+<div>
+<div class="flab">An insight from these</div>
+<div class="field">Every question I have in the softmax layer is the same question: what breaks when logits are large. That is the real prerequisite, not attention.</div>
+<div class="flab">Cites</div>
+<div style="display:flex;gap:10px;align-items:center"><span class="cite" style="border:1px solid var(--hairline);padding:3px 8px">Vaswani 2017 · §3.2.1</span><span class="cite" style="border:1px solid var(--hairline);padding:3px 8px">note 4</span><span style="font-size:13px;color:var(--ink-2)">+ Cite</span></div>
+<div class="flab" style="margin-top:22px">Save</div>
+<span class="b pri h">Save insight</span>
+</div>
+</div>
+</div>
+</div>
+<div class="col">
+<h3>Motion, made consistent</h3>
+<p>Three durations, no exceptions. Every animation in the product is one of them, and its duration says what kind of thing just happened.</p>
+<div class="tbl"><table>
+<tr><th>Duration</th><th>Kind</th><th>Where</th></tr>
+<tr><td class="num">150 ms</td><td>Touch</td><td>Hover fill in and out, toolbar appearing on selection, tab underline, citation lift. Ease-out, interruptible.</td></tr>
+<tr><td class="num">220 ms</td><td>Reveal</td><td>Card open, layer push, peek popover, a citation landing in a field, the stress-test's citations landing one by one at a 60 ms stagger. Content below moves, nothing above.</td></tr>
+<tr><td class="num">900 ms</td><td>Reward</td><td>Wash spread on the map, and one new one: Playbook compile, where the document assembles from the ladder rung by rung. Reserved for the two moments that mean your work added up.</td></tr>
+</table></div>
+<p>The stress-test landing and the Playbook compile give the Workbench its two signatures, one reveal and one reward, so all three peers of the product carry the same weight of motion. Reduced motion cuts every one of these to its end state.</p>
+</div>
+</section>
+
+<!-- 7 -->
+<section>
+<div class="col">
+<span class="mono">7 · Accessibility</span>
+<h2>Pen and wash</h2>
+<div class="decision"><b>Decision.</b> Pastel is never asked to be a line or a letter on paper. On light, every hue appears as a wash under dark ink, and where a line or glyph must carry the hue it is the same pigment concentrated. On dark, pastel is ink and passes on its own. Every pair in the system clears WCAG 2.2 AA.</div>
+<p>This is the eighteenth-century watercolorist's method, dilute pigment for areas and the same pigment loaded for lines, and it is also the only way pastels survive a contrast audit. A pale teal cannot reach 4.5:1 on warm paper at any size; the arithmetic forbids it. But ink over a pale teal wash reaches 13:1, and a loaded teal line reaches 3.7:1, which is the floor for a graphic that carries meaning. Nothing in the aesthetic is given up. The hue is just used as an area, and lines are drawn in the concentrated form.</p>
+<h3>What the audit found</h3>
+<div class="tbl"><table>
+<tr><th>Pair</th><th>Dark</th><th>Light</th><th>Floor</th><th>Verdict</th></tr>
+<tr><td>Paper ink on ground</td><td class="num">15.5</td><td class="num">16.9</td><td class="num">4.5</td><td>Passes</td></tr>
+<tr><td>AI answer, ink-2 on surface</td><td class="num">7.4</td><td class="num">6.4</td><td class="num">4.5</td><td>Passes</td></tr>
+<tr><td>Human ink on ground</td><td class="num">15.5</td><td class="num">16.9</td><td class="num">4.5</td><td>Passes</td></tr>
+<tr><td>Ink over the reacted passage</td><td class="num">12.2</td><td class="num">15.5</td><td class="num">4.5</td><td>Passes</td></tr>
+<tr><td>Citation at rest, ink-3, 11px</td><td class="num">3.7</td><td class="num">3.3</td><td class="num">4.5</td><td><b>Fails.</b> Rest becomes ink-2 at 12px: 7.9 dark, 6.9 light.</td></tr>
+<tr><td>Text field rule at rest, hairline</td><td class="num">1.3</td><td class="num">1.2</td><td class="num">3.0</td><td><b>Fails.</b> Rest rule becomes ink-3: 3.7 dark, 3.3 light. Focus stays ink-1.</td></tr>
+<tr><td>Cold as text</td><td class="num">9.9</td><td>never</td><td class="num">4.5</td><td>Passes by construction</td></tr>
+<tr><td>Cold as line, map edge</td><td class="num">9.9</td><td class="num">3.7</td><td class="num">3.0</td><td>Passes with the loaded line</td></tr>
+<tr><td>Ink on cold hover fill</td><td class="num">8.0</td><td class="num">13.8</td><td class="num">4.5</td><td>Passes</td></tr>
+<tr><td>Human margin rule, 3px</td><td class="num">15.5</td><td class="num">3.9</td><td class="num">3.0</td><td>Passes with the sepia line; pastel straw was 1.5</td></tr>
+<tr><td>Secondary button border, ink-3</td><td class="num">3.7</td><td class="num">3.3</td><td class="num">3.0</td><td>Passes</td></tr>
+<tr><td>Focus ring, 2px ink-1 offset 2px</td><td class="num">15.5</td><td class="num">16.9</td><td class="num">3.0</td><td>Passes</td></tr>
+</table></div>
+<h3>Beyond contrast</h3>
+<ul>
+<li><b>Use of color.</b> No meaning rides on hue alone. Human writing is outdent plus rule plus typeface. Asked versus said on the spine is left versus right. Counter open versus resolved is outline versus fill. Hover is fill plus underline. Warm versus cold is therefore ornament on top of structure, which is what lets it be pastel.</li>
+<li><b>Target size.</b> Edge-strip dots, margin markers, citations, and spine ticks are drawn small and hit large: a 24px minimum target around each, per WCAG 2.2.</li>
+<li><b>Names for the marks.</b> Every drawn-only object carries its meaning in text for a screen reader: the spine announces "5 asked, 0 said," a margin marker announces its type and state, the edge strip announces "2 deep, layer 2 of 2."</li>
+<li><b>Focus and hover are different states.</b> The focus ring is always ink, the hover is always cold, so a keyboard user never loses focus inside a colored fill.</li>
+<li><b>Motion.</b> Reduced motion cuts every animation to its end state, including the 900ms rewards.</li>
+<li><b>Type size.</b> Nothing readable sits under 12px. The mono coordinate register moves from 11 to 12.</li>
+</ul>
+</div>
+</section>
+
+<section>
+<div class="col">
+<span class="mono">Decide</span>
+<h2>Five calls, in the order they unblock the rest</h2>
+<ol class="asks">
+<li><b>Accent.</b> Cold teal at 198°: ink at lightness .78 on dark, on light a .92 wash under ink and a .60 line, for everything the interface offers; warm only for what you made. Recommended: yes, and verdigris's tokens are renamed and re-valued rather than added to.</li>
+<li><b>Lamp.</b> Amber near 70° at screen blend on cool basalt. Recommended: yes, and I re-render artboard 03's three brightnesses and the Brief with it.</li>
+<li><b>Human writing.</b> Outdent plus warm rule, both themes; on light the rule is sepia, the loaded form of the straw. Recommended: yes. React to the sepia line specifically: it is the one place the accessibility floor changed a color you had approved.</li>
+<li><b>Spine.</b> Replace the meter with the asked-versus-said spine at three sizes. Recommended: yes. This one changes the data model: reactions need a paragraph anchor, which they already have.</li>
+<li><b>Workbench.</b> Reactions · Insights · Theses · Playbook, evidence left, writing right. Recommended: yes, and "Reactions" is the name I would test first on a new user, against "Notes."</li>
+</ol>
+<p>Section 3's lamp remains warm amber. The cold is an ink, never a glow, so the two families never compete for the same physics. Once these land I write prompt 1c as a single revision to the canvas, then prompt 2 for the screens with the approved sheet pasted in.</p>
+</div>
+<footer>Specimens are live CSS, not screenshots. Hexes are derived from OKLCH so any of them can be re-tuned by one number. Grain and dot-grid are omitted from the lamp studies so the color decision is made on color alone.</footer>
+</section>
+</main>

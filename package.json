@@ -21,6 +21,9 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:renderer": "vitest run --project renderer",
+    "test:integration": "vitest run --project integration",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
@@ -28,7 +31,11 @@
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
     "package": "npm run build && electron-builder --dir --publish never",
     "dist": "npm run build && electron-builder --publish never",
-    "test:packaged": "node scripts/test-packaged.mjs"
+    "test:packaged": "node scripts/test-packaged.mjs",
+    "sonar:start": "docker compose --env-file .env.sonar -f compose.sonar.yml up -d database sonarqube",
+    "sonar:stop": "docker compose --env-file .env.sonar -f compose.sonar.yml stop",
+    "sonar:logs": "docker compose --env-file .env.sonar -f compose.sonar.yml logs --tail 100 sonarqube",
+    "sonar:scan": "npm run test:coverage && docker compose --env-file .env.sonar -f compose.sonar.yml run --rm scanner"
   },
   "dependencies": {
     "react": "19.2.8",

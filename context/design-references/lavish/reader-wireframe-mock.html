@@ -1,0 +1,111 @@
+<title>Reader Workspace — wireframe</title>
+<style>
+  /* Intentionally rough wireframe: grayscale, system fonts, thin borders */
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: -apple-system, Helvetica, sans-serif; background: #fafafa; color: #222; font-size: 13px; }
+  .topbar { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #bbb; padding: 8px 14px; background: #fff; }
+  .topbar .proj { font-weight: 700; }
+  .topbar .crumb { color: #777; }
+  .topbar .progress { margin-left: auto; color: #777; font-size: 12px; }
+  .cols { display: flex; height: calc(100vh - 37px); }
+  .rail { width: 200px; border-right: 1px solid #bbb; background: #f2f2f2; padding: 10px; display: flex; flex-direction: column; }
+  .rail h4 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 8px; }
+  .src { padding: 6px 8px; border: 1px solid #ccc; background: #fff; margin-bottom: 6px; border-radius: 3px; }
+  .src.active { border-color: #555; font-weight: 600; }
+  .src small { display: block; color: #999; font-weight: 400; }
+  .exportbtn { margin-top: auto; border: 2px dashed #666; background: #fff; padding: 10px; text-align: center; font-weight: 600; border-radius: 4px; }
+  .exportbtn small { display: block; font-weight: 400; color: #777; margin-top: 3px; }
+  .paper { flex: 1; overflow: auto; padding: 28px 40px; background: #fff; }
+  .paper .ptitle { font-size: 19px; font-weight: 700; margin-bottom: 4px; }
+  .paper .pmeta { color: #888; margin-bottom: 18px; font-size: 12px; }
+  .paper p { line-height: 1.65; margin-bottom: 12px; max-width: 620px; }
+  mark { background: #ddd; padding: 1px 2px; }
+  .thread { max-width: 620px; border: 1px solid #999; border-left: 4px solid #555; background: #f7f7f7; padding: 10px 12px; margin: 6px 0 14px 24px; border-radius: 3px; }
+  .thread .q { font-weight: 600; margin-bottom: 6px; }
+  .thread .a { color: #333; line-height: 1.5; }
+  .tag { display: inline-block; font-size: 10px; border: 1px solid #888; border-radius: 3px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; }
+  .tag.ai { background: #e8e8e8; }
+  .tag.you { background: #fff; font-weight: 700; }
+  .cite { font-size: 11px; color: #777; }
+  .followup { margin-top: 8px; color: #666; font-size: 12px; border-top: 1px dashed #bbb; padding-top: 6px; }
+  .args { width: 300px; border-left: 1px solid #bbb; background: #f7f7f7; padding: 12px; overflow: auto; }
+  .args h3 { font-size: 12px; text-transform: uppercase; color: #666; margin-bottom: 10px; }
+  .claim { border: 1px solid #aaa; background: #fff; border-radius: 4px; padding: 9px 10px; margin-bottom: 10px; }
+  .claim .c { font-weight: 600; margin-bottom: 5px; line-height: 1.4; }
+  .meter { font-size: 11px; color: #555; margin-bottom: 5px; }
+  .meter b { letter-spacing: 1px; }
+  .rebut { font-size: 12px; color: #666; margin-bottom: 7px; }
+  .reacts { display: flex; gap: 6px; }
+  .reacts button { font-size: 11px; border: 1px solid #999; background: #fff; border-radius: 3px; padding: 2px 8px; }
+  .reacts button.on { background: #444; color: #fff; }
+  .spark { border-top: 1px dashed #999; margin-top: 8px; padding-top: 7px; font-size: 12px; color: #444; }
+  .spark input { width: 100%; border: 1px solid #bbb; padding: 4px 6px; margin-top: 4px; font-size: 12px; }
+  .note { font-size: 10px; color: #aaa; }
+</style>
+
+<div class="topbar">
+  <span class="proj">memoryOS research</span>
+  <span class="crumb">/ Sources / Extending LLM Context…</span>
+  <span class="progress">p. 4 of 22 · 3 reactions captured · 1 POV drafted</span>
+</div>
+
+<div class="cols">
+  <div class="rail">
+    <h4>Sources (5)</h4>
+    <div class="src active">Extending LLM Context via Memory Hierarchies <small>arXiv · read 40%</small></div>
+    <div class="src">MemGPT: Towards LLMs as OS <small>arXiv · read 100%</small></div>
+    <div class="src">Lost in the Middle <small>TACL · unread</small></div>
+    <div class="src">+ Find sources… <small>search from here, no new tab</small></div>
+    <div class="exportbtn">⤓ Export Context Pack <small>brainlift.md + agent-context.md<br>(only human-authored POVs included)</small></div>
+  </div>
+
+  <div class="paper">
+    <div class="ptitle">Extending LLM Context via Memory Hierarchies</div>
+    <div class="pmeta">Chen et al. · 2025 · cited by 214 · <span class="tag ai">AI</span>credibility: methods strong, eval narrow</div>
+    <p>…Transformer-based models remain fundamentally constrained by the quadratic cost of attention. Recent approaches instead introduce <mark>a hierarchical memory in which salient tokens are promoted to a persistent store gated by a learned salience estimator</mark>, reducing effective context cost to near-linear.</p>
+
+    <div class="thread">
+      <div><span class="tag you">YOU</span><span class="q">What is a "learned salience estimator" here?</span></div>
+      <div><span class="tag ai">AI</span><span class="a">A small scoring network trained to predict which tokens will be needed later; think of it as a learned cache-eviction policy. Here it's a 2-layer MLP over hidden states. <span class="cite">[§3.2, p.4 — answered in place, no new tab]</span></span></div>
+      <div class="followup">↳ follow-up… &nbsp; <em>· Add to Knowledge Tree (DOK2) — you write the entry</em></div>
+    </div>
+
+    <p>Our evaluation on synthetic retrieval tasks shows 94% recall at 1M tokens, which we argue demonstrates production readiness. <span class="note">← claim C2, weak warrant (sidebar)</span></p>
+    <p>We further hypothesize that memory hierarchies eliminate the need for retrieval-augmented generation in most deployments…</p>
+  </div>
+
+  <div class="args">
+    <h3>Argument map <span class="tag ai">AI</span></h3>
+    <div class="claim">
+      <div class="c">C1. Hierarchical memory reduces context cost to near-linear</div>
+      <div class="meter">evidence <b>■■■■□</b> · 3 grounds, benchmarked</div>
+      <div class="reacts"><button class="on">agree</button><button>dispute</button><button>unsure</button></div>
+    </div>
+    <div class="claim">
+      <div class="c">C2. 94% synthetic recall ⇒ production-ready</div>
+      <div class="meter">evidence <b>■□□□□</b> · warrant: synthetic ≈ real (unstated)</div>
+      <div class="rebut">⚔ Rebuttal: "Lost in the Middle" shows synthetic recall overstates real-task recall</div>
+      <div class="reacts"><button>agree</button><button class="on">dispute</button><button>unsure</button></div>
+      <div class="spark">
+        Your dispute → draft a spiky POV? <span class="tag you">YOU</span>
+        <input value="Synthetic recall benchmarks are theater; nobody ships on them because…">
+      </div>
+    </div>
+    <div class="claim">
+      <div class="c">C3. Memory hierarchies make RAG unnecessary</div>
+      <div class="meter">evidence <b>■■□□□</b> · hypothesis, no eval</div>
+      <div class="reacts"><button>agree</button><button>dispute</button><button>unsure</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Design decisions:
+  1. The paper stays center-stage; Q&A threads are anchored UNDER the highlighted passage
+     (kills the text<->chat window switch — premise 2).
+  2. Argument map is a compact sidebar list, not a canvas graph (200-yr switching-cost lesson).
+  3. Every element is provenance-tagged AI vs YOU; the export explicitly states only
+     human POVs are included (brainlift doctrine as architecture).
+  4. Reaction buttons on claims are the capture mechanism; a dispute immediately offers
+     a POV draft box — the "reaction engine" moment.
+  5. Export button lives in the rail as a first-class object, naming agent-context.md.
+-->

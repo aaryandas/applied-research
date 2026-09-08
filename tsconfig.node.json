@@ -9,6 +9,7 @@
     "src/preload/**/*.ts",
     "src/contracts/**/*.ts",
     "tests/e2e/**/*.ts",
+    "tests/integration/**/*.ts",
     "*.config.ts"
   ]
 }

@@ -161,6 +161,22 @@ components:
 
 # Design System: Applied Research — Field Atlas
 
+## Active design revision · September 7, 2026
+
+Start with the [current design/build handoff](design-handoff/README.md) for the latest typography, content-first Canvas, divider removal, portable reference and Linear decision gates. The older Field Atlas specification below describes the implemented renderer; it does not override the later recorded corrections.
+
+The founder confirmed the [56 submitted reference decisions](design-references/decisions/2026-09-07-round-1.json) as the complete first review. The next design uses **Claude/Lamp & Margin typography and colors with Field Atlas rounded controls and icons**, a shared Reader/Canvas system, horizontal idea progression, insights created in context, and a practical builder Playbook. The apple landscape remains selected with revised direct-input behavior. These choices supersede the corresponding visual directions below for the next revision.
+
+The [Round 2 prototype](../.lavish/design-session/round-2/index.html) assembles that direction for full-desktop review, with proposed MVP priorities. Its [system record](../.lavish/design-session/round-2/DESIGN.md) documents what is actually built. It is not final product approval or a renderer migration. The tokens and renderer-port documentation below describe the currently implemented Field Atlas system. See [design session](design-session.md) for recovery evidence, review state and remaining decisions.
+
+## Electron renderer port · September 7, 2026
+
+The founder flagged the first MVP interface as inconsistent with this system. The renderer now imports `design-system/tokens.css` and `design-system/fonts.css` directly, bundles the approved apple landscape, and uses the reference arch mark, SVG control family, pill actions, opaque workspace, human composition margins and sans-serif AI insets. Day/evening switching uses the existing semantic palettes. Native dialogs provide Escape, contained focus and focus return.
+
+The opening retains the centered live prompt and landscape composition. Its primary action opens the working learning-goal form on an opaque surface. The secondary action opens an example goal or returns to existing work; the reference's paper-ingestion specimen is not presented as a functioning MVP capability. Renderer-specific layout belongs in `src/renderer/styles.css`; do not copy approximate colors or font aliases into a second token set. `FieldAtlas.tsx` owns the shared mark, controls, appearance preference and modal shell.
+
+The three 3 px human margins in the renderer (goal, question and saved human writing) are the documented Human Margin Rule, not general card decoration. They are intentional exceptions to the design detector's generic side-border warning. The original standalone specimens and their review receipts remain unchanged. This port does not imply production implementation of their historical Reader/Playbook behavior.
+
 ## Overview
 
 **Creative North Star: "The Illustrated Field Atlas"**

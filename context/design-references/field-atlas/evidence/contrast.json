@@ -1,0 +1,262 @@
+[
+  {
+    "theme": "daylight",
+    "foreground": "ink",
+    "background": "paper",
+    "ratio": 12.937,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "ink",
+    "background": "surface",
+    "ratio": 13.979,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "ink",
+    "background": "ai",
+    "ratio": 12.002,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "muted",
+    "background": "paper",
+    "ratio": 5.273,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "muted",
+    "background": "surface",
+    "ratio": 5.698,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "muted",
+    "background": "ai",
+    "ratio": 4.892,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "accent",
+    "background": "paper",
+    "ratio": 6.156,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "accent",
+    "background": "surface",
+    "ratio": 6.651,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "accent",
+    "background": "ai",
+    "ratio": 5.711,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "human",
+    "background": "paper",
+    "ratio": 6.032,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "human",
+    "background": "surface",
+    "ratio": 6.518,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "human",
+    "background": "ai",
+    "ratio": 5.596,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "success",
+    "background": "paper",
+    "ratio": 6.195,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "success",
+    "background": "surface",
+    "ratio": 6.694,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "success",
+    "background": "ai",
+    "ratio": 5.748,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "danger",
+    "background": "paper",
+    "ratio": 6.116,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "danger",
+    "background": "surface",
+    "ratio": 6.608,
+    "normalTextAA": true
+  },
+  {
+    "theme": "daylight",
+    "foreground": "danger",
+    "background": "ai",
+    "ratio": 5.674,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "ink",
+    "background": "paper",
+    "ratio": 12.881,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "ink",
+    "background": "surface",
+    "ratio": 10.96,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "ink",
+    "background": "ai",
+    "ratio": 8.382,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "muted",
+    "background": "paper",
+    "ratio": 8.092,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "muted",
+    "background": "surface",
+    "ratio": 6.885,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "muted",
+    "background": "ai",
+    "ratio": 5.265,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "accent",
+    "background": "paper",
+    "ratio": 9.942,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "accent",
+    "background": "surface",
+    "ratio": 8.459,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "accent",
+    "background": "ai",
+    "ratio": 6.469,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "human",
+    "background": "paper",
+    "ratio": 8.065,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "human",
+    "background": "surface",
+    "ratio": 6.863,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "human",
+    "background": "ai",
+    "ratio": 5.248,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "success",
+    "background": "paper",
+    "ratio": 9.16,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "success",
+    "background": "surface",
+    "ratio": 7.794,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "success",
+    "background": "ai",
+    "ratio": 5.961,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "danger",
+    "background": "paper",
+    "ratio": 7.84,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "danger",
+    "background": "surface",
+    "ratio": 6.671,
+    "normalTextAA": true
+  },
+  {
+    "theme": "evening",
+    "foreground": "danger",
+    "background": "ai",
+    "ratio": 5.102,
+    "normalTextAA": true
+  },
+  {
+    "theme": "field",
+    "foreground": "#fff9ed",
+    "background": "#285f8c",
+    "ratio": 6.448,
+    "normalTextAA": true,
+    "note": "Workspace label bands use this opaque pair."
+  }
+]

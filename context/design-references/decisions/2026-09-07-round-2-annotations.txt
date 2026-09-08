@@ -1,0 +1,11 @@
+session:
+  file: /Users/aaryan/.superset/projects/capstone/.lavish/design-session/round-2/index.html
+  status: feedback
+prompts[7]{uid,prompt,selector,tag,text}:
+  "1","The spacing between the text and line is incorrect, and there isn't a smooth animation when I click on the text bar either.",form#learning-form,form,What do you want to learn about? I want to learn about… Explore a topic Build something Start from a source Prototype opens the robotics example.
+  "4",Keep an insight should be changed to record an insight. Also I wonder if the way insights are recorded should be changed (?) since placing this here seems a little unintuitive,main#stage > div > article,article,"Back to wheel speeds A closer look · AI explanation Where does the turning radius come from? In the ideal model, both wheels trace circles around the same turning center. The wheel farther from that center has a longer path to cover in the "
+  "5",Remove this useless copy,"main#stage > div > article > div:nth-of-type(1)",div,Working explanation · AI-authored example
+  "6","This UI should be made more useful, it currently looks bad and out of place with the design of the rest of the application",main#stage > div > aside,aside,In this step Make the motion predictable Back to learning path Related source Modern Robotics Wheeled mobile robots Your work 0 saved insights Open Playbook
+  "1",This should be on the right instead of the left,"main#stage > section > div:nth-of-type(2)",div,Continue learning A robot that can find its way
+  "3",Remove useless copy,form#learning-form > p,p,Prototype opens the robotics example.
+  "4",This entire thing should be an interactive button and not just the text being clickable,"main#stage > section > div:nth-of-type(2)",div,Continue learning A robot that can find its way
