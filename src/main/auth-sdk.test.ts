@@ -74,6 +74,9 @@ describe('installed Better Auth Electron SDK adapter', () => {
       'https://api-production-e7aa.up.railway.app/api/auth/electron/init-oauth-proxy',
     );
     expect(opened.searchParams.get('provider')).toBe('github');
+    expect(opened.searchParams.get('callbackURL')).toBe(
+      'https://api-production-e7aa.up.railway.app/auth/electron/callback',
+    );
     expect(opened.searchParams.get('code_challenge')).toBeTruthy();
     const [state] = electronOauthStateRegistry.states();
     expect(state).toMatch(/^[A-Za-z0-9]{16}$/);

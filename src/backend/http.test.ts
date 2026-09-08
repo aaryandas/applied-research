@@ -103,6 +103,27 @@ describe('backend HTTP journeys', () => {
     expect(active.auth.handle).toHaveBeenCalledTimes(1);
   });
 
+  it('serves the fixed Electron redirect callback with a strict CSP', async () => {
+    const active = await server();
+    const response = await fetch(`${active.origin}/auth/electron/callback`);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe(
+      'text/html; charset=utf-8',
+    );
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+    );
+    expect(body).toContain(
+      '<script type="module" src="/auth/electron/callback.js"></script>',
+    );
+    expect(body).not.toContain('<script>');
+    expect(active.auth.handle).not.toHaveBeenCalled();
+  });
+
   it('uses the configured HTTPS origin only as the relative request parser base', async () => {
     const active = await server();
     const port = Number(new URL(active.origin).port);

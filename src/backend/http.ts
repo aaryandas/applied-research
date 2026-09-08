@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import type { Effect } from 'effect';
 import type {
   AccountResponse,
@@ -10,7 +11,12 @@ import type { AuthService } from './auth.js';
 import type { Diagnostics } from './diagnostics.js';
 import { silentDiagnostics } from './diagnostics.js';
 import type { LearningService } from './learning.js';
-import { API_ORIGIN, MAX_REQUEST_BYTES } from './policy.js';
+import {
+  API_ORIGIN,
+  ELECTRON_AUTH_CALLBACK_PATH,
+  ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
+  MAX_REQUEST_BYTES,
+} from './policy.js';
 import { parseLearningRequest, RequestValidationError } from './validation.js';
 
 export interface HttpDependencies {
@@ -25,6 +31,33 @@ export interface HttpDependencies {
 }
 
 class BodyError extends Error {}
+
+const ELECTRON_AUTH_CALLBACK_CSP = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+].join('; ');
+
+const ELECTRON_AUTH_CALLBACK_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Returning to Applied Research</title>
+  </head>
+  <body>
+    <p>Returning to Applied Research…</p>
+    <script type="module" src="${ELECTRON_AUTH_CALLBACK_SCRIPT_PATH}"></script>
+  </body>
+</html>`;
+
+const ELECTRON_AUTH_CALLBACK_SCRIPT = new URL(
+  '../public/electron-auth-callback.js',
+  import.meta.url,
+);
 
 function responseStatus(response: LearningResponse | AccountResponse): number {
   switch (response.outcome) {
@@ -55,6 +88,23 @@ function writeJson(
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+  });
+  response.end(body);
+}
+
+function writeStatic(
+  response: ServerResponse,
+  contentType: string,
+  body: string | Buffer,
+): void {
+  if (response.writableEnded || response.destroyed) return;
+  response.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': Buffer.byteLength(body),
+    'Content-Security-Policy': ELECTRON_AUTH_CALLBACK_CSP,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
@@ -250,6 +300,25 @@ export function createHttpHandler(
       writeJson(response, ready ? 200 : 503, {
         status: ready ? 'ready' : 'unavailable',
       });
+      return;
+    }
+    if (
+      url.pathname === ELECTRON_AUTH_CALLBACK_PATH &&
+      request.method === 'GET'
+    ) {
+      writeStatic(
+        response,
+        'text/html; charset=utf-8',
+        ELECTRON_AUTH_CALLBACK_HTML,
+      );
+      return;
+    }
+    if (
+      url.pathname === ELECTRON_AUTH_CALLBACK_SCRIPT_PATH &&
+      request.method === 'GET'
+    ) {
+      const script = await readFile(ELECTRON_AUTH_CALLBACK_SCRIPT);
+      writeStatic(response, 'text/javascript; charset=utf-8', script);
       return;
     }
     if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {

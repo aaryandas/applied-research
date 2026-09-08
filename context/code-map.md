@@ -34,10 +34,11 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 ## Authenticated backend modules
 
 - `src/backend/config.ts`, `policy.ts`: strict runtime variables and approved origins, session, model, request, concurrency, duration and money limits.
-- `src/backend/auth.ts`, `schema.ts`: Better Auth's Node handler, GitHub/Electron server plugin, authoritative session lookup and Drizzle tables.
+- `src/backend/auth.ts`, `schema.ts`: Better Auth's Node handler, GitHub/Electron server plugin, fixed Electron browser callback destination, authoritative session lookup and Drizzle tables.
 - `src/backend/accounting.ts`, `migrations/`: account-scoped idempotency plus locked UTC-month reservation/reconciliation transactions and reviewed SQL.
 - `src/backend/text.ts`, `validation.ts`, `provider.ts`, `learning.ts`: remote Unicode/NUL decoding, canonical-source/citation enforcement, price-capped OpenRouter structured-output adapter and interruption-safe Effect reservation/provider/settlement orchestration.
-- `src/backend/diagnostics.ts`, `http.ts`, `runtime.ts`, `entrypoint.ts`: allowlisted secret-safe diagnostics, secret-free health/readiness, disconnect-aware public account/learning routes, managed resources and Node HTTP lifecycle.
+- `src/backend/electron-auth-callback-client.ts`, `http.ts`: strict-CSP callback page and self-hosted maintained proxy-client bundle that completes the browser-to-desktop redirect, plus disconnect-aware public account/learning routes.
+- `src/backend/diagnostics.ts`, `runtime.ts`, `entrypoint.ts`: allowlisted secret-safe diagnostics, managed resources and Node HTTP lifecycle.
 - `src/backend/*.test.ts`: synthetic unit/HTTP/provider/database-double tests. These are explicitly not real provider or PostgreSQL evidence.
 - `tests/backend-postgres/authenticated-backend.test.ts`: destructive, disposable-database-only proof of the actual migration, Better Auth session adapter and concurrent Drizzle transactions.
 - `railway.json`, `.env.example`, `tsconfig.backend.json`, `scripts/copy-backend-assets.mjs`: deploy build/start/migration wiring and placeholder-only configuration.
