@@ -11,6 +11,7 @@ import type {
   PracticalCommitResult,
   PracticalDraft,
   PracticalGuidanceRequest,
+  PracticalTarget,
   RecordPracticalResultInput,
   RegisterPracticalFlush,
   ReturnedPracticalEvidence,
@@ -20,6 +21,15 @@ import {
   createPracticalSaveSession,
   type PracticalSaveState,
 } from './save-session';
+import { PracticalField } from './PracticalField';
+import { exceedsPracticalFieldLimit } from './draft-limits';
+import {
+  evidenceReference,
+  matchesReference,
+  mergeEvidence,
+  selectionIsAvailable,
+  type PracticalEvidenceStatus,
+} from './evidence';
 import './practical.css';
 
 export interface PracticalTool {
@@ -30,11 +40,14 @@ export interface PracticalTool {
 
 export interface PracticalWorkProps {
   activity: PracticalActivity | null;
+  activityStatus?: 'loading' | 'ready' | 'unavailable';
   attemptId: string;
   initialDraft?: PracticalDraft;
   /** Revision of initialDraft; zero for a new empty attempt. */
   expectedRevision: number;
+  /** Include all previously selected/imported metadata for this attempt. */
   returnedEvidence: readonly ReturnedPracticalEvidence[];
+  evidenceStatus?: PracticalEvidenceStatus;
   tool?: PracticalTool;
   selectFile?: () => Promise<SelectedPracticalFile | null>;
   recordPracticalResult?: (
@@ -52,8 +65,16 @@ const EMPTY_DRAFT: PracticalDraft = {
   selectedEvidence: null,
   reflection: { authorKind: 'human', text: '' },
 };
+const GUIDANCE_LABELS: Record<PracticalTarget['target'], string> = {
+  'activity-instructions': 'Ask about this activity',
+  'tool-controls': 'Ask about this tool',
+  'selected-result': 'Ask about this result',
+  reflection: 'Ask about my reflection',
+};
 const SAVE_LABELS: Record<PracticalSaveState['status'], string> = {
   draft: 'Draft',
+  'too-long':
+    'Your full draft is retained. Shorten the marked fields before saving.',
   saving: 'Saving…',
   saved: 'Saved',
   failed: 'Could not save. Your draft is here; try again.',
@@ -65,42 +86,72 @@ const SAVE_LABELS: Record<PracticalSaveState['status'], string> = {
 };
 
 /** Mount per attempt. Shell must flush before changing any activity/attempt identity. */
-export function PracticalWork(props: PracticalWorkProps): ReactElement {
-  if (!props.activity)
+export function PracticalWork(
+  props: Readonly<PracticalWorkProps>,
+): ReactElement {
+  if (props.activityStatus === 'loading')
+    return (
+      <section
+        className="practical-work"
+        aria-label="Practical work"
+        aria-busy="true"
+      >
+        <h1 className="practical-heading">Practical work</h1>
+        <output className="practical-copy practical-status">
+          Loading activity…
+        </output>
+      </section>
+    );
+  if (!props.activity || props.activityStatus === 'unavailable')
     return (
       <section className="practical-work" aria-label="Practical work">
-        <h1>Practical work</h1>
-        <p>
-          Choose a lesson with an activity to begin. Its instructions and
-          learning context will appear here.
+        <h1 className="practical-heading">Practical work</h1>
+        <p className="practical-copy">
+          {props.activityStatus === 'unavailable'
+            ? 'This activity could not be loaded. Reopen the lesson to try again.'
+            : 'Choose a lesson with an activity to begin. Its instructions and learning context will appear here.'}
         </p>
       </section>
     );
-  return (
-    <ActivityWork key={props.attemptId} {...props} activity={props.activity} />
-  );
+  const { projectId, origin } = props.activity;
+  const scopeKey = JSON.stringify([
+    projectId,
+    origin.path.pathId,
+    origin.path.pathRevision,
+    origin.path.topicId,
+    origin.path.lessonId,
+    origin.sourceRevisionId,
+    origin.highlightId,
+    props.attemptId,
+  ]);
+  return <ActivityWork key={scopeKey} {...props} activity={props.activity} />;
 }
 
 function ActivityWork(
-  props: PracticalWorkProps & { activity: PracticalActivity },
+  props: Readonly<PracticalWorkProps & { activity: PracticalActivity }>,
 ): ReactElement {
   const id = useId();
-  const [state, setState] = useState<PracticalSaveState>({
-    draft: props.initialDraft ?? EMPTY_DRAFT,
+  const [activity] = useState(() => structuredClone(props.activity));
+  const [state, setState] = useState<PracticalSaveState>(() => ({
+    draft: structuredClone(props.initialDraft ?? EMPTY_DRAFT),
     status: 'draft',
-  });
+  }));
   const [session] = useState(() =>
     createPracticalSaveSession({
       input: {
-        activity: props.activity,
+        activity,
         attemptId: props.attemptId,
         expectedRevision: props.expectedRevision,
-        draft: props.initialDraft ?? EMPTY_DRAFT,
+        draft: structuredClone(props.initialDraft ?? EMPTY_DRAFT),
       },
       ...(props.recordPracticalResult
         ? { commit: props.recordPracticalResult }
         : {}),
       onChange: setState,
+      evidence: {
+        status: props.evidenceStatus ?? 'ready',
+        items: props.returnedEvidence,
+      },
     }),
   );
   const [files, setFiles] = useState<SelectedPracticalFile[]>([]);
@@ -108,39 +159,38 @@ function ActivityWork(
   const [message, setMessage] = useState('');
   const [embeddedOpen, setEmbeddedOpen] = useState(false);
   const pendingAction = useRef<Promise<void> | null>(null);
+  const { registerFlush, evidenceStatus = 'ready', returnedEvidence } = props;
+  const evidence = mergeEvidence(returnedEvidence, files);
+  useEffect(() => {
+    session.setEvidence({
+      status: evidenceStatus,
+      items: mergeEvidence(returnedEvidence, files),
+    });
+  }, [session, evidenceStatus, returnedEvidence, files]);
   useEffect(
     () =>
-      props.registerFlush(async () => {
+      registerFlush(async () => {
         await pendingAction.current;
         return session.flush();
       }),
-    [props.registerFlush, session],
+    [registerFlush, session],
   );
-  const update = (patch: Partial<PracticalDraft>): void =>
-    session.update(patch);
-  const evidence = [
-    ...props.returnedEvidence,
-    ...files.filter(
-      (file) =>
-        !props.returnedEvidence.some(
-          (item) =>
-            item.kind === 'user-selected-file' &&
-            item.selectionId === file.selectionId,
-        ),
-    ),
-  ];
   const selected = state.draft.selectedEvidence;
-  const selectionAvailable =
-    !selected ||
-    evidence.some((item) =>
-      item.kind === 'app-measured'
-        ? selected.kind === item.kind && selected.captureId === item.captureId
-        : selected.kind === item.kind &&
-          selected.selectionId === item.selectionId,
-    );
+  const selectionAvailable = selectionIsAvailable(selected, {
+    status: evidenceStatus,
+    items: evidence,
+  });
+  const missingSelection = evidenceStatus === 'ready' && !selectionAvailable;
+  const overLimit = exceedsPracticalFieldLimit(state.draft);
+  const conflict = state.status === 'conflict';
+  const canPersist = selectionAvailable && !overLimit && !conflict;
+  const saveStatus =
+    !props.recordPracticalResult && state.status !== 'conflict'
+      ? 'Saving is unavailable. This draft lasts while this activity stays open.'
+      : SAVE_LABELS[state.status];
 
-  function act(action: () => Promise<void>): Promise<void> {
-    if (pendingAction.current) return pendingAction.current;
+  function runAction(action: () => Promise<void>): void {
+    if (pendingAction.current) return;
     setBusy(true);
     setMessage('');
     const operation = action()
@@ -154,7 +204,6 @@ function ActivityWork(
         setBusy(false);
       });
     pendingAction.current = operation;
-    return operation;
   }
   function guide(
     target: PracticalGuidanceRequest['target']['target'],
@@ -163,7 +212,7 @@ function ActivityWork(
     return (
       <button
         type="button"
-        className="practical-guidance"
+        className="practical-button practical-guidance"
         onClick={() =>
           props.onRequestGuidance?.({
             trigger: 'explicit-action',
@@ -171,20 +220,13 @@ function ActivityWork(
               scope: 'applied-research',
               surface: 'practical-work',
               attemptId: props.attemptId,
-              activity: props.activity,
+              activity: structuredClone(activity),
               target,
             },
           })
         }
       >
-        Ask about{' '}
-        {target === 'activity-instructions'
-          ? 'this activity'
-          : target === 'tool-controls'
-            ? 'this tool'
-            : target === 'selected-result'
-              ? 'this result'
-              : 'my reflection'}
+        {GUIDANCE_LABELS[target]}
       </button>
     );
   }
@@ -192,47 +234,54 @@ function ActivityWork(
   return (
     <section className="practical-work" aria-labelledby={`${id}-title`}>
       <header>
-        <h1 id={`${id}-title`}>{props.activity.title}</h1>
-        <p className="practical-objective">{props.activity.objective}</p>
+        <h1 className="practical-heading" id={`${id}-title`}>
+          {activity.title}
+        </h1>
+        <p className="practical-copy practical-objective">
+          {activity.objective}
+        </p>
       </header>
       <section
+        className="practical-section"
         data-practical-target="activity-instructions"
         aria-labelledby={`${id}-instructions`}
       >
-        <h2 id={`${id}-instructions`}>The activity</h2>
-        <p className="practical-instructions">{props.activity.instructions}</p>
+        <h2 className="practical-subheading" id={`${id}-instructions`}>
+          The activity
+        </h2>
+        <p className="practical-copy practical-instructions">
+          {activity.instructions}
+        </p>
         {guide('activity-instructions')}
       </section>
       <div className="practical-preparation">
-        <label>
-          Expected outcome
-          <textarea
-            value={state.draft.prediction}
-            maxLength={12000}
-            onChange={(event) => update({ prediction: event.target.value })}
-          />
-        </label>
-        <label>
-          What I’m trying
-          <textarea
-            value={state.draft.attempt}
-            maxLength={12000}
-            onChange={(event) => update({ attempt: event.target.value })}
-          />
-        </label>
+        <PracticalField
+          label="Expected outcome"
+          value={state.draft.prediction}
+          onChange={(prediction) => session.update({ prediction })}
+        />
+        <PracticalField
+          label="What I’m trying"
+          value={state.draft.attempt}
+          onChange={(attempt) => session.update({ attempt })}
+        />
       </div>
       <section
+        className="practical-section"
         data-practical-target="tool-controls"
         aria-labelledby={`${id}-tools`}
       >
-        <h2 id={`${id}-tools`}>{props.tool?.label ?? 'Your tools'}</h2>
+        <h2 className="practical-subheading" id={`${id}-tools`}>
+          {props.tool?.label ?? 'Your tools'}
+        </h2>
         <div className="practical-actions">
           {props.tool?.embedded && (
             <button
+              className="practical-button"
               type="button"
               disabled={busy}
               onClick={() =>
-                void act(async () => {
+                runAction(async () => {
                   await props.tool?.embedded?.open();
                   setEmbeddedOpen(true);
                 })
@@ -243,10 +292,11 @@ function ActivityWork(
           )}
           {props.tool?.openExternal && (
             <button
+              className="practical-button"
               type="button"
               disabled={busy}
               onClick={() =>
-                void act(async () => {
+                runAction(async () => {
                   await props.tool?.openExternal?.();
                 })
               }
@@ -257,62 +307,75 @@ function ActivityWork(
           {guide('tool-controls')}
         </div>
         {!props.tool?.embedded && (
-          <p className="practical-muted">
+          <p className="practical-copy practical-muted">
             No embedded tool is available for this activity. Work in your own
             tools and bring back a selected result.
           </p>
         )}
-        {embeddedOpen && props.tool?.embedded?.content}
+        {embeddedOpen && (
+          <div className="practical-embedded">
+            {props.tool?.embedded?.content}
+          </div>
+        )}
       </section>
-      <section aria-labelledby={`${id}-result`}>
-        <h2 id={`${id}-result`}>Observed result</h2>
-        <label>
-          What happened{' '}
-          <span className="practical-provenance">User-reported</span>
-          <textarea
-            value={state.draft.reportedResult.text}
-            maxLength={12000}
-            onChange={(event) =>
-              update({
-                reportedResult: {
-                  kind: 'user-reported-text',
-                  text: event.target.value,
-                },
-              })
-            }
-          />
-        </label>
-        <fieldset data-practical-target="selected-result">
+      <section className="practical-section" aria-labelledby={`${id}-result`}>
+        <h2 className="practical-subheading" id={`${id}-result`}>
+          Observed result
+        </h2>
+        <PracticalField
+          label="What happened"
+          attribution="User-reported"
+          value={state.draft.reportedResult.text}
+          onChange={(text) =>
+            session.update({
+              reportedResult: { kind: 'user-reported-text', text },
+            })
+          }
+        />
+        {evidenceStatus === 'loading' && (
+          <output className="practical-copy practical-status">
+            Loading returned evidence…
+          </output>
+        )}
+        {evidenceStatus === 'unavailable' && (
+          <p className="practical-copy" role="alert">
+            Returned evidence could not be loaded. Keep this draft open and
+            reload the activity’s evidence before saving.
+          </p>
+        )}
+        <fieldset
+          className="practical-evidence"
+          disabled={evidenceStatus !== 'ready'}
+          aria-busy={evidenceStatus === 'loading'}
+          data-practical-target="selected-result"
+        >
           <legend>Selected evidence</legend>
           <label className="practical-choice">
             <input
+              className="practical-radio"
               type="radio"
               name={`${id}-evidence`}
               checked={selected === null}
-              onChange={() => update({ selectedEvidence: null })}
+              onChange={() => session.update({ selectedEvidence: null })}
             />
-            No attached evidence
+            <span>No attached evidence</span>
           </label>
           {evidence.map((item) => {
+            const reference = evidenceReference(item);
             const key =
-              item.kind === 'app-measured' ? item.captureId : item.selectionId;
-            const checked =
-              item.kind === 'app-measured'
-                ? selected?.kind === item.kind && selected.captureId === key
-                : selected?.kind === item.kind && selected.selectionId === key;
+              reference.kind === 'app-measured'
+                ? reference.captureId
+                : reference.selectionId;
+            const checked = matchesReference(selected, item);
             return (
               <label className="practical-choice" key={`${item.kind}-${key}`}>
                 <input
+                  className="practical-radio"
                   type="radio"
                   name={`${id}-evidence`}
                   checked={checked}
                   onChange={() =>
-                    update({
-                      selectedEvidence:
-                        item.kind === 'app-measured'
-                          ? { kind: item.kind, captureId: key }
-                          : { kind: item.kind, selectionId: key },
-                    })
+                    session.update({ selectedEvidence: reference })
                   }
                 />
                 <span>
@@ -329,8 +392,8 @@ function ActivityWork(
             );
           })}
         </fieldset>
-        {!selectionAvailable && (
-          <p role="alert">
+        {missingSelection && (
+          <p className="practical-copy" role="alert">
             The selected evidence is no longer available. Choose another result
             or remove the attachment.
           </p>
@@ -338,19 +401,22 @@ function ActivityWork(
         <div className="practical-actions">
           {props.selectFile && (
             <button
+              className="practical-button"
               type="button"
               disabled={busy}
               onClick={() =>
-                void act(async () => {
+                runAction(async () => {
                   const file = await props.selectFile?.();
                   if (file) {
+                    session.addEvidence(file);
                     setFiles((previous) => [
                       ...previous.filter(
-                        (item) => item.selectionId !== file.selectionId,
+                        (item) =>
+                          !matchesReference(evidenceReference(file), item),
                       ),
                       file,
                     ]);
-                    update({
+                    session.update({
                       selectedEvidence: {
                         kind: 'user-selected-file',
                         selectionId: file.selectionId,
@@ -363,59 +429,59 @@ function ActivityWork(
               Select a result file
             </button>
           )}
-          {selected && guide('selected-result')}
+          {(selected || state.draft.reportedResult.text.trim().length > 0) &&
+            guide('selected-result')}
         </div>
         {!props.selectFile && (
-          <p className="practical-muted">
+          <p className="practical-copy practical-muted">
             File import is unavailable. You can describe the result above.
           </p>
         )}
       </section>
       <section
+        className="practical-section"
         data-practical-target="reflection"
         aria-labelledby={`${id}-reflection`}
       >
-        <h2 id={`${id}-reflection`}>My reflection</h2>
-        <p className="practical-muted">
+        <h2 className="practical-subheading" id={`${id}-reflection`}>
+          My reflection
+        </h2>
+        <p className="practical-copy practical-muted">
           How does the result compare with your prediction? What would you
           investigate next?
         </p>
-        <label>
-          Your interpretation{' '}
-          <span className="practical-provenance">Human-authored</span>
-          <textarea
-            value={state.draft.reflection.text}
-            maxLength={12000}
-            onChange={(event) =>
-              update({
-                reflection: { authorKind: 'human', text: event.target.value },
-              })
-            }
-          />
-        </label>
+        <PracticalField
+          label="Your interpretation"
+          attribution="Human-authored"
+          value={state.draft.reflection.text}
+          onChange={(text) =>
+            session.update({ reflection: { authorKind: 'human', text } })
+          }
+        />
         {guide('reflection')}
       </section>
-      <footer>
-        <p className="practical-muted">
+      <footer className="practical-footer">
+        <p className="practical-copy practical-muted">
           A working result is evidence of what happened. Understanding takes
           explanation and further checks.
         </p>
-        <p role="status">{SAVE_LABELS[state.status]}</p>
-        {!props.recordPracticalResult && (
-          <p className="practical-muted">
-            Saving is unavailable. This draft lasts while this activity stays
-            open.
+        <output className="practical-copy practical-status">
+          {saveStatus}
+        </output>
+        {message && (
+          <p className="practical-copy" role="alert">
+            {message}
           </p>
         )}
-        {message && <p role="alert">{message}</p>}
         <div className="practical-actions">
           <button
+            className="practical-button"
             type="button"
             disabled={
               !props.recordPracticalResult ||
               busy ||
               state.status === 'saving' ||
-              !selectionAvailable
+              !canPersist
             }
             onClick={() => void session.flush()}
           >
@@ -424,13 +490,14 @@ function ActivityWork(
               : 'Save work'}
           </button>
           <button
+            className="practical-button"
             type="button"
-            disabled={busy || !selectionAvailable}
+            disabled={busy || !canPersist}
             onClick={() =>
-              void act(async () => {
+              runAction(async () => {
                 const result = await session.flush();
                 if (result.status === 'ready')
-                  await props.onReturnToLearning(props.activity);
+                  await props.onReturnToLearning(structuredClone(activity));
               })
             }
           >
