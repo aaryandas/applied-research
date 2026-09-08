@@ -1,7 +1,20 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+import {
+  _electron as electron,
+  expect,
+  test,
+  type Page,
+} from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+function useElectronCloseHandling(page: Page): void {
+  // Electron handles a prevented beforeunload itself; Chromium has no dialog
+  // for Playwright's default dismiss handler to close.
+  page.on('dialog', (dialog) => {
+    if (dialog.type() !== 'beforeunload') void dialog.dismiss();
+  });
+}
 
 test('wires a real saved source through Reader, Canvas, Settings and restart', async () => {
   test.setTimeout(90_000);
@@ -19,6 +32,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
   let application = await launch();
   try {
     let page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -140,9 +154,26 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       path: test.info().outputPath('practical-empty.png'),
     });
     expect(errors).toEqual([]);
+    await page.getByRole('button', { name: 'Reading', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Save a question', exact: true })
+      .click();
+    await expect(page.getByLabel('In your own words')).toBeVisible();
+    await application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.close(),
+    );
+    await expect(page.getByText(/Your work is still open/)).toBeVisible();
+    await page.getByLabel('In your own words').fill('What should I vary next?');
+    await Promise.all([
+      page.waitForEvent('close'),
+      application.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]!.close(),
+      ),
+    ]);
     await application.close();
     application = await launch();
     page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page
       .getByRole('button', { name: /Understand planar robot motion/ })
       .click();
@@ -154,6 +185,9 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
         exact: true,
       }),
     ).toBeVisible();
+    await expect(
+      page.getByText('What should I vary next?', { exact: true }),
+    ).toBeVisible();
     expect(
       await page.evaluate(() => typeof Reflect.get(globalThis, 'require')),
     ).toBe('undefined');
@@ -161,6 +195,11 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       await page.evaluate(() => typeof Reflect.get(globalThis, 'process')),
     ).toBe('undefined');
   } finally {
+    // The test above exercises the save barrier. Teardown must also work when
+    // an assertion leaves an intentionally blocked draft in the test window.
+    await application.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) window.destroy();
+    });
     await application.close();
     rmSync(directory, { recursive: true, force: true });
   }

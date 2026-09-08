@@ -10,6 +10,8 @@ Reader also exposes the existing assembly and arm illustrations as explicit sess
 
 The shell flushes component drafts/placements for navigation, project changes, Save work / Cmd/Ctrl+S and ordinary window close. Force quit/crash recovery remains outside this barrier. Account Settings uses the reviewed sign-in/cancel/sign-out/status/event operations; the historical provider-key importer and MVP companion/tool controls below are no longer exposed in this shell. Live AI curriculum/tutor composition and durable practical-result persistence remain coordinator work. The sections below preserve the historical MVP scope and setup, not the current navigation contract.
 
+Integration follow-ups: initial source/note placement defaults can overlap. Canvas also compares saved record IDs with revision-based source node IDs when identifying fixed nodes, so measured layout can reposition a saved source. These need producer/Canvas ownership; the shell preserves existing coordinates because records do not distinguish automatic placement from a learner's move. On macOS, the first quit attempt can close the saved workspace while leaving the application process running after the asynchronous save barrier; native quit continuation needs lifecycle ownership.
+
 ## Implemented experience
 
 The interface follows Field Atlas: the approved apple-landscape opening and centered prompt, shared day/evening tokens and local font definitions, the arch mark, opaque workspace surfaces, warm margins for human writing and a blue sans-serif inset for AI assistance. The goal form and provider preferences use native dialogs. See [the design contract](design.md) for visual authority and the distinction between working app flows and historical specimens.
