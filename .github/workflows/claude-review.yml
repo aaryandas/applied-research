@@ -32,14 +32,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - name: Ensure the Claude Code launcher directory exists
-        # The native installer skips its launcher symlink when ~/.local/bin is absent on the runner image.
-        run: mkdir -p "$HOME/.local/bin"
+      - name: Install Claude Code from npm (pinned)
+        # The action's native installer produced a broken launcher on ubuntu-24.04 images on 2026-09-08.
+        id: claude
+        run: |
+          npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.265
+          echo "path=$(npm prefix -g)/bin/claude" >> "$GITHUB_OUTPUT"
+          "$(npm prefix -g)/bin/claude" --version
       - uses: anthropics/claude-code-action@0d0e0876d3eaa933f45dc692f7a4312c83caf36f # v1 main 2026-09-08
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The workflow token posts the review comment; no Claude GitHub App install is needed.
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          path_to_claude_code_executable: ${{ steps.claude.outputs.path }}
           # The allowlist lets Claude read the PR and post its verdict with gh.
           claude_args: >-
             --model claude-fable-5-1 --max-turns 40
