@@ -4,13 +4,13 @@ The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. T
 
 ## Roles
 
-| Role               | Who                                                                                      | Owns                                                                                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Implementer        | Codex (Sol for logic, Astra for visual) or Claude, in a Superset worktree or Codex cloud | One lane label, one branch, one PR. Runs `npm run check` and `npm run test:e2e` locally before opening the PR.                                                                 |
-| Cloud verifier     | Cursor cloud agent, triggered by Linear                                                  | Runs the Electron suite on the frozen revision, records video, attaches it to the ticket, moves In Testing → In Review. Bugbot review. Autofix limited to formatting and lint. |
-| Independent critic | `claude-review.yml` on the PR (pinned `claude-fable-5-1`), plus `@claude` on demand      | Standards and spec verdict as a PR comment. Never edits.                                                                                                                       |
-| Coordinator        | One Claude CLI session with visible transcripts                                          | Merge queue, conflict resolution, In Review → Done, decisions put in front of the founder within minutes.                                                                      |
-| Founder            | Aaryan                                                                                   | Decisions in the pinned decisions issue, fifteen-minute SLA during a run.                                                                                                      |
+| Role               | Who                                                                                      | Owns                                                                                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Implementer        | Codex (Sol for logic, Astra for visual) or Claude, in a Superset worktree or Codex cloud | One lane label, one branch, one PR. Runs `npm run check` and `npm run test:e2e` locally before opening the PR.                                                                                                                 |
+| Cloud verifier     | Cursor cloud agent, triggered by Linear                                                  | Launches the frozen revision on its cloud desktop, walks the ticket's acceptance journey by hand, attaches its built-in screen recording, moves In Testing → In Review. Bugbot review. Autofix limited to formatting and lint. |
+| Independent critic | `claude-review.yml` on the PR (pinned `claude-fable-5-1`), plus `@claude` on demand      | Standards and spec verdict as a PR comment. Never edits.                                                                                                                                                                       |
+| Coordinator        | One Claude CLI session with visible transcripts                                          | Merge queue, conflict resolution, In Review → Done, decisions put in front of the founder within minutes.                                                                                                                      |
+| Founder            | Aaryan                                                                                   | Decisions in the pinned decisions issue, fifteen-minute SLA during a run.                                                                                                                                                      |
 
 No terminal-screen coordination. Nothing is dispatched by typing into another agent's input box; nothing is read from a screen to learn status. `SUPERSET_WORKER_DONE` envelopes are replaced by the PR.
 
@@ -62,7 +62,7 @@ Paste into the Cursor automation; the ticket supplies the values.
 ```text
 You verify one frozen revision of the Applied Research desktop app by using it, not by running its test suite.
 Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}.
-1. Check out exactly that revision. `npm ci`, then `npm run native:electron`, then `npm run dev` to launch the app on this desktop.
+1. Check out exactly that revision. `npm ci`, then `npm run dev` to launch the app on this desktop.
 2. Start screen recording. Walk every acceptance criterion listed on the ticket as a user would: enter a topic on Opening, use the sidebar, read, save notes, open Canvas, change a setting, quit and relaunch to confirm what persisted. Try the empty, error and cancel cases the ticket names.
 3. Stop recording. Attach the recording and a short pass/fail list per criterion to the ticket, naming the exact revision.
 4. If every criterion passes, move the ticket to In Review. Otherwise move it to In Development with the failing criterion and what you saw.

@@ -8,14 +8,14 @@
       "description": "## Outcome\nThe app exists before any lane starts: Opening -> persistent sidebar -> Reader -> Canvas -> Practical Work -> Settings render as real routes with stub content, bound to the real bridge contracts, and `tests/e2e/shell.spec.ts` walks the whole path.\n\n## Scope\nRoutes, sidebar, empty states, one end-to-end spec. No feature behavior. Every later ticket replaces a stub inside this shell and extends the spec.\n\n## Acceptance\n- `npm run check` and `npm run test:e2e` green on macOS.\n- Video of the walk-through attached.\n\n## Why\nOn 2026-09-08 ten components matured for thirteen hours with no shell; assembly happened in the last 35 minutes."
     },
     {
-      "title": "Day zero: adopt the next-run workflow (lane guard, macOS gate, Claude review, video evidence)",
+      "title": "Day zero: adopt the next-run workflow (lane guard, macOS gate, Claude review, recorded walk-throughs)",
       "priority": 1,
       "description": "Merge the `codex/next-run-workflow` branch. Then in GitHub: run `claude setup-token` and add the result as the `CLAUDE_CODE_OAUTH_TOKEN` secret (subscription, no API key), create labels `lane:<name>` for every lane in `.github/lanes.json`, set the required checks on the integration branch to `checks / CI gate` and `Lane guard` only, and enable the merge queue. See `context/next-run.md`."
     },
     {
       "title": "Day zero: Linear automations and Cursor cloud verification",
       "priority": 1,
-      "description": "In Linear: enable the GitHub integration (PR opened -> In Development, PR merged -> Done). Add the automation: status In Testing -> trigger the Cursor cloud agent with the verification prompt in `context/next-run.md`. The agent runs the macOS-equivalent suite under xvfb with software GL, records video, attaches it to the ticket, and moves the ticket to In Review. One owner per transition; the coordinator alone moves In Review -> Done."
+      "description": "In Linear: enable the GitHub integration (PR opened -> In Development, PR merged -> Done). Add the automation: status In Testing -> trigger the Cursor cloud agent with the verification prompt in `context/next-run.md`. The agent launches the frozen revision on its cloud desktop, walks the ticket's acceptance journey by hand with its built-in screen recording on, attaches the recording and a pass/fail list to the ticket, and moves it to In Review. One owner per transition; the coordinator alone moves In Review -> Done."
     },
     {
       "title": "Day zero: Sonar quality profile decisions",
