@@ -67,3 +67,7 @@ Window/guest/credential lifecycle and IPC registration live in `src/main/index.t
 ## Portable design review
 
 `context/design-handoff/prototype/` is a separate, temporary browser specimen, not shipped Electron code. `app.js` owns the topic sidebar and automatic Canvas icon-rail state, separate note/insight composers, source-highlight note capture, saved note/question support selection and Playbook/export; `workspace.js` owns Distilled/Expanded Canvas presentation, an unbounded dotted camera, topic/chapter origin edges, temporary positions, contextual back/forward navigation, saved exploration questions, pasted-source reading and exact-highlight navigation; `index.html` owns the shell and native dialogs; `styles.css` owns specimen layout. Pasted-text sources work only for the current page session. File/URL extraction, provider retrieval, exploration responses and durable anchors are not implemented here. `prototype-manifest.json` records the exact specimen files; the design contract records founder decisions and review gates.
+
+## Original animation render worker
+
+`src/contracts/animation-recipes.ts` owns bounded serializable clip recipes. `src/render-worker/` owns the isolated Manim preset renderer, cancellation/queue limits, media verification and its synthetic playback/evidence harness. See [the worker boundary](../src/render-worker/README.md) and [runtime notices](../src/render-worker/NOTICES.md). Account-bound request/artifact persistence, Reader/Canvas attachment and export remain separate pending integration.
