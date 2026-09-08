@@ -18,6 +18,10 @@ The candidate installers are **unsigned and not notarized**. The default Electro
 
 Only the draft-release job has `contents: write`. It uses the `release` environment. Configure environment protection and branch/tag restrictions in repository settings before using it for production release operations.
 
+## Railway backend deployments
+
+The API service requires the non-secret Railway variable `RAILPACK_INSTALL_CMD` with the value `npm ci`. Railpack owns that install phase; `railway.json` must keep the build phase at `npm run build:backend` rather than performing a second clean install. The pre-deploy phase runs the single migration command `npm run migrate:backend:built` before starting the backend. Do not replace that migration with a schema push or database reset.
+
 ## SonarQube Community Build
 
 The founder selected [local-only Sonar](sonar-local.md) for current development. It is separate from the optional hosted-runner setup below; do not enable GitHub Sonar with a localhost URL.
