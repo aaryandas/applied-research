@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import type {
   LearningWorkspace,
   PathOrigin,
+  PathSourceState,
 } from '../../contracts/learning-records';
 import { BrandMark, Icon } from '../FieldAtlas';
 
@@ -23,7 +24,7 @@ export function ReaderSidebar({
   onLesson,
   destination = 'reader',
   collapsed = false,
-}: ReaderSidebarProps): ReactElement {
+}: Readonly<ReaderSidebarProps>): ReactElement {
   return (
     <nav
       className={`reader-sidebar${collapsed ? ' shell-icon-rail' : ''}`}
@@ -97,11 +98,7 @@ export function ReaderSidebar({
                   >
                     {lesson.title}
                     <small>
-                      {lesson.sourceState === 'ready'
-                        ? lesson.objective
-                        : lesson.sourceState === 'pending'
-                          ? 'Readable content pending'
-                          : 'Readable content unsupported'}
+                      {lessonCaption(lesson.sourceState, lesson.objective)}
                     </small>
                   </button>
                 ))}
@@ -132,4 +129,11 @@ export function ReaderSidebar({
       </button>
     </nav>
   );
+}
+
+function lessonCaption(state: PathSourceState, objective: string): string {
+  if (state === 'ready') return objective;
+  return state === 'pending'
+    ? 'Readable content pending'
+    : 'Readable content unsupported';
 }

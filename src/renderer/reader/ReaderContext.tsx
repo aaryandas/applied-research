@@ -32,7 +32,8 @@ export function ReaderContext({
   onOpenOrigin,
   onInsight,
   onSource,
-}: ReaderContextProps): ReactElement {
+}: Readonly<ReaderContextProps>): ReactElement {
+  const humanSupports = workspace.entries.filter(isHumanSupport);
   return (
     <aside className="reader-context" aria-label="Reading context">
       <NoteComposer session={session} workspace={workspace} />
@@ -44,12 +45,13 @@ export function ReaderContext({
         </TabList>
         <TabPanel id="notes">
           <h2 className="reader-visually-hidden">Notes and questions</h2>
-          {workspace.entries.filter(isHumanSupport).length === 0 && (
+          {humanSupports.length === 0 && (
             <p className="reader-muted">
-              Your saved notes and questions will appear here.
+              Highlight a passage and click Note to summarize it in your own
+              words.
             </p>
           )}
-          {workspace.entries.filter(isHumanSupport).map((entry) => (
+          {humanSupports.map((entry) => (
             <section className="reader-entry" key={entry.id}>
               <label className="reader-support">
                 <input
@@ -88,7 +90,8 @@ export function ReaderContext({
             .map((entry) => (
               <section key={entry.id}>
                 <p className="reader-coordinate">
-                  {entry.current.authorKind} insight
+                  {entry.current.authorKind === 'human' ? 'Human' : 'AI'}{' '}
+                  insight
                 </p>
                 <p
                   className={

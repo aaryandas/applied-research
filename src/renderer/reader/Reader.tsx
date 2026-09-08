@@ -1,6 +1,7 @@
 import {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -14,7 +15,9 @@ import type {
   LearningRecordsBridge,
   LearningWorkspace,
   PathOrigin,
+  PathSourceState,
   SourceRecord,
+  SourceHighlight,
   SourceVersion,
 } from '../../contracts/learning-records';
 import { DraftSession } from './draft-session';
@@ -22,12 +25,8 @@ import { ReaderContext } from './ReaderContext';
 import { isHumanSupport } from './human-support';
 import { ReaderSidebar, type WorkspaceDestination } from './ReaderSidebar';
 import { SourceImport } from './SourceImport';
-import {
-  isExactSpan,
-  readSelection,
-  resolveOrigin,
-  type TextSpan,
-} from './reading-location';
+import { SourcePane } from './SourcePane';
+import { isExactSpan, resolveOrigin, type TextSpan } from './reading-location';
 import './reader.css';
 
 export interface ReaderProps {
@@ -49,7 +48,7 @@ export interface ReaderNavigationControls {
 }
 
 /** The shell must flush before replacing this project-keyed component. */
-export function Reader(props: ReaderProps): ReactElement {
+export function Reader(props: Readonly<ReaderProps>): ReactElement {
   return <ProjectReader key={props.workspace.project.id} {...props} />;
 }
 
@@ -63,7 +62,7 @@ function ProjectReader({
   sidebar,
   explanation,
   onPathChange,
-}: ReaderProps): ReactElement {
+}: Readonly<ReaderProps>): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
   const [receivedWorkspace, setReceivedWorkspace] = useState(initial);
   if (receivedWorkspace !== initial) {
@@ -71,13 +70,26 @@ function ProjectReader({
     setWorkspace(initial);
   }
   const active = useRef(true);
+  const currentWorkspace = useRef(workspace);
+  const workspaceObserver = useRef(onWorkspace);
+  useLayoutEffect(() => {
+    currentWorkspace.current = workspace;
+    workspaceObserver.current = onWorkspace;
+  }, [workspace, onWorkspace]);
+  function publishWorkspace(next: LearningWorkspace): void {
+    currentWorkspace.current = next;
+    setWorkspace(next);
+    workspaceObserver.current(next);
+  }
   const [session] = useState(
     () =>
-      new DraftSession(bridge, initial.project.id, (next) => {
-        if (active.current) {
-          setWorkspace(next);
-          onWorkspace(next);
-        }
+      new DraftSession(bridge, initial.project.id, {
+        onWorkspace: (next) => {
+          if (active.current) publishWorkspace(next);
+        },
+        onCommitted: (kind) => {
+          if (active.current && kind === 'insight') setSupports([]);
+        },
       }),
   );
   const [version, setVersion] = useState<SourceVersion | null>(
@@ -91,7 +103,8 @@ function ProjectReader({
     false,
   );
   const [supports, setSupports] = useState<string[]>([]);
-  const prose = useRef<HTMLDivElement>(null);
+  const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
+  const isOccupied = busy || Boolean(importing);
   function selectPath(next: PathOrigin | undefined): void {
     setPath(next);
     onPathChange?.(next);
@@ -116,9 +129,6 @@ function ProjectReader({
     },
   }));
   useEffect(() => {
-    prose.current?.querySelector('mark')?.scrollIntoView?.({ block: 'center' });
-  }, [version?.revisionId, span]);
-  useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
@@ -126,17 +136,17 @@ function ProjectReader({
   }, []);
   useEffect(() => {
     registerFlush(async () => {
-      if (busy || importing) {
+      if (isOccupied) {
         setMessage('Finish or discard the source import before leaving.');
         return false;
       }
       return session.flush();
     });
     return () => registerFlush(null);
-  }, [registerFlush, session, busy, importing]);
+  }, [registerFlush, session, isOccupied]);
 
   async function beforeNavigation(action: () => void): Promise<void> {
-    if (busy || importing) {
+    if (isOccupied) {
       setMessage('Finish or discard the current action before leaving.');
       return;
     }
@@ -156,6 +166,7 @@ function ProjectReader({
         ?.lessons.find((item) => item.id === origin.lessonId);
       selectPath(origin);
       setSpan(null);
+      setReveal(null);
       if (!lesson) {
         setVersion(null);
         setMessage(
@@ -167,18 +178,12 @@ function ProjectReader({
         .flatMap((source) => source.versions)
         .find((item) => item.revisionId === lesson?.sourceRevisionId);
       setVersion(next ?? null);
-      setMessage(
-        next
-          ? null
-          : lesson.sourceState === 'ready'
-            ? 'The referenced readable source version is unavailable. Existing notes and origins are preserved.'
-            : lesson.sourceState === 'unsupported'
-              ? 'Readable content is unsupported for this lesson. You can add a source or save a question.'
-              : 'Readable content is pending for this lesson. You can add a source or save a question.',
-      );
+      setMessage(next ? null : unavailableSourceMessage(lesson.sourceState));
     });
   }
-  async function begin(kind: 'note' | 'question' | 'insight'): Promise<void> {
+  async function retainSelectionAndBegin(
+    kind: 'note' | 'question' | 'insight',
+  ): Promise<void> {
     const selectedVersion = version;
     const selectedSpan = span;
     const selectedPath = path;
@@ -186,8 +191,7 @@ function ProjectReader({
     const selectedSupports = eligible
       .filter((entry) => supports.includes(entry.id))
       .map((entry) => ({ entryId: entry.id, revision: entry.currentRevision }));
-    if (busy || importing || !(await session.flush()) || !active.current)
-      return;
+    if (isOccupied || !(await session.flush()) || !active.current) return;
     if (kind === 'insight' && selectedSupports.length < 2) {
       setMessage(
         'Select at least two distinct saved human notes or questions.',
@@ -197,33 +201,11 @@ function ProjectReader({
     setBusy(true);
     setMessage(null);
     try {
-      let origin: LearningOrigin | null = selectedPath
-        ? { path: selectedPath }
-        : null;
-      if (selectedVersion)
-        origin = { ...origin, sourceRevisionId: selectedVersion.revisionId };
-      if (selectedSpan && selectedVersion && kind !== 'insight') {
-        if (!isExactSpan(selectedVersion.canonicalText, selectedSpan))
-          throw new Error('Invalid exact selection');
-        const result = await bridge.saveHighlight({
-          projectId: workspace.project.id,
-          expectedRevision: 0,
-          sourceId: selectedVersion.sourceId,
-          revisionId: selectedVersion.revisionId,
-          ...selectedSpan,
-        });
-        if (result.status === 'conflict') throw new Error('Highlight conflict');
-        if (!active.current) return;
-        origin = {
-          ...origin,
-          sourceRevisionId: result.record.revisionId,
-          highlightId: result.record.id,
-        };
-        setWorkspace((current) => ({
-          ...current,
-          highlights: [...current.highlights, result.record],
-        }));
-      }
+      const retained = await captureDraftOrigin(kind, {
+        version: selectedVersion,
+        span: selectedSpan,
+        path: selectedPath,
+      });
       if (active.current)
         session.begin({
           kind,
@@ -232,9 +214,10 @@ function ProjectReader({
             expectedRevision: 0,
             title: '',
             body: '',
-            origin,
+            origin: retained.origin,
           },
           supports: selectedSupports,
+          ...(retained.highlight ? { highlight: retained.highlight } : {}),
         });
     } catch {
       if (active.current)
@@ -244,6 +227,48 @@ function ProjectReader({
     } finally {
       if (active.current) setBusy(false);
     }
+  }
+  async function captureDraftOrigin(
+    kind: 'note' | 'question' | 'insight',
+    selection: {
+      version: SourceVersion | null;
+      span: TextSpan | null;
+      path: PathOrigin | undefined;
+    },
+  ): Promise<{ origin: LearningOrigin | null; highlight?: SourceHighlight }> {
+    const { version, span, path } = selection;
+    let origin: LearningOrigin | null = path ? { path } : null;
+    if (kind === 'insight' || !version) return { origin };
+    origin = { ...origin, sourceRevisionId: version.revisionId };
+    if (!span) return { origin };
+    if (!isExactSpan(version.canonicalText, span))
+      throw new Error('Invalid exact selection');
+    const result = await bridge.saveHighlight({
+      projectId: initial.project.id,
+      expectedRevision: 0,
+      sourceId: version.sourceId,
+      revisionId: version.revisionId,
+      ...span,
+    });
+    if (result.status === 'conflict') throw new Error('Highlight conflict');
+    if (active.current) {
+      const current = currentWorkspace.current;
+      publishWorkspace({
+        ...current,
+        highlights: [
+          ...current.highlights.filter((item) => item.id !== result.record.id),
+          result.record,
+        ],
+      });
+    }
+    return {
+      origin: {
+        ...origin,
+        sourceRevisionId: result.record.revisionId,
+        highlightId: result.record.id,
+      },
+      highlight: result.record,
+    };
   }
   function openOrigin(origin: LearningOrigin): void {
     if (!origin.sourceRevisionId && origin.path) {
@@ -257,7 +282,7 @@ function ProjectReader({
         setSpan(resolved.span);
         selectPath(origin.path);
         setMessage(null);
-        prose.current?.focus();
+        setReveal({ span: resolved.span });
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : 'Source origin unavailable.',
@@ -268,6 +293,9 @@ function ProjectReader({
   function edit(entry: LearningEntryRecord): void {
     void beforeNavigation(() => {
       if (!isHumanSupport(entry)) return;
+      const highlight = workspace.highlights.find(
+        (item) => item.id === entry.current.origin?.highlightId,
+      );
       session.begin({
         kind: entry.current.kind === 'question' ? 'question' : 'note',
         input: {
@@ -279,8 +307,71 @@ function ProjectReader({
           origin: entry.current.origin,
         },
         supports: entry.current.supports,
+        ...(highlight ? { highlight } : {}),
       });
     });
+  }
+  function renderSourceContent(): ReactElement {
+    if (importing)
+      return (
+        <SourceImport
+          bridge={bridge}
+          projectId={workspace.project.id}
+          source={importing === 'new' ? undefined : importing}
+          onCancel={() => setImporting(false)}
+          onImported={(record) => {
+            if (!active.current) return;
+            const next = {
+              ...workspace,
+              sources: [
+                ...workspace.sources.filter(
+                  (source) => source.id !== record.id,
+                ),
+                record,
+              ],
+            };
+            publishWorkspace(next);
+            setVersion(record.currentVersion);
+            setSpan(null);
+            setReveal(null);
+            setImporting(false);
+          }}
+        />
+      );
+    if (version)
+      return (
+        <SourcePane
+          version={version}
+          source={workspace.sources.find(
+            (item) => item.id === version.sourceId,
+          )}
+          span={span}
+          reveal={reveal}
+          busy={busy}
+          onSelection={setSpan}
+          onVersion={(next) =>
+            void beforeNavigation(() => {
+              setVersion(next);
+              setSpan(null);
+              setReveal(null);
+            })
+          }
+          onUpdate={(source) =>
+            void beforeNavigation(() => setImporting(source))
+          }
+          onNote={() => void retainSelectionAndBegin('note')}
+          onQuestion={() => void retainSelectionAndBegin('question')}
+        />
+      );
+    return (
+      <>
+        <h2>Start with a source</h2>
+        <p>Add pasted text to read and keep notes in your own words.</p>
+        <button onClick={() => void retainSelectionAndBegin('question')}>
+          Save a question
+        </button>
+      </>
+    );
   }
   return (
     <div className="reader-shell">
@@ -307,151 +398,13 @@ function ProjectReader({
         </header>
         {workspace.unreadableProjects.map((diagnostic, index) => (
           <p role="alert" key={`${diagnostic.projectId}-${index}`}>
-            {diagnostic.code}: {diagnostic.reason}
+            Saved project content could not be read: {diagnostic.reason}
           </p>
         ))}
-        {message && <p role="status">{message}</p>}
+        <output className="reader-status">{message}</output>
         <div className="reader-layout">
           <article>
-            {importing ? (
-              <SourceImport
-                bridge={bridge}
-                projectId={workspace.project.id}
-                source={importing === 'new' ? undefined : importing}
-                onCancel={() => setImporting(false)}
-                onImported={(record) => {
-                  if (!active.current) return;
-                  const next = {
-                    ...workspace,
-                    sources: [
-                      ...workspace.sources.filter(
-                        (source) => source.id !== record.id,
-                      ),
-                      record,
-                    ],
-                  };
-                  setWorkspace(next);
-                  onWorkspace(next);
-                  setVersion(record.currentVersion);
-                  setSpan(null);
-                  setImporting(false);
-                }}
-              />
-            ) : version ? (
-              <>
-                <h2>{version.title}</h2>
-                <div className="reader-actions">
-                  <label>
-                    Source version
-                    <select
-                      value={version.revisionId}
-                      onChange={(event) => {
-                        const next = workspace.sources
-                          .flatMap((source) => source.versions)
-                          .find(
-                            (item) => item.revisionId === event.target.value,
-                          );
-                        if (next)
-                          void beforeNavigation(() => {
-                            setVersion(next);
-                            setSpan(null);
-                          });
-                      }}
-                    >
-                      {workspace.sources
-                        .find((source) => source.id === version.sourceId)
-                        ?.versions.map((item) => (
-                          <option key={item.revisionId} value={item.revisionId}>
-                            Revision {item.revision}
-                            {workspace.sources.find(
-                              (source) => source.id === item.sourceId,
-                            )?.currentVersionId === item.revisionId
-                              ? ' · current'
-                              : ' · retained'}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <button
-                    onClick={() =>
-                      void beforeNavigation(() => {
-                        const source = workspace.sources.find(
-                          (item) => item.id === version.sourceId,
-                        );
-                        if (source) setImporting(source);
-                      })
-                    }
-                  >
-                    Update source
-                  </button>
-                </div>
-                {version.provenance.locator && (
-                  <p className="reader-muted">{version.provenance.locator}</p>
-                )}
-                <div
-                  ref={prose}
-                  className="reader-prose"
-                  tabIndex={0}
-                  aria-label="Source text"
-                  onMouseUp={() =>
-                    setSpan(
-                      prose.current
-                        ? readSelection(
-                            prose.current,
-                            version.canonicalText,
-                            window.getSelection(),
-                          )
-                        : null,
-                    )
-                  }
-                  onKeyUp={() =>
-                    setSpan(
-                      prose.current
-                        ? readSelection(
-                            prose.current,
-                            version.canonicalText,
-                            window.getSelection(),
-                          )
-                        : null,
-                    )
-                  }
-                >
-                  {span ? (
-                    <>
-                      {version.canonicalText.slice(0, span.start)}
-                      <mark>
-                        {version.canonicalText.slice(span.start, span.end)}
-                      </mark>
-                      {version.canonicalText.slice(span.end)}
-                    </>
-                  ) : (
-                    version.canonicalText
-                  )}
-                </div>
-                <div className="reader-actions">
-                  <button
-                    disabled={!span || busy}
-                    onClick={() => void begin('note')}
-                  >
-                    {busy ? 'Retaining selection…' : 'Note'}
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => void begin('question')}
-                  >
-                    Save a question
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2>Start with a source</h2>
-                <p>Add pasted text to read and keep notes in your own words.</p>
-                <button onClick={() => void begin('question')}>
-                  Save a question
-                </button>
-              </>
-            )}
+            {renderSourceContent()}
             {explanation}
           </article>
           <ReaderContext
@@ -462,11 +415,12 @@ function ProjectReader({
             onSupportsChange={setSupports}
             onEdit={edit}
             onOpenOrigin={openOrigin}
-            onInsight={() => void begin('insight')}
+            onInsight={() => void retainSelectionAndBegin('insight')}
             onSource={(source) =>
               void beforeNavigation(() => {
                 setVersion(source.currentVersion);
                 setSpan(null);
+                setReveal(null);
                 selectPath(undefined);
               })
             }
@@ -475,4 +429,12 @@ function ProjectReader({
       </main>
     </div>
   );
+}
+
+function unavailableSourceMessage(state: PathSourceState): string {
+  if (state === 'ready')
+    return 'The referenced readable source version is unavailable. Existing notes and origins are preserved.';
+  if (state === 'unsupported')
+    return 'Readable content is unsupported for this lesson. You can add a source or save a question.';
+  return 'Readable content is pending for this lesson. You can add a source or save a question.';
 }

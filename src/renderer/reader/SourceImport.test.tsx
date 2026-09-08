@@ -6,6 +6,7 @@ import type {
   SourceRecord,
 } from '../../contracts/learning-records';
 import { SourceImport } from './SourceImport';
+import { fixture } from './reader.test.fixtures';
 
 function setup() {
   const unavailable = async (): Promise<never> => {
@@ -39,6 +40,54 @@ function setup() {
 }
 
 describe('pasted-source import preservation', () => {
+  it('keeps a new source id and acquiredAt across an ambiguous commit and explicit conflict retry', async () => {
+    const { bridge } = fixture();
+    const save = vi.mocked(bridge.importTextSource).getMockImplementation()!;
+    vi.mocked(bridge.importTextSource).mockImplementationOnce(async (input) => {
+      await save(input);
+      throw new Error('Reply lost');
+    });
+    const onImported = vi.fn();
+    render(
+      <SourceImport
+        bridge={bridge}
+        projectId="project"
+        onImported={onImported}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Source title'), {
+      target: { value: 'Source' },
+    });
+    fireEvent.change(screen.getByLabelText('Exact source text'), {
+      target: { value: '  Exact 😀\ntext  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Import source' }));
+    await screen.findByText(/Could not import/);
+    const first = vi.mocked(bridge.importTextSource).mock.calls[0]![0];
+    expect(first.sourceId).toMatch(/^[0-9a-f-]{36}$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Import source' }));
+    await screen.findByText(/A newer source version exists/);
+    expect(vi.mocked(bridge.importTextSource).mock.calls[1]![0]).toEqual(first);
+    expect(onImported).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load latest revision for retry' }),
+    );
+    await screen.findByRole('button', { name: 'Use revision 1 for my retry' });
+    expect(screen.getByLabelText('Exact source text')).toHaveValue(first.text);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use revision 1 for my retry' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Import source' }));
+    await waitFor(() => expect(onImported).toHaveBeenCalledOnce());
+    expect(vi.mocked(bridge.importTextSource).mock.calls[2]![0]).toEqual({
+      ...first,
+      expectedRevision: 1,
+    });
+    const saved = await bridge.getLearningWorkspace('project');
+    expect(saved.sources).toHaveLength(1);
+    expect(saved.sources[0]?.versions).toHaveLength(2);
+  });
   it('requires reading the current source and explicit retry after a conflict', async () => {
     const source: SourceRecord = {
       id: 'source',
@@ -204,6 +253,9 @@ describe('pasted-source import preservation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import source' }));
     await waitFor(() =>
       expect(bridge.importTextSource).toHaveBeenCalledTimes(2),
+    );
+    expect(vi.mocked(bridge.importTextSource).mock.calls[1]![0]).toEqual(
+      vi.mocked(bridge.importTextSource).mock.calls[0]![0],
     );
     expect(vi.mocked(bridge.importTextSource).mock.calls[0]![0]).toMatchObject({
       projectId: 'project',

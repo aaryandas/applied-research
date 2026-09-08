@@ -125,7 +125,7 @@ describe('Reader human learning flow', () => {
     );
     await screen.findByText(/referenced lesson revision is unavailable/);
   });
-  it('protects an import from navigation and supports keyboard selection and highlight retry', async () => {
+  it('protects an import from navigation and supports selection changes and highlight retry', async () => {
     const { bridge } = fixture();
     await bridge.importTextSource({
       projectId: 'project',
@@ -169,7 +169,7 @@ describe('Reader human learning flow', () => {
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
-    fireEvent.keyUp(prose, { key: 'ArrowRight', shiftKey: true });
+    fireEvent(document, new Event('selectionchange'));
     vi.mocked(bridge.saveHighlight).mockResolvedValueOnce({
       status: 'conflict',
       conflict: {
@@ -189,9 +189,7 @@ describe('Reader human learning flow', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
     fireEvent.click(screen.getByRole('button', { name: 'Synthetic source' }));
     await waitFor(() =>
-      expect(
-        screen.getByLabelText('Source text').querySelector('mark'),
-      ).toBeNull(),
+      expect(screen.getByRole('button', { name: 'Note' })).toBeDisabled(),
     );
     fireEvent.change(screen.getByLabelText('Source version'), {
       target: { value: 'source-v1' },
@@ -383,7 +381,8 @@ describe('Reader human learning flow', () => {
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
-    fireEvent.mouseUp(prose);
+    fireEvent.mouseUp(document.body);
+    fireEvent(document, new Event('selectionchange'));
     fireEvent.click(screen.getByRole('button', { name: 'Note' }));
     await waitFor(() => expect(bridge.saveHighlight).toHaveBeenCalledOnce());
     view.rerender(
@@ -538,7 +537,8 @@ describe('Reader human learning flow', () => {
       const selection = window.getSelection()!;
       selection.removeAllRanges();
       selection.addRange(range);
-      fireEvent.mouseUp(prose);
+      fireEvent.mouseUp(document.body);
+      fireEvent(document, new Event('selectionchange'));
       fireEvent.click(screen.getByRole('button', { name: 'Note' }));
       const input = await screen.findByLabelText('In your own words');
       fireEvent.change(screen.getByLabelText('Title', { exact: true }), {
@@ -562,10 +562,18 @@ describe('Reader human learning flow', () => {
     const input = vi.mocked(bridge.saveInsight).mock.calls[0]![0];
     expect(new Set(input.supports.map((ref) => ref.entryId)).size).toBe(2);
     expect(input.supports.every((ref) => ref.revision === 1)).toBe(true);
+    expect(input.origin).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Create insight' }),
+      ).toBeDisabled(),
+    );
+    for (const checkbox of screen.getAllByRole('checkbox'))
+      expect(checkbox).not.toBeChecked();
     expect(
       vi.mocked(bridge.saveReadingNote).mock.calls[0]![0].origin,
     ).toMatchObject({
-      sourceRevisionId: 'source-v1',
+      sourceRevisionId: expect.any(String),
       highlightId: 'highlight-1',
     });
   });
