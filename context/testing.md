@@ -4,18 +4,19 @@ Work is tracked in [AR-8](https://linear.app/aaryan-das/issue/AR-8) and Sonar ac
 
 ## Test layers
 
-| Layer               | Command                    | Boundary exercised                                                                                            |
-| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Unit                | `npm run test:unit`        | Node environment: validation, navigation policy, mathematics and provider parsing with injected responses     |
-| Renderer            | `npm run test:renderer`    | React Testing Library + jsdom: user interactions, autosave and explicit bridge fakes                          |
-| Integration         | `npm run test:integration` | Real SQLite: persistence/reopen, attribution, concurrent connections and project separation                   |
-| Combined coverage   | `npm run test:coverage`    | All three Vitest projects; one LCOV report and 90% line/function/branch/statement thresholds                  |
-| Desktop integration | `npm run test:e2e`         | Built Electron main → preload → renderer, offline restart, guest isolation and synthetic OpenRouter responses |
-| Packaged desktop    | `npm run test:packaged`    | The same Electron journeys against the unpacked distributable                                                 |
+| Layer               | Command                         | Boundary exercised                                                                                            |
+| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Unit                | `npm run test:unit`             | Node environment: validation, navigation policy, mathematics and provider parsing with injected responses     |
+| Renderer            | `npm run test:renderer`         | React Testing Library + jsdom: user interactions, autosave and explicit bridge fakes                          |
+| Integration         | `npm run test:integration`      | Real SQLite: persistence/reopen, attribution, concurrent connections and project separation                   |
+| Backend PostgreSQL  | `npm run test:backend:postgres` | Disposable real PostgreSQL: migrations, Better Auth sessions and atomic account/month usage transactions      |
+| Combined coverage   | `npm run test:coverage`         | All three Vitest projects; one LCOV report and 90% line/function/branch/statement thresholds                  |
+| Desktop integration | `npm run test:e2e`              | Built Electron main → preload → renderer, offline restart, guest isolation and synthetic OpenRouter responses |
+| Packaged desktop    | `npm run test:packaged`         | The same Electron journeys against the unpacked distributable                                                 |
 
-Vitest projects use separate Node and DOM environments. New pure `.test.ts` files beside source enter the unit project; `.test.tsx` files enter the renderer project. Real adapter tests belong in `tests/integration/`; the existing adjacent SQLite store suite is explicitly included there. New test directories must also be included in TypeScript checking. Do not weaken coverage, permit an empty suite, or commit focused tests to make CI pass.
+Vitest projects use separate Node and DOM environments. New pure `.test.ts` files beside source enter the unit project; `.test.tsx` files enter the renderer project. Real local-storage adapter tests belong in `tests/integration/`; the existing adjacent SQLite store suite is explicitly included there. The isolated backend PostgreSQL suite lives in `tests/backend-postgres/` and requires `TEST_DATABASE_URL` for a disposable database whose name contains `test`, `ar12` or `disposable`; it drops and recreates that database's `public` schema. Never point it at Railway or a persistent database. New test directories must also be included in TypeScript checking. Do not weaken coverage, permit an empty suite, or commit focused tests to make CI pass.
 
-The combined run avoids averaging separate coverage percentages. JUnit results are written to `coverage/tests.xml`. Entry-point wiring remains outside unit coverage because real Electron tests exercise it. React tests alone cannot verify preload isolation, native guest behavior or Electron's bundled Node/SQLite runtime.
+The combined run avoids averaging separate coverage percentages. JUnit results are written to `coverage/tests.xml`. Desktop entry-point wiring remains outside unit coverage because real Electron tests exercise it. The backend process entry point and migration CLI are also lifecycle wrappers: HTTP runtime/finalizer behavior is tested in the combined suite, while the migration runner and real Drizzle/Better Auth transaction path are verified only by the dedicated PostgreSQL suite. React tests alone cannot verify preload isolation, native guest behavior or Electron's bundled Node/SQLite runtime.
 
 Playwright's Electron automation is [experimental](https://playwright.dev/docs/api/class-electron); keep the pinned version and validate upgrades against real desktop and packaged runs. Tests use temporary user-data directories and synthetic content. No separate Playwright Chromium installation is needed. Linux runs under Xvfb with the Electron sandbox intact. Screenshots, traces and HTML reports are retained by CI for failures.
 
@@ -23,7 +24,11 @@ Playwright's Electron automation is [experimental](https://playwright.dev/docs/a
 
 The [full-app gauntlet](design-handoff/GAUNTLET-PROMPT.md#sonar-cycle--required-throughout-implementation) additionally requires coordinator-owned sequential local Sonar scans for integrated application slices and analyzed-code repairs, issue triage/fixes in Linear, and independent TypeScript/Effect standards review. This is an explicit build-task cycle, not a background scheduler. Hosted CI does not run the local scanner.
 
-Latest local verification on macOS arm64: `npm run check` passed (42 tests in 9 files); all three built Electron tests passed; packaging and the same three packaged tests passed. Vitest coverage: 96.89% lines, 92.19% branches, 92.85% functions and 95.71% statements. Sonar reports 95.4% coverage using its own analyzer and denominator.
+Previous MVP verification on macOS arm64: `npm run check` passed (42 tests in 9 files); all three built Electron tests passed; packaging and the same three packaged tests passed. Vitest coverage was 96.89% lines, 92.19% branches, 92.85% functions and 95.71% statements. Sonar reported 95.4% coverage using its own analyzer and denominator.
+
+AR-12 backend-slice verification on 2026-09-08: locked `npm ci` and `npm run check` passed under Node 24, with 162 tests in 20 files and 95.15% lines, 90.65% branches, 92.61% functions and 93.78% statements. The built backend served health and Better Auth `/api/auth/ok`, failed readiness safely against an intentionally unavailable database, and rejected an unauthenticated account request; AI remained disabled and no provider was called. No ordinary localhost PostgreSQL listener or client was available, and the dedicated suite failed closed without `TEST_DATABASE_URL`. Real PostgreSQL adapter verification therefore remains required and must not be inferred from the passing synthetic transaction tests. Evidence is retained outside the repository at `/private/tmp/ar-12-backend-evidence` for the coordinator handoff.
+
+AR-12 repair-batch verification on 2026-09-08 supersedes the PostgreSQL limitation in the preceding receipt. Exact-lock `npm ci` and `npm run check` passed under Node 24 with 187 tests in 21 files and 95.15% lines, 90.64% branches, 92.67% functions and 93.86% statements. The separate suite passed 9/9 against disposable PostgreSQL 18, exercising the actual migration twice, authoritative Better Auth session rows, atomic near-limit and two-active-request admission, idempotency, UTC rollover, PostgreSQL jsonb NUL rejection, known-cost settlement after rejected output, configured server timeouts and a real row-lock timeout/rollback. The built backend returned 200 for health, migrated readiness and Better Auth health, and rejected unauthenticated account/learning requests; AI was disabled and no provider call was made. Provider-response tests use injected synthetic responses and a local streaming server only. Evidence is retained outside the repository at `/private/tmp/ar-12-repair-evidence`.
 
 Every pull request and push to `main` invokes the shared Linux/Windows/macOS workflow. It performs locked installation, formatting, zero-warning lint, both TypeScript checks, combined unit/component/integration coverage, build, Electron tests, unpacked packaging and packaged tests. Named steps identify the failed layer. Each platform must pass; cancellation, failure or a skipped verification job must not produce a passing `CI gate`.
 
@@ -33,7 +38,7 @@ The foundation PR already passed all three platforms at `6c5e194aeeeb5dd1421d916
 
 ## Effect adoption gate
 
-Effect is not currently an application dependency. Its v3 source reference is not an installed runtime or permission to rewrite the backend. The founder selected Effect v3 for the next backend work, with no migration in this CI task. Confirm the first backend slice through [AR-6](https://linear.app/aaryan-das/issue/AR-6).
+Effect 3.22.1 is now an exact application dependency for the AR-12 backend only. Its v3 source reference is not an installed dependency and does not authorize migrating desktop modules. The backend uses one managed runtime, scoped PostgreSQL finalization, typed service failures, interruption handling, a bounded semaphore and public Effect test primitives.
 
 For approved Effect v3 code, prefer its supported test primitives: test Layers for service dependencies, `TestClock` for retry/time behavior, `Effect.exit` for typed failures, and scoped execution for finalizers and cancellation. Include tests for interrupted requests, resource cleanup and main-process runtime disposal when those behaviors exist. Keep bridge messages plain validated data and keep the real Electron tests.
 

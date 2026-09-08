@@ -48,6 +48,8 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/**/*.test.*',
         'src/contracts/**',
+        'src/backend/entrypoint.ts',
+        'src/backend/migrate.ts',
         'src/main/index.ts',
         'src/preload/index.ts',
         'src/renderer/main.tsx',

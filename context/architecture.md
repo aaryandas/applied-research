@@ -8,7 +8,7 @@ The [active presearch](presearch.md) now conditionally reaffirms Electron for a 
 
 The implemented foundation is a single Electron application package with React, TypeScript, electron-vite, and handwritten CSS. Node 24 LTS runs development tools. Electron carries its own runtime; the lockfile pins the actual versions. Vite 7 is intentional because electron-vite 5 declares compatibility through Vite 7.
 
-The current MVP adds a local workspace store, named validated commands, a bounded OpenRouter adapter and an isolated guest view. `context/mvp.md` owns the precise scope, configuration and deferred work. No durable job engine, sync service or arbitrary-code runtime is implemented.
+The current MVP adds a local workspace store, named validated commands, a bounded development OpenRouter adapter and an isolated guest view. The separate AR-12 backend foundation now implements production credential ownership, authentication and monthly usage accounting, but the desktop has not yet been connected to it. `context/mvp.md` owns the precise desktop scope, configuration and deferred work. No durable job engine, sync service or arbitrary-code runtime is implemented.
 
 ## Accepted authority model
 
@@ -18,7 +18,7 @@ The founder explicitly accepts local control over saved learning work, observati
 
 The logical responsibilities are presentation, local coordination, local learning storage, embedded-tool control and bounded remote work. The embedded tool is untrusted content even inside the application window. Exact process placement and message schemas remain open; local authority does not require every operation to run in Electron's main process.
 
-See the [accepted authority diagram](diagrams/local-authority.html) and [scope and validation receipt](diagrams/local-authority.md). The [active presearch](presearch.md) records Answer 21 and its limits. Providers, direct access versus an application backend, credentials, data retention, backup/sync, task recovery and action permissions still need decisions. No application validation or implementation is implied by diagram checks.
+See the [accepted authority diagram](diagrams/local-authority.html) and [scope and validation receipt](diagrams/local-authority.md). The [active presearch](presearch.md) records Answer 21 and its limits. Backend provider/credential ownership is now selected and its server foundation is implemented; data retention, backup/sync, deferred task recovery and broader action permissions still need decisions. No application validation or implementation is implied by diagram checks.
 
 ## Implemented process responsibilities
 
@@ -26,17 +26,22 @@ See the [accepted authority diagram](diagrams/local-authority.html) and [scope a
 flowchart LR
   Main[Main: lifecycle and privileged operations] --> Preload[Preload: named typed operations]
   Preload --> Renderer[Renderer: React and transient UI state]
+  Main -. pending authenticated client .-> Backend[Backend: auth, quota and bounded learning]
+  Backend --> PostgreSQL[(PostgreSQL: sessions and usage)]
+  Backend --> OpenRouter[OpenRouter]
   Contracts[Shared serializable contracts] -.-> Main
   Contracts -.-> Preload
   Contracts -.-> Renderer
+  Contracts -.-> Backend
 ```
 
-- **Main** owns window/guest lifecycle, permission and navigation policy, validated IPC dispatch, the local SQLite workspace store, OpenRouter requests and credential access. Operations live behind focused modules; no worker or distributed runtime is installed.
+- **Main** owns window/guest lifecycle, permission and navigation policy, validated IPC dispatch and the local SQLite workspace store. It still contains the development MVP's direct OpenRouter/key-import path; replacing that path with the authenticated client is pending and no production provider key may ship there.
 - **Preload** exposes named workspace, tutor, provider-status and tool-view operations, plus typed tool-state subscriptions. It bundles to CommonJS for Electron's sandbox. No raw IPC, credentials, SQL or Node primitives cross this seam.
 - **Renderer** owns presentation. ESLint rejects imports from Electron, Node, main, and preload. Transient selection/focus/viewport state belongs here; durable drafts will need validated operations into trusted local storage.
 - **Contracts** contains types that cross the process seam. Add runtime validation when external inputs or commands are introduced; TypeScript alone does not validate messages.
+- **Backend** owns Better Auth GitHub/Electron server routes, authoritative PostgreSQL sessions, account-scoped UTC-month usage and the validated OpenRouter adapter. `src/contracts/learning-api.ts` is its exact serializable public learning contract. Effect owns composition, reservation/settlement interruption boundaries and scoped pool finalization; PostgreSQL work has finite server/client timeouts, and the backend never receives a body-supplied account id. Per-account admission permits at most two active provider requests while terminal uncertainty continues to count against money, not the active slot.
 
-Context isolation, renderer sandboxing, disabled Node integration, denied new windows, restricted document navigation, and denied permissions are explicit defaults. Production CSP disallows renderer networking and inline scripts. Development permits Vite refresh and its localhost WebSocket. OpenRouter calls run in main. The renderer keeps its networking restriction. The guest has a separate persistent session, denied permissions/popups/downloads, no preload and no Node integration. Main reads bounded page text only for a requested question or navigation cue during an explicitly started guided activity.
+Context isolation, renderer sandboxing, disabled Node integration, denied new windows, restricted document navigation, and denied permissions are explicit defaults. Production CSP disallows renderer networking and inline scripts. Development permits Vite refresh and its localhost WebSocket. The existing MVP OpenRouter calls still run in main; production calls will move to the implemented backend after desktop integration. The renderer keeps its networking restriction. The guest has a separate persistent session, denied permissions/popups/downloads, no preload and no Node integration. Main reads bounded page text only for a requested question or navigation cue during an explicitly started guided activity.
 
 ## Extending the MVP
 
@@ -49,6 +54,8 @@ Before domain implementation, design stable source/artifact identities, human-au
 ## Verification surfaces
 
 - Unit tests cover command validation, real SQLite persistence/reopen, provider response parsing and failures, mathematical relationships and user interactions.
+- Backend unit/HTTP tests cover strict request/provider decoding, well-formed Unicode and scalar-aligned citations, slow-auth disconnects, idempotency outcomes, quota accounting, concurrency/backpressure, upstream response cancellation and scoped shutdown using synthetic provider and database responses.
+- `npm run test:backend:postgres` is the separate destructive-on-purpose disposable-database verification for the real Drizzle/PostgreSQL schema, Better Auth session adapter and concurrent ledger transactions. It refuses a URL whose database name does not contain `test`, `ar12` or `disposable`; it must not be represented as passed by unit doubles.
 - Coverage applies to testable implementation; lifecycle/entry wiring is explicitly excluded and exercised through real Electron smoke tests instead.
 - Electron tests verify local work across restart, the loaded bridge, renderer isolation, popup denial, an isolated embedded guest and a recorded OpenRouter flow.
 - The same smoke test runs against the unpacked application, catching missing preload/renderer files and packaging mistakes.
