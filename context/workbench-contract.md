@@ -25,6 +25,10 @@ Keep existing UUID identities. Every child record carries projectId; all command
 
 Meaningful content edits create immutable revisions and advance a current pointer in the same transaction. Every revision retains author kind, recorded time and referenced source/support revisions. Current search may later index current revisions; history remains available without installing an embedding service now. No duplicate event log or JSONL mirror is needed. Never rewrite AI material as human-authored.
 
+For accepted backend paths, lesson identity follows meaning rather than array position. Reuse a prior lesson id only when exactly one prior lesson and exactly one incoming step share the same exact title, objective and activity. Reordering those unique unchanged steps preserves their ids. Changed, new or ambiguously duplicated steps receive new ids, while every historical revision and origin remains addressable. A lesson moved to another topic receives a new id because its parent relationship is part of its identity.
+
+`record_placements` is authoritative for the named `distilled` and `expanded` learning views. `entry_placements` remains only the existing renderer's compatibility projection. A legacy `moveEntry` transaction updates that projection and the matching Distilled placement together; it never changes Expanded placement. New named placement reads and writes use `record_placements`, so the two learning views stay independent and movement never revises content.
+
 ## Persistence and migration
 
 Use stable Drizzle SQLite schema/query support and better-sqlite3. Pin exact compatible versions and validate its native binary against the actual Electron runtime; Node24 tooling alone is not an ABI check. Keep WAL, FULL synchronous commits and enabled foreign keys. Use explicit reviewed migration SQL; never run schema push against user work.
@@ -38,6 +42,10 @@ New edits use expectedRevision. A stale write fails with a conflict and keeps th
 ## Named desktop operations
 
 Preserve listProjects/createProject/saveEntry/moveEntry while migrating their internals. Add focused operations as the learning flow is connected: getLearningWorkspace, importTextSource, saveReadingNote, saveQuestion, saveInsight, savePathRevision and recordPracticalResult. Inputs are bounded, serializable and runtime-validated; child ownership and relation constraints are rechecked inside the transaction. No generic table mutation, raw IPC or arbitrary path input is exposed.
+
+The first connected local-record slice also names saveHighlight and moveLearningRecord. Revision-aware source, human-entry and path writes return a committed acknowledgement or a typed conflict with the current revision. The compatibility saveEntry operation remains for the existing renderer and does not accept a caller expectedRevision; it is not evidence of draft-safety wiring. Backend learning-path contributions enter only through a validated main-internal acceptance method, which allocates stable local topic/lesson identities; no renderer command can fabricate trusted AI attribution.
+
+The initial diagnostic read path intentionally favors validation over a cache: a write currently rebuilds its returned project record and scans stored projects for safe unreadable-project diagnostics. The independent review measured about 11.5 ms per note save with four 1 MB sources across projects on the review machine. That is the recorded ceiling for this slice, not a scalability claim; measure again with representative data before introducing indexes, caching or a background diagnostics subsystem.
 
 The source import operation receives user-selected text plus title and an optional validated acquisition URL. Native file selection/extraction remains a separate named operation. Imported HTML is untrusted and must pass a maintained extraction/sanitization pipeline before rendering; raw remote HTML/scripts never become trusted UI. A returned generated lesson is decoded and persisted as AI-authored source material before Reader opens it.
 

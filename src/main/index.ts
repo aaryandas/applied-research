@@ -45,6 +45,7 @@ import { createDesktopAuthSdk, electronOauthStateRegistry } from './auth-sdk';
 import { createAuthStorage } from './auth-storage';
 import { makeBackendAccountTransport } from './auth-transport';
 import { createDesktopAuthController } from './desktop-auth';
+import { LEARNING_CHANNELS } from '../contracts/learning-records';
 
 if (process.env.APPLIED_RESEARCH_DATA_DIR)
   app.setPath('userData', process.env.APPLIED_RESEARCH_DATA_DIR);
@@ -204,6 +205,30 @@ async function createWindow(): Promise<void> {
   handle(CHANNELS.create, (value) => store.create(text(value, 1000)));
   handle(CHANNELS.saveEntry, (value) => store.saveEntry(entryDraft(value)));
   handle(CHANNELS.moveEntry, (value) => store.moveEntry(entryPosition(value)));
+  handle(LEARNING_CHANNELS.getWorkspace, (value) => {
+    const workspace = store.getLearningWorkspace(value);
+    for (const unreadable of workspace.unreadableProjects) {
+      console.error('Unreadable local learning space.', unreadable);
+    }
+    return workspace;
+  });
+  handle(LEARNING_CHANNELS.importTextSource, (value) =>
+    store.importTextSource(value),
+  );
+  handle(LEARNING_CHANNELS.saveHighlight, (value) =>
+    store.saveHighlight(value),
+  );
+  handle(LEARNING_CHANNELS.saveReadingNote, (value) =>
+    store.saveReadingNote(value),
+  );
+  handle(LEARNING_CHANNELS.saveQuestion, (value) => store.saveQuestion(value));
+  handle(LEARNING_CHANNELS.saveInsight, (value) => store.saveInsight(value));
+  handle(LEARNING_CHANNELS.savePathRevision, (value) =>
+    store.savePathRevision(value),
+  );
+  handle(LEARNING_CHANNELS.moveRecord, (value) =>
+    store.moveLearningRecord(value),
+  );
   handle(CHANNELS.experiment, (value) =>
     store.addExperiment(identifier(value)),
   );
@@ -365,6 +390,8 @@ async function createWindow(): Promise<void> {
       if (channel !== AUTH_CHANNELS.accountState)
         ipcMain.removeHandler(channel);
     }
+    for (const channel of Object.values(LEARNING_CHANNELS))
+      ipcMain.removeHandler(channel);
   });
   window.once('ready-to-show', () => window.show());
   await window.loadURL(rendererUrl);
@@ -411,6 +438,7 @@ async function startApplication(): Promise<void> {
   }
 }
 
+// Bundled CommonJS deadlocks when Electron readiness is awaited at module scope.
 void startApplication();
 app.on('will-quit', () => {
   authProtocol.dispose();

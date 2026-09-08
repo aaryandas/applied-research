@@ -4,13 +4,10 @@ import type {
   ToolBounds,
   TutorRequest,
 } from '../contracts/workspace';
-import { decodeText } from './workspace-decoder';
+import { decodeRecord, decodeText } from './workspace-decoder';
 
 export function record(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('Expected an object.');
-  }
-  return value as Record<string, unknown>;
+  return decodeRecord(value, 'input');
 }
 export function text(value: unknown, max = 20_000): string {
   return decodeText(value, 'text', max);

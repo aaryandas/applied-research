@@ -12,7 +12,7 @@ Current working vocabulary. Definitions marked **proposed** need detailed contra
 - **Attempt (proposed):** a particular execution of an activity, including what the learner tried and expected.
 - **Result (proposed):** returned evidence of what happened in an attempt; success is not required.
 - **Artifact (proposed):** a selected file, excerpt, metric, output, or other record supporting a result. Its locators and provenance differ from source citations.
-- **Source:** ingested learning material, preserved with a stable identity/version. Supported formats remain to be chosen.
+- **Source:** ingested learning material, preserved with a stable identity/version. The first durable local slice supports exact pasted plain text; file parsing, URL retrieval and broader formats remain later work.
 - **Sentence:** an anchor for citing source text. Lectures additionally need timestamp locators.
 - **Question / Answer:** the human's question and AI's evidence-grounded response. Observations and inferences remain distinguishable.
 - **Note:** the learner’s own-word summary or interpretation of highlighted source text. It preserves the exact highlight, source identity/version and locator. Reading notes remain distinct from AI text and practical observations.
