@@ -468,7 +468,7 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
   );
   if (
     openAlexIdentity !== undefined &&
-    sourceId !== `openalex-${openAlexIdentity.id}`
+    sourceId !== `openalex_${openAlexIdentity.id}`
   ) {
     invalid('OpenAlex source id is not deterministic from its work id.');
   }

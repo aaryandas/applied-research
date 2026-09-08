@@ -20,7 +20,7 @@ import {
 } from './contract-validation.js';
 
 const requestId = 'request-01';
-const sourceId = 'openalex-W2741809807';
+const sourceId = 'openalex_W2741809807';
 const revisionId = 'revision-001';
 const canonicalText = 'Alpha 😀 evidence from the canonical paper.';
 const sha256 = createHash('sha256').update(canonicalText).digest('hex');

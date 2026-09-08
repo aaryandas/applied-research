@@ -129,7 +129,7 @@ export interface UntrustedOriginalLocation {
 }
 
 export interface SourceDescriptor {
-  /** OpenAlex works use the deterministic form `openalex-${workId}`. */
+  /** OpenAlex works use the deterministic form `openalex_${workId}`. */
   sourceId: string;
   kind: SourceKind;
   title: string;
