@@ -65,9 +65,9 @@ it('retains unavailable drafts and does not leave on a blocked save', async () =
   });
   fireEvent.click(screen.getByRole('button', { name: 'Return to learning' }));
   await waitFor(() =>
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Saving is unavailable',
-    ),
+    expect(
+      screen.getByRole('status', { name: 'Save status' }),
+    ).toHaveTextContent('Saving is unavailable'),
   );
   expect(options.onReturnToLearning).not.toHaveBeenCalled();
   expect(screen.getByLabelText('Expected outcome')).toHaveValue(
@@ -103,7 +103,9 @@ it('keeps reported text, selected measurements and human reflection distinct', a
   fireEvent.click(screen.getByRole('radio', { name: /Measured endpoint/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Save work' }));
   await waitFor(() =>
-    expect(screen.getByRole('status')).toHaveTextContent('Saved'),
+    expect(
+      screen.getByRole('status', { name: 'Save status' }),
+    ).toHaveTextContent('Saved'),
   );
   expect(save.mock.calls[0]?.[0].draft).toEqual(
     expect.objectContaining({
@@ -297,7 +299,9 @@ it.each(['failed', 'cancelled'] as const)(
     );
     fireEvent.click(retry);
     await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent('Saved'),
+      expect(
+        screen.getByRole('status', { name: 'Save status' }),
+      ).toHaveTextContent('Saved'),
     );
     expect(save.mock.calls[1]?.[0].draft.prediction).toBe('  My exact words\n');
   },
@@ -326,7 +330,9 @@ it('disables conflict retry and blocks registered navigation flush while keeping
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save work' }));
   await waitFor(() =>
-    expect(screen.getByRole('status')).toHaveTextContent('A newer version'),
+    expect(
+      screen.getByRole('status', { name: 'Save status' }),
+    ).toHaveTextContent('A newer version'),
   );
   expect(screen.getByRole('button', { name: 'Save work' })).toBeDisabled();
   expect(
@@ -522,4 +528,153 @@ it('scopes Practical styles away from embedded forms and layout', async () => {
   } finally {
     stylesheet.remove();
   }
+});
+
+it('starts guidance only explicitly and uses the adapter status as authority', async () => {
+  const start = vi.fn(async () => {});
+  const stop = vi.fn(async () => {});
+  const options = props();
+  const view = render(
+    <PracticalWork
+      {...options}
+      activityGuidance={{ status: 'idle', start, stop }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'Private draft' },
+  });
+  expect(start).not.toHaveBeenCalled();
+  expect(stop).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Start activity guidance' }),
+  );
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+  expect(start).toHaveBeenCalledWith({
+    trigger: 'explicit-action',
+    target: {
+      scope: 'applied-research',
+      surface: 'practical-work',
+      attemptId: options.attemptId,
+      activity: options.activity,
+      target: 'activity-instructions',
+    },
+  });
+  expect(
+    screen.getByRole('status', { name: 'Activity guidance status' }),
+  ).toHaveTextContent('Guidance is off');
+  view.rerender(
+    <PracticalWork
+      {...options}
+      activityGuidance={{ status: 'active', start, stop }}
+    />,
+  );
+  expect(
+    screen.getByRole('status', { name: 'Activity guidance status' }),
+  ).toHaveTextContent('Guidance is on');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Stop activity guidance' }),
+  );
+  await waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+});
+
+it('allows Stop while the start adapter is still settling', async () => {
+  let finish = () => {};
+  const start = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const stop = vi.fn(async () => {
+    finish();
+  });
+  const options = props();
+  const view = render(
+    <PracticalWork
+      {...options}
+      activityGuidance={{ status: 'idle', start, stop }}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Start activity guidance' }),
+  );
+  view.rerender(
+    <PracticalWork
+      {...options}
+      activityGuidance={{ status: 'starting', start, stop }}
+    />,
+  );
+  expect(
+    screen.getByRole('button', { name: 'Stop activity guidance' }),
+  ).toBeEnabled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Stop activity guidance' }),
+  );
+  await waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+});
+
+it('revokes activity guidance before navigation flush commits the draft', async () => {
+  const calls: string[] = [];
+  let flush: () => Promise<PracticalFlushResult> = async () => ({
+    status: 'blocked',
+    reason: 'failed',
+  });
+  render(
+    <PracticalWork
+      {...props()}
+      activityGuidance={{
+        status: 'active',
+        start: async () => {},
+        stop: async () => {
+          calls.push('stop');
+        },
+      }}
+      recordPracticalResult={(value) => {
+        calls.push('commit');
+        return commit(value);
+      }}
+      registerFlush={(callback) => {
+        flush = callback;
+        return () => {};
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'Keep this draft' },
+  });
+  await act(async () => {
+    expect((await flush()).status).toBe('ready');
+  });
+  expect(calls).toEqual(['stop', 'commit']);
+});
+
+it('blocks navigation when guidance cannot stop and preserves draft text', async () => {
+  const options = props();
+  const save = vi.fn(commit);
+  render(
+    <PracticalWork
+      {...options}
+      recordPracticalResult={save}
+      activityGuidance={{
+        status: 'active',
+        start: async () => {},
+        stop: async () => {
+          throw new Error('private adapter detail');
+        },
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'Keep this draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Return to learning' }));
+  await screen.findByText(
+    'That action could not finish. Your draft is here; try again.',
+  );
+  expect(save).not.toHaveBeenCalled();
+  expect(options.onReturnToLearning).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Expected outcome')).toHaveValue(
+    'Keep this draft',
+  );
+  expect(screen.queryByText('private adapter detail')).not.toBeInTheDocument();
 });

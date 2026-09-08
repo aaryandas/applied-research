@@ -1,7 +1,8 @@
-import type { PracticalDraft } from '../../contracts/practical-work';
-
-/** UTF-16 code units, matching the named main-operation validation contract. */
-export const MAX_PRACTICAL_FIELD_LENGTH = 12_000;
+import {
+  MAX_PRACTICAL_FIELD_LENGTH,
+  type PracticalDraft,
+} from '../../contracts/practical-work';
+export { MAX_PRACTICAL_FIELD_LENGTH } from '../../contracts/practical-work';
 
 export function exceedsPracticalFieldLimit(draft: PracticalDraft): boolean {
   return [
