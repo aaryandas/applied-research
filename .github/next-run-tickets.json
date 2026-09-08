@@ -10,7 +10,7 @@
     {
       "title": "Day zero: adopt the next-run workflow (lane guard, macOS gate, Claude review, video evidence)",
       "priority": 1,
-      "description": "Merge the `codex/next-run-workflow` branch. Then in GitHub: add the `ANTHROPIC_API_KEY` secret, create labels `lane:<name>` for every lane in `.github/lanes.json`, set the required checks on the integration branch to `checks / CI gate` and `Lane guard` only, and enable the merge queue. See `context/next-run.md`."
+      "description": "Merge the `codex/next-run-workflow` branch. Then in GitHub: run `claude setup-token` and add the result as the `CLAUDE_CODE_OAUTH_TOKEN` secret (subscription, no API key), create labels `lane:<name>` for every lane in `.github/lanes.json`, set the required checks on the integration branch to `checks / CI gate` and `Lane guard` only, and enable the merge queue. See `context/next-run.md`."
     },
     {
       "title": "Day zero: Linear automations and Cursor cloud verification",

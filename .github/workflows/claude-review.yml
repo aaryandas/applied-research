@@ -2,7 +2,8 @@ name: Independent review (Claude)
 
 # Standards and spec review on every PR by the pinned independent model. Replaces
 # reviewer terminals whose logins expire and whose prompts can sit unsubmitted.
-# Requires the ANTHROPIC_API_KEY repository secret.
+# Runs on the founder's Claude subscription via a long-lived OAuth token from `claude setup-token`,
+# stored as the CLAUDE_CODE_OAUTH_TOKEN repository secret. No Anthropic API key is used.
 
 on:
   pull_request:
@@ -33,7 +34,7 @@ jobs:
           fetch-depth: 0
       - uses: anthropics/claude-code-action@0d0e0876d3eaa933f45dc692f7a4312c83caf36f # v1 main 2026-09-08
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: '--model claude-fable-5-1 --max-turns 40'
           prompt: |
             You are the independent critic for this repository. Review this pull request on two axes and post one comment.

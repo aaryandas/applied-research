@@ -45,7 +45,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and
 
 Run these before any lane starts. Tickets are in `.github/next-run-tickets.json`; seed them with `LINEAR_API_KEY=... node scripts/linear-seed.mjs`.
 
-1. Merge the workflow branch. Add the `ANTHROPIC_API_KEY` secret. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate` and `Lane guard`. Enable the merge queue.
+1. Merge the workflow branch. Run `claude setup-token` locally and store the result as the `CLAUDE_CODE_OAUTH_TOKEN` repository secret; the review action runs on the Claude subscription, not the API. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate` and `Lane guard`. Enable the merge queue.
 2. Linear: enable the GitHub integration; add the automation `status = In Testing → run Cursor cloud agent` with the verification prompt below.
 3. Cursor: enable Bugbot on the repository; restrict autofix to formatting and lint (no test, threshold, or Sonar config edits).
 4. SonarQube: settle the quality-profile decisions listed in the day-zero Sonar ticket.
