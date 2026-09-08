@@ -9,11 +9,11 @@ import type {
 } from '../../contracts/sourcing.js';
 import {
   parseAcquireCanonicalSourceRequest,
-  parseAcquireCanonicalSourceResponse,
+  parseAcquireCanonicalSourceResponse as parseAcquisitionResponseValue,
   parseDiscoverSourcesRequest,
-  parseDiscoverSourcesResponse,
+  parseDiscoverSourcesResponse as parseDiscoveryResponseValue,
   parseRetrieveEvidenceRequest,
-  parseRetrieveEvidenceResponse,
+  parseRetrieveEvidenceResponse as parseRetrievalResponseValue,
   SourcingContractValidationError,
   validatePassageLocatorAgainstCanonicalText,
 } from './contract-validation.js';
@@ -95,14 +95,47 @@ const sourceVersion = {
   canonicalizationVersion: 'canonical-v1',
 };
 
+const retrievalSourceVersion = {
+  ...sourceVersion,
+  indexing: {
+    status: 'permitted',
+    basis: 'license',
+    evidenceUrl: 'https://example.edu/papers/primary/license',
+  },
+} as const;
+
 const retrievalRequest = {
   apiVersion: '2026-09-08',
   requestId,
   intent: 'research',
   query: 'What evidence supports the traversal complexity claim?',
-  sourceRevisions: [sourceVersion],
+  sourceRevisions: [retrievalSourceVersion],
   maxPassages: 5,
 };
+
+function parseDiscoverSourcesResponse(value: unknown) {
+  return parseDiscoveryResponseValue(
+    value,
+    parseDiscoverSourcesRequest(discoveryRequest),
+  );
+}
+
+function parseAcquireCanonicalSourceResponse(value: unknown) {
+  return parseAcquisitionResponseValue(
+    value,
+    parseAcquireCanonicalSourceRequest(acquisitionRequest),
+  );
+}
+
+function parseRetrieveEvidenceResponse(value: unknown) {
+  return parseRetrievalResponseValue(value, {
+    request: parseRetrieveEvidenceRequest(retrievalRequest),
+    canonicalTextFor: (identity) =>
+      identity.sourceId === sourceId && identity.revisionId === revisionId
+        ? canonicalText
+        : null,
+  });
+}
 
 const discoverySuccess: DiscoverSourcesResponse = {
   outcome: 'success',
@@ -182,6 +215,16 @@ const retrievalSuccess: RetrieveEvidenceResponse = {
 
 const failureFixtures = [
   {
+    outcome: 'invalid-request',
+    requestId: null,
+    message: 'The sourcing request is invalid.',
+  },
+  {
+    outcome: 'unauthenticated',
+    requestId: null,
+    message: 'Authentication is required.',
+  },
+  {
     outcome: 'cancelled',
     requestId,
     message: 'The sourcing request was cancelled.',
@@ -197,6 +240,12 @@ const failureFixtures = [
     requestId,
     message: 'The source provider rate limit was reached.',
     retryAfterMilliseconds: 2_000,
+  },
+  {
+    outcome: 'unavailable',
+    requestId: null,
+    message: 'The sourcing operation is unavailable.',
+    retryable: true,
   },
 ] as const;
 
@@ -228,7 +277,7 @@ describe('sourcing request validation', () => {
     { ...retrievalRequest, maxPassages: 0 },
     {
       ...retrievalRequest,
-      sourceRevisions: [sourceVersion, sourceVersion],
+      sourceRevisions: [retrievalSourceVersion, retrievalSourceVersion],
     },
   ])(
     'rejects malformed, unbounded, or authority-bearing request %#',
@@ -242,6 +291,39 @@ describe('sourcing request validation', () => {
       expect(() => parse(value)).toThrow(SourcingContractValidationError);
     },
   );
+
+  it('requires explicit indexing permission for every retrieval source', () => {
+    expect(() =>
+      parseRetrieveEvidenceRequest({
+        ...retrievalRequest,
+        sourceRevisions: [
+          {
+            ...retrievalSourceVersion,
+            indexing: {
+              status: 'unknown',
+              reason: 'The indexing review is incomplete.',
+            },
+          },
+        ],
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it('rejects sparse request arrays before JSON can coerce holes to null', () => {
+    const sparseKinds: unknown[] = [];
+    sparseKinds.length = 1;
+    const sparseRevisions: unknown[] = [];
+    sparseRevisions.length = 1;
+    expect(() =>
+      parseDiscoverSourcesRequest({ ...discoveryRequest, kinds: sparseKinds }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrieveEvidenceRequest({
+        ...retrievalRequest,
+        sourceRevisions: sparseRevisions,
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
 });
 
 describe('sourcing response validation', () => {
@@ -254,10 +336,108 @@ describe('sourcing response validation', () => {
     );
   });
 
+  it('binds discovery responses to request identity, kinds, and limit', () => {
+    const request = parseDiscoverSourcesRequest(discoveryRequest);
+    expect(() =>
+      parseDiscoveryResponseValue(
+        { ...discoverySuccess, requestId: 'request-02' },
+        request,
+      ),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseDiscoveryResponseValue(discoverySuccess, {
+        ...request,
+        kinds: ['course'],
+      }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseDiscoveryResponseValue(
+        {
+          ...discoverySuccess,
+          candidates: [
+            paperCandidate,
+            { ...paperCandidate, sourceId: 'source-002' },
+          ],
+        },
+        { ...request, limit: 1 },
+      ),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it('preserves generated lecture/course structure and unresolved policy metadata', () => {
+    const lecture: MetadataOnlySource = {
+      ...paperCandidate,
+      sourceId: 'lecture-001',
+      kind: 'lecture',
+      title: 'Generated lecture companion',
+      authorship: {
+        kind: 'generated',
+        generator: 'learning-material-generator-v1',
+        generatedAt: '2026-09-08T14:00:00.000Z',
+      },
+      providerIds: [
+        { provider: 'mit-open-courseware', id: '6.006-lecture-01' },
+      ],
+      scholarlyIdentity: { doi: null, arxivId: null },
+      publicationDate: null,
+      metadataSummary: null,
+      relationships: [
+        {
+          kind: 'lecture-of-course',
+          parentSourceId: 'course-001',
+          parentProviderIds: [
+            { provider: 'mit-open-courseware', id: '6.006-fall-2011' },
+          ],
+        },
+      ],
+      usePolicy: {
+        access: 'unknown',
+        accessEvidenceUrl: null,
+        license: { status: 'unknown' },
+        acquisition: { status: 'forbidden', reason: 'Not approved.' },
+        indexing: { status: 'forbidden', reason: 'Not approved.' },
+      },
+    };
+    expect(
+      parseDiscoveryResponseValue(
+        {
+          outcome: 'success',
+          requestId,
+          candidates: [lecture],
+        },
+        parseDiscoverSourcesRequest({
+          ...discoveryRequest,
+          kinds: ['lecture'],
+        }),
+      ),
+    ).toMatchObject({
+      candidates: [{ kind: 'lecture', relationships: lecture.relationships }],
+    });
+  });
+
   it('accepts acquired discovered material without human-import attribution', () => {
     expect(parseAcquireCanonicalSourceResponse(acquisitionSuccess)).toEqual(
       acquisitionSuccess,
     );
+  });
+
+  it('binds acquisition responses to the requested source and provider', () => {
+    const request = parseAcquireCanonicalSourceRequest(acquisitionRequest);
+    expect(() =>
+      parseAcquisitionResponseValue(acquisitionSuccess, {
+        ...request,
+        sourceId: 'source-999',
+      }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseAcquisitionResponseValue(acquisitionSuccess, {
+        ...request,
+        providerIdentity: {
+          provider: 'semantic-scholar',
+          id: 'CorpusId:123456',
+        },
+      }),
+    ).toThrow(SourcingContractValidationError);
   });
 
   it('keeps metadata-only summaries separate from acquired canonical text', () => {
@@ -273,6 +453,100 @@ describe('sourcing response validation', () => {
     expect(parseRetrieveEvidenceResponse(retrievalSuccess)).toEqual(
       retrievalSuccess,
     );
+  });
+
+  it('binds evidence to its request and verifies canonical source text', () => {
+    if (retrievalSuccess.outcome !== 'success') {
+      throw new Error('Expected the retrieval success fixture.');
+    }
+    const request = parseRetrieveEvidenceRequest(retrievalRequest);
+    const evidence = retrievalSuccess.evidence[0]!;
+    expect(() =>
+      parseRetrievalResponseValue(
+        { ...retrievalSuccess, requestId: 'request-02' },
+        { request, canonicalTextFor: () => canonicalText },
+      ),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrievalResponseValue(retrievalSuccess, {
+        request: { ...request, query: 'A different query.' },
+        canonicalTextFor: () => canonicalText,
+      }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrievalResponseValue(retrievalSuccess, {
+        request,
+        canonicalTextFor: () => `${canonicalText}!`,
+      }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrievalResponseValue(
+        {
+          ...retrievalSuccess,
+          evidence: [
+            evidence,
+            {
+              ...evidence,
+              evidenceId: 'evidence-002',
+              provenance: { ...evidence.provenance, rank: 2 },
+            },
+          ],
+        },
+        {
+          request: { ...request, maxPassages: 1 },
+          canonicalTextFor: () => canonicalText,
+        },
+      ),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrievalResponseValue(
+        {
+          ...retrievalSuccess,
+          evidence: [
+            {
+              ...evidence,
+              locator: {
+                ...evidence.locator,
+                quote: 'x'.repeat(canonicalText.length),
+              },
+            },
+          ],
+        },
+        { request, canonicalTextFor: () => canonicalText },
+      ),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it('accepts partial retrieval with timed passage and provider issue provenance', () => {
+    if (retrievalSuccess.outcome !== 'success') {
+      throw new Error('Expected the retrieval success fixture.');
+    }
+    const evidence = retrievalSuccess.evidence[0]!;
+    const partial: RetrieveEvidenceResponse = {
+      outcome: 'partial',
+      requestId,
+      evidence: [
+        {
+          ...evidence,
+          locator: {
+            ...evidence.locator,
+            position: {
+              kind: 'time',
+              startMilliseconds: 1_000,
+              endMilliseconds: 5_000,
+            },
+          },
+        },
+      ],
+      issues: [
+        {
+          provider: 'turbopuffer',
+          reason: 'timed-out',
+          retryAfterMilliseconds: null,
+        },
+      ],
+    };
+    expect(parseRetrieveEvidenceResponse(partial)).toEqual(partial);
   });
 
   it.each(failureFixtures)(
@@ -403,6 +677,245 @@ describe('sourcing response validation', () => {
             },
           },
         },
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it.each([
+    null,
+    { ...discoverySuccess, candidates: [] },
+    {
+      ...discoverySuccess,
+      candidates: [paperCandidate, paperCandidate],
+    },
+    {
+      ...discoveryPartial,
+      issues: [],
+    },
+    {
+      ...discoveryPartial,
+      issues: [
+        {
+          provider: 'unknown-provider',
+          reason: 'unavailable',
+          retryAfterMilliseconds: null,
+        },
+      ],
+    },
+    {
+      ...discoveryPartial,
+      issues: [
+        {
+          provider: 'openalex',
+          reason: 'bad-reason',
+          retryAfterMilliseconds: null,
+        },
+      ],
+    },
+    {
+      ...discoveryPartial,
+      issues: [
+        {
+          provider: 'turbopuffer',
+          reason: 'unavailable',
+          retryAfterMilliseconds: null,
+        },
+      ],
+    },
+    { outcome: 'no-results', requestId, message: 'None.', candidates: [] },
+    { outcome: 'unexpected', requestId, message: 'Bad.' },
+    { ...failureFixtures[0], retryable: true },
+    { ...failureFixtures[1], retryAfterMilliseconds: 1 },
+    { ...failureFixtures[2], retryable: true },
+    { ...failureFixtures[3], retryAfterMilliseconds: 1 },
+    { ...failureFixtures[4], retryable: true },
+    { ...failureFixtures[5], retryAfterMilliseconds: 1 },
+  ])('rejects malformed discovery response outcome %#', (value) => {
+    expect(() => parseDiscoverSourcesResponse(value)).toThrow(
+      SourcingContractValidationError,
+    );
+  });
+
+  it.each([
+    { ...paperCandidate, kind: 'unknown' },
+    {
+      ...paperCandidate,
+      authorship: { kind: 'authored', creators: [], generator: 'not-allowed' },
+    },
+    { ...paperCandidate, authorship: { kind: 'unknown' } },
+    { ...paperCandidate, providerIds: [] },
+    {
+      ...paperCandidate,
+      providerIds: [
+        paperCandidate.providerIds[0],
+        paperCandidate.providerIds[0],
+      ],
+    },
+    {
+      ...paperCandidate,
+      scholarlyIdentity: { doi: null, arxivId: 'not-arxiv' },
+    },
+    { ...paperCandidate, publicationDate: '2026-02-30' },
+    {
+      ...paperCandidate,
+      originalLocation: {
+        ...paperCandidate.originalLocation,
+        trust: 'trusted',
+      },
+    },
+    {
+      ...paperCandidate,
+      relationships: [
+        {
+          ...paperCandidate.relationships[0],
+          parentSourceId: sourceId,
+        },
+      ],
+    },
+    {
+      ...paperCandidate,
+      usePolicy: {
+        ...paperCandidate.usePolicy,
+        access: 'free-means-permitted',
+      },
+    },
+    {
+      ...paperCandidate,
+      usePolicy: {
+        ...paperCandidate.usePolicy,
+        license: { status: 'unknown', name: 'Invented license' },
+      },
+    },
+    {
+      ...paperCandidate,
+      usePolicy: {
+        ...paperCandidate.usePolicy,
+        acquisition: {
+          status: 'permitted',
+          basis: 'license',
+          evidenceUrl: paperCandidate.originalLocation.url,
+          reason: 'Contradictory.',
+        },
+      },
+    },
+    {
+      ...paperCandidate,
+      usePolicy: {
+        ...paperCandidate.usePolicy,
+        indexing: {
+          status: 'unknown',
+          reason: 'Unknown.',
+          evidenceUrl: paperCandidate.originalLocation.url,
+        },
+      },
+    },
+    { ...paperCandidate, content: { state: 'acquired' } },
+  ])('rejects malformed candidate field %#', (candidate) => {
+    expect(() =>
+      parseDiscoverSourcesResponse({
+        outcome: 'success',
+        requestId,
+        candidates: [candidate],
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it.each([
+    { path: ['retrieverScore'], value: -1 },
+    { path: ['retrieverScore'], value: Number.NaN },
+    { path: ['sourceQuality'], value: 'unscored' },
+    { path: ['evidenceId'], value: 'short' },
+    { path: ['locator', 'end'], value: canonicalText.length - 1 },
+    { path: ['locator', 'revisionId'], value: 'revision-999' },
+    {
+      path: ['locator', 'position'],
+      value: { kind: 'document', startPage: 1 },
+    },
+    {
+      path: ['locator', 'position'],
+      value: { kind: 'pages', startPage: 2, endPage: 1 },
+    },
+    {
+      path: ['locator', 'position'],
+      value: {
+        kind: 'time',
+        startMilliseconds: 5,
+        endMilliseconds: 5,
+      },
+    },
+    { path: ['locator', 'position'], value: { kind: 'unknown' } },
+    { path: ['provenance', 'provider'], value: 'openalex' },
+    { path: ['provenance', 'intent'], value: 'browsing' },
+    { path: ['provenance', 'rank'], value: 0 },
+    { path: ['provenance', 'retrievedAt'], value: 'yesterday' },
+  ])('rejects malformed retrieval evidence field %#', ({ path, value }) => {
+    if (retrievalSuccess.outcome !== 'success') {
+      throw new Error('Expected the retrieval success fixture.');
+    }
+    const original = retrievalSuccess.evidence[0]!;
+    const evidence = {
+      ...original,
+      ...(path.length === 1
+        ? { [path[0]!]: value }
+        : {
+            [path[0]!]: {
+              ...(original[path[0] as 'locator' | 'provenance'] as object),
+              [path[1]!]: value,
+            },
+          }),
+    };
+    expect(() =>
+      parseRetrieveEvidenceResponse({
+        ...retrievalSuccess,
+        evidence: [evidence],
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it('rejects duplicate evidence identities and ranks', () => {
+    if (retrievalSuccess.outcome !== 'success') {
+      throw new Error('Expected the retrieval success fixture.');
+    }
+    const first = retrievalSuccess.evidence[0]!;
+    expect(() =>
+      parseRetrieveEvidenceResponse({
+        ...retrievalSuccess,
+        evidence: [first, first],
+      }),
+    ).toThrow(SourcingContractValidationError);
+    expect(() =>
+      parseRetrieveEvidenceResponse({
+        ...retrievalSuccess,
+        evidence: [first, { ...first, evidenceId: 'evidence-002' }],
+      }),
+    ).toThrow(SourcingContractValidationError);
+  });
+
+  it('rejects sparse result arrays and cross-operation provider issues', () => {
+    const sparseCandidates: unknown[] = [];
+    sparseCandidates.length = 1;
+    expect(() =>
+      parseDiscoverSourcesResponse({
+        ...discoverySuccess,
+        candidates: sparseCandidates,
+      }),
+    ).toThrow(SourcingContractValidationError);
+
+    if (retrievalSuccess.outcome !== 'success') {
+      throw new Error('Expected the retrieval success fixture.');
+    }
+    expect(() =>
+      parseRetrieveEvidenceResponse({
+        outcome: 'partial',
+        requestId,
+        evidence: retrievalSuccess.evidence,
+        issues: [
+          {
+            provider: 'openalex',
+            reason: 'unavailable',
+            retryAfterMilliseconds: null,
+          },
+        ],
       }),
     ).toThrow(SourcingContractValidationError);
   });

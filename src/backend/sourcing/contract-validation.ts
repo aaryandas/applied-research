@@ -4,6 +4,7 @@ import {
   SOURCE_KINDS,
   SOURCE_RETRIEVAL_PROVIDERS,
   SOURCING_API_VERSION,
+  SOURCING_LIMITS,
 } from '../../contracts/sourcing.js';
 import type {
   AcquireCanonicalSourceRequest,
@@ -20,12 +21,15 @@ import type {
   RetrieveEvidenceRequest,
   RetrieveEvidenceResponse,
   RetrievalEvidence,
+  RetrievalSourceRevision,
   ScholarlyIdentity,
   SourceAuthorship,
   SourceDescriptor,
+  SourceDiscoveryProvider,
   SourceKind,
   SourceLicense,
   SourceRelationship,
+  SourceRetrievalProvider,
   SourceRevisionIdentity,
   SourceUsePolicy,
   SourcingFailure,
@@ -65,14 +69,6 @@ const PERMISSION_BASES = [
   'provider-terms',
   'owner-permission',
 ] as const;
-const MAX_QUERY_CHARACTERS = 2_000;
-const MAX_DISCOVERY_RESULTS = 50;
-const MAX_RETRIEVAL_SOURCES = 50;
-const MAX_RETRIEVAL_PASSAGES = 50;
-const MAX_CANONICAL_TEXT_CHARACTERS = 250_000;
-const MAX_RELATIONSHIPS = 32;
-const MAX_CREATORS = 100;
-const MAX_PROVIDER_IDENTITIES = 16;
 
 export class SourcingContractValidationError extends Error {
   override readonly name = 'SourcingContractValidationError';
@@ -97,9 +93,25 @@ function strictRecord(
   return record;
 }
 
+function rejectDefinedFields(
+  record: Record<string, unknown>,
+  fields: readonly string[],
+  message: string,
+): void {
+  if (fields.some((field) => record[field] !== undefined)) invalid(message);
+}
+
 function includesMember<T>(values: readonly T[], value: unknown): value is T {
   const candidates: readonly unknown[] = values;
   return candidates.includes(value);
+}
+
+function isDenseArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!(index in value)) return false;
+  }
+  return true;
 }
 
 function boundedText(value: unknown, maximum: number, field: string): string {
@@ -212,9 +224,9 @@ function providerIdentities(
   field = 'Provider identities',
 ): ProviderIdentity[] {
   if (
-    !Array.isArray(value) ||
+    !isDenseArray(value) ||
     value.length < 1 ||
-    value.length > MAX_PROVIDER_IDENTITIES
+    value.length > SOURCING_LIMITS.providerIdentities
   ) {
     invalid(`${field} are invalid.`);
   }
@@ -247,7 +259,7 @@ function stringList(
   itemMaximum: number,
   field: string,
 ): string[] {
-  if (!Array.isArray(value) || value.length > maximumItems) {
+  if (!isDenseArray(value) || value.length > maximumItems) {
     invalid(`${field} are invalid.`);
   }
   return value.map((item) => boundedText(item, itemMaximum, field));
@@ -261,18 +273,27 @@ function sourceAuthorship(value: unknown): SourceAuthorship {
     'generatedAt',
   ]);
   if (input.kind === 'authored') {
-    if (input.generator !== undefined || input.generatedAt !== undefined) {
-      invalid('Authored source attribution is invalid.');
-    }
+    rejectDefinedFields(
+      input,
+      ['generator', 'generatedAt'],
+      'Authored source attribution is invalid.',
+    );
     return {
       kind: input.kind,
-      creators: stringList(input.creators, MAX_CREATORS, 200, 'Creators'),
+      creators: stringList(
+        input.creators,
+        SOURCING_LIMITS.creators,
+        200,
+        'Creators',
+      ),
     };
   }
   if (input.kind === 'generated') {
-    if (input.creators !== undefined) {
-      invalid('Generated source attribution is invalid.');
-    }
+    rejectDefinedFields(
+      input,
+      ['creators'],
+      'Generated source attribution is invalid.',
+    );
     return {
       kind: input.kind,
       generator: boundedText(input.generator, 200, 'Source generator'),
@@ -311,7 +332,7 @@ function sourceRelationships(
   sourceId: string,
   sourceKind: SourceKind,
 ): SourceRelationship[] {
-  if (!Array.isArray(value) || value.length > MAX_RELATIONSHIPS) {
+  if (!isDenseArray(value) || value.length > SOURCING_LIMITS.relationships) {
     invalid('Source relationships are invalid.');
   }
   const parsed = value.map(sourceRelationship);
@@ -333,13 +354,11 @@ function sourceRelationships(
 function sourceLicense(value: unknown): SourceLicense {
   const input = strictRecord(value, ['status', 'name', 'spdxId', 'url']);
   if (input.status === 'unknown') {
-    if (
-      input.name !== undefined ||
-      input.spdxId !== undefined ||
-      input.url !== undefined
-    ) {
-      invalid('Unknown source license is invalid.');
-    }
+    rejectDefinedFields(
+      input,
+      ['name', 'spdxId', 'url'],
+      'Unknown source license is invalid.',
+    );
     return { status: input.status };
   }
   if (input.status !== 'known') invalid('Source license is invalid.');
@@ -359,7 +378,7 @@ function permissionDecision(value: unknown, field: string): PermissionDecision {
     'reason',
   ]);
   if (input.status === 'permitted') {
-    if (input.reason !== undefined) invalid(`${field} decision is invalid.`);
+    rejectDefinedFields(input, ['reason'], `${field} decision is invalid.`);
     if (!includesMember(PERMISSION_BASES, input.basis)) {
       invalid(`${field} permission basis is invalid.`);
     }
@@ -372,9 +391,11 @@ function permissionDecision(value: unknown, field: string): PermissionDecision {
   if (input.status !== 'forbidden' && input.status !== 'unknown') {
     invalid(`${field} decision is invalid.`);
   }
-  if (input.basis !== undefined || input.evidenceUrl !== undefined) {
-    invalid(`${field} decision is invalid.`);
-  }
+  rejectDefinedFields(
+    input,
+    ['basis', 'evidenceUrl'],
+    `${field} decision is invalid.`,
+  );
   return {
     status: input.status,
     reason: boundedText(input.reason, 500, `${field} reason`),
@@ -434,7 +455,7 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
   return {
     sourceId,
     kind: input.kind,
-    title: boundedText(input.title, 500, 'Source title'),
+    title: boundedText(input.title, 200, 'Source title'),
     authorship: sourceAuthorship(input.authorship),
     providerIds: providerIdentities(input.providerIds),
     scholarlyIdentity: scholarlyIdentity(input.scholarlyIdentity),
@@ -489,6 +510,27 @@ function sourceRevisionIdentity(value: unknown): SourceRevisionIdentity {
   };
 }
 
+function retrievalSourceRevision(value: unknown): RetrievalSourceRevision {
+  const input = strictRecord(value, [
+    'sourceId',
+    'revisionId',
+    'sha256',
+    'canonicalizationVersion',
+    'indexing',
+  ]);
+  const identity = sourceRevisionIdentity({
+    sourceId: input.sourceId,
+    revisionId: input.revisionId,
+    sha256: input.sha256,
+    canonicalizationVersion: input.canonicalizationVersion,
+  });
+  const indexing = permissionDecision(input.indexing, 'Indexing');
+  if (indexing.status !== 'permitted') {
+    invalid('Evidence retrieval requires explicit indexing permission.');
+  }
+  return { ...identity, indexing };
+}
+
 function requestEnvelope(value: unknown): Record<string, unknown> {
   const input = strictRecord(value, [
     'apiVersion',
@@ -519,16 +561,13 @@ export function parseDiscoverSourcesRequest(
   value: unknown,
 ): DiscoverSourcesRequest {
   const input = requestEnvelope(value);
+  rejectDefinedFields(
+    input,
+    ['sourceId', 'providerIdentity', 'sourceRevisions', 'maxPassages'],
+    'Discovery request fields are invalid.',
+  );
   if (
-    input.sourceId !== undefined ||
-    input.providerIdentity !== undefined ||
-    input.sourceRevisions !== undefined ||
-    input.maxPassages !== undefined
-  ) {
-    invalid('Discovery request fields are invalid.');
-  }
-  if (
-    !Array.isArray(input.kinds) ||
+    !isDenseArray(input.kinds) ||
     input.kinds.length < 1 ||
     input.kinds.length > SOURCE_KINDS.length ||
     !input.kinds.every((kind) => includesMember(SOURCE_KINDS, kind)) ||
@@ -540,12 +579,16 @@ export function parseDiscoverSourcesRequest(
     apiVersion: SOURCING_API_VERSION,
     requestId: identifier(input.requestId, 'Request id'),
     intent: sourcingIntent(input.intent),
-    query: boundedText(input.query, MAX_QUERY_CHARACTERS, 'Discovery query'),
+    query: boundedText(
+      input.query,
+      SOURCING_LIMITS.queryCharacters,
+      'Discovery query',
+    ),
     kinds: input.kinds,
     limit: boundedInteger(
       input.limit,
       1,
-      MAX_DISCOVERY_RESULTS,
+      SOURCING_LIMITS.discoveryResults,
       'Discovery limit',
     ),
   };
@@ -555,16 +598,11 @@ export function parseAcquireCanonicalSourceRequest(
   value: unknown,
 ): AcquireCanonicalSourceRequest {
   const input = requestEnvelope(value);
-  if (
-    input.intent !== undefined ||
-    input.query !== undefined ||
-    input.kinds !== undefined ||
-    input.limit !== undefined ||
-    input.sourceRevisions !== undefined ||
-    input.maxPassages !== undefined
-  ) {
-    invalid('Acquisition request fields are invalid.');
-  }
+  rejectDefinedFields(
+    input,
+    ['intent', 'query', 'kinds', 'limit', 'sourceRevisions', 'maxPassages'],
+    'Acquisition request fields are invalid.',
+  );
   return {
     apiVersion: SOURCING_API_VERSION,
     requestId: identifier(input.requestId, 'Request id'),
@@ -577,22 +615,19 @@ export function parseRetrieveEvidenceRequest(
   value: unknown,
 ): RetrieveEvidenceRequest {
   const input = requestEnvelope(value);
+  rejectDefinedFields(
+    input,
+    ['kinds', 'limit', 'sourceId', 'providerIdentity'],
+    'Evidence retrieval request fields are invalid.',
+  );
   if (
-    input.kinds !== undefined ||
-    input.limit !== undefined ||
-    input.sourceId !== undefined ||
-    input.providerIdentity !== undefined
-  ) {
-    invalid('Evidence retrieval request fields are invalid.');
-  }
-  if (
-    !Array.isArray(input.sourceRevisions) ||
+    !isDenseArray(input.sourceRevisions) ||
     input.sourceRevisions.length < 1 ||
-    input.sourceRevisions.length > MAX_RETRIEVAL_SOURCES
+    input.sourceRevisions.length > SOURCING_LIMITS.retrievalSources
   ) {
     invalid('Evidence source revisions are invalid.');
   }
-  const sourceRevisions = input.sourceRevisions.map(sourceRevisionIdentity);
+  const sourceRevisions = input.sourceRevisions.map(retrievalSourceRevision);
   const identities = new Set(
     sourceRevisions.map(
       ({ sourceId, revisionId }) => `${sourceId}\u0000${revisionId}`,
@@ -605,12 +640,16 @@ export function parseRetrieveEvidenceRequest(
     apiVersion: SOURCING_API_VERSION,
     requestId: identifier(input.requestId, 'Request id'),
     intent: sourcingIntent(input.intent),
-    query: boundedText(input.query, MAX_QUERY_CHARACTERS, 'Retrieval query'),
+    query: boundedText(
+      input.query,
+      SOURCING_LIMITS.queryCharacters,
+      'Retrieval query',
+    ),
     sourceRevisions,
     maxPassages: boundedInteger(
       input.maxPassages,
       1,
-      MAX_RETRIEVAL_PASSAGES,
+      SOURCING_LIMITS.retrievalPassages,
       'Maximum passages',
     ),
   };
@@ -630,7 +669,7 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
   ]);
   const canonicalText = boundedText(
     input.canonicalText,
-    MAX_CANONICAL_TEXT_CHARACTERS,
+    SOURCING_LIMITS.canonicalTextCharacters,
     'Canonical source text',
   );
   if (typeof input.sha256 !== 'string' || !SHA256_PATTERN.test(input.sha256)) {
@@ -657,7 +696,7 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
   return {
     sourceId: identifier(input.sourceId, 'Source id'),
     revisionId: identifier(input.revisionId, 'Source revision id'),
-    title: boundedText(input.title, 500, 'Source title'),
+    title: boundedText(input.title, 200, 'Source title'),
     canonicalText,
     sha256: input.sha256,
     format: input.format,
@@ -709,8 +748,11 @@ function passagePosition(value: unknown): PassageLocator['position'] {
     'endMilliseconds',
   ]);
   if (input.kind === 'document') {
-    if (Object.keys(input).length !== 1)
-      invalid('Document position is invalid.');
+    rejectDefinedFields(
+      input,
+      ['startPage', 'endPage', 'startMilliseconds', 'endMilliseconds'],
+      'Document position is invalid.',
+    );
     return { kind: input.kind };
   }
   if (input.kind === 'pages') {
@@ -726,12 +768,11 @@ function passagePosition(value: unknown): PassageLocator['position'] {
       1_000_000,
       'End page',
     );
-    if (
-      input.startMilliseconds !== undefined ||
-      input.endMilliseconds !== undefined
-    ) {
-      invalid('Page position is invalid.');
-    }
+    rejectDefinedFields(
+      input,
+      ['startMilliseconds', 'endMilliseconds'],
+      'Page position is invalid.',
+    );
     return { kind: input.kind, startPage, endPage };
   }
   if (input.kind === 'time') {
@@ -747,9 +788,11 @@ function passagePosition(value: unknown): PassageLocator['position'] {
       Number.MAX_SAFE_INTEGER,
       'End time',
     );
-    if (input.startPage !== undefined || input.endPage !== undefined) {
-      invalid('Time position is invalid.');
-    }
+    rejectDefinedFields(
+      input,
+      ['startPage', 'endPage'],
+      'Time position is invalid.',
+    );
     return { kind: input.kind, startMilliseconds, endMilliseconds };
   }
   return invalid('Passage position is invalid.');
@@ -778,7 +821,7 @@ function passageLocator(value: unknown): PassageLocator {
   );
   const quote = boundedText(
     input.quote,
-    MAX_CANONICAL_TEXT_CHARACTERS,
+    SOURCING_LIMITS.passageCharacters,
     'Exact quote',
   );
   if (quote.length !== end - start) {
@@ -835,7 +878,7 @@ function retrievalEvidence(value: unknown): RetrievalEvidence {
     provenance: {
       query: boundedText(
         provenance.query,
-        MAX_QUERY_CHARACTERS,
+        SOURCING_LIMITS.queryCharacters,
         'Retrieval query',
       ),
       intent: sourcingIntent(provenance.intent),
@@ -849,29 +892,35 @@ function retrievalEvidence(value: unknown): RetrievalEvidence {
         200,
         'Ranking method',
       ),
-      rank: boundedInteger(provenance.rank, 1, MAX_RETRIEVAL_PASSAGES, 'Rank'),
+      rank: boundedInteger(
+        provenance.rank,
+        1,
+        SOURCING_LIMITS.retrievalPassages,
+        'Rank',
+      ),
       retrievedAt: isoTimestamp(provenance.retrievedAt, 'Retrieval time'),
     },
   };
 }
 
-function providerIssue(value: unknown): ProviderIssue {
+function providerIssue<
+  Provider extends SourceDiscoveryProvider | SourceRetrievalProvider,
+>(
+  value: unknown,
+  allowedProviders: readonly Provider[],
+): ProviderIssue<Provider> {
   const input = strictRecord(value, [
     'provider',
     'reason',
     'retryAfterMilliseconds',
   ]);
-  const providers: readonly unknown[] = [
-    ...SOURCE_DISCOVERY_PROVIDERS,
-    ...SOURCE_RETRIEVAL_PROVIDERS,
-  ];
-  if (!providers.includes(input.provider))
+  if (!includesMember(allowedProviders, input.provider))
     invalid('Issue provider is invalid.');
   if (!includesMember(PROVIDER_ISSUE_REASONS, input.reason)) {
     invalid('Provider issue reason is invalid.');
   }
   return {
-    provider: input.provider as ProviderIssue['provider'],
+    provider: input.provider,
     reason: input.reason,
     retryAfterMilliseconds:
       input.retryAfterMilliseconds === null
@@ -885,11 +934,16 @@ function providerIssue(value: unknown): ProviderIssue {
   };
 }
 
-function issues(value: unknown): ProviderIssue[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
+function issues<
+  Provider extends SourceDiscoveryProvider | SourceRetrievalProvider,
+>(
+  value: unknown,
+  allowedProviders: readonly Provider[],
+): ProviderIssue<Provider>[] {
+  if (!isDenseArray(value) || value.length < 1 || value.length > 16) {
     invalid('Provider issues are invalid.');
   }
-  return value.map(providerIssue);
+  return value.map((issue) => providerIssue(issue, allowedProviders));
 }
 
 function responseRequestId(value: unknown): string {
@@ -898,6 +952,15 @@ function responseRequestId(value: unknown): string {
 
 function safeMessage(value: unknown): string {
   return boundedText(value, 500, 'Public response message');
+}
+
+function validateResponseRequestId(
+  response: { requestId: string | null },
+  expectedRequestId: string,
+): void {
+  if (response.requestId !== null && response.requestId !== expectedRequestId) {
+    invalid('Sourcing response request id does not match its request.');
+  }
 }
 
 function sourcingFailure(value: unknown): SourcingFailure {
@@ -909,12 +972,11 @@ function sourcingFailure(value: unknown): SourcingFailure {
     'retryAfterMilliseconds',
   ]);
   if (envelope.outcome === 'invalid-request') {
-    if (
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Invalid-request outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['retryable', 'retryAfterMilliseconds'],
+      'Invalid-request outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId:
@@ -925,12 +987,11 @@ function sourcingFailure(value: unknown): SourcingFailure {
     };
   }
   if (envelope.outcome === 'unauthenticated') {
-    if (
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Unauthenticated outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['retryable', 'retryAfterMilliseconds'],
+      'Unauthenticated outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId:
@@ -941,12 +1002,11 @@ function sourcingFailure(value: unknown): SourcingFailure {
     };
   }
   if (envelope.outcome === 'cancelled') {
-    if (
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Cancelled outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['retryable', 'retryAfterMilliseconds'],
+      'Cancelled outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
@@ -954,10 +1014,12 @@ function sourcingFailure(value: unknown): SourcingFailure {
     };
   }
   if (envelope.outcome === 'timed-out') {
-    if (
-      typeof envelope.retryable !== 'boolean' ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
+    rejectDefinedFields(
+      envelope,
+      ['retryAfterMilliseconds'],
+      'Timed-out outcome is invalid.',
+    );
+    if (typeof envelope.retryable !== 'boolean') {
       invalid('Timed-out outcome is invalid.');
     }
     return {
@@ -968,9 +1030,11 @@ function sourcingFailure(value: unknown): SourcingFailure {
     };
   }
   if (envelope.outcome === 'rate-limited') {
-    if (envelope.retryable !== undefined) {
-      invalid('Rate-limited outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['retryable'],
+      'Rate-limited outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
@@ -987,10 +1051,12 @@ function sourcingFailure(value: unknown): SourcingFailure {
     };
   }
   if (envelope.outcome === 'unavailable') {
-    if (
-      typeof envelope.retryable !== 'boolean' ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
+    rejectDefinedFields(
+      envelope,
+      ['retryAfterMilliseconds'],
+      'Unavailable outcome is invalid.',
+    );
+    if (typeof envelope.retryable !== 'boolean') {
       invalid('Unavailable outcome is invalid.');
     }
     return {
@@ -1008,9 +1074,9 @@ function sourcingFailure(value: unknown): SourcingFailure {
 
 function metadataCandidates(value: unknown): MetadataOnlySource[] {
   if (
-    !Array.isArray(value) ||
+    !isDenseArray(value) ||
     value.length < 1 ||
-    value.length > MAX_DISCOVERY_RESULTS
+    value.length > SOURCING_LIMITS.discoveryResults
   ) {
     invalid('Discovery candidates are invalid.');
   }
@@ -1024,7 +1090,7 @@ function metadataCandidates(value: unknown): MetadataOnlySource[] {
   return candidates;
 }
 
-export function parseDiscoverSourcesResponse(
+function decodeDiscoverSourcesResponse(
   value: unknown,
 ): DiscoverSourcesResponse {
   const envelope = strictRecord(value, [
@@ -1037,14 +1103,11 @@ export function parseDiscoverSourcesResponse(
     'retryAfterMilliseconds',
   ]);
   if (envelope.outcome === 'success') {
-    if (
-      envelope.issues !== undefined ||
-      envelope.message !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Discovery success outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['issues', 'message', 'retryable', 'retryAfterMilliseconds'],
+      'Discovery success outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
@@ -1052,42 +1115,56 @@ export function parseDiscoverSourcesResponse(
     };
   }
   if (envelope.outcome === 'partial') {
-    if (
-      envelope.message !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Partial discovery outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['message', 'retryable', 'retryAfterMilliseconds'],
+      'Partial discovery outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
       candidates: metadataCandidates(envelope.candidates),
-      issues: issues(envelope.issues),
+      issues: issues(envelope.issues, SOURCE_DISCOVERY_PROVIDERS),
     };
   }
   if (envelope.outcome === 'no-results') {
-    if (
-      envelope.candidates !== undefined ||
-      envelope.issues !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('No-results outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['candidates', 'issues', 'retryable', 'retryAfterMilliseconds'],
+      'No-results outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
       message: safeMessage(envelope.message),
     };
   }
-  if (envelope.candidates !== undefined || envelope.issues !== undefined) {
-    invalid('Discovery failure outcome is invalid.');
-  }
+  rejectDefinedFields(
+    envelope,
+    ['candidates', 'issues'],
+    'Discovery failure outcome is invalid.',
+  );
   return sourcingFailure(value);
 }
 
-export function parseAcquireCanonicalSourceResponse(
+export function parseDiscoverSourcesResponse(
+  value: unknown,
+  request: DiscoverSourcesRequest,
+): DiscoverSourcesResponse {
+  const response = decodeDiscoverSourcesResponse(value);
+  validateResponseRequestId(response, request.requestId);
+  if (response.outcome === 'success' || response.outcome === 'partial') {
+    if (
+      response.candidates.length > request.limit ||
+      response.candidates.some(({ kind }) => !request.kinds.includes(kind))
+    ) {
+      invalid('Discovery response exceeds its request scope.');
+    }
+  }
+  return response;
+}
+
+function decodeAcquireCanonicalSourceResponse(
   value: unknown,
 ): AcquireCanonicalSourceResponse {
   const envelope = strictRecord(value, [
@@ -1100,14 +1177,11 @@ export function parseAcquireCanonicalSourceResponse(
     'retryAfterMilliseconds',
   ]);
   if (envelope.outcome === 'success') {
-    if (
-      envelope.message !== undefined ||
-      envelope.decision !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Acquisition success outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['message', 'decision', 'retryable', 'retryAfterMilliseconds'],
+      'Acquisition success outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
@@ -1115,12 +1189,12 @@ export function parseAcquireCanonicalSourceResponse(
     };
   }
   if (envelope.outcome === 'not-permitted') {
-    if (
-      envelope.source !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined ||
-      (envelope.decision !== 'forbidden' && envelope.decision !== 'unknown')
-    ) {
+    rejectDefinedFields(
+      envelope,
+      ['source', 'retryable', 'retryAfterMilliseconds'],
+      'Not-permitted acquisition outcome is invalid.',
+    );
+    if (envelope.decision !== 'forbidden' && envelope.decision !== 'unknown') {
       invalid('Not-permitted acquisition outcome is invalid.');
     }
     return {
@@ -1130,17 +1204,39 @@ export function parseAcquireCanonicalSourceResponse(
       decision: envelope.decision,
     };
   }
-  if (envelope.source !== undefined || envelope.decision !== undefined) {
-    invalid('Acquisition failure outcome is invalid.');
-  }
+  rejectDefinedFields(
+    envelope,
+    ['source', 'decision'],
+    'Acquisition failure outcome is invalid.',
+  );
   return sourcingFailure(value);
+}
+
+export function parseAcquireCanonicalSourceResponse(
+  value: unknown,
+  request: AcquireCanonicalSourceRequest,
+): AcquireCanonicalSourceResponse {
+  const response = decodeAcquireCanonicalSourceResponse(value);
+  validateResponseRequestId(response, request.requestId);
+  if (response.outcome === 'success') {
+    const acquiredIdentity = response.source.content.revision.provenance;
+    if (
+      response.source.sourceId !== request.sourceId ||
+      acquiredIdentity.providerIdentity.provider !==
+        request.providerIdentity.provider ||
+      acquiredIdentity.providerIdentity.id !== request.providerIdentity.id
+    ) {
+      invalid('Acquisition response does not match its request.');
+    }
+  }
+  return response;
 }
 
 function retrievalEvidenceList(value: unknown): RetrievalEvidence[] {
   if (
-    !Array.isArray(value) ||
+    !isDenseArray(value) ||
     value.length < 1 ||
-    value.length > MAX_RETRIEVAL_PASSAGES
+    value.length > SOURCING_LIMITS.retrievalPassages
   ) {
     invalid('Retrieval evidence is invalid.');
   }
@@ -1157,7 +1253,7 @@ function retrievalEvidenceList(value: unknown): RetrievalEvidence[] {
   return parsed;
 }
 
-export function parseRetrieveEvidenceResponse(
+function decodeRetrieveEvidenceResponse(
   value: unknown,
 ): RetrieveEvidenceResponse {
   const envelope = strictRecord(value, [
@@ -1170,14 +1266,11 @@ export function parseRetrieveEvidenceResponse(
     'retryAfterMilliseconds',
   ]);
   if (envelope.outcome === 'success') {
-    if (
-      envelope.issues !== undefined ||
-      envelope.message !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Retrieval success outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['issues', 'message', 'retryable', 'retryAfterMilliseconds'],
+      'Retrieval success outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
@@ -1185,39 +1278,93 @@ export function parseRetrieveEvidenceResponse(
     };
   }
   if (envelope.outcome === 'partial') {
-    if (
-      envelope.message !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('Partial retrieval outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['message', 'retryable', 'retryAfterMilliseconds'],
+      'Partial retrieval outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
       evidence: retrievalEvidenceList(envelope.evidence),
-      issues: issues(envelope.issues),
+      issues: issues(envelope.issues, SOURCE_RETRIEVAL_PROVIDERS),
     };
   }
   if (envelope.outcome === 'no-evidence') {
-    if (
-      envelope.evidence !== undefined ||
-      envelope.issues !== undefined ||
-      envelope.retryable !== undefined ||
-      envelope.retryAfterMilliseconds !== undefined
-    ) {
-      invalid('No-evidence outcome is invalid.');
-    }
+    rejectDefinedFields(
+      envelope,
+      ['evidence', 'issues', 'retryable', 'retryAfterMilliseconds'],
+      'No-evidence outcome is invalid.',
+    );
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
       message: safeMessage(envelope.message),
     };
   }
-  if (envelope.evidence !== undefined || envelope.issues !== undefined) {
-    invalid('Retrieval failure outcome is invalid.');
-  }
+  rejectDefinedFields(
+    envelope,
+    ['evidence', 'issues'],
+    'Retrieval failure outcome is invalid.',
+  );
   return sourcingFailure(value);
+}
+
+export interface RetrieveEvidenceResponseContext {
+  request: RetrieveEvidenceRequest;
+  canonicalTextFor(sourceVersion: SourceRevisionIdentity): string | null;
+}
+
+function sourceRevisionMatches(
+  left: SourceRevisionIdentity,
+  right: SourceRevisionIdentity,
+): boolean {
+  return (
+    left.sourceId === right.sourceId &&
+    left.revisionId === right.revisionId &&
+    left.sha256 === right.sha256 &&
+    left.canonicalizationVersion === right.canonicalizationVersion
+  );
+}
+
+export function parseRetrieveEvidenceResponse(
+  value: unknown,
+  context: RetrieveEvidenceResponseContext,
+): RetrieveEvidenceResponse {
+  const response = decodeRetrieveEvidenceResponse(value);
+  validateResponseRequestId(response, context.request.requestId);
+  if (response.outcome !== 'success' && response.outcome !== 'partial') {
+    return response;
+  }
+  if (response.evidence.length > context.request.maxPassages) {
+    invalid('Retrieval response exceeds its requested passage limit.');
+  }
+  for (const evidence of response.evidence) {
+    const requestedSource = context.request.sourceRevisions.find((source) =>
+      sourceRevisionMatches(source, evidence.sourceVersion),
+    );
+    const canonicalText = context.canonicalTextFor(evidence.sourceVersion);
+    const canonicalSha256 =
+      canonicalText === null
+        ? null
+        : createHash('sha256').update(canonicalText, 'utf8').digest('hex');
+    if (
+      requestedSource === undefined ||
+      evidence.provenance.query !== context.request.query ||
+      evidence.provenance.intent !== context.request.intent ||
+      evidence.provenance.rank > context.request.maxPassages ||
+      canonicalSha256 !== evidence.sourceVersion.sha256
+    ) {
+      invalid(
+        'Retrieval evidence does not match its request or source revision.',
+      );
+    }
+    validatePassageLocatorAgainstCanonicalText(
+      evidence.locator,
+      canonicalText!,
+    );
+  }
+  return response;
 }
 
 export function validatePassageLocatorAgainstCanonicalText(

@@ -1,6 +1,21 @@
-import type { SourceFormat, SourceRevisionInput } from './learning-api.js';
+import type {
+  PublicAccount,
+  SourceFormat,
+  SourceRevisionInput,
+} from './learning-api.js';
 
 export const SOURCING_API_VERSION = '2026-09-08';
+export const SOURCING_LIMITS = {
+  queryCharacters: 2_000,
+  discoveryResults: 50,
+  retrievalSources: 50,
+  retrievalPassages: 50,
+  canonicalTextCharacters: 2_000_000,
+  passageCharacters: 12_000,
+  relationships: 32,
+  creators: 100,
+  providerIdentities: 16,
+} as const;
 
 export const SOURCE_DISCOVERY_PROVIDERS = [
   'openalex',
@@ -85,6 +100,11 @@ export type PermissionDecision =
       reason: string;
     };
 
+export type PermittedUseDecision = Extract<
+  PermissionDecision,
+  { status: 'permitted' }
+>;
+
 export interface SourceUsePolicy {
   access: SourceAccess;
   accessEvidenceUrl: string | null;
@@ -146,6 +166,10 @@ export interface SourceRevisionIdentity {
   canonicalizationVersion: string;
 }
 
+export interface RetrievalSourceRevision extends SourceRevisionIdentity {
+  indexing: PermittedUseDecision;
+}
+
 export interface DiscoverSourcesRequest {
   apiVersion: typeof SOURCING_API_VERSION;
   requestId: string;
@@ -167,7 +191,7 @@ export interface RetrieveEvidenceRequest {
   requestId: string;
   intent: SourcingIntent;
   query: string;
-  sourceRevisions: SourceRevisionIdentity[];
+  sourceRevisions: RetrievalSourceRevision[];
   maxPassages: number;
 }
 
@@ -208,8 +232,11 @@ export interface RetrievalEvidence {
 
 export type ProviderIssueReason = 'timed-out' | 'rate-limited' | 'unavailable';
 
-export interface ProviderIssue {
-  provider: SourceDiscoveryProvider | SourceRetrievalProvider;
+export interface ProviderIssue<
+  Provider extends SourceDiscoveryProvider | SourceRetrievalProvider =
+    SourceDiscoveryProvider | SourceRetrievalProvider,
+> {
+  provider: Provider;
   reason: ProviderIssueReason;
   retryAfterMilliseconds: number | null;
 }
@@ -271,7 +298,7 @@ export type DiscoverSourcesResponse =
       outcome: 'partial';
       requestId: string;
       candidates: MetadataOnlySource[];
-      issues: ProviderIssue[];
+      issues: ProviderIssue<SourceDiscoveryProvider>[];
     }
   | {
       outcome: 'no-results';
@@ -304,7 +331,7 @@ export type RetrieveEvidenceResponse =
       outcome: 'partial';
       requestId: string;
       evidence: RetrievalEvidence[];
-      issues: ProviderIssue[];
+      issues: ProviderIssue<SourceRetrievalProvider>[];
     }
   | {
       outcome: 'no-evidence';
@@ -320,11 +347,20 @@ export type RetrieveEvidenceResponse =
 export interface SourcingService {
   discoverCandidates(
     request: DiscoverSourcesRequest,
+    invocation: SourcingInvocation,
   ): Promise<DiscoverSourcesResponse>;
   acquireCanonicalSource(
     request: AcquireCanonicalSourceRequest,
+    invocation: SourcingInvocation,
   ): Promise<AcquireCanonicalSourceResponse>;
   retrieveEvidence(
     request: RetrieveEvidenceRequest,
+    invocation: SourcingInvocation,
   ): Promise<RetrieveEvidenceResponse>;
+}
+
+/** Runtime-only invocation authority; it is never part of a request payload. */
+export interface SourcingInvocation {
+  account: PublicAccount;
+  signal: AbortSignal;
 }
