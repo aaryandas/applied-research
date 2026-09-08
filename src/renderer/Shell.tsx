@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import type { DesktopBridge } from '../contracts/desktop';
 import type {
   CanvasView,
@@ -61,6 +67,17 @@ export function Shell({
     navigate,
     message,
   } = useWorkspaceFlush();
+  const onPathChange = useCallback((path: PathOrigin | undefined): void => {
+    setSelectedPath(path);
+    setAttempt(null);
+  }, []);
+  const moveRecord: LearningRecordsBridge['moveLearningRecord'] = useCallback(
+    async (input) => {
+      await bridge.moveLearningRecord(input);
+      onWorkspace(await bridge.getLearningWorkspace(input.projectId));
+    },
+    [bridge, onWorkspace],
+  );
 
   function go(next: WorkspaceDestination): void {
     void navigate(() => {
@@ -86,7 +103,6 @@ export function Shell({
   }
   function openOrigin(origin: LearningOrigin): void {
     void navigate(() => {
-      setSelectedPath(origin.path);
       setDestination('reader');
       reader.current?.openOrigin(origin);
     });
@@ -99,8 +115,6 @@ export function Shell({
   }
   function selectLesson(path: PathOrigin): void {
     void navigate(() => {
-      setSelectedPath(path);
-      setAttempt(null);
       setDestination('reader');
       reader.current?.openOrigin({ path });
     });
@@ -175,6 +189,7 @@ export function Shell({
             registerFlush={registerReaderFlush}
             navigationRef={reader}
             sidebar={null}
+            onPathChange={onPathChange}
             explanation={
               <ReaderExplanations active={destination === 'reader'} />
             }
@@ -187,7 +202,7 @@ export function Shell({
             onViewChange={setCanvasView}
             onOpenOrigin={openOrigin}
             onEditEntry={editEntry}
-            onMove={bridge.moveLearningRecord}
+            onMove={moveRecord}
             registerFlush={registerCanvasFlush}
             onShellControls={setCanvasControls}
           />

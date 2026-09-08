@@ -51,10 +51,10 @@ export function useWorkspaceFlush() {
           'Could not save your work. Keep this workspace open and try saving again.',
         );
         return false;
-      } finally {
-        pending.current = null;
       }
-    })();
+    })().finally(() => {
+      pending.current = null;
+    });
     return pending.current;
   }, []);
   const navigate = useCallback(

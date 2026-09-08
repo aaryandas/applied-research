@@ -46,7 +46,7 @@ export function ReaderSidebar({
           aria-current={destination === 'reader' ? 'page' : undefined}
           onClick={() => onNavigate('reader')}
         >
-          <Icon name="arrow" />
+          <Icon name="book" />
           <span>Reading</span>
         </button>
         <button
@@ -64,17 +64,8 @@ export function ReaderSidebar({
           aria-current={destination === 'practical' ? 'page' : undefined}
           onClick={() => onNavigate('practical')}
         >
-          <Icon name="companion" />
+          <Icon name="tool" />
           <span>Practical</span>
-        </button>
-        <button
-          aria-label="Find"
-          title="Find"
-          aria-current={destination === 'find' ? 'page' : undefined}
-          onClick={() => onNavigate('find')}
-        >
-          <Icon name="arrow" />
-          <span>Find</span>
         </button>
       </div>
       <div className="reader-outline">
@@ -119,6 +110,16 @@ export function ReaderSidebar({
           </section>
         ))}
       </div>
+      <button
+        className="reader-find"
+        aria-label="Find"
+        title="Find"
+        aria-current={destination === 'find' ? 'page' : undefined}
+        onClick={() => onNavigate('find')}
+      >
+        <Icon name="search" />
+        <span>Find</span>
+      </button>
       <button
         className="reader-profile"
         aria-label="Profile and settings"

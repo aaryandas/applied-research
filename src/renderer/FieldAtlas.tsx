@@ -24,6 +24,9 @@ export function BrandMark(): ReactElement {
 }
 
 const iconPaths = {
+  book: 'M12 5v15M3 4c4-1 6 0 9 1 3-1 5-2 9-1v14c-4-1-6 0-9 2-3-2-5-3-9-2Z',
+  search: 'M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1 5 5 5',
+  tool: 'M6 4h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm1 5 3 3-3 3m6 0h4',
   arrow: 'M5 19 19 5M5 5h14v14',
   plus: 'M12 5v14M5 12h14',
   close: 'm6 6 12 12M6 18 18 6',

@@ -39,16 +39,21 @@ export function App({
   const settingsEntry = useRef<HTMLButtonElement>(null);
   const request = useRef(0);
   const appearance = useAppearance();
-  const loadProjects = useCallback(async (): Promise<void> => {
+  const loadProjects = useCallback((): Promise<void> => {
     const current = ++request.current;
-    try {
-      const saved = await bridge.listProjects();
-      if (current === request.current) setProjects(saved);
-    } catch (failure) {
-      if (current === request.current) setError(desktopError(failure));
-    } finally {
-      if (current === request.current) setLoading(false);
-    }
+    return bridge
+      .listProjects()
+      .then(
+        (saved) => {
+          if (current === request.current) setProjects(saved);
+        },
+        (failure: unknown) => {
+          if (current === request.current) setError(desktopError(failure));
+        },
+      )
+      .finally(() => {
+        if (current === request.current) setLoading(false);
+      });
   }, [bridge]);
   useEffect(() => {
     void loadProjects();

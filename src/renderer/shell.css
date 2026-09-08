@@ -175,3 +175,23 @@
     padding: 0 8px;
   }
 }
+.desktop-workspace .reader-find {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  margin-top: 12px;
+}
+.shell-icon-rail .reader-find {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  justify-content: center;
+  margin-top: auto;
+}
+.shell-icon-rail .reader-find span {
+  display: none;
+}
+.shell-icon-rail .reader-profile {
+  margin-top: 6px;
+}

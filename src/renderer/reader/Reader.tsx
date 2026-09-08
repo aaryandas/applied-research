@@ -40,6 +40,7 @@ export interface ReaderProps {
   /** Optional shell-owned navigation and inline explanation slots. */
   sidebar?: ReactNode;
   explanation?: ReactNode;
+  onPathChange?: (path: PathOrigin | undefined) => void;
 }
 
 export interface ReaderNavigationControls {
@@ -61,6 +62,7 @@ function ProjectReader({
   navigationRef,
   sidebar,
   explanation,
+  onPathChange,
 }: ReaderProps): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
   const [receivedWorkspace, setReceivedWorkspace] = useState(initial);
@@ -90,6 +92,10 @@ function ProjectReader({
   );
   const [supports, setSupports] = useState<string[]>([]);
   const prose = useRef<HTMLDivElement>(null);
+  function selectPath(next: PathOrigin | undefined): void {
+    setPath(next);
+    onPathChange?.(next);
+  }
   useImperativeHandle(navigationRef, () => ({
     openOrigin,
     editEntry: (reference) => {
@@ -148,7 +154,7 @@ function ProjectReader({
       const lesson = pathRevision?.topics
         .find((item) => item.id === origin.topicId)
         ?.lessons.find((item) => item.id === origin.lessonId);
-      setPath(origin);
+      selectPath(origin);
       setSpan(null);
       if (!lesson) {
         setVersion(null);
@@ -249,7 +255,7 @@ function ProjectReader({
         const resolved = resolveOrigin(workspace, origin);
         setVersion(resolved.version);
         setSpan(resolved.span);
-        setPath(origin.path);
+        selectPath(origin.path);
         setMessage(null);
         prose.current?.focus();
       } catch (error) {
@@ -461,7 +467,7 @@ function ProjectReader({
               void beforeNavigation(() => {
                 setVersion(source.currentVersion);
                 setSpan(null);
-                setPath(undefined);
+                selectPath(undefined);
               })
             }
           />
