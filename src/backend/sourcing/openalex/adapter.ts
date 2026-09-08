@@ -432,7 +432,13 @@ async function discoverWithDeadline(
   deadline: Deadline,
 ): Promise<DiscoverSourcesResponse> {
   const url = requestUrl(request);
-  if (url === null) return invalidRequest(request.requestId);
+  if (url === null) {
+    return unavailable(
+      request.requestId,
+      SOURCING_PUBLIC_MESSAGES.unavailable,
+      false,
+    );
+  }
   if (!validApiKey(options.apiKey)) {
     return {
       outcome: 'unauthenticated',

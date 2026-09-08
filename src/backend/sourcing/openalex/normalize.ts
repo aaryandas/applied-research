@@ -10,8 +10,8 @@ import { isRemoteText } from '../../text.js';
 const MAX_OPENALEX_ID_CHARACTERS = 128;
 const MAX_DOI_CHARACTERS = 512;
 const MAX_URL_CHARACTERS = 2_048;
-const MAX_TITLE_CHARACTERS = 1_000;
-const MAX_CREATOR_NAME_CHARACTERS = 500;
+const MAX_TITLE_CHARACTERS = 200;
+const MAX_CREATOR_NAME_CHARACTERS = 200;
 const MAX_ABSTRACT_TOKEN_CHARACTERS = 200;
 const MAX_ABSTRACT_TOKENS = 4_000;
 const OPENALEX_ORIGIN = 'https://openalex.org';
@@ -151,7 +151,7 @@ function normalizeArxivId(value: unknown): string | null {
   const bare = value.startsWith('https://arxiv.org/abs/')
     ? value.slice('https://arxiv.org/abs/'.length)
     : value;
-  return /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z-]+)?\/\d{7})(?:v\d+)?$/i.test(
+  return /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/i.test(
     bare,
   )
     ? bare
@@ -163,6 +163,7 @@ function normalizedDate(value: unknown): Decoded<string | null> {
     return { value: null, hadIssue: false };
   }
   if (typeof value !== 'string') return { value: null, hadIssue: true };
+  if (/^\d{4}$/.test(value)) return { value: null, hadIssue: false };
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return { value: null, hadIssue: true };
   const year = Number(match[1] ?? Number.NaN);
@@ -198,16 +199,12 @@ function normalizedCreators(value: unknown): Decoded<string[]> {
   if (value === null || value === undefined) {
     return { value: [], hadIssue: false };
   }
-  if (
-    !Array.isArray(value) ||
-    value.length > SOURCING_LIMITS.creators ||
-    !isDenseArray(value)
-  ) {
+  if (!Array.isArray(value) || !isDenseArray(value)) {
     return { value: [], hadIssue: true };
   }
   const creators: string[] = [];
   let hadIssue = false;
-  for (const authorship of value) {
+  for (const authorship of value.slice(0, SOURCING_LIMITS.creators)) {
     if (!isRecord(authorship) || !isRecord(authorship.author)) {
       hadIssue = true;
       continue;
@@ -271,7 +268,7 @@ function normalizedAbstract(value: unknown): Decoded<string | null> {
   }
   const abstract = tokens.join(' ');
   if (!isSafeText(abstract, 4_000)) {
-    return { value: null, hadIssue: true };
+    return { value: null, hadIssue: false };
   }
   return { value: abstract, hadIssue: false };
 }
@@ -290,10 +287,15 @@ function normalizedLocation(
     typeof value.license === 'string' && isSafeText(value.license, 200)
       ? value.license
       : null;
+  const unrepresentableLicense =
+    typeof value.license === 'string' &&
+    isRemoteText(value.license) &&
+    value.license.length > 200;
   const malformedLicense =
     value.license !== null &&
     value.license !== undefined &&
-    licenseName === null;
+    licenseName === null &&
+    !unrepresentableLicense;
   return {
     value: {
       landingPageUrl: landingPageUrl.value,

@@ -5,6 +5,7 @@ import {
   SOURCING_API_VERSION,
   SOURCING_PUBLIC_MESSAGES,
 } from '../../../contracts/sourcing.js';
+import { parseDiscoverSourcesResponse } from '../contract-validation.js';
 import {
   makeOpenAlexDiscoveryAdapter,
   type OpenAlexAdapterOptions,
@@ -175,7 +176,52 @@ describe('OpenAlex normalization', () => {
       publicationDate: null,
       relationships: [],
     });
-    expect(normalized.hadIssue).toBe(true);
+    expect(normalized.hadIssue).toBe(false);
+  });
+
+  it('matches shared title, creator, and legacy arXiv bounds', () => {
+    expect(
+      normalizeOpenAlexWork(
+        work({ display_name: 't'.repeat(201) }),
+        DISCOVERED_AT,
+      ),
+    ).toEqual({ kind: 'rejected' });
+
+    const overlongCreator = normalizeOpenAlexWork(
+      work({
+        authorships: [
+          { author: { display_name: 'c'.repeat(201) } },
+          { author: { display_name: 'Representable Creator' } },
+        ],
+      }),
+      DISCOVERED_AT,
+    );
+    if (overlongCreator.kind !== 'accepted')
+      throw new Error('Fixture was rejected.');
+    expect(overlongCreator.hadIssue).toBe(true);
+    expect(overlongCreator.work.candidate.authorship).toEqual({
+      kind: 'authored',
+      creators: ['Representable Creator'],
+    });
+
+    const invalidArxiv = normalizeOpenAlexWork(
+      work({ ids: { arxiv: 'cond-mat.mes-hall/0601001' } }),
+      DISCOVERED_AT,
+    );
+    if (invalidArxiv.kind !== 'accepted')
+      throw new Error('Fixture was rejected.');
+    expect(invalidArxiv.hadIssue).toBe(true);
+    expect(invalidArxiv.work.candidate.scholarlyIdentity.arxivId).toBeNull();
+
+    const validArxiv = normalizeOpenAlexWork(
+      work({ ids: { arxiv: 'cond-mat.ME/0601001v2' } }),
+      DISCOVERED_AT,
+    );
+    if (validArxiv.kind !== 'accepted')
+      throw new Error('Fixture was rejected.');
+    expect(validArxiv.work.candidate.scholarlyIdentity.arxivId).toBe(
+      'cond-mat.ME/0601001v2',
+    );
   });
 
   it('rejects impossible full publication dates instead of coercing them', () => {
@@ -340,7 +386,7 @@ describe('OpenAlex discovery adapter', () => {
         work({ id: 'https://attacker.example/W9' }),
         work({
           id: 'https://openalex.org/W10',
-          display_name: 'x'.repeat(1_001),
+          display_name: 'x'.repeat(201),
         }),
       ]),
     );
@@ -363,6 +409,186 @@ describe('OpenAlex discovery adapter', () => {
         },
       ],
     });
+  });
+
+  it('silently bounds valid provider shapes that the public contract cannot represent', async () => {
+    const authorships = Array.from({ length: 101 }, (_, index) => ({
+      author: { display_name: `Creator ${index}` },
+    }));
+    const longAbstract = {
+      longtoken: Array.from({ length: 501 }, (_, index) => index),
+    };
+    const performRequest = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse([
+        work({
+          id: 'https://openalex.org/W1',
+          publication_date: '2026',
+        }),
+        work({ id: 'https://openalex.org/W2', authorships }),
+        work({
+          id: 'https://openalex.org/W3',
+          abstract_inverted_index: longAbstract,
+        }),
+        work({
+          id: 'https://openalex.org/W4',
+          best_oa_location: {
+            landing_page_url: 'https://repository.example/record',
+            pdf_url: 'https://repository.example/paper.pdf',
+            license: 'l'.repeat(201),
+            license_id: 'https://openalex.org/licenses/synthetic',
+          },
+        }),
+      ]),
+    );
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    ).discoverCandidates(request, invocation());
+
+    expect(result.outcome).toBe('success');
+    if (result.outcome !== 'success')
+      throw new Error('Benign provider shapes did not produce success.');
+    expect(result.candidates).toHaveLength(4);
+    expect(result.candidates[0]?.publicationDate).toBeNull();
+    expect(result.candidates[1]?.authorship).toMatchObject({
+      creators: expect.arrayContaining(['Creator 0', 'Creator 99']),
+    });
+    expect(result.candidates[1]?.authorship).toMatchObject({
+      creators: expect.not.arrayContaining(['Creator 100']),
+    });
+    expect(result.candidates[2]?.metadataSummary).toBeNull();
+    expect(result.candidates[3]?.usePolicy.license).toEqual({
+      status: 'unknown',
+    });
+  });
+
+  it('maps an overlong serialized URL to fixed non-retryable unavailability', async () => {
+    const performRequest = vi.fn<typeof fetch>();
+    const reserve = vi.fn<OpenAlexBudgetService['refreshAndReserve']>();
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest, {
+        budget: { refreshAndReserve: reserve },
+      }),
+    ).discoverCandidates(
+      { ...request, query: 'é'.repeat(2_000) },
+      invocation(),
+    );
+
+    expect(result).toEqual({
+      outcome: 'unavailable',
+      requestId: request.requestId,
+      message: SOURCING_PUBLIC_MESSAGES.unavailable,
+      retryable: false,
+    });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(performRequest).not.toHaveBeenCalled();
+  });
+
+  it('emits adapter outcomes accepted by the shared discovery validator', async () => {
+    const invalidRequestInput: DiscoverSourcesRequest = {
+      ...request,
+      query: '',
+    };
+    const cancelledController = new AbortController();
+    cancelledController.abort();
+    const exhaustedBudget: OpenAlexBudgetService = {
+      refreshAndReserve: () => Effect.succeed({ kind: 'budget-exhausted' }),
+    };
+    const timeoutRequest = vi.fn<typeof fetch>().mockImplementation(
+      async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    const cases = [
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(
+            vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([work()])),
+          ),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(
+            vi
+              .fn<typeof fetch>()
+              .mockResolvedValue(
+                jsonResponse([work(), work({ id: 'malformed' })]),
+              ),
+          ),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(
+            vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([])),
+          ),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: invalidRequestInput,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(vi.fn<typeof fetch>()),
+        ).discoverCandidates(invalidRequestInput, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(vi.fn<typeof fetch>(), { apiKey: '' }),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(vi.fn<typeof fetch>()),
+        ).discoverCandidates(request, invocation(cancelledController.signal)),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(timeoutRequest, { timeoutMilliseconds: 5 }),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(
+            vi
+              .fn<typeof fetch>()
+              .mockResolvedValue(new Response('', { status: 429 })),
+          ),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(vi.fn<typeof fetch>(), { budget: exhaustedBudget }),
+        ).discoverCandidates(request, invocation()),
+      },
+      {
+        contractRequest: request,
+        response: await makeOpenAlexDiscoveryAdapter(
+          adapterOptions(
+            vi
+              .fn<typeof fetch>()
+              .mockResolvedValue(new Response('', { status: 503 })),
+          ),
+        ).discoverCandidates(request, invocation()),
+      },
+    ];
+
+    for (const fixture of cases) {
+      expect(
+        parseDiscoverSourcesResponse(fixture.response, fixture.contractRequest),
+      ).toEqual(fixture.response);
+    }
   });
 
   it.each([
