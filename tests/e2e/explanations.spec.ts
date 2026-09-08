@@ -243,7 +243,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
         .evaluate((element) => element.scrollWidth > element.clientWidth);
       const widths = await page.locator('.reader-main').evaluate((element) => {
         const edge = element.getBoundingClientRect().right;
-        return [...element.querySelectorAll('*')]
+        return Array.from(element.querySelectorAll('*'))
           .filter((child) => child.getBoundingClientRect().right > edge)
           .map((child) => ({
             tag: child.tagName,
