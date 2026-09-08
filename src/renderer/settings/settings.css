@@ -1,0 +1,213 @@
+.settings-panel {
+  width: min(100%, 800px);
+  margin-inline: auto;
+  padding: 32px 36px 48px;
+  box-sizing: border-box;
+  color: var(--ink);
+  background: var(--paper);
+  font: 14px/1.5 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+.settings-panel h1,
+.settings-panel h2 {
+  color: var(--ink);
+  font-family: var(--font-reading);
+  font-optical-sizing: auto;
+  font-weight: 500;
+  margin: 0;
+}
+.settings-panel h1 {
+  font-size: 30px;
+  line-height: 1.2;
+}
+.settings-panel h2 {
+  font-size: 22px;
+  line-height: 1.3;
+}
+.settings-panel p {
+  margin: 8px 0 0;
+}
+.settings-header,
+.settings-section-heading,
+.settings-account-row,
+.settings-appearance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.settings-header {
+  margin-bottom: 32px;
+}
+.settings-section {
+  margin-top: 28px;
+}
+.settings-account-row {
+  margin: 18px 0 12px;
+}
+.settings-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.settings-identity-text {
+  min-width: 0;
+}
+.settings-panel .settings-identity p {
+  margin: 0;
+}
+.settings-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.settings-session-title {
+  font-weight: 500;
+}
+.settings-initials {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  font: 12px/1.4 var(--font-mono);
+  overflow: hidden;
+}
+.settings-muted,
+.settings-panel .settings-muted {
+  color: var(--muted);
+}
+.settings-panel .settings-button,
+.settings-theme-options button,
+.settings-account-entry {
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font: 14px/1.5 var(--font-ui);
+  cursor: pointer;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+.settings-panel .settings-button {
+  flex-shrink: 0;
+  background: var(--surface);
+}
+.settings-panel button:hover,
+.settings-account-entry:hover {
+  background: var(--surface-subtle);
+}
+.settings-panel button:focus-visible,
+.settings-account-entry:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.settings-panel button[aria-disabled='true'] {
+  color: var(--muted);
+  cursor: wait;
+}
+.settings-status-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-panel .settings-feedback {
+  color: var(--muted);
+  font-size: 13px;
+}
+.settings-panel .settings-feedback:empty {
+  margin: 0;
+}
+.settings-coordinate {
+  font: 12px/1.4 var(--font-mono);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.settings-usage {
+  margin: 16px 0 12px;
+  max-width: 440px;
+}
+.settings-usage > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding-block: 4px;
+}
+.settings-usage dt {
+  color: var(--muted);
+}
+.settings-usage dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-appearance-row {
+  align-items: start;
+}
+.settings-appearance {
+  text-align: right;
+  max-width: 280px;
+}
+.settings-theme-options {
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.settings-theme-options button[aria-pressed='true'] {
+  background: var(--paper);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.settings-panel .settings-local-note {
+  margin-top: 28px;
+  max-width: 65ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+.settings-account-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+.settings-entry-text {
+  display: grid;
+  min-width: 0;
+}
+.settings-entry-text .settings-muted {
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .settings-panel {
+    padding: 24px 20px 36px;
+  }
+  .settings-appearance-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .settings-appearance {
+    text-align: left;
+  }
+  .settings-status-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel *,
+  .settings-account-entry {
+    animation: none;
+    transition: none;
+    scroll-behavior: auto;
+  }
+}
