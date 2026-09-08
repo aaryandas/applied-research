@@ -38,8 +38,10 @@
     "sonar:scan": "npm run test:coverage && docker compose --env-file .env.sonar -f compose.sonar.yml run --rm scanner"
   },
   "dependencies": {
+    "@react-three/fiber": "9.7.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -49,6 +51,7 @@
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
+    "@types/three": "0.185.4",
     "@vitejs/plugin-react": "5.2.0",
     "@vitest/coverage-v8": "4.1.11",
     "electron": "44.2.0",

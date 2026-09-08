@@ -56,3 +56,72 @@ it('resizes the native guest and provides navigation, errors and an external fal
   expect(disconnect).toHaveBeenCalled();
 });
 afterEach(() => vi.unstubAllGlobals());
+
+vi.mock('./explanations/SceneCanvas', () => ({
+  SceneCanvas: () => <p>Local scene adapter</p>,
+}));
+it('launches local scenes, hides the native guest and restores browser controls without navigation', async () => {
+  const resizeTool = vi.fn(async () => {});
+  const onNavigate = vi.fn();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(20, 100, 400, 500));
+  render(
+    <ToolPanel
+      bridge={{ resizeTool, openExternal: vi.fn(async () => {}) }}
+      url="https://example.com"
+      state={{
+        url: 'https://example.com',
+        loading: false,
+        title: 'Existing tool',
+        error: '',
+      }}
+      onClose={vi.fn()}
+      onNavigate={onNavigate}
+      onError={vi.fn()}
+    />,
+  );
+  expect(resizeTool).toHaveBeenLastCalledWith({
+    x: 20,
+    y: 100,
+    width: 400,
+    height: 500,
+  });
+  expect(screen.getByRole('complementary')).toHaveAttribute(
+    'data-mode',
+    'browser',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Launch assembly' }));
+  expect(screen.getByRole('complementary')).toHaveAttribute(
+    'data-mode',
+    'scene',
+  );
+  await screen.findByText('Local scene adapter');
+  expect(screen.getByRole('heading', { name: 'Beacon module' })).toBeVisible();
+  expect(screen.getByLabelText('Tool address')).not.toBeVisible();
+  expect(resizeTool).toHaveBeenLastCalledWith({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Launch arm' }));
+  expect(screen.getByRole('heading', { name: 'Two-link arm' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Browser' }));
+  expect(screen.getByLabelText('Tool address')).toBeVisible();
+  expect(resizeTool).toHaveBeenLastCalledWith({
+    x: 20,
+    y: 100,
+    width: 400,
+    height: 500,
+  });
+  expect(onNavigate).not.toHaveBeenCalled();
+  bounds.mockRestore();
+});

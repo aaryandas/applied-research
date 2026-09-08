@@ -1,0 +1,170 @@
+/* Operate / Read extension: inspect an original object, then change one meaningful parameter.
+   The scene leads; accepted workspace typography and semantic controls carry the explanation.
+   Signature interaction: a continuous exploded stack with named, independently selectable parts.
+   Final visual disposition belongs to the coordinator's independent review. */
+.explanation-launchers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.explanation-launchers button {
+  padding: 7px 10px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+}
+.explanation-launchers button[aria-pressed='true'],
+.explanation-parts button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tool-panel[data-mode='scene'] {
+  overflow-y: auto;
+}
+.explanation-experience {
+  padding: 4px 16px 24px;
+  min-width: 0;
+}
+.explanation-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.explanation-title h2 {
+  margin: 12px 0;
+  font: 500 22px/1.3 var(--font-reading);
+}
+.explanation-viewport {
+  position: relative;
+  width: 100%;
+  height: clamp(240px, 34vh, 360px);
+  background: #14181c;
+  border-radius: var(--radius-panel);
+  color: #eceae4;
+  overflow: hidden;
+}
+.explanation-viewport canvas {
+  outline-offset: -4px;
+  touch-action: none;
+}
+.explanation-viewport > p {
+  padding: 24px;
+}
+.explanation-axis {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  font-size: 12px;
+  pointer-events: none;
+}
+.explanation-help,
+.explanation-caption,
+.explanation-provenance {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.explanation-help {
+  margin: 10px 0;
+}
+.explanation-caption {
+  margin: 18px 0;
+}
+.explanation-actions {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.explanation-separation {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.explanation-separation input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.explanation-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+.explanation-parts button {
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+}
+.explanation-part-description {
+  min-height: 40px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.explanation-parameters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-top: 16px;
+}
+.explanation-parameters label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  min-width: 0;
+}
+.explanation-parameters input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  font-variant-numeric: tabular-nums;
+}
+.explanation-measurement {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin: 16px 0 8px;
+  overflow-wrap: anywhere;
+}
+.explanation-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+.explanation-fallback {
+  padding: 20px;
+  font-size: 13px;
+}
+.explanation-fallback .text-button {
+  color: #7bc7c9;
+}
+.explanation-capture {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.explanation-capture p {
+  margin: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.explanation-provenance {
+  margin-top: 20px;
+  overflow-wrap: anywhere;
+}
+.explanation-provenance summary {
+  cursor: pointer;
+}
+.explanation-provenance pre {
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
+.tool-panel [hidden] {
+  display: none;
+}
