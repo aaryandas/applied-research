@@ -21,6 +21,9 @@
 .shell-reader > .reader-shell {
   height: 100%;
 }
+.shell-reader .reader-layout > article {
+  width: 100%;
+}
 .shell-content [hidden] {
   display: none;
 }

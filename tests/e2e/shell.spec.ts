@@ -1,20 +1,12 @@
-import {
-  _electron as electron,
-  expect,
-  test,
-  type Page,
-} from '@playwright/test';
+import { _electron as electron, expect, test } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-function useElectronCloseHandling(page: Page): void {
-  // Electron handles a prevented beforeunload itself; Chromium has no dialog
-  // for Playwright's default dismiss handler to close.
-  page.on('dialog', (dialog) => {
-    if (dialog.type() !== 'beforeunload') void dialog.dismiss();
-  });
-}
+import {
+  closeTestApplication,
+  useElectronCloseHandling,
+} from './electron-lifecycle';
 
 test('wires a real saved source through Reader, Canvas, Settings and restart', async () => {
   test.setTimeout(90_000);
@@ -195,12 +187,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       await page.evaluate(() => typeof Reflect.get(globalThis, 'process')),
     ).toBe('undefined');
   } finally {
-    // The test above exercises the save barrier. Teardown must also work when
-    // an assertion leaves an intentionally blocked draft in the test window.
-    await application.evaluate(({ BrowserWindow }) => {
-      for (const window of BrowserWindow.getAllWindows()) window.destroy();
-    });
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });

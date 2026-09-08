@@ -15,6 +15,11 @@ import {
 import { cpus, platform, release, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  closeTestApplication,
+  useElectronCloseHandling,
+} from './electron-lifecycle';
+
 const evidence = process.env.AR24_EVIDENCE_DIR;
 async function launchExplanationApplication(
   directory: string,
@@ -42,38 +47,24 @@ async function launchExplanationApplication(
     );
     return application;
   } catch (error) {
-    await application.close();
+    await closeTestApplication(application);
     throw error;
   }
 }
 function artifact(name: string): string {
   return evidence ? join(evidence, name) : test.info().outputPath(name);
 }
-async function openTools(application: ElectronApplication): Promise<Page> {
-  await application.evaluate(({ session }) => {
-    session
-      .fromPartition('persist:learning-tools')
-      .protocol.handle(
-        'https',
-        () =>
-          new Response(
-            '<html><title>Local test tool</title><body>Isolated browser remains available.</body></html>',
-            { headers: { 'content-type': 'text/html' } },
-          ),
-      );
-  });
+async function openExplanations(
+  application: ElectronApplication,
+): Promise<Page> {
   const page = await application.firstWindow();
+  useElectronCloseHandling(page);
   await page
     .getByLabel('What do you want to learn about?', { exact: true })
     .fill('Inspect an assembly and a robot arm');
   await page.getByRole('button', { name: 'Start learning' }).click();
-  await page.getByRole('button', { name: 'Open tool', exact: true }).click();
-  await page
-    .getByLabel('Source or tool URL')
-    .fill('https://local-explanation.test');
-  await page.getByRole('button', { name: 'Open in workspace' }).click();
   await expect(
-    page.getByText('Local test tool', { exact: true }),
+    page.getByRole('region', { name: 'Interactive explanations' }),
   ).toBeVisible();
   return page;
 }
@@ -93,7 +84,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
   const directory = mkdtempSync(join(tmpdir(), 'ar24-scenes-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openTools(application);
+    const page = await openExplanations(application);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -124,20 +115,12 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       };
     });
     const launchStart = performance.now();
-    await page.getByRole('button', { name: 'Launch assembly' }).click();
+    await page.getByRole('button', { name: 'Explore an assembly' }).click();
     await expect(
       page.getByRole('button', { name: 'Capture assembly' }),
     ).toBeEnabled();
     const usableMs = performance.now() - launchStart;
     await expect(page.locator('.explanation-viewport canvas')).toHaveCount(1);
-    const nativeHidden = await application.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]?.contentView.children.map((view) =>
-        view.getBounds(),
-      ),
-    );
-    expect(
-      nativeHidden?.some((bounds) => bounds.width === 0 && bounds.height === 0),
-    ).toBe(true);
     await page.getByRole('button', { name: 'Explode', exact: true }).click();
     await page
       .getByRole('button', { name: 'Upper shell', exact: true })
@@ -166,7 +149,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await canvas.focus();
     await page.keyboard.press('Home');
     await page
-      .locator('.tool-panel')
+      .locator('.reader-main')
       .evaluate((element) => element.scrollTo(0, 0));
     await page.screenshot({ path: artifact('assembly-exploded.png') });
     await page.getByRole('button', { name: 'Reassemble', exact: true }).click();
@@ -199,7 +182,9 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     const afterDrag = await captureRecord(page);
     expect(afterDrag.camera).not.toEqual(beforeDrag.camera);
     expect(afterDrag.explanation).toEqual(beforeDrag.explanation);
-    await page.getByRole('button', { name: 'Launch arm', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Explore a two-link arm', exact: true })
+      .click();
     await expect(
       page.getByRole('button', { name: 'Capture endpoint' }),
     ).toBeEnabled();
@@ -250,13 +235,23 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       );
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
       await page
-        .locator('.tool-panel')
+        .locator('.reader-main')
         .evaluate((element) => element.scrollTo(0, 0));
       await expect(page.locator('.explanation-viewport:visible')).toBeVisible();
       const overflow = await page
-        .locator('.tool-panel')
+        .locator('.reader-main')
         .evaluate((element) => element.scrollWidth > element.clientWidth);
-      expect(overflow).toBe(false);
+      const widths = await page.locator('.reader-main').evaluate((element) => {
+        const edge = element.getBoundingClientRect().right;
+        return [...element.querySelectorAll('*')]
+          .filter((child) => child.getBoundingClientRect().right > edge)
+          .map((child) => ({
+            tag: child.tagName,
+            class: child.className,
+            width: child.getBoundingClientRect().width,
+          }));
+      });
+      expect(overflow, JSON.stringify({ width, widths })).toBe(false);
       await page.screenshot({ path: artifact(`arm-${width}x${height}.png`) });
     }
     const stationaryDraws = await page.evaluate(async () => {
@@ -332,19 +327,14 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await expect(
       page.getByRole('button', { name: 'Capture endpoint' }),
     ).toBeEnabled();
-    await page.getByRole('button', { name: 'Browser', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Close explanation', exact: true })
+      .click();
     await expect(page.locator('.explanation-viewport canvas')).toHaveCount(0);
-    await expect(page.getByLabel('Tool address')).toBeVisible();
-    await expect
-      .poll(() =>
-        application.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0]?.contentView.children.some(
-            (view) => view.getBounds().width > 300,
-          ),
-        ),
-      )
-      .toBe(true);
-    await page.getByRole('button', { name: 'Launch assembly' }).click();
+    await expect(
+      page.getByRole('region', { name: 'Interactive explanations' }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Explore an assembly' }).click();
     await expect(
       page
         .getByRole('region', { name: 'Beacon module explanation' })
@@ -379,7 +369,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       ),
     );
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -388,7 +378,7 @@ test('offers usable text and parameters when WebGL context creation is unavailab
   const directory = mkdtempSync(join(tmpdir(), 'ar24-no-webgl-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openTools(application);
+    const page = await openExplanations(application);
     // Fault injection at the browser boundary: exercise real Three initialization failure.
     await page.evaluate(() => {
       const original = HTMLCanvasElement.prototype.getContext;
@@ -408,7 +398,7 @@ test('offers usable text and parameters when WebGL context creation is unavailab
         },
       });
     });
-    await page.getByRole('button', { name: 'Launch arm' }).click();
+    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
     await expect(page.getByText(/3D view unavailable/)).toBeVisible();
     await expect(page.locator('.explanation-axis')).toHaveCount(0);
     await page.getByLabel('Shoulder angle (°)').fill('0');
@@ -421,7 +411,7 @@ test('offers usable text and parameters when WebGL context creation is unavailab
     ).toBeDisabled();
     await page.screenshot({ path: artifact('webgl-unavailable.png') });
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -431,9 +421,9 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
   const directory = mkdtempSync(join(tmpdir(), 'ar24-repair-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openTools(application);
+    const page = await openExplanations(application);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.getByRole('button', { name: 'Launch arm' }).click();
+    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
     const capture = page.getByRole('button', { name: 'Capture endpoint' });
     await expect(capture).toBeEnabled();
     const shoulder = page.getByLabel('Shoulder angle (°)');
@@ -465,9 +455,11 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
       await expect(endpoint).toHaveText(angleEndpoint!);
       await expect(capture).toBeDisabled();
     }
-    await page.getByRole('button', { name: 'Browser', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Close explanation', exact: true })
+      .click();
     await expect(page.locator('.explanation-viewport canvas')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Launch arm' }).click();
+    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
     await expect(length).toHaveValue('0.');
     await expect(capture).toBeDisabled();
     await length.focus();
@@ -558,7 +550,7 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
       ),
     );
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
