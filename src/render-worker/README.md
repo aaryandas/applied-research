@@ -40,7 +40,9 @@ After the container exits, only `/job/artifact.mp4` is considered. The host reje
 Use Node 24 and the repository's exact lockfile. No npm dependencies were added. Build this isolated package with:
 
 ```sh
-node src/render-worker/build.mjs /private/tmp/ar-manim-evidence/compiled
+AR_MANIM_EVIDENCE=$(mktemp -d -t ar-manim-evidence)
+node src/render-worker/build.mjs "$AR_MANIM_EVIDENCE/compiled"
+node --test src/render-worker/evidence-paths.test.mjs
 node_modules/.bin/vitest run --project unit src/render-worker
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s src/render-worker/presets -p 'test_*.py'
 ```
@@ -50,14 +52,14 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s src/render-worker/pres
 In a coordinator-granted heavy/native slot:
 
 ```sh
-node src/render-worker/render-evidence.mjs
-node src/render-worker/runtime-probes.mjs
-node src/render-worker/capture-evidence.mjs
-node src/render-worker/color-evidence.mjs
-node src/render-worker/playback-evidence.mjs
+node src/render-worker/render-evidence.mjs "$AR_MANIM_EVIDENCE"
+node src/render-worker/runtime-probes.mjs "$AR_MANIM_EVIDENCE"
+node src/render-worker/capture-evidence.mjs "$AR_MANIM_EVIDENCE"
+node src/render-worker/color-evidence.mjs "$AR_MANIM_EVIDENCE"
+node src/render-worker/playback-evidence.mjs "$AR_MANIM_EVIDENCE"
 npm run check
 ```
 
-Evidence defaults to `/private/tmp/ar-manim-evidence`. The six synthetic recipes cover shear, right-angle endpoint, zero map, unequal weights, zero share and zero result. Expected endpoints in the evidence runner are literal values, independent of the Python display code. Render receipts include SHA256 values of the actual compiled worker and preset files. The independent color probe checks at least 50 saturated green pixels in the plane box at seven samples across the weighted transition (including 6.0 seconds), plus measured final endpoints for all six clips. The weighted contact sheet includes the 6.0-second mid-move frame. Receipts separate actual queue time, compute (including startup/teardown), verification and media duration. Local copies have no network transfer time; later account-bound transfer/playback startup needs separate measurement. These runs test the founder's approximate 10-second clip / 20-second wait target on one machine and do not establish a service SLA.
+Every evidence command requires an explicit existing directory owned by the current user with mode `0700`; symlinks are rejected. Use the unique directory created above, or explicitly secure an existing operator-owned evidence directory before reuse. The capture/color tools use the absolute installed `/opt/homebrew/bin/ffmpeg` path; other deployments must supply an absolute `AR_FFMPEG_PATH`. They resolve the executable and require a regular executable file without group/public write permission, never search `PATH`. The playback child uses its unique private data directory for temporary files; production CLI children do not inherit `TMPDIR`. The six synthetic recipes cover shear, right-angle endpoint, zero map, unequal weights, zero share and zero result. Expected endpoints in the evidence runner are literal values, independent of the Python display code. Render receipts include SHA256 values of the actual compiled worker and preset files. The independent color probe checks at least 50 saturated green pixels in the plane box at seven samples across the weighted transition (including 6.0 seconds), plus measured final endpoints for all six clips. The weighted contact sheet includes the 6.0-second mid-move frame. Receipts separate actual queue time, compute (including startup/teardown), verification and media duration. Local copies have no network transfer time; later account-bound transfer/playback startup needs separate measurement. These runs test the founder's approximate 10-second clip / 20-second wait target on one machine and do not establish a service SLA.
 
 The isolated Electron harness has no preload/Node renderer access, denies network/permissions/popups and loads only generated local media. It records metadata, actual keyboard play/pause/scrub, named-stage jumps, paused-position resume and complete playback of both families. Its video and semantic contact sheets support independent Fable review. Automated focus/visibility observations do not prove real manual minimize behavior. Production Reader controls, active/hidden lifecycle and accessible user-facing integration remain the consumer's responsibility.

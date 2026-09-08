@@ -11,7 +11,7 @@ describe('bounded real child process execution', () => {
       command: process.execPath,
       args: [
         '-e',
-        'console.log(process.argv[1]); console.error(process.env.AR_TEST_PROVIDER_SECRET ?? "absent")',
+        'console.log(process.argv[1]); console.error(JSON.stringify([process.env.AR_TEST_PROVIDER_SECRET ?? "absent", process.env.TMPDIR ?? "absent"]))',
         '$(touch /tmp/no-ar-execution)',
       ],
       signal: new AbortController().signal,
@@ -21,7 +21,7 @@ describe('bounded real child process execution', () => {
     expect(result.status).toBe('exited');
     expect(result.launch).toBe('started');
     expect(result.stdout.trim()).toBe('$(touch /tmp/no-ar-execution)');
-    expect(result.stderr.trim()).toBe('absent');
+    expect(JSON.parse(result.stderr)).toEqual(['absent', 'absent']);
     expect(safeDiagnostics(result)).toEqual({
       stdout: 'Third-party output withheld.',
       stderr: 'Third-party output withheld.',
@@ -71,7 +71,7 @@ describe('bounded real child process execution', () => {
       maxOutputBytes: 128,
     });
     expect(overflow.status).toBe('output-limit');
-    expect(overflow.stdout.length).toBe(128);
+    expect(overflow.stdout).toHaveLength(128);
   });
   it('honors pre-start and active cancellation', async () => {
     const controller = new AbortController();
