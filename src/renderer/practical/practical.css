@@ -1,0 +1,127 @@
+.practical-work {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding: clamp(1.25rem, 4vw, 3rem);
+  color: var(--ink);
+  background: var(--paper);
+  font: 14px/1.5 var(--font-ui);
+  overflow-wrap: anywhere;
+  accent-color: var(--accent);
+  caret-color: var(--human);
+}
+.practical-work h1 {
+  margin: 0;
+  font: 500 22px/1.3 var(--font-reading);
+  font-optical-sizing: auto;
+}
+.practical-work h2 {
+  margin: 0 0 0.75rem;
+  font: 500 18px/1.4 var(--font-reading);
+}
+.practical-work section,
+.practical-work footer,
+.practical-preparation {
+  margin-top: 2rem;
+}
+.practical-work p {
+  max-width: 68ch;
+}
+.practical-instructions,
+.practical-objective {
+  font: 400 18px/1.55 var(--font-reading);
+  white-space: pre-wrap;
+}
+.practical-muted {
+  color: var(--muted);
+}
+.practical-preparation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+.practical-work label {
+  display: grid;
+  gap: 0.5rem;
+}
+.practical-work textarea {
+  width: 100%;
+  min-height: 7rem;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 0.75rem;
+  background: var(--paper);
+  color: var(--human-ink);
+  font: 400 18px/1.55 var(--font-reading);
+  font-optical-sizing: auto;
+}
+.practical-work button {
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.practical-work button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+.practical-work button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.practical-work :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.practical-work ::selection {
+  color: var(--human-ink);
+  background: var(--human-soft);
+}
+.practical-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.practical-work .practical-guidance {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding-inline: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.practical-provenance,
+.practical-choice small {
+  display: block;
+  color: var(--muted);
+  font: 12px/1.5 var(--font-ui);
+}
+.practical-work fieldset {
+  border: 0;
+  padding: 0;
+  margin: 1.5rem 0 1rem;
+  min-width: 0;
+}
+.practical-work legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+.practical-work .practical-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding-block: 0.5rem;
+}
+.practical-work input[type='radio'] {
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .practical-preparation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
