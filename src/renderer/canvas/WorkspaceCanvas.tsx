@@ -18,7 +18,7 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import type { CanvasView } from '../../contracts/learning-records';
-import { isInteractiveTarget } from './interaction';
+import { isNestedInteraction } from './interaction';
 import { LearningNode } from './CanvasNode';
 import { CanvasActions } from './actions';
 import { arrangeMeasuredNodes } from './layout';
@@ -42,7 +42,7 @@ const PAN_DELTAS: Record<string, [number, number]> = {
 };
 
 export function WorkspaceCanvas(
-  props: WorkspaceCanvasProps,
+  props: Readonly<WorkspaceCanvasProps>,
 ): React.JSX.Element {
   return (
     <ReactFlowProvider key={props.workspace.project.id}>
@@ -62,7 +62,7 @@ function CanvasSession({
   onShellControls,
   status = 'ready',
   onRetry,
-}: WorkspaceCanvasProps): React.JSX.Element {
+}: Readonly<WorkspaceCanvasProps>): React.JSX.Element {
   const graph = useMemo(
     () => deriveCanvasGraph(workspace, view),
     [workspace, view],
@@ -226,11 +226,10 @@ function CanvasSession({
   };
   function handleNodeKeyDown(
     event: React.KeyboardEvent,
-    nodeElement: Element,
+    nodeElement: HTMLElement,
   ): void {
     if (event.key !== 'F2') return;
-    const content = flow.getNode(nodeElement.getAttribute('data-id') ?? '')
-      ?.data.content;
+    const content = flow.getNode(nodeElement.dataset.id ?? '')?.data.content;
     if (content?.editable && content.entry) {
       event.preventDefault();
       actions.onEditEntry(content.entry);
@@ -261,14 +260,23 @@ function CanvasSession({
     }
   }
   function handleMapKeyDown(event: React.KeyboardEvent): void {
-    if (isInteractiveTarget(event)) return;
+    if (isNestedInteraction(event)) return;
     const nodeElement =
       event.target instanceof Element
-        ? event.target.closest('.react-flow__node')
+        ? event.target.closest<HTMLElement>('.react-flow__node')
         : null;
     if (nodeElement) handleNodeKeyDown(event, nodeElement);
     else handleViewportKeyDown(event);
   }
+  const unavailableState =
+    status === 'loading' ? (
+      <output>Loading your learning map…</output>
+    ) : (
+      <div role="alert">
+        <p>The learning map could not be loaded.</p>
+        {onRetry && <button onClick={onRetry}>Retry loading</button>}
+      </div>
+    );
   return (
     <CanvasActions.Provider value={actions}>
       <section
@@ -277,25 +285,13 @@ function CanvasSession({
         aria-busy={status === 'loading'}
       >
         {status !== 'ready' ? (
-          <div
-            className="workspace-canvas-state"
-            role={status === 'error' ? 'alert' : 'status'}
-          >
-            <p>
-              {status === 'loading'
-                ? 'Loading your learning map…'
-                : 'The learning map could not be loaded.'}
-            </p>
-            {status === 'error' && onRetry && (
-              <button onClick={onRetry}>Retry loading</button>
-            )}
-          </div>
+          <div className="workspace-canvas-state">{unavailableState}</div>
         ) : (
           <>
             {nodes.length === 0 && (
-              <div className="workspace-canvas-state" role="status">
+              <output className="workspace-canvas-state">
                 Your saved notes, questions and insights will appear here.
-              </div>
+              </output>
             )}
             <ReactFlow<CanvasNode>
               nodes={nodes}
@@ -325,6 +321,12 @@ function CanvasSession({
                 setViewports((current) => ({ ...current, [view]: viewport }))
               }
               proOptions={{ hideAttribution: true }}
+              onNodeDoubleClick={(event, node) => {
+                if (isNestedInteraction(event)) return;
+                const { content } = node.data;
+                if (content.editable && content.entry)
+                  actions.onEditEntry(content.entry);
+              }}
               onNodeClick={(_, node) =>
                 setNotice(
                   `${node.data.content.label} selected.${node.data.content.editable ? ' Press F2 to edit your current writing.' : ''}`,

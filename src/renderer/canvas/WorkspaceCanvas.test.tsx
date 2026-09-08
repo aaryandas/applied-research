@@ -143,7 +143,7 @@ describe('WorkspaceCanvas', () => {
       screen.getByText(
         'Your saved notes, questions and insights will appear here.',
       ),
-    ).toHaveAttribute('role', 'status');
+    ).toHaveRole('status');
   });
   it('persists keyboard movement through the supported node primitive', async () => {
     const input = props({ view: 'expanded' });
@@ -322,15 +322,14 @@ describe('Canvas reading and keyboard controls', () => {
     fireEvent.keyDown(map, { key: 'ArrowLeft' });
     await waitFor(() => expect(viewport.style.transform).not.toBe(initial));
     for (const key of ['ArrowRight', 'ArrowUp', 'ArrowDown']) {
-      await act(async () => fireEvent.keyDown(map, { key }));
+      fireEvent.keyDown(map, { key });
     }
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Zoom')).not.toHaveTextContent('100%'),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    for (const key of ['+', '=', '-'])
-      await act(async () => fireEvent.keyDown(map, { key }));
+    for (const key of ['+', '=', '-']) fireEvent.keyDown(map, { key });
     fireEvent.keyDown(map, { key: 'Home' });
     await waitFor(() =>
       expect(
@@ -393,8 +392,8 @@ describe('Canvas reading and keyboard controls', () => {
   it('edits the nested support instead of its parent insight and preserves historical supports as read-only', async () => {
     const input = props();
     const { rerender } = render(<WorkspaceCanvas {...input} />);
-    const support = screen.getByRole('group', {
-      name: /^Your note, revision 1:/,
+    const support = screen.getByRole('button', {
+      name: /^Edit Your note, revision 1:/,
     });
     fireEvent.keyDown(support, { key: 'F2' });
     await waitFor(() =>
@@ -403,7 +402,7 @@ describe('Canvas reading and keyboard controls', () => {
         revision: 1,
       }),
     );
-    fireEvent.doubleClick(support);
+    fireEvent.click(support);
     await waitFor(() => expect(input.onEditEntry).toHaveBeenCalledTimes(2));
     vi.mocked(input.onEditEntry).mockClear();
     const workspace = structuredClone(input.workspace);

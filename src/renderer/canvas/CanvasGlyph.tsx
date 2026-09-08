@@ -17,7 +17,7 @@ const paths: Record<CanvasContent['kind'], string> = {
 export function CanvasGlyph({
   kind,
 }: {
-  kind: CanvasContent['kind'];
+  readonly kind: CanvasContent['kind'];
 }): React.JSX.Element {
   return (
     <svg

@@ -10,6 +10,9 @@ import type {
   CanvasView,
   EntryRevisionReference,
   LearningEntryRevision,
+  LearningEntryRecord,
+  SourceVersion,
+  SourceHighlight,
   LearningEntryKind,
   LearningOrigin,
   LearningWorkspace,
@@ -94,6 +97,7 @@ interface GraphContext {
   nodes: Map<string, CanvasNode>;
   edges: Map<string, Edge>;
   columnBottoms: Map<number, number>;
+  entries: Map<string, LearningEntryRecord>;
   placements: Map<string, LearningWorkspace['placements'][number]>;
 }
 
@@ -244,6 +248,32 @@ function pathNode(
   }
   return lessonNode;
 }
+function isExactHighlight(
+  highlight: SourceHighlight | undefined,
+  version: SourceVersion | undefined,
+): highlight is SourceHighlight {
+  if (!highlight || !version) return false;
+  return (
+    highlight.revisionId === version.revisionId &&
+    highlight.sourceId === version.sourceId &&
+    highlight.start >= 0 &&
+    highlight.end > highlight.start &&
+    version.canonicalText.slice(highlight.start, highlight.end) ===
+      highlight.quote
+  );
+}
+function connectPathOrigin(
+  context: GraphContext,
+  content: CanvasContent,
+  target: string,
+  origin: LearningOrigin,
+): void {
+  if (!origin.path) return;
+  const path = pathNode(context, origin.path);
+  if (path) link(context, path, target, 'Learning origin');
+  else content.diagnostics.push('Unresolved topic or lesson revision');
+}
+
 function connectOrigin(
   context: GraphContext,
   content: CanvasContent,
@@ -252,11 +282,7 @@ function connectOrigin(
   const { workspace, view } = context;
   const origin = content.origin;
   if (!origin) return;
-  if (origin.path) {
-    const path = pathNode(context, origin.path);
-    if (path) link(context, path, target, 'Learning origin');
-    else content.diagnostics.push('Unresolved topic or lesson revision');
-  }
+  connectPathOrigin(context, content, target, origin);
   const highlight = origin.highlightId
     ? workspace.highlights.find((h) => h.id === origin.highlightId)
     : undefined;
@@ -266,15 +292,7 @@ function connectOrigin(
     .find((v) => v.revisionId === revisionId);
   if (revisionId && !version)
     content.diagnostics.push('Unresolved source revision');
-  const validHighlight =
-    highlight &&
-    version &&
-    highlight.revisionId === version.revisionId &&
-    highlight.sourceId === version.sourceId &&
-    highlight.start >= 0 &&
-    highlight.end > highlight.start &&
-    version.canonicalText.slice(highlight.start, highlight.end) ===
-      highlight.quote;
+  const validHighlight = isExactHighlight(highlight, version);
   if (origin.highlightId && !validHighlight)
     content.diagnostics.push('Unresolved exact highlight');
   if (version) {
@@ -302,6 +320,110 @@ function connectOrigin(
     link(context, source, target, 'Source origin');
 }
 
+function addCurrentPaths(context: GraphContext): void {
+  for (const path of context.workspace.paths) {
+    for (const topic of path.current.topics) {
+      pathNode(context, {
+        pathId: path.id,
+        pathRevision: path.currentRevision,
+        topicId: topic.id,
+      });
+      for (const lesson of topic.lessons)
+        pathNode(context, {
+          pathId: path.id,
+          pathRevision: path.currentRevision,
+          topicId: topic.id,
+          lessonId: lesson.id,
+        });
+    }
+  }
+}
+function attachSupport(
+  context: GraphContext,
+  entry: LearningEntryRecord,
+  content: CanvasContent,
+  reference: EntryRevisionReference,
+  nested: Set<string>,
+): void {
+  const support = context.entries.get(reference.entryId);
+  const revision = support?.revisions.find(
+    (r) => r.revision === reference.revision,
+  );
+  if (
+    !revision ||
+    !support ||
+    revision.authorKind !== 'human' ||
+    !['note', 'question'].includes(revision.kind)
+  ) {
+    content.diagnostics.push(
+      `Unresolved support ${reference.entryId} · revision ${reference.revision}`,
+    );
+    return;
+  }
+  const supportContent = entryContent(
+    support.id,
+    revision,
+    support.currentRevision,
+  );
+  if (context.view === 'distilled') {
+    content.supports.push(supportContent);
+    if (reference.revision === support.currentRevision) nested.add(support.id);
+    connectOrigin(context, supportContent, entry.id);
+  } else {
+    const supportId =
+      reference.revision === support.currentRevision
+        ? support.id
+        : `entry:${support.id}:${reference.revision}`;
+    add(context, {
+      id: supportId,
+      content: supportContent,
+      column: 4,
+      recordId:
+        reference.revision === support.currentRevision ? support.id : null,
+    });
+    connectOrigin(context, supportContent, supportId);
+    link(
+      context,
+      supportId,
+      entry.id,
+      revision.kind === 'question'
+        ? 'Linked question; not verified evidence'
+        : 'Supporting note revision',
+    );
+  }
+}
+function addInsight(
+  context: GraphContext,
+  entry: LearningEntryRecord,
+  nested: Set<string>,
+): void {
+  const content = entryContent(entry.id, entry.current, entry.currentRevision);
+  for (const reference of entry.current.supports)
+    attachSupport(context, entry, content, reference, nested);
+  add(context, {
+    id: entry.id,
+    content,
+    column: context.view === 'distilled' ? 2 : 5,
+  });
+  connectOrigin(context, content, entry.id);
+}
+function addRemainingEntries(context: GraphContext, nested: Set<string>): void {
+  for (const entry of context.workspace.entries) {
+    if (entry.current.kind === 'insight' || nested.has(entry.id)) continue;
+    const content = entryContent(
+      entry.id,
+      entry.current,
+      entry.currentRevision,
+    );
+    add(context, {
+      id: entry.id,
+      content: content,
+      column: context.view === 'distilled' ? 3 : 4,
+    });
+    connectOrigin(context, content, entry.id);
+  }
+}
+
 export function deriveCanvasGraph(
   workspace: LearningWorkspace,
   view: CanvasView,
@@ -322,103 +444,17 @@ export function deriveCanvasGraph(
     edges,
     columnBottoms,
     placements,
+    entries,
   };
-  for (const path of workspace.paths) {
-    for (const topic of path.current.topics) {
-      pathNode(context, {
-        pathId: path.id,
-        pathRevision: path.currentRevision,
-        topicId: topic.id,
-      });
-      for (const lesson of topic.lessons)
-        pathNode(context, {
-          pathId: path.id,
-          pathRevision: path.currentRevision,
-          topicId: topic.id,
-          lessonId: lesson.id,
-        });
-    }
-  }
+  addCurrentPaths(context);
   const nested = new Set<string>();
   for (const entry of workspace.entries) {
-    if (entry.current.kind !== 'insight') continue;
-    const content = entryContent(
-      entry.id,
-      entry.current,
-      entry.currentRevision,
-    );
-    for (const reference of entry.current.supports) {
-      const support = entries.get(reference.entryId);
-      const revision = support?.revisions.find(
-        (r) => r.revision === reference.revision,
-      );
-      if (
-        !revision ||
-        !support ||
-        revision.authorKind !== 'human' ||
-        !['note', 'question'].includes(revision.kind)
-      ) {
-        content.diagnostics.push(
-          `Unresolved support ${reference.entryId} · revision ${reference.revision}`,
-        );
-        continue;
-      }
-      const supportContent = entryContent(
-        support.id,
-        revision,
-        support.currentRevision,
-      );
-      if (view === 'distilled') {
-        content.supports.push(supportContent);
-        if (reference.revision === support.currentRevision)
-          nested.add(support.id);
-        connectOrigin(context, supportContent, entry.id);
-      } else {
-        const supportId =
-          reference.revision === support.currentRevision
-            ? support.id
-            : `entry:${support.id}:${reference.revision}`;
-        add(context, {
-          id: supportId,
-          content: supportContent,
-          column: 4,
-          recordId:
-            reference.revision === support.currentRevision ? support.id : null,
-        });
-        connectOrigin(context, supportContent, supportId);
-        link(
-          context,
-          supportId,
-          entry.id,
-          revision.kind === 'question'
-            ? 'Linked question; not verified evidence'
-            : 'Supporting note revision',
-        );
-      }
-    }
-    add(context, {
-      id: entry.id,
-      content: content,
-      column: view === 'distilled' ? 2 : 5,
-    });
-    connectOrigin(context, content, entry.id);
+    if (entry.current.kind === 'insight') addInsight(context, entry, nested);
   }
-  for (const entry of workspace.entries) {
-    if (entry.current.kind === 'insight' || nested.has(entry.id)) continue;
-    const content = entryContent(
-      entry.id,
-      entry.current,
-      entry.currentRevision,
-    );
-    add(context, {
-      id: entry.id,
-      content: content,
-      column: view === 'distilled' ? 3 : 4,
-    });
-    connectOrigin(context, content, entry.id);
-  }
-  if (view === 'expanded')
+  addRemainingEntries(context, nested);
+  if (view === 'expanded') {
     for (const source of workspace.sources)
       sourceNode(context, source.currentVersionId);
+  }
   return { nodes: [...nodes.values()], edges: [...edges.values()] };
 }
