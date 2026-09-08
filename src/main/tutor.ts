@@ -27,8 +27,10 @@ export interface TutorAnswer {
 
 function truncateGeneratedTitle(value: string): string {
   const truncated = value.slice(0, 200);
-  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
-  return finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff
+  const finalCodePoint = truncated.codePointAt(truncated.length - 1);
+  return finalCodePoint !== undefined &&
+    finalCodePoint >= 0xd800 &&
+    finalCodePoint <= 0xdbff
     ? truncated.slice(0, -1)
     : truncated;
 }

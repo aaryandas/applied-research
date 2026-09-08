@@ -77,6 +77,37 @@ it('logs typed codes and sanitized cause identity without paths or secrets', () 
   expect(diagnostic).not.toContain('private-value');
 });
 
+it('bounds stack inspection and ignores frames beyond an oversized line', () => {
+  const cause = Object.assign(new Error(SENSITIVE_DETAILS), {
+    stack: `Error: ${SENSITIVE_DETAILS}\n${'private-frame-content'.repeat(40)}\n    at later (/private/workspace-store.ts:91:7)`,
+  });
+  const error = new WorkspaceMigrationError(SENSITIVE_DETAILS, {
+    code: 'migration-execution-failed',
+    cause,
+  });
+
+  const diagnostic = workspaceStartupDiagnostic(error);
+  expect(diagnostic).toContain('cause=Error');
+  expect(diagnostic).not.toContain('private-frame-content');
+  expect(diagnostic).not.toContain('workspace-store.ts');
+  expect(diagnostic).not.toContain('/private');
+});
+
+it('does not reveal an unrecognized source filename from a stack', () => {
+  const cause = Object.assign(new Error(SENSITIVE_DETAILS), {
+    stack: `Error: ${SENSITIVE_DETAILS}\n    at read (/Users/private/customer-name.js:14:2)`,
+  });
+  const error = new WorkspaceMigrationError(SENSITIVE_DETAILS, {
+    code: 'migration-execution-failed',
+    cause,
+  });
+
+  const diagnostic = workspaceStartupDiagnostic(error);
+  expect(diagnostic).toContain('cause=Error');
+  expect(diagnostic).not.toContain('customer-name');
+  expect(diagnostic).not.toContain('/Users/private');
+});
+
 it('omits absent project, driver code and source-frame fields', () => {
   const nestedCause = new TypeError(SENSITIVE_DETAILS);
   delete nestedCause.stack;

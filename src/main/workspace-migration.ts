@@ -8,6 +8,7 @@ import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
 export const LATEST_WORKSPACE_MIGRATION = 1_788_847_200_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
+const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
 const MIGRATIONS_FOLDER = join(import.meta.dirname, '../../drizzle');
 const EXPECTED_TABLE_COLUMNS = {
@@ -318,17 +319,16 @@ function migrationTimestamp(database: Database.Database): number | undefined {
 }
 
 function validateNormalizedSchema(database: Database.Database): void {
-  const expectedTables = [
-    ...Object.keys(EXPECTED_TABLE_COLUMNS),
-    'legacy_projects_v0',
-  ].sort();
-  const actualTables = tableNames(database);
-  const withoutOptionalLegacy = expectedTables.filter(
-    (table) => table !== 'legacy_projects_v0',
+  const requiredTables = new Set(Object.keys(EXPECTED_TABLE_COLUMNS));
+  const actualTables = new Set(tableNames(database));
+  const hasEveryRequiredTable = [...requiredTables].every((table) =>
+    actualTables.has(table),
   );
   const validTables =
-    JSON.stringify(actualTables) === JSON.stringify(expectedTables) ||
-    JSON.stringify(actualTables) === JSON.stringify(withoutOptionalLegacy);
+    hasEveryRequiredTable &&
+    (actualTables.size === requiredTables.size ||
+      (actualTables.size === requiredTables.size + 1 &&
+        actualTables.has(OPTIONAL_LEGACY_TABLE)));
   if (!validTables) {
     throw new WorkspaceMigrationError(
       'Workspace database schema is incomplete or unsupported. No data was reset.',

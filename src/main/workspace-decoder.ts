@@ -15,8 +15,14 @@ const ENTRY_KINDS = new Set<EntryKind>([
   'assistant',
   'experiment',
 ]);
-const PROJECT_KEYS = ['createdAt', 'entries', 'goal', 'id', 'updatedAt'];
-const ENTRY_KEYS = [
+const PROJECT_KEYS = new Set([
+  'createdAt',
+  'entries',
+  'goal',
+  'id',
+  'updatedAt',
+]);
+const ENTRY_KEYS = new Set([
   'body',
   'citations',
   'createdAt',
@@ -26,8 +32,8 @@ const ENTRY_KEYS = [
   'url',
   'x',
   'y',
-];
-const CITATION_KEYS = ['end', 'start', 'title', 'url'];
+]);
+const CITATION_KEYS = new Set(['end', 'start', 'title', 'url']);
 const HUMAN_TITLE_LIMIT = 200;
 const HUMAN_BODY_LIMIT = 20_000;
 const ASSISTANT_TITLE_LIMIT = 4_000;
@@ -42,6 +48,10 @@ export interface DecodedEntryContent {
   url: string;
   citations: Citation[];
   authorKind: EntryAuthorKind;
+}
+
+interface WellFormedString {
+  isWellFormed(): boolean;
 }
 
 export function decodeEntryKind(value: unknown): EntryKind {
@@ -66,13 +76,13 @@ function object(value: unknown, description: string): Record<string, unknown> {
 
 function exactKeys(
   value: Record<string, unknown>,
-  expected: string[],
+  expected: ReadonlySet<string>,
   description: string,
 ): void {
-  const actual = Object.keys(value).sort();
+  const actual = Object.keys(value);
   if (
-    actual.length !== expected.length ||
-    actual.some((key, index) => key !== expected[index])
+    actual.length !== expected.size ||
+    actual.some((key) => !expected.has(key))
   ) {
     throw new Error(
       `Invalid ${description}: unsupported or missing fields (${actual.join(', ')}).`,
@@ -80,19 +90,8 @@ function exactKeys(
   }
 }
 
-function hasUnpairedSurrogate(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff)
-        return true;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return true;
-    }
-  }
-  return false;
+function isWellFormed(value: string): boolean {
+  return (value as string & WellFormedString).isWellFormed();
 }
 
 export function decodeText(
@@ -101,9 +100,9 @@ export function decodeText(
   maximumLength = Number.POSITIVE_INFINITY,
 ): string {
   if (typeof value !== 'string') {
-    throw new Error(`Invalid ${description}: expected text.`);
+    throw new TypeError(`Invalid ${description}: expected text.`);
   }
-  if (hasUnpairedSurrogate(value)) {
+  if (!isWellFormed(value)) {
     throw new Error(`Invalid ${description}: text is not well-formed Unicode.`);
   }
   if (value.length > maximumLength) {
@@ -250,7 +249,7 @@ export function decodeLegacyProject(value: unknown): Project {
   exactKeys(decoded, PROJECT_KEYS, 'legacy project');
   if (!Array.isArray(decoded.entries))
     throw new Error('Invalid legacy project: entries must be a list.');
-  const entries = decoded.entries.map(entry);
+  const entries = decoded.entries.map((item, index) => entry(item, index));
   if (new Set(entries.map((item) => item.id)).size !== entries.length) {
     throw new Error('Invalid legacy project: duplicate entry id.');
   }

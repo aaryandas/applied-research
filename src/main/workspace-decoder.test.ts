@@ -4,6 +4,7 @@ import {
   decodeCitations,
   decodeEntryKind,
   decodeLegacyProject,
+  decodeText,
 } from './workspace-decoder';
 
 function validProject(): Record<string, unknown> {
@@ -173,4 +174,10 @@ it('validates citations without rewriting their original order', () => {
     { title: 'Earlier', url: 'https://example.com/earlier', start: 1, end: 2 },
   ];
   expect(decodeCitations(citations, '0123456789')).toEqual(citations);
+});
+
+it('validates Unicode without transforming well-formed UTF-16 text', () => {
+  const text = 'paired 🧭 and exact \u0000 controls';
+  expect(decodeText(text, 'test text')).toBe(text);
+  expect(() => decodeText(42, 'test text')).toThrow(TypeError);
 });

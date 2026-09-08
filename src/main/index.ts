@@ -321,9 +321,9 @@ async function createWindow(): Promise<void> {
   await window.loadURL(rendererUrl);
 }
 
-app
-  .whenReady()
-  .then(async () => {
+async function startApplication(): Promise<void> {
+  try {
+    await app.whenReady();
     mkdirSync(app.getPath('userData'), { recursive: true });
     try {
       store = new WorkspaceStore(
@@ -350,14 +350,16 @@ app
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) void createWindow();
     });
-  })
-  .catch((error_: unknown) => {
+  } catch (error_: unknown) {
     console.error(
       'Unable to start Applied Research.',
       workspaceStartupDiagnostic(error_),
     );
     app.exit(1);
-  });
+  }
+}
+
+void startApplication();
 app.on('will-quit', () => store?.close());
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
