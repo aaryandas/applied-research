@@ -178,3 +178,39 @@ describe('PlacementSession navigation guard', () => {
     expect(session.retry('expanded', 'missing')).toBe(false);
   });
 });
+
+it('retires matching acknowledged overlays but preserves unmatched, failed and in-flight drafts', async () => {
+  const onMove = vi.fn().mockResolvedValue(undefined);
+  const session = new PlacementSession({ projectId: 'project', onMove });
+  session.move(movement(100));
+  expect(await session.flush()).toBe(true);
+  const placement = { ...movement(100).input, updatedAt: '2026-09-08' };
+  for (const mismatch of [
+    { ...placement, projectId: 'other' },
+    { ...placement, view: 'distilled' as const },
+    { ...placement, recordId: 'other' },
+    { ...placement, x: 101 },
+    { ...placement, y: 0 },
+  ]) {
+    session.reconcile([mismatch]);
+    expect(session.get('expanded', 'note')).toBeDefined();
+  }
+  session.reconcile([placement]);
+  expect(session.getSnapshot().size).toBe(0);
+  onMove.mockRejectedValue(new Error('offline'));
+  session.move(movement(100));
+  await session.flush();
+  session.reconcile([placement]);
+  expect(session.get('expanded', 'note')?.phase).toBe('failed');
+  expect(session.blockedNavigationNotice()).toMatch(/Retry/);
+  session.stage(movement(100));
+  session.reconcile([placement]);
+  expect(session.get('expanded', 'note')?.phase).toBe('moving');
+  expect(session.blockedNavigationNotice()).toMatch(/Finish moving/);
+  const pending = deferred();
+  onMove.mockReturnValue(pending.promise);
+  session.move(movement(100));
+  expect(session.blockedNavigationNotice()).toMatch(/Waiting/);
+  pending.resolve();
+  expect(await session.flush()).toBe(true);
+});

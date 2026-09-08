@@ -1,6 +1,7 @@
 import type {
   CanvasView,
   LearningRecordsBridge,
+  LearningWorkspace,
   MoveLearningRecordInput,
 } from '../../contracts/learning-records';
 import type { CanvasMovementError } from './types';
@@ -62,26 +63,57 @@ export class PlacementSession {
     return this.snapshot.get(`${view}:${nodeId}`);
   }
 
-  stage({ nodeId, input, savedPosition }: PlacementChange): void {
+  stage({ nodeId, input, savedPosition }: PlacementChange): PlacementDraft {
     if (input.projectId !== this.projectId)
       throw new Error('This placement belongs to another project.');
     const key = `${input.view}:${nodeId}`;
     const previous = this.snapshot.get(key);
-    this.publish(key, {
+    const draft: PlacementDraft = {
       nodeId,
       input: { ...input },
       savedPosition: { ...(previous?.savedPosition ?? savedPosition) },
       phase: 'moving',
       error: null,
       generation: (previous?.generation ?? 0) + 1,
-    });
+    };
+    this.publish(key, draft);
+    return draft;
   }
 
   move(change: PlacementChange): void {
-    this.stage(change);
+    const draft = this.stage(change);
     const key = `${change.input.view}:${change.nodeId}`;
-    const draft = this.snapshot.get(key)!;
     this.enqueue(key, draft);
+  }
+
+  /** Retire only acknowledged overlays that the owning workspace has caught up with. */
+  reconcile(placements: LearningWorkspace['placements']): void {
+    const next = new Map(this.snapshot);
+    for (const [key, draft] of next) {
+      if (draft.phase !== 'saved') continue;
+      const acknowledged = placements.some(
+        (placement) =>
+          placement.projectId === this.projectId &&
+          placement.view === draft.input.view &&
+          placement.recordId === draft.input.recordId &&
+          placement.x === draft.input.x &&
+          placement.y === draft.input.y,
+      );
+      if (acknowledged) next.delete(key);
+    }
+    if (next.size === this.snapshot.size) return;
+    this.snapshot = next;
+    this.listeners.forEach((listener) => listener());
+  }
+
+  blockedNavigationNotice(): string {
+    if ([...this.snapshot.values()].some((draft) => draft.phase === 'moving'))
+      return 'Finish moving the node before leaving Canvas.';
+    if ([...this.snapshot.values()].some((draft) => draft.phase === 'saving'))
+      return 'Waiting for positions to finish saving before leaving Canvas.';
+    if ([...this.snapshot.values()].some((draft) => draft.phase === 'failed'))
+      return 'Retry the unsaved positions or restore their previous positions before leaving Canvas.';
+    return '';
   }
 
   retry(view: CanvasView, nodeId: string): boolean {

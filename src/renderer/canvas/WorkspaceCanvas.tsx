@@ -15,8 +15,10 @@ import {
   ReactFlowProvider,
   useReactFlow,
   type NodeChange,
+  type Viewport,
 } from '@xyflow/react';
 import type { CanvasView } from '../../contracts/learning-records';
+import { isNestedInteraction } from './interaction';
 import { LearningNode } from './CanvasNode';
 import { CanvasActions } from './actions';
 import { arrangeMeasuredNodes } from './layout';
@@ -29,9 +31,18 @@ import './canvas.css';
 const nodeTypes = { learning: LearningNode };
 const READABLE_FIT_ZOOM = 0.85;
 const PAN_STEP = 80;
+const DEFAULT_VIEWPORT: Viewport = { x: 16, y: 16, zoom: 1 };
+const NODE_DESCRIPTION =
+  'Press Enter or Space to select. Arrow keys move a selected movable node. Press F2 to edit current human writing, or Escape to deselect.';
+const PAN_DELTAS: Record<string, [number, number]> = {
+  ArrowLeft: [PAN_STEP, 0],
+  ArrowRight: [-PAN_STEP, 0],
+  ArrowUp: [0, PAN_STEP],
+  ArrowDown: [0, -PAN_STEP],
+};
 
 export function WorkspaceCanvas(
-  props: WorkspaceCanvasProps,
+  props: Readonly<WorkspaceCanvasProps>,
 ): React.JSX.Element {
   return (
     <ReactFlowProvider key={props.workspace.project.id}>
@@ -51,7 +62,7 @@ function CanvasSession({
   onShellControls,
   status = 'ready',
   onRetry,
-}: WorkspaceCanvasProps): React.JSX.Element {
+}: Readonly<WorkspaceCanvasProps>): React.JSX.Element {
   const graph = useMemo(
     () => deriveCanvasGraph(workspace, view),
     [workspace, view],
@@ -68,9 +79,20 @@ function CanvasSession({
   const failures = [...placements.values()].filter(
     (draft) => draft.phase === 'failed',
   );
-  const [zoom, setZoom] = useState(1);
+  const [viewports, setViewports] = useState<Record<CanvasView, Viewport>>({
+    distilled: DEFAULT_VIEWPORT,
+    expanded: DEFAULT_VIEWPORT,
+  });
+  const zoom = viewports[view].zoom;
   const [notice, setNotice] = useState('');
+  const [navigationBlocked, setNavigationBlocked] = useState(false);
+  const feedback = navigationBlocked
+    ? session.blockedNavigationNotice()
+    : notice;
   const flow = useReactFlow<CanvasNode>();
+  useEffect(() => {
+    session.reconcile(workspace.placements);
+  }, [session, workspace.placements, placements]);
   const active = useRef(true);
   const navigationRequest = useRef(0);
   useEffect(() => {
@@ -110,8 +132,8 @@ function CanvasSession({
   const flush = useCallback(async (): Promise<boolean> => {
     const saved = await session.flush();
     if (!active.current) return false;
-    if (!saved)
-      setNotice('Save or discard unsaved placements before leaving Canvas.');
+    setNavigationBlocked(!saved);
+    if (saved) setNotice('');
     return saved;
   }, [session]);
   useEffect(() => {
@@ -148,7 +170,11 @@ function CanvasSession({
           return updated;
         const fixedIds = new Set(
           workspace.placements
-            .filter((placement) => placement.view === view)
+            .filter(
+              (placement) =>
+                placement.projectId === workspace.project.id &&
+                placement.view === view,
+            )
             .map((placement) => placement.recordId),
         );
         for (const node of updated)
@@ -190,6 +216,7 @@ function CanvasSession({
   );
   const resetPosition = (failedView: CanvasView, nodeId: string): void => {
     const position = session.discard(failedView, nodeId);
+    if (position) setNotice('Previous position restored.');
     if (position && failedView === view)
       setNodes((current) =>
         current.map((node) =>
@@ -197,6 +224,59 @@ function CanvasSession({
         ),
       );
   };
+  function handleNodeKeyDown(
+    event: React.KeyboardEvent,
+    nodeElement: HTMLElement,
+  ): void {
+    if (event.key !== 'F2') return;
+    const content = flow.getNode(nodeElement.dataset.id ?? '')?.data.content;
+    if (content?.editable && content.entry) {
+      event.preventDefault();
+      actions.onEditEntry(content.entry);
+    }
+  }
+  function handleViewportKeyDown(event: React.KeyboardEvent): void {
+    const delta = PAN_DELTAS[event.key];
+    if (delta) {
+      event.preventDefault();
+      const viewport = flow.getViewport();
+      void flow.setViewport({
+        ...viewport,
+        x: viewport.x + delta[0],
+        y: viewport.y + delta[1],
+      });
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      fitMap();
+    }
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      void flow.zoomIn();
+    }
+    if (event.key === '-') {
+      event.preventDefault();
+      void flow.zoomOut();
+    }
+  }
+  function handleMapKeyDown(event: React.KeyboardEvent): void {
+    if (isNestedInteraction(event)) return;
+    const nodeElement =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>('.react-flow__node')
+        : null;
+    if (nodeElement) handleNodeKeyDown(event, nodeElement);
+    else handleViewportKeyDown(event);
+  }
+  const unavailableState =
+    status === 'loading' ? (
+      <output>Loading your learning map…</output>
+    ) : (
+      <div role="alert">
+        <p>The learning map could not be loaded.</p>
+        {onRetry && <button onClick={onRetry}>Retry loading</button>}
+      </div>
+    );
   return (
     <CanvasActions.Provider value={actions}>
       <section
@@ -205,25 +285,13 @@ function CanvasSession({
         aria-busy={status === 'loading'}
       >
         {status !== 'ready' ? (
-          <div
-            className="workspace-canvas-state"
-            role={status === 'error' ? 'alert' : 'status'}
-          >
-            <p>
-              {status === 'loading'
-                ? 'Loading your learning map…'
-                : 'The learning map could not be loaded.'}
-            </p>
-            {status === 'error' && onRetry && (
-              <button onClick={onRetry}>Retry loading</button>
-            )}
-          </div>
+          <div className="workspace-canvas-state">{unavailableState}</div>
         ) : (
           <>
             {nodes.length === 0 && (
-              <div className="workspace-canvas-state" role="status">
+              <output className="workspace-canvas-state">
                 Your saved notes, questions and insights will appear here.
-              </div>
+              </output>
             )}
             <ReactFlow<CanvasNode>
               nodes={nodes}
@@ -243,72 +311,28 @@ function CanvasSession({
               nodesFocusable
               edgesFocusable
               ariaLabelConfig={{
-                'node.a11yDescription.default':
-                  'Press Enter or Space to select. Arrow keys move a selected node. Press F2 to edit current human writing, or Escape to deselect.',
-                'node.a11yDescription.keyboardDisabled':
-                  'Press Enter or Space to select. Arrow keys move a selected node. Press F2 to edit current human writing, or Escape to deselect.',
+                'node.a11yDescription.default': NODE_DESCRIPTION,
+                'node.a11yDescription.keyboardDisabled': NODE_DESCRIPTION,
                 'edge.a11yDescription.default':
                   'Press Enter or Space to select this relationship, or Escape to deselect.',
               }}
-              onMove={(_, viewport) => setZoom(viewport.zoom)}
-              defaultViewport={{ x: 16, y: 16, zoom: 1 }}
+              viewport={viewports[view]}
+              onViewportChange={(viewport) =>
+                setViewports((current) => ({ ...current, [view]: viewport }))
+              }
+              proOptions={{ hideAttribution: true }}
+              onNodeDoubleClick={(event, node) => {
+                if (isNestedInteraction(event)) return;
+                const { content } = node.data;
+                if (content.editable && content.entry)
+                  actions.onEditEntry(content.entry);
+              }}
               onNodeClick={(_, node) =>
                 setNotice(
-                  `${node.data.content.label} selected. Press F2 to edit your current writing.`,
+                  `${node.data.content.label} selected.${node.data.content.editable ? ' Press F2 to edit your current writing.' : ''}`,
                 )
               }
-              onKeyDown={(event) => {
-                if (
-                  event.target instanceof HTMLElement &&
-                  event.target.closest('button,input,textarea')
-                )
-                  return;
-                const nodeElement =
-                  event.target instanceof HTMLElement
-                    ? event.target.closest('.react-flow__node')
-                    : null;
-                if (nodeElement) {
-                  if (event.key === 'F2') {
-                    const node = flow.getNode(
-                      nodeElement.getAttribute('data-id') ?? '',
-                    );
-                    const content = node?.data.content;
-                    if (content?.editable && content.entry) {
-                      event.preventDefault();
-                      actions.onEditEntry(content.entry);
-                    }
-                  }
-                  return;
-                }
-                const deltas: Record<string, [number, number]> = {
-                  ArrowLeft: [PAN_STEP, 0],
-                  ArrowRight: [-PAN_STEP, 0],
-                  ArrowUp: [0, PAN_STEP],
-                  ArrowDown: [0, -PAN_STEP],
-                };
-                const delta = deltas[event.key];
-                if (delta) {
-                  event.preventDefault();
-                  const viewport = flow.getViewport();
-                  void flow.setViewport({
-                    ...viewport,
-                    x: viewport.x + delta[0],
-                    y: viewport.y + delta[1],
-                  });
-                }
-                if (event.key === 'Home') {
-                  event.preventDefault();
-                  fitMap();
-                }
-                if (event.key === '+' || event.key === '=') {
-                  event.preventDefault();
-                  void flow.zoomIn();
-                }
-                if (event.key === '-') {
-                  event.preventDefault();
-                  void flow.zoomOut();
-                }
-              }}
+              onKeyDown={handleMapKeyDown}
               aria-label="Infinite learning map. Drag background or use arrow keys to pan. Control wheel zooms at the pointer. Tab to a node; arrow keys move it."
               tabIndex={0}
             >
@@ -332,45 +356,47 @@ function CanvasSession({
             </ReactFlow>
           </>
         )}
-        <div className="workspace-canvas-feedback" aria-live="polite">
-          {notice}
-        </div>
-        {workspace.unreadableProjects.length > 0 && (
-          <div className="workspace-canvas-errors" role="alert">
-            Some saved work could not be read.{' '}
-            {workspace.unreadableProjects.map((diagnostic) => (
-              <p key={`${diagnostic.projectId}:${diagnostic.code}`}>
-                {diagnostic.code}: {diagnostic.reason}
-              </p>
-            ))}
+        <aside className="workspace-canvas-notices" aria-label="Canvas notices">
+          <div className="workspace-canvas-feedback" aria-live="polite">
+            {feedback}
           </div>
-        )}
-        {failures.length > 0 && (
-          <div className="workspace-canvas-errors" role="alert">
-            {failures.map((failure) => (
-              <div key={`${failure.input.view}:${failure.nodeId}`}>
-                <p>
-                  Position could not be saved in {failure.input.view}. Your
-                  placement is kept here.
+          {workspace.unreadableProjects.length > 0 && (
+            <div className="workspace-canvas-errors" role="alert">
+              Some saved work could not be read.{' '}
+              {workspace.unreadableProjects.map((diagnostic) => (
+                <p key={`${diagnostic.projectId}:${diagnostic.code}`}>
+                  {diagnostic.code}: {diagnostic.reason}
                 </p>
-                <button
-                  onClick={() =>
-                    session.retry(failure.input.view, failure.nodeId)
-                  }
-                >
-                  Retry position
-                </button>
-                <button
-                  onClick={() =>
-                    resetPosition(failure.input.view, failure.nodeId)
-                  }
-                >
-                  Use saved position
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+          {failures.length > 0 && (
+            <div className="workspace-canvas-errors" role="alert">
+              {failures.map((failure) => (
+                <div key={`${failure.input.view}:${failure.nodeId}`}>
+                  <p>
+                    Position could not be saved in {failure.input.view}. Your
+                    placement is kept here.
+                  </p>
+                  <button
+                    onClick={() =>
+                      session.retry(failure.input.view, failure.nodeId)
+                    }
+                  >
+                    Retry position
+                  </button>
+                  <button
+                    onClick={() =>
+                      resetPosition(failure.input.view, failure.nodeId)
+                    }
+                  >
+                    Restore previous position
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
       </section>
     </CanvasActions.Provider>
   );
