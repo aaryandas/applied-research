@@ -1,18 +1,19 @@
-import { Effect } from 'effect';
+import type { Effect } from 'effect';
 import type {
   DiscoverSourcesRequest,
   DiscoverSourcesResponse,
+  MetadataOnlySource,
 } from '../../../contracts/sourcing.js';
-import {
-  SOURCING_API_VERSION,
-  SOURCING_LIMITS,
-  SOURCING_PUBLIC_MESSAGES,
-} from '../../../contracts/sourcing.js';
+import { SOURCING_PUBLIC_MESSAGES } from '../../../contracts/sourcing.js';
+import { parseDiscoverSourcesRequest } from '../contract-validation.js';
 import { isRemoteText } from '../../text.js';
-import type { OpenAlexBudgetService } from './budget.js';
+import { isDenseArray } from '../../validation-primitives.js';
+import type {
+  OpenAlexBudgetReservation,
+  OpenAlexBudgetService,
+} from './budget.js';
 import { OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD } from './budget.js';
-import type { OpenAlexPermissionPolicy } from './normalize.js';
-import { normalizeOpenAlexWork } from './normalize.js';
+import { normalizeOpenAlexWork, OPENALEX_PAPER_TYPES } from './normalize.js';
 
 const OPENALEX_WORKS_ENDPOINT = 'https://api.openalex.org/works';
 const OPENALEX_SELECTED_FIELDS = [
@@ -27,20 +28,9 @@ const OPENALEX_SELECTED_FIELDS = [
   'primary_location',
   'best_oa_location',
   'open_access',
-  'related_works',
 ].join(',');
-const OPENALEX_PAPER_TYPES = [
-  'article',
-  'conference-paper',
-  'data-paper',
-  'dissertation',
-  'preprint',
-  'report',
-  'review',
-  'software-paper',
-].join('|');
 const MAX_REQUEST_URL_BYTES = 4_094;
-const MAX_RESPONSE_BYTES = 512 * 1_024;
+const MAX_RESPONSE_BYTES = 4 * 1_024 * 1_024;
 const DEFAULT_TIMEOUT_MILLISECONDS = 10_000;
 const MAX_TIMEOUT_MILLISECONDS = 30_000;
 const MAX_RETRY_AFTER_MILLISECONDS = 86_400_000;
@@ -61,10 +51,13 @@ export interface OpenAlexAdapterOptions {
   readonly apiKey: string;
   readonly maximumSearchCostMicrousd: number | null;
   readonly budget: OpenAlexBudgetService;
+  readonly runEffect: <A, E>(
+    effect: Effect.Effect<A, E>,
+    signal?: AbortSignal,
+  ) => Promise<A>;
   readonly request?: typeof fetch;
   readonly now?: () => Date;
   readonly timeoutMilliseconds?: number;
-  readonly permissionPolicy?: OpenAlexPermissionPolicy;
 }
 
 interface Deadline {
@@ -75,47 +68,11 @@ interface Deadline {
 
 interface ParsedEnvelope {
   readonly results: unknown[];
+  readonly actualChargeMicrousd: number | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isDenseArray(value: readonly unknown[]): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.hasOwn(value, index)) return false;
-  }
-  return true;
-}
-
-function validRequest(request: DiscoverSourcesRequest): boolean {
-  if (
-    request.apiVersion !== SOURCING_API_VERSION ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/.test(request.requestId) ||
-    typeof request.query !== 'string' ||
-    request.query.trim().length === 0 ||
-    request.query.length > SOURCING_LIMITS.queryCharacters ||
-    !isRemoteText(request.query) ||
-    !Array.isArray(request.kinds) ||
-    request.kinds.length === 0 ||
-    !isDenseArray(request.kinds) ||
-    !Number.isSafeInteger(request.limit) ||
-    request.limit < 1 ||
-    request.limit > SOURCING_LIMITS.discoveryResults
-  ) {
-    return false;
-  }
-  const knownKinds = new Set([
-    'paper',
-    'textbook',
-    'course',
-    'chapter',
-    'lecture',
-  ]);
-  return (
-    request.kinds.every((kind) => knownKinds.has(kind)) &&
-    new Set(request.kinds).size === request.kinds.length
-  );
 }
 
 function validApiKey(apiKey: string): boolean {
@@ -153,7 +110,7 @@ function requestUrl(request: DiscoverSourcesRequest): string | null {
   url.searchParams.set('search', request.query);
   url.searchParams.set('per_page', request.limit.toString());
   url.searchParams.set('select', OPENALEX_SELECTED_FIELDS);
-  url.searchParams.set('filter', `type:${OPENALEX_PAPER_TYPES}`);
+  url.searchParams.set('filter', `type:${OPENALEX_PAPER_TYPES.join('|')}`);
   url.searchParams.set('sort', 'relevance_score:desc');
   const serialized = url.toString();
   return Buffer.byteLength(serialized, 'utf8') <= MAX_REQUEST_URL_BYTES
@@ -189,12 +146,22 @@ function invalidRequest(requestId: string | null): DiscoverSourcesResponse {
   };
 }
 
-function unavailable(
-  requestId: string,
-  message: typeof SOURCING_PUBLIC_MESSAGES.unavailable = SOURCING_PUBLIC_MESSAGES.unavailable,
-  retryable = true,
-): DiscoverSourcesResponse {
-  return { outcome: 'unavailable', requestId, message, retryable };
+function transientUnavailable(requestId: string): DiscoverSourcesResponse {
+  return {
+    outcome: 'unavailable',
+    requestId,
+    message: SOURCING_PUBLIC_MESSAGES.unavailable,
+    retryable: true,
+  };
+}
+
+function permanentUnavailable(requestId: string): DiscoverSourcesResponse {
+  return {
+    outcome: 'unavailable',
+    requestId,
+    message: SOURCING_PUBLIC_MESSAGES.unavailable,
+    retryable: false,
+  };
 }
 
 function interruptionResponse(
@@ -217,7 +184,7 @@ function interruptionResponse(
       retryable: true,
     };
   }
-  return unavailable(requestId);
+  return transientUnavailable(requestId);
 }
 
 function retryAfterMilliseconds(
@@ -259,6 +226,21 @@ function readWithAbort(
       .finally(() => {
         signal.removeEventListener('abort', abort);
       });
+  });
+}
+
+function runWithAbort<A>(
+  operation: () => Promise<A>,
+  signal: AbortSignal,
+): Promise<A> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = (): void => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve()
+      .then(operation)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', abort));
   });
 }
 
@@ -305,10 +287,28 @@ async function boundedResponseText(
   return new TextDecoder('utf-8', { fatal: true }).decode(joined);
 }
 
-function parseEnvelope(value: unknown, limit: number): ParsedEnvelope | null {
+function actualChargeMicrousd(value: unknown, ceiling: number): number | null {
+  if (!isRecord(value) || typeof value.cost_usd !== 'number') return null;
+  const microusd = value.cost_usd * 1_000_000;
+  return Number.isSafeInteger(microusd) && microusd >= 0 && microusd <= ceiling
+    ? microusd
+    : null;
+}
+
+function parseEnvelope(
+  value: unknown,
+  limit: number,
+  chargeCeilingMicrousd: number,
+): ParsedEnvelope | null {
   if (!isRecord(value) || !Array.isArray(value.results)) return null;
   if (!isDenseArray(value.results) || value.results.length > limit) return null;
-  return { results: value.results };
+  return {
+    results: value.results,
+    actualChargeMicrousd: actualChargeMicrousd(
+      value.meta,
+      chargeCeilingMicrousd,
+    ),
+  };
 }
 
 function jsonContentType(response: Response): boolean {
@@ -363,52 +363,42 @@ function httpFailure(
       retryable: true,
     };
   }
-  return unavailable(
-    requestId,
-    SOURCING_PUBLIC_MESSAGES.unavailable,
-    response.status >= 500,
-  );
+  return response.status >= 500
+    ? transientUnavailable(requestId)
+    : permanentUnavailable(requestId);
 }
 
 function normalizeEnvelope(
   envelope: ParsedEnvelope,
   request: DiscoverSourcesRequest,
   discoveredAt: string,
-  permissionPolicy: OpenAlexPermissionPolicy | undefined,
 ): DiscoverSourcesResponse {
-  const candidates = [];
+  const candidates: MetadataOnlySource[] = [];
   const seenWorkIds = new Set<string>();
-  let hadIssue = false;
+  let hadMalformedWork = false;
   for (const value of envelope.results) {
-    const normalized = normalizeOpenAlexWork(
-      value,
-      discoveredAt,
-      permissionPolicy,
-    );
+    const normalized = normalizeOpenAlexWork(value, discoveredAt);
+    if (normalized.kind === 'filtered') continue;
     if (normalized.kind === 'rejected') {
-      hadIssue = true;
+      hadMalformedWork = true;
       continue;
     }
     const workId = normalized.work.candidate.providerIds[0]?.id;
     if (workId === undefined || seenWorkIds.has(workId)) continue;
     seenWorkIds.add(workId);
     candidates.push(normalized.work.candidate);
-    hadIssue ||= normalized.hadIssue;
+    hadMalformedWork ||= normalized.hadIssue;
   }
   if (candidates.length === 0) {
-    return envelope.results.length === 0
+    return envelope.results.length === 0 || !hadMalformedWork
       ? {
           outcome: 'no-results',
           requestId: request.requestId,
           message: SOURCING_PUBLIC_MESSAGES.noResults,
         }
-      : unavailable(
-          request.requestId,
-          SOURCING_PUBLIC_MESSAGES.unavailable,
-          false,
-        );
+      : permanentUnavailable(request.requestId);
   }
-  if (hadIssue) {
+  if (hadMalformedWork) {
     return {
       outcome: 'partial',
       requestId: request.requestId,
@@ -425,6 +415,31 @@ function normalizeEnvelope(
   return { outcome: 'success', requestId: request.requestId, candidates };
 }
 
+async function releaseReservation(
+  options: OpenAlexAdapterOptions,
+  reservation: OpenAlexBudgetReservation,
+): Promise<boolean> {
+  try {
+    await options.runEffect(reservation.release());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function settleActualCharge(
+  options: OpenAlexAdapterOptions,
+  reservation: OpenAlexBudgetReservation,
+  actualChargeMicrousd: number | null,
+): Promise<void> {
+  if (actualChargeMicrousd === null) return;
+  try {
+    await options.runEffect(reservation.settle(actualChargeMicrousd));
+  } catch {
+    // The reservation ceiling remains charged when trusted settlement fails.
+  }
+}
+
 async function discoverWithDeadline(
   options: OpenAlexAdapterOptions,
   request: DiscoverSourcesRequest,
@@ -432,13 +447,7 @@ async function discoverWithDeadline(
   deadline: Deadline,
 ): Promise<DiscoverSourcesResponse> {
   const url = requestUrl(request);
-  if (url === null) {
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
-  }
+  if (url === null) return permanentUnavailable(request.requestId);
   if (!validApiKey(options.apiKey)) {
     return {
       outcome: 'unauthenticated',
@@ -446,22 +455,18 @@ async function discoverWithDeadline(
       message: SOURCING_PUBLIC_MESSAGES.unauthenticated,
     };
   }
-  if (!verifiedPriceCeiling(options.maximumSearchCostMicrousd)) {
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
-  }
+  const chargeCeilingMicrousd = options.maximumSearchCostMicrousd;
+  if (!verifiedPriceCeiling(chargeCeilingMicrousd))
+    return permanentUnavailable(request.requestId);
   let decision;
   try {
-    decision = await Effect.runPromise(
+    decision = await options.runEffect(
       options.budget.refreshAndReserve({
         accountId: invocation.accountId,
         requestId: request.requestId,
-        maximumChargeMicrousd: options.maximumSearchCostMicrousd,
+        maximumChargeMicrousd: chargeCeilingMicrousd,
       }),
-      { signal: deadline.signal },
+      deadline.signal,
     );
   } catch {
     if (deadline.signal.aborted) {
@@ -471,11 +476,7 @@ async function discoverWithDeadline(
         deadline,
       );
     }
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
+    return permanentUnavailable(request.requestId);
   }
   if (decision.kind === 'budget-exhausted') {
     return {
@@ -485,25 +486,32 @@ async function discoverWithDeadline(
     };
   }
   if (deadline.signal.aborted) {
-    return interruptionResponse(request.requestId, invocation.signal, deadline);
+    const released = await releaseReservation(options, decision.reservation);
+    return released
+      ? interruptionResponse(request.requestId, invocation.signal, deadline)
+      : permanentUnavailable(request.requestId);
   }
 
   const performRequest = options.request ?? fetch;
   let response: Response;
   try {
-    response = await performRequest(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${options.apiKey}`,
-      },
-      redirect: 'error',
-      signal: deadline.signal,
-    });
+    response = await runWithAbort(
+      () =>
+        performRequest(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${options.apiKey}`,
+          },
+          redirect: 'error',
+          signal: deadline.signal,
+        }),
+      deadline.signal,
+    );
   } catch {
     return deadline.signal.aborted
       ? interruptionResponse(request.requestId, invocation.signal, deadline)
-      : unavailable(request.requestId);
+      : transientUnavailable(request.requestId);
   }
   if (deadline.signal.aborted) {
     await cancelResponseBody(response);
@@ -511,27 +519,19 @@ async function discoverWithDeadline(
   }
   if (!responseStayedOnOpenAlex(response)) {
     await cancelResponseBody(response);
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
+    return permanentUnavailable(request.requestId);
   }
   if (!response.ok) {
     await cancelResponseBody(response);
     return httpFailure(
       response,
       request.requestId,
-      (options.now ?? (() => new Date()))(),
+      options.now?.() ?? new Date(),
     );
   }
   if (!jsonContentType(response)) {
     await cancelResponseBody(response);
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
+    return permanentUnavailable(request.requestId);
   }
 
   let text: string;
@@ -540,11 +540,7 @@ async function discoverWithDeadline(
   } catch {
     return deadline.signal.aborted
       ? interruptionResponse(request.requestId, invocation.signal, deadline)
-      : unavailable(
-          request.requestId,
-          SOURCING_PUBLIC_MESSAGES.unavailable,
-          false,
-        );
+      : permanentUnavailable(request.requestId);
   }
   if (deadline.signal.aborted) {
     return interruptionResponse(request.requestId, invocation.signal, deadline);
@@ -553,27 +549,17 @@ async function discoverWithDeadline(
   try {
     value = JSON.parse(text);
   } catch {
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
+    return permanentUnavailable(request.requestId);
   }
-  const envelope = parseEnvelope(value, request.limit);
-  if (envelope === null) {
-    return unavailable(
-      request.requestId,
-      SOURCING_PUBLIC_MESSAGES.unavailable,
-      false,
-    );
-  }
-  const discoveredAt = (options.now ?? (() => new Date()))().toISOString();
-  return normalizeEnvelope(
-    envelope,
-    request,
-    discoveredAt,
-    options.permissionPolicy,
+  const envelope = parseEnvelope(value, request.limit, chargeCeilingMicrousd);
+  if (envelope === null) return permanentUnavailable(request.requestId);
+  await settleActualCharge(
+    options,
+    decision.reservation,
+    envelope.actualChargeMicrousd,
   );
+  const discoveredAt = (options.now?.() ?? new Date()).toISOString();
+  return normalizeEnvelope(envelope, request, discoveredAt);
 }
 
 export function makeOpenAlexDiscoveryAdapter(
@@ -581,7 +567,10 @@ export function makeOpenAlexDiscoveryAdapter(
 ): OpenAlexDiscoveryAdapter {
   return {
     async discoverCandidates(request, invocation) {
-      if (!validRequest(request)) {
+      let parsedRequest: DiscoverSourcesRequest;
+      try {
+        parsedRequest = parseDiscoverSourcesRequest(request);
+      } catch {
         const requestId =
           typeof request.requestId === 'string' &&
           /^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/.test(request.requestId)
@@ -589,17 +578,17 @@ export function makeOpenAlexDiscoveryAdapter(
             : null;
         return invalidRequest(requestId);
       }
-      if (!request.kinds.includes('paper')) {
+      if (!parsedRequest.kinds.includes('paper')) {
         return {
           outcome: 'no-results',
-          requestId: request.requestId,
+          requestId: parsedRequest.requestId,
           message: SOURCING_PUBLIC_MESSAGES.noResults,
         };
       }
       if (invocation.signal.aborted) {
         return {
           outcome: 'cancelled',
-          requestId: request.requestId,
+          requestId: parsedRequest.requestId,
           message: SOURCING_PUBLIC_MESSAGES.cancelled,
         };
       }
@@ -610,7 +599,7 @@ export function makeOpenAlexDiscoveryAdapter(
       try {
         return await discoverWithDeadline(
           options,
-          request,
+          parsedRequest,
           invocation,
           deadline,
         );
