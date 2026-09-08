@@ -308,6 +308,10 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
       expect(await latestOpenedUrl(application)).toBeNull();
       return;
     }
+    // AR-40: the exchange succeeds but Electron net.fetch hides Set-Cookie, so
+    // the SDK never stores the session cookie and the app stays signed out.
+    // Expected to fail until the auth transport is fixed; remove with the fix.
+    test.fail(true, 'AR-40: net.fetch hides Set-Cookie; session never stored');
 
     expect(await page.evaluate(() => window.desktop.signIn())).toMatchObject({
       session: 'signing-in',

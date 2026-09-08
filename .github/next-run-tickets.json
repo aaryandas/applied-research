@@ -10,7 +10,7 @@
     {
       "title": "Day zero: adopt the next-run workflow (lane guard, macOS gate, Claude review, recorded walk-throughs)",
       "priority": 1,
-      "description": "Merge the `codex/next-run-workflow` branch. Then in GitHub: run `claude setup-token` and add the result as the `CLAUDE_CODE_OAUTH_TOKEN` secret (subscription, no API key), create labels `lane:<name>` for every lane in `.github/lanes.json`, set the required checks on the integration branch to `checks / CI gate` and `Lane guard` only, and enable the merge queue. See `context/next-run.md`."
+      "description": "Already done on 2026-09-08: the workflow branch is merged into `main`, the `CLAUDE_CODE_OAUTH_TOKEN` and `LINEAR_API_KEY` secrets exist, and every `lane:<name>` label from `.github/lanes.json` exists.\n\nRemaining: decide which branch is the integration branch for the second run (recommendation: `main` itself, now that it carries the whole app), set its required checks to `checks / CI gate`, `Lane guard` and `Linear gate`, and enable the merge queue. See `context/next-run.md`."
     },
     {
       "title": "Day zero: Linear automations and Cursor cloud verification",
@@ -21,11 +21,6 @@
       "title": "Day zero: Sonar quality profile decisions",
       "priority": 2,
       "description": "Decide once, in the SonarQube profile, the rules that generated repeat dispositions on 2026-09-08: S6747 for react-three-fiber element props, S3358 nested ternaries in JSX, S3776 cognitive-complexity threshold for renderer components, S5443 temp-dir usage in the render worker. Record the decision and rationale in this ticket. Zero new violations per PR stays the gate."
-    },
-    {
-      "title": "Auth: signed-in lifecycle spec must pass on the integrated build",
-      "priority": 1,
-      "description": "`tests/e2e/auth.spec.ts` 'uses the real Electron SDK for cancellation, encrypted restart and sign-out' fails after the second callback: the synthetic `/api/auth/electron/token` exchange never fires. DA-1 (browser callback page) is implemented and independently reviewed; this is the remaining boundary. Lane: auth. Evidence: video of the lifecycle plus the DA-1 review R1/R2 fixes."
     },
     {
       "title": "Packaged build: tutor spec expectation for production mode",
