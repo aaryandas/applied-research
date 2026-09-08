@@ -27,4 +27,4 @@ Paste as a comment on the Linear MCP issue (or a factory ops issue). Not a compl
 
 ## Harness work that continued without Linear
 
-Skills, subagents, rules, `BUGBOT.md`, `factory/` BOARD/envelopes/recipes. No product features. No AR worker dispatch.
+Skills, subagents, rules, `BUGBOT.md`, `factory/` BOARD/envelopes/recipes. No product features. No AR worker dispatch. GitHub **CI gate** passed on `c253fc5` (4 checks).
