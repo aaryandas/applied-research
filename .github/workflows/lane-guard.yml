@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   guard:
-    name: Changed paths stay inside the PR's lane
+    name: Lane guard
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
