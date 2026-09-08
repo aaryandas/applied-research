@@ -3,7 +3,6 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type {
   EntryRevisionReference,
-  LearningEntryKind,
   LearningEntryRecord,
   LearningOrigin,
   LearningPathRecord,
@@ -16,14 +15,19 @@ import type {
   SourceVersion,
 } from '../contracts/learning-records';
 import {
-  decodeEntryAuthorKind,
-  decodeEntryContent,
   decodeHttpsUrl,
+  decodeLearningEntryKind,
+  decodeStoredEntryRevision,
   decodeText,
   decodeTimestamp,
   decodeUuid,
+  WorkspaceValidationError,
 } from './workspace-decoder';
-import { isScalarBoundary } from './learning-record-validation';
+import {
+  isScalarBoundary,
+  SOURCE_TEXT_LIMIT,
+  WORLD_COORDINATE_LIMIT,
+} from './learning-record-validation';
 import type { UnreadableProject } from './workspace-store';
 import {
   entries,
@@ -83,7 +87,7 @@ function originFromContext(
       }
     : undefined;
   if (path && path.pathRevision < 1) {
-    throw new Error('Invalid stored origin path revision.');
+    throw new WorkspaceValidationError('Invalid stored origin path revision.');
   }
   if (!context.sourceRevisionId && !context.highlightId && !path) return null;
   return {
@@ -132,34 +136,15 @@ function readEntries(
     const history = revisions
       .filter((item) => item.entryId === entry.id)
       .map((item) => {
-        const authorKind = decodeEntryAuthorKind(item.authorKind);
-        const content = decodeEntryContent(
-          {
-            kind: item.kind,
-            title: item.title,
-            body: item.body,
-            url: item.url,
-            citations: JSON.parse(item.citationsJson) as unknown,
-          },
-          authorKind,
-        );
+        const content = decodeStoredEntryRevision(item);
         const context = contexts.find(
           (candidate) =>
             candidate.entryId === item.entryId &&
             candidate.revision === item.revision,
         );
-        const kind = (context?.recordKind ?? content.kind) as LearningEntryKind;
-        if (
-          kind !== 'note' &&
-          kind !== 'question' &&
-          kind !== 'insight' &&
-          kind !== 'result' &&
-          kind !== 'source' &&
-          kind !== 'assistant' &&
-          kind !== 'experiment'
-        ) {
-          throw new Error('Invalid stored learning entry kind.');
-        }
+        const kind = decodeLearningEntryKind(
+          context?.recordKind ?? content.kind,
+        );
         return {
           revision: item.revision,
           kind,
@@ -167,8 +152,8 @@ function readEntries(
           body: content.body,
           url: content.url,
           citations: content.citations,
-          authorKind,
-          recordedAt: decodeTimestamp(item.recordedAt, 'entry recordedAt'),
+          authorKind: content.authorKind,
+          recordedAt: content.recordedAt,
           origin: originFromContext(context),
           supports: readSupports(supports, item.entryId, item.revision),
         };
@@ -177,7 +162,9 @@ function readEntries(
       (item) => item.revision === entry.currentRevision,
     );
     if (!current) {
-      throw new Error('Learning entry has no current revision.');
+      throw new WorkspaceValidationError(
+        'Learning entry has no current revision.',
+      );
     }
     return {
       id: decodeUuid(entry.id, 'entry id'),
@@ -196,7 +183,7 @@ function sourceVersion(
   const canonicalText = decodeText(
     item.canonicalText,
     'source text',
-    5_000_000,
+    SOURCE_TEXT_LIMIT,
   );
   const sha256 = createHash('sha256')
     .update(canonicalText, 'utf8')
@@ -207,7 +194,9 @@ function sourceVersion(
     item.provenance !== 'human-imported' ||
     item.sha256 !== sha256
   ) {
-    throw new Error('Invalid stored source version metadata.');
+    throw new WorkspaceValidationError(
+      'Invalid stored source version metadata.',
+    );
   }
   return {
     revisionId: decodeUuid(item.id, 'source revision id'),
@@ -255,7 +244,9 @@ function readSources(
         item.revisionId === record.currentVersionId,
     );
     if (!currentVersion) {
-      throw new Error('Source has no matching current version.');
+      throw new WorkspaceValidationError(
+        'Source has no matching current version.',
+      );
     }
     return {
       id: decodeUuid(record.id, 'source id'),
@@ -305,7 +296,9 @@ function readHighlights(
         !isScalarBoundary(item.canonicalText, item.end) ||
         item.canonicalText.slice(item.start, item.end) !== item.quote
       ) {
-        throw new Error('Stored source highlight does not match its source.');
+        throw new WorkspaceValidationError(
+          'Stored source highlight does not match its source.',
+        );
       }
       return {
         id: decodeUuid(item.id, 'highlight id'),
@@ -314,7 +307,7 @@ function readHighlights(
         revisionId: decodeUuid(item.revisionId, 'highlight revision id'),
         start: item.start,
         end: item.end,
-        quote: decodeText(item.quote, 'highlight quote', 5_000_000),
+        quote: decodeText(item.quote, 'highlight quote', SOURCE_TEXT_LIMIT),
         createdAt: decodeTimestamp(item.createdAt, 'highlight createdAt'),
       };
     });
@@ -341,7 +334,7 @@ function readPathRevisions(
       revision.authorKind !== 'human' &&
       revision.authorKind !== 'assistant'
     ) {
-      throw new Error('Invalid stored path attribution.');
+      throw new WorkspaceValidationError('Invalid stored path attribution.');
     }
     const topics = orm
       .select()
@@ -375,7 +368,9 @@ function readPathRevisions(
               lesson.sourceState !== 'pending' &&
               lesson.sourceState !== 'unsupported'
             ) {
-              throw new Error('Invalid stored lesson source state.');
+              throw new WorkspaceValidationError(
+                'Invalid stored lesson source state.',
+              );
             }
             const citations = orm
               .select({
@@ -410,7 +405,7 @@ function readPathRevisions(
                   citation.canonicalText.slice(citation.start, citation.end) !==
                     citation.quote
                 ) {
-                  throw new Error(
+                  throw new WorkspaceValidationError(
                     'Stored path citation does not match its source.',
                   );
                 }
@@ -425,7 +420,7 @@ function readPathRevisions(
                   quote: decodeText(
                     citation.quote,
                     'citation quote',
-                    5_000_000,
+                    SOURCE_TEXT_LIMIT,
                   ),
                 };
               });
@@ -470,7 +465,9 @@ function readPaths(
         (item) => item.revision === path.currentRevision,
       );
       if (!current) {
-        throw new Error('Learning path has no current revision.');
+        throw new WorkspaceValidationError(
+          'Learning path has no current revision.',
+        );
       }
       return {
         id: decodeUuid(path.id, 'path id'),
@@ -497,10 +494,12 @@ function readPlacements(
         (item.view !== 'distilled' && item.view !== 'expanded') ||
         !Number.isFinite(item.x) ||
         !Number.isFinite(item.y) ||
-        Math.abs(item.x) > 1_000_000 ||
-        Math.abs(item.y) > 1_000_000
+        Math.abs(item.x) > WORLD_COORDINATE_LIMIT ||
+        Math.abs(item.y) > WORLD_COORDINATE_LIMIT
       ) {
-        throw new Error('Invalid stored learning record placement.');
+        throw new WorkspaceValidationError(
+          'Invalid stored learning record placement.',
+        );
       }
       return {
         projectId,

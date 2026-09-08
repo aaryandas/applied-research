@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import type {
   EntryRevisionReference,
-  LearningEntryKind,
   LearningOrigin,
   SaveHumanEntryInput,
   SaveInsightInput,
 } from '../contracts/learning-records';
+import type { EntryKind } from '../contracts/workspace';
 import {
   acknowledgement,
   assertProject,
@@ -15,7 +15,10 @@ import {
   touchProject,
   type WriteOutcome,
 } from './learning-record-persistence';
-import { decodeEntryAuthorKind, decodeEntryContent } from './workspace-decoder';
+import {
+  decodeLearningEntryKind,
+  decodeStoredEntryRevision,
+} from './workspace-decoder';
 import {
   entries,
   entryRevisionContext,
@@ -32,6 +35,12 @@ export interface HumanLearningEntryWrite {
   input: SaveHumanEntryInput | SaveInsightInput;
   kind: 'note' | 'question' | 'insight';
   supports: EntryRevisionReference[];
+}
+
+export interface LegacyLearningEditContext {
+  persistedKind: EntryKind;
+  context: typeof entryRevisionContext.$inferSelect;
+  supports: Array<typeof insightRevisionSupports.$inferSelect>;
 }
 
 export function writeHumanLearningEntry(
@@ -113,8 +122,9 @@ export function writeHumanLearningEntry(
       ),
     )
     .get();
-  const currentKind = (currentContext?.recordKind ??
-    current.kind) as LearningEntryKind;
+  const currentKind = decodeLearningEntryKind(
+    currentContext?.recordKind ?? current.kind,
+  );
   if (
     currentKind !== kind ||
     current.kind === 'assistant' ||
@@ -415,7 +425,9 @@ function readCurrentRevision(
   transaction: WorkspaceTransaction,
   projectId: string,
   entryId: string,
-): { revision: number; kind: string; title: string; body: string } | undefined {
+):
+  | { revision: number; kind: EntryKind; title: string; body: string }
+  | undefined {
   const revision = transaction
     .select({
       revision: entries.currentRevision,
@@ -425,6 +437,7 @@ function readCurrentRevision(
       url: entryRevisions.url,
       citationsJson: entryRevisions.citationsJson,
       authorKind: entryRevisions.authorKind,
+      recordedAt: entryRevisions.recordedAt,
     })
     .from(entries)
     .innerJoin(
@@ -437,21 +450,86 @@ function readCurrentRevision(
     .where(and(eq(entries.id, entryId), eq(entries.projectId, projectId)))
     .get();
   if (!revision) return undefined;
-  const authorKind = decodeEntryAuthorKind(revision.authorKind);
-  const content = decodeEntryContent(
-    {
-      kind: revision.kind,
-      title: revision.title,
-      body: revision.body,
-      url: revision.url,
-      citations: JSON.parse(revision.citationsJson) as unknown,
-    },
-    authorKind,
-  );
+  const content = decodeStoredEntryRevision(revision);
   return {
-    revision: revision.revision,
+    revision: content.revision,
     kind: content.kind,
     title: content.title,
     body: content.body,
   };
+}
+
+function persistedLearningKind(value: unknown): EntryKind {
+  const kind = decodeLearningEntryKind(value);
+  if (kind === 'question') return 'note';
+  if (kind === 'note' || kind === 'insight') return kind;
+  throw new Error('Invalid stored learning entry context.');
+}
+
+export function readLegacyLearningEditContext(
+  transaction: WorkspaceTransaction,
+  input: {
+    projectId: string;
+    entryId: string;
+    revision: number;
+    currentKind: EntryKind;
+    requestedKind: EntryKind;
+  },
+): LegacyLearningEditContext | undefined {
+  const context = transaction
+    .select()
+    .from(entryRevisionContext)
+    .where(
+      and(
+        eq(entryRevisionContext.projectId, input.projectId),
+        eq(entryRevisionContext.entryId, input.entryId),
+        eq(entryRevisionContext.revision, input.revision),
+      ),
+    )
+    .get();
+  if (!context) return undefined;
+  const persistedKind = persistedLearningKind(context.recordKind);
+  if (
+    persistedKind !== input.currentKind ||
+    persistedKind !== input.requestedKind
+  ) {
+    throw new Error('A learning record keeps its original kind.');
+  }
+  const supports = transaction
+    .select()
+    .from(insightRevisionSupports)
+    .where(
+      and(
+        eq(insightRevisionSupports.projectId, input.projectId),
+        eq(insightRevisionSupports.insightEntryId, input.entryId),
+        eq(insightRevisionSupports.insightRevision, input.revision),
+      ),
+    )
+    .orderBy(asc(insightRevisionSupports.sortOrder))
+    .all();
+  return { persistedKind, context, supports };
+}
+
+export function copyLegacyLearningEditContext(
+  transaction: WorkspaceTransaction,
+  input: {
+    editContext: LegacyLearningEditContext;
+    revision: number;
+  },
+): void {
+  const { context, supports } = input.editContext;
+  transaction
+    .insert(entryRevisionContext)
+    .values({ ...context, revision: input.revision })
+    .run();
+  if (supports.length === 0) return;
+  transaction
+    .insert(insightRevisionSupports)
+    .values(
+      supports.map((support) => ({
+        ...support,
+        insightRevision: input.revision,
+      })),
+    )
+    .run();
 }

@@ -98,6 +98,14 @@ export function insertWorkspaceRecord(
   transaction: WorkspaceTransaction,
   input: RecordIdentity,
 ): void {
+  const existing = transaction
+    .select({ id: workspaceRecords.id })
+    .from(workspaceRecords)
+    .where(eq(workspaceRecords.id, input.id))
+    .get();
+  if (existing) {
+    throw new Error('A learning record already uses this id.');
+  }
   transaction
     .insert(workspaceRecords)
     .values({

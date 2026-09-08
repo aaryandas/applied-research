@@ -496,7 +496,8 @@ it('allocates stable local path identities and retains exact backend citations',
   );
   expect(second.currentRevision).toBe(2);
   expect(second.revisions[0]?.topics[0]?.id).toBe(topicId);
-  expect(second.revisions[0]?.topics[0]?.lessons[0]?.id).toBe(lessonId);
+  expect(second.revisions[0]?.topics[0]?.lessons[0]?.id).not.toBe(lessonId);
+  expect(second.revisions[1]?.topics[0]?.lessons[0]?.id).toBe(lessonId);
   expect(second.revisions[1]?.topics[0]?.lessons[0]?.citations).toEqual([
     citation,
   ]);
@@ -536,6 +537,283 @@ it('allocates stable local path identities and retains exact backend citations',
       currentRevision: 2,
     },
   });
+  store.close();
+});
+
+it('preserves learning kind, origin and supports through compatibility edits', () => {
+  const store = new WorkspaceStore(':memory:');
+  const project = store.create('Preserve learning context');
+  const source = committed(
+    store.importTextSource({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Source',
+      text: 'evidence',
+      acquiredAt: '2026-09-08T12:00:00.000Z',
+    }),
+  );
+  const note = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Note',
+      body: 'Human note',
+      origin: null,
+    }),
+  );
+  const questionOrigin = { sourceRevisionId: source.currentVersionId };
+  const question = committed(
+    store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Question',
+      body: 'Why?',
+      origin: questionOrigin,
+    }),
+  );
+  const insight = committed(
+    store.saveInsight({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Insight',
+      body: 'Supported connection',
+      origin: null,
+      supports: [
+        { entryId: note.id, revision: 1 },
+        { entryId: question.id, revision: 1 },
+      ],
+    }),
+  );
+
+  store.saveEntry({
+    projectId: project.id,
+    id: question.id,
+    kind: 'note',
+    title: 'Question',
+    body: 'Why, exactly?',
+    url: '',
+  });
+  store.saveEntry({
+    projectId: project.id,
+    id: insight.id,
+    kind: 'insight',
+    title: 'Insight',
+    body: 'Supported connection, edited',
+    url: '',
+  });
+
+  const workspace = store.getLearningWorkspace(project.id);
+  expect(
+    workspace.entries.find((entry) => entry.id === question.id)?.current,
+  ).toMatchObject({
+    kind: 'question',
+    origin: questionOrigin,
+  });
+  expect(
+    workspace.entries.find((entry) => entry.id === insight.id)?.current
+      .supports,
+  ).toEqual([
+    { entryId: note.id, revision: 1 },
+    { entryId: question.id, revision: 1 },
+  ]);
+  expect(() =>
+    store.saveEntry({
+      projectId: project.id,
+      id: note.id,
+      kind: 'insight',
+      title: 'Note',
+      body: 'Unsupported relabel',
+      url: '',
+    }),
+  ).toThrow('original kind');
+  store.close();
+});
+
+it('matches trusted lesson identities by unique exact meaning, never position', () => {
+  const store = new WorkspaceStore(':memory:');
+  const project = store.create('Stable lesson meaning');
+  const stepA = {
+    title: 'Lesson A',
+    objective: 'Objective A',
+    activity: 'Activity A',
+    citations: [],
+  };
+  const stepB = {
+    title: 'Lesson B',
+    objective: 'Objective B',
+    activity: 'Activity B',
+    citations: [],
+  };
+  const duplicate = {
+    title: 'Repeated lesson',
+    objective: 'Repeated objective',
+    activity: 'Repeated activity',
+    citations: [],
+  };
+  const first = committed(
+    store.acceptBackendLearningPath({
+      projectId: project.id,
+      expectedRevision: 0,
+      contribution: {
+        kind: 'learning-path',
+        title: 'Path',
+        steps: [stepA, stepB, duplicate, duplicate],
+      },
+    }),
+  );
+  const firstLessons = first.current.topics[0]!.lessons;
+  const firstA = firstLessons[0]!.id;
+  const firstB = firstLessons[1]!.id;
+  const priorDuplicateIds = new Set(
+    firstLessons.slice(2).map((lesson) => lesson.id),
+  );
+  const originNote = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Historical origin',
+      body: 'Pinned to revision one.',
+      origin: {
+        path: {
+          pathId: first.id,
+          pathRevision: 1,
+          topicId: first.current.topics[0]!.id,
+          lessonId: firstA,
+        },
+      },
+    }),
+  );
+  const reordered = committed(
+    store.acceptBackendLearningPath({
+      projectId: project.id,
+      pathId: first.id,
+      expectedRevision: 1,
+      contribution: {
+        kind: 'learning-path',
+        title: 'Path',
+        steps: [stepB, stepA, duplicate, duplicate],
+      },
+    }),
+  );
+  const reorderedLessons = reordered.current.topics[0]!.lessons;
+  expect(reorderedLessons[0]!.id).toBe(firstB);
+  expect(reorderedLessons[1]!.id).toBe(firstA);
+  const newDuplicateIds = reorderedLessons.slice(2).map((lesson) => lesson.id);
+  expect(new Set(newDuplicateIds).size).toBe(2);
+  expect(newDuplicateIds.every((id) => !priorDuplicateIds.has(id))).toBe(true);
+
+  const changedA = { ...stepA, objective: 'Changed objective A' };
+  const added = {
+    title: 'New lesson',
+    objective: 'New objective',
+    activity: 'New activity',
+    citations: [],
+  };
+  const changed = committed(
+    store.acceptBackendLearningPath({
+      projectId: project.id,
+      pathId: first.id,
+      expectedRevision: 2,
+      contribution: {
+        kind: 'learning-path',
+        title: 'Path',
+        steps: [stepB, changedA, added],
+      },
+    }),
+  );
+  expect(changed.current.topics[0]!.lessons[0]!.id).toBe(firstB);
+  expect(changed.current.topics[0]!.lessons[1]!.id).not.toBe(firstA);
+  expect(
+    store
+      .getLearningWorkspace(project.id)
+      .entries.find((entry) => entry.id === originNote.id)?.current.origin,
+  ).toEqual({
+    path: {
+      pathId: first.id,
+      pathRevision: 1,
+      topicId: first.current.topics[0]!.id,
+      lessonId: firstA,
+    },
+  });
+  store.close();
+});
+
+it('keeps legacy placement writes distilled-only and mirrors that projection', () => {
+  const path = databasePath();
+  const store = new WorkspaceStore(path);
+  const project = store.create('Independent placement views');
+  const note = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Note',
+      body: 'Move me',
+      origin: null,
+    }),
+  );
+  store.moveLearningRecord({
+    projectId: project.id,
+    recordId: note.id,
+    view: 'expanded',
+    x: -500.5,
+    y: 250.25,
+  });
+  store.moveEntry({ projectId: project.id, id: note.id, x: 10, y: 20 });
+
+  const placements = store
+    .getLearningWorkspace(project.id)
+    .placements.filter((placement) => placement.recordId === note.id);
+  expect(
+    placements.find((placement) => placement.view === 'distilled'),
+  ).toMatchObject({ x: 10, y: 20 });
+  expect(
+    placements.find((placement) => placement.view === 'expanded'),
+  ).toMatchObject({ x: -500.5, y: 250.25 });
+  expect(store.get(project.id).entries[0]).toMatchObject({ x: 10, y: 20 });
+  store.close();
+
+  const database = new Database(path, { readonly: true });
+  const compatibility = database
+    .prepare('SELECT x, y FROM entry_placements WHERE entry_id = ?')
+    .get(note.id);
+  const distilled = database
+    .prepare(
+      "SELECT x, y FROM record_placements WHERE record_id = ? AND view = 'distilled'",
+    )
+    .get(note.id);
+  expect(compatibility).toEqual(distilled);
+  database.close();
+});
+
+it('rejects cross-type explicit id collisions with a domain error', () => {
+  const store = new WorkspaceStore(':memory:');
+  const project = store.create('Reject colliding identities');
+  const note = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Note',
+      body: 'Existing identity',
+      origin: null,
+    }),
+  );
+  let message = '';
+  try {
+    store.importTextSource({
+      projectId: project.id,
+      sourceId: note.id,
+      expectedRevision: 0,
+      title: 'Source',
+      text: 'Must not save',
+      acquiredAt: '2026-09-08T12:00:00.000Z',
+    });
+  } catch (error_) {
+    message = error_ instanceof Error ? error_.message : String(error_);
+  }
+  expect(message).toBe('A learning record already uses this id.');
+  expect(message).not.toContain('constraint');
+  expect(message).not.toContain('workspace_records');
+  expect(store.getLearningWorkspace(project.id).sources).toEqual([]);
   store.close();
 });
 

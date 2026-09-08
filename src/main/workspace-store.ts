@@ -19,6 +19,8 @@ import type {
   Project,
 } from '../contracts/workspace';
 import {
+  copyLegacyLearningEditContext,
+  readLegacyLearningEditContext,
   writeHumanLearningEntry,
   type HumanLearningEntryWrite,
 } from './learning-entry-writer';
@@ -42,15 +44,18 @@ import {
   writeSourceHighlight,
   writeTextSource,
 } from './learning-source-writer';
-import { decodeTrustedLearningPath } from './trusted-learning-records';
+import {
+  allocateTrustedLessonIds,
+  decodeTrustedLearningPath,
+} from './trusted-learning-records';
 import {
   decodeCanvasCoordinate,
-  decodeEntryAuthorKind,
   decodeEntryContent,
   decodeLegacyProject,
+  decodeStoredEntryRevision,
   decodeText,
-  decodeTimestamp,
   decodeUuid,
+  isWorkspaceValidationError,
   type DecodedEntryContent,
   type EntryAuthorKind,
 } from './workspace-decoder';
@@ -167,6 +172,32 @@ export class StoredProjectError extends Error {
   }
 }
 
+export class WorkspaceStorageError extends Error {
+  readonly code = 'workspace-storage-unavailable';
+
+  constructor(options?: ErrorOptions) {
+    super(
+      'The local workspace is temporarily unavailable. No data was changed. Close other tools using it and retry; if the problem continues, keep workspace.sqlite and contact support.',
+      options,
+    );
+    this.name = 'WorkspaceStorageError';
+  }
+}
+
+export function classifyStoredProjectFailure(
+  projectId: string,
+  error_: unknown,
+): StoredProjectError {
+  if (error_ instanceof StoredProjectError) return error_;
+  if (isWorkspaceValidationError(error_)) {
+    return new StoredProjectError(projectId, 'invalid-stored-content', {
+      cause: error_,
+    });
+  }
+  if (error_ instanceof WorkspaceStorageError) throw error_;
+  throw new WorkspaceStorageError({ cause: error_ });
+}
+
 export class WorkspaceStore {
   private readonly database: Database.Database;
   private readonly orm: WorkspaceDatabase;
@@ -191,30 +222,41 @@ export class WorkspaceStore {
   }
 
   listWithDiagnostics(): WorkspaceListResult {
-    const storedProjects = this.orm
-      .select()
-      .from(projects)
-      .orderBy(desc(projects.updatedAt))
-      .all();
+    let storedProjects: Array<typeof projects.$inferSelect>;
+    try {
+      storedProjects = this.orm
+        .select()
+        .from(projects)
+        .orderBy(desc(projects.updatedAt))
+        .all();
+    } catch (error_) {
+      throw new WorkspaceStorageError({ cause: error_ });
+    }
     const readableProjects: Project[] = [];
     const unreadableProjects: UnreadableProject[] = [];
     for (const project of storedProjects) {
       try {
         readableProjects.push(this.readProject(project));
       } catch (error_) {
-        if (!(error_ instanceof StoredProjectError)) throw error_;
-        unreadableProjects.push(error_.diagnostic());
+        unreadableProjects.push(
+          classifyStoredProjectFailure(project.id, error_).diagnostic(),
+        );
       }
     }
     return { projects: readableProjects, unreadableProjects };
   }
 
   get(id: string): Project {
-    const project = this.orm
-      .select()
-      .from(projects)
-      .where(eq(projects.id, id))
-      .get();
+    let project: typeof projects.$inferSelect | undefined;
+    try {
+      project = this.orm
+        .select()
+        .from(projects)
+        .where(eq(projects.id, id))
+        .get();
+    } catch (error_) {
+      throw new WorkspaceStorageError({ cause: error_ });
+    }
     if (!project) throw new Error('Learning space not found.');
     return this.readProject(project);
   }
@@ -290,8 +332,15 @@ export class WorkspaceStore {
             `Entry revision conflict: expected ${expectedRevision}, current ${current.revision}.`,
           );
         }
+        const editContext = readLegacyLearningEditContext(transaction, {
+          projectId: validated.projectId,
+          entryId: validated.id,
+          revision: current.revision,
+          currentKind: current.kind,
+          requestedKind: validated.kind,
+        });
         const next = {
-          kind: validated.kind,
+          kind: editContext?.persistedKind ?? validated.kind,
           title: validated.title,
           body: validated.body,
           url: validated.url,
@@ -312,7 +361,7 @@ export class WorkspaceStore {
             entryId: validated.id,
             projectId: validated.projectId,
             revision,
-            kind: validated.kind,
+            kind: next.kind,
             title: validated.title,
             body: validated.body,
             url: validated.url,
@@ -321,6 +370,12 @@ export class WorkspaceStore {
             recordedAt: recordedAt.toISOString(),
           })
           .run();
+        if (editContext) {
+          copyLegacyLearningEditContext(transaction, {
+            editContext,
+            revision,
+          });
+        }
         const updated = transaction
           .update(entries)
           .set({ currentRevision: revision })
@@ -364,29 +419,16 @@ export class WorkspaceStore {
       .orderBy(desc(entryRevisions.revision))
       .all()
       .map((revision) => {
-        const authorKind = decodeEntryAuthorKind(revision.authorKind);
-        const content = decodeEntryContent(
-          {
-            kind: revision.kind,
-            title: revision.title,
-            body: revision.body,
-            url: revision.url,
-            citations: JSON.parse(revision.citationsJson) as unknown,
-          },
-          authorKind,
-        );
+        const content = decodeStoredEntryRevision(revision);
         return {
-          revision: revision.revision,
+          revision: content.revision,
           kind: content.kind,
           title: content.title,
           body: content.body,
           url: content.url,
           citations: content.citations,
-          authorKind,
-          recordedAt: decodeTimestamp(
-            revision.recordedAt,
-            'entry revision timestamp',
-          ),
+          authorKind: content.authorKind,
+          recordedAt: content.recordedAt,
         };
       });
   }
@@ -410,16 +452,20 @@ export class WorkspaceStore {
           .run();
         if (moved.changes !== 1) throw new Error('Entry not found.');
         const updatedAt = new Date();
-        transaction
+        const placementUpdated = transaction
           .update(recordPlacements)
           .set({ x, y, updatedAt: updatedAt.toISOString() })
           .where(
             and(
               eq(recordPlacements.recordId, entryId),
               eq(recordPlacements.projectId, projectId),
+              eq(recordPlacements.view, 'distilled'),
             ),
           )
           .run();
+        if (placementUpdated.changes !== 1) {
+          throw new Error('Entry distilled placement not found.');
+        }
         touchProject(transaction, projectId, updatedAt);
       },
       { behavior: 'immediate' },
@@ -428,11 +474,16 @@ export class WorkspaceStore {
 
   getLearningWorkspace(projectIdValue: unknown): LearningWorkspace {
     const projectId = decodeProjectId(projectIdValue);
-    const project = this.orm
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get();
+    let project: typeof projects.$inferSelect | undefined;
+    try {
+      project = this.orm
+        .select()
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .get();
+    } catch (error_) {
+      throw new WorkspaceStorageError({ cause: error_ });
+    }
     if (!project) throw new Error('Learning space not found.');
     try {
       return readLearningWorkspace({
@@ -441,10 +492,7 @@ export class WorkspaceStore {
         unreadableProjects: this.learningWorkspaceDiagnostics(),
       });
     } catch (error_) {
-      if (error_ instanceof StoredProjectError) throw error_;
-      throw new StoredProjectError(project.id, 'invalid-stored-content', {
-        cause: error_,
-      });
+      throw classifyStoredProjectFailure(project.id, error_);
     }
   }
 
@@ -524,9 +572,12 @@ export class WorkspaceStore {
     );
     const topicId = currentRevision?.topics[0]?.id ?? randomUUID();
     const citationsByLesson = new Map<string, SourceCitation[]>();
+    const lessonIds = allocateTrustedLessonIds(
+      currentRevision?.topics[0]?.lessons ?? [],
+      accepted.contribution.steps,
+    );
     const lessons = accepted.contribution.steps.map((step, index) => {
-      const lessonId =
-        currentRevision?.topics[0]?.lessons[index]?.id ?? randomUUID();
+      const lessonId = lessonIds[index]!;
       citationsByLesson.set(lessonId, step.citations);
       const firstCitation = step.citations[0];
       return {
@@ -692,6 +743,7 @@ export class WorkspaceStore {
         url: entryRevisions.url,
         citationsJson: entryRevisions.citationsJson,
         authorKind: entryRevisions.authorKind,
+        recordedAt: entryRevisions.recordedAt,
       })
       .from(entries)
       .innerJoin(
@@ -704,19 +756,9 @@ export class WorkspaceStore {
       .where(and(eq(entries.id, entryId), eq(entries.projectId, projectId)))
       .get();
     if (!revision) return undefined;
-    const authorKind = decodeEntryAuthorKind(revision.authorKind);
-    const content = decodeEntryContent(
-      {
-        kind: revision.kind,
-        title: revision.title,
-        body: revision.body,
-        url: revision.url,
-        citations: JSON.parse(revision.citationsJson) as unknown,
-      },
-      authorKind,
-    );
+    const content = decodeStoredEntryRevision(revision);
     return {
-      revision: revision.revision,
+      revision: content.revision,
       kind: content.kind,
       title: content.title,
       body: content.body,
@@ -742,10 +784,7 @@ export class WorkspaceStore {
     try {
       return this.readValidatedProject(project);
     } catch (error_) {
-      if (error_ instanceof StoredProjectError) throw error_;
-      throw new StoredProjectError(project.id, 'invalid-stored-content', {
-        cause: error_,
-      });
+      throw classifyStoredProjectFailure(project.id, error_);
     }
   }
 
@@ -761,13 +800,9 @@ export class WorkspaceStore {
           unreadableProjects: [],
         });
       } catch (error_) {
-        const storedError =
-          error_ instanceof StoredProjectError
-            ? error_
-            : new StoredProjectError(project.id, 'invalid-stored-content', {
-                cause: error_,
-              });
-        diagnostics.push(storedError.diagnostic());
+        diagnostics.push(
+          classifyStoredProjectFailure(project.id, error_).diagnostic(),
+        );
       }
     }
     return diagnostics;
@@ -777,12 +812,14 @@ export class WorkspaceStore {
     const storedEntries = this.orm
       .select({
         id: entries.id,
+        revision: entryRevisions.revision,
         kind: entryRevisions.kind,
         title: entryRevisions.title,
         body: entryRevisions.body,
         url: entryRevisions.url,
         citationsJson: entryRevisions.citationsJson,
         authorKind: entryRevisions.authorKind,
+        recordedAt: entryRevisions.recordedAt,
         x: entryPlacements.x,
         y: entryPlacements.y,
         createdAt: entries.createdAt,
@@ -809,22 +846,27 @@ export class WorkspaceStore {
     return decodeLegacyProject({
       ...project,
       entries: storedEntries.map((entry) => {
-        if (entry.kind === null || entry.authorKind === null) {
+        if (
+          entry.revision === null ||
+          entry.kind === null ||
+          entry.authorKind === null ||
+          entry.recordedAt === null
+        ) {
           throw new StoredProjectError(project.id, 'missing-current-revision');
         }
         if (entry.x === null || entry.y === null) {
           throw new StoredProjectError(project.id, 'missing-canvas-placement');
         }
-        const content = decodeEntryContent(
-          {
-            kind: entry.kind,
-            title: entry.title,
-            body: entry.body,
-            url: entry.url,
-            citations: JSON.parse(entry.citationsJson ?? '') as unknown,
-          },
-          decodeEntryAuthorKind(entry.authorKind),
-        );
+        const content = decodeStoredEntryRevision({
+          revision: entry.revision,
+          kind: entry.kind,
+          title: entry.title,
+          body: entry.body,
+          url: entry.url,
+          citationsJson: entry.citationsJson,
+          authorKind: entry.authorKind,
+          recordedAt: entry.recordedAt,
+        });
         return {
           id: entry.id,
           kind: content.kind,

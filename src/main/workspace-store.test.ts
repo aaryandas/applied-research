@@ -5,9 +5,42 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
 import type { EntryDraft } from '../contracts/workspace';
-import { StoredProjectError, WorkspaceStore } from './workspace-store';
+import { WorkspaceValidationError } from './workspace-decoder';
+import {
+  classifyStoredProjectFailure,
+  StoredProjectError,
+  WorkspaceStorageError,
+  WorkspaceStore,
+} from './workspace-store';
 
 const directories: string[] = [];
+
+it('classifies invalid records separately from safe storage failures', () => {
+  const projectId = crypto.randomUUID();
+  const invalid = classifyStoredProjectFailure(
+    projectId,
+    new WorkspaceValidationError('private invalid content'),
+  );
+  expect(invalid).toMatchObject({
+    code: 'invalid-stored-content',
+    projectId,
+  });
+  expect(invalid.message).not.toContain('private invalid content');
+
+  const busy = Object.assign(new Error('private SQL and file path'), {
+    code: 'SQLITE_BUSY',
+  });
+  let failure: unknown;
+  try {
+    classifyStoredProjectFailure(projectId, busy);
+  } catch (error_) {
+    failure = error_;
+  }
+  expect(failure).toBeInstanceOf(WorkspaceStorageError);
+  expect(failure).toMatchObject({ code: 'workspace-storage-unavailable' });
+  expect((failure as Error).message).not.toContain('private SQL');
+  expect((failure as Error).cause).toBe(busy);
+});
 
 it('keeps corrupt project identity text out of recovery errors and diagnostics', () => {
   const directory = mkdtempSync(join(tmpdir(), 'applied-store-'));

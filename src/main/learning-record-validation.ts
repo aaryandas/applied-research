@@ -12,20 +12,15 @@ import type {
 } from '../contracts/learning-records';
 import {
   decodeHttpsUrl,
+  decodeRecord,
+  decodeRequiredText,
   decodeText,
   decodeTimestamp,
   decodeUuid,
 } from './workspace-decoder';
 
-const SOURCE_TEXT_LIMIT = 5_000_000;
-const WORLD_COORDINATE_LIMIT = 1_000_000;
-
-function record(value: unknown, description: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError(`Invalid ${description}: expected an object.`);
-  }
-  return value as Record<string, unknown>;
-}
+export const SOURCE_TEXT_LIMIT = 5_000_000;
+export const WORLD_COORDINATE_LIMIT = 1_000_000;
 
 function revision(value: unknown, description: string): number {
   if (!Number.isInteger(value) || Number(value) < 0) {
@@ -34,22 +29,12 @@ function revision(value: unknown, description: string): number {
   return Number(value);
 }
 
-function nonEmptyText(
-  value: unknown,
-  description: string,
-  maximumLength: number,
-): string {
-  const decoded = decodeText(value, description, maximumLength);
-  if (!decoded.trim()) throw new Error(`Invalid ${description}: enter text.`);
-  return decoded;
-}
-
 function optionalUuid(value: unknown, description: string): string | undefined {
   return value === undefined ? undefined : decodeUuid(value, description);
 }
 
 function pathOrigin(value: unknown): PathOrigin {
-  const input = record(value, 'path origin');
+  const input = decodeRecord(value, 'path origin');
   return {
     pathId: decodeUuid(input.pathId, 'origin path id'),
     pathRevision: positiveRevision(input.pathRevision, 'origin path revision'),
@@ -62,7 +47,7 @@ function pathOrigin(value: unknown): PathOrigin {
 
 function origin(value: unknown): LearningOrigin | null {
   if (value === null) return null;
-  const input = record(value, 'entry origin');
+  const input = decodeRecord(value, 'entry origin');
   const sourceRevisionId = optionalUuid(
     input.sourceRevisionId,
     'origin source revision id',
@@ -97,7 +82,7 @@ export function decodeProjectId(value: unknown): string {
 }
 
 export function decodeImportTextSource(value: unknown): ImportTextSourceInput {
-  const input = record(value, 'text source');
+  const input = decodeRecord(value, 'text source');
   const locator =
     input.locator === undefined
       ? undefined
@@ -108,7 +93,7 @@ export function decodeImportTextSource(value: unknown): ImportTextSourceInput {
       ? {}
       : { sourceId: decodeUuid(input.sourceId, 'source id') }),
     expectedRevision: revision(input.expectedRevision, 'expected revision'),
-    title: nonEmptyText(input.title, 'source title', 500),
+    title: decodeRequiredText(input.title, 'source title', 500),
     text: decodeText(input.text, 'source text', SOURCE_TEXT_LIMIT),
     acquiredAt: decodeTimestamp(input.acquiredAt, 'source acquiredAt'),
     ...(locator === undefined ? {} : { locator }),
@@ -123,7 +108,7 @@ export function isScalarBoundary(text: string, index: number): boolean {
 }
 
 export function decodeHighlight(value: unknown): SaveHighlightInput {
-  const input = record(value, 'source highlight');
+  const input = decodeRecord(value, 'source highlight');
   if (input.expectedRevision !== 0) {
     throw new Error('A new highlight must use expected revision 0.');
   }
@@ -142,7 +127,7 @@ export function decodeHighlight(value: unknown): SaveHighlightInput {
 }
 
 export function decodeHumanEntry(value: unknown): SaveHumanEntryInput {
-  const input = record(value, 'human entry');
+  const input = decodeRecord(value, 'human entry');
   return {
     projectId: decodeProjectId(input.projectId),
     ...(input.entryId === undefined
@@ -156,12 +141,12 @@ export function decodeHumanEntry(value: unknown): SaveHumanEntryInput {
 }
 
 export function decodeInsight(value: unknown): SaveInsightInput {
-  const input = record(value, 'insight');
+  const input = decodeRecord(value, 'insight');
   if (!Array.isArray(input.supports)) {
     throw new Error('Invalid insight supports: expected a list.');
   }
   const supports = input.supports.map((item, index) => {
-    const support = record(item, `insight support ${index}`);
+    const support = decodeRecord(item, `insight support ${index}`);
     return {
       entryId: decodeUuid(support.entryId, `insight support ${index} entry id`),
       revision: positiveRevision(
@@ -182,18 +167,18 @@ export function decodeInsight(value: unknown): SaveInsightInput {
 }
 
 function lesson(value: unknown, index: number): PathLessonInput {
-  const input = record(value, `path lesson ${index}`);
-  const source = record(input.source, `path lesson ${index} source`);
+  const input = decodeRecord(value, `path lesson ${index}`);
+  const source = decodeRecord(input.source, `path lesson ${index} source`);
   if (source.state === 'ready') {
     return {
       id: decodeUuid(input.id, `path lesson ${index} id`),
-      title: nonEmptyText(input.title, `path lesson ${index} title`, 500),
-      objective: nonEmptyText(
+      title: decodeRequiredText(input.title, `path lesson ${index} title`, 500),
+      objective: decodeRequiredText(
         input.objective,
         `path lesson ${index} objective`,
         4_000,
       ),
-      activity: nonEmptyText(
+      activity: decodeRequiredText(
         input.activity,
         `path lesson ${index} activity`,
         4_000,
@@ -217,13 +202,13 @@ function lesson(value: unknown, index: number): PathLessonInput {
   }
   return {
     id: decodeUuid(input.id, `path lesson ${index} id`),
-    title: nonEmptyText(input.title, `path lesson ${index} title`, 500),
-    objective: nonEmptyText(
+    title: decodeRequiredText(input.title, `path lesson ${index} title`, 500),
+    objective: decodeRequiredText(
       input.objective,
       `path lesson ${index} objective`,
       4_000,
     ),
-    activity: nonEmptyText(
+    activity: decodeRequiredText(
       input.activity,
       `path lesson ${index} activity`,
       4_000,
@@ -233,7 +218,7 @@ function lesson(value: unknown, index: number): PathLessonInput {
 }
 
 function topic(value: unknown, index: number): PathTopicInput {
-  const input = record(value, `path topic ${index}`);
+  const input = decodeRecord(value, `path topic ${index}`);
   if (!Array.isArray(input.lessons)) {
     throw new Error(`Invalid path topic ${index}: lessons must be a list.`);
   }
@@ -245,13 +230,13 @@ function topic(value: unknown, index: number): PathTopicInput {
   }
   return {
     id: decodeUuid(input.id, `path topic ${index} id`),
-    title: nonEmptyText(input.title, `path topic ${index} title`, 500),
+    title: decodeRequiredText(input.title, `path topic ${index} title`, 500),
     lessons,
   };
 }
 
 export function decodePathRevision(value: unknown): SavePathRevisionInput {
-  const input = record(value, 'learning path');
+  const input = decodeRecord(value, 'learning path');
   if (!Array.isArray(input.topics) || input.topics.length === 0) {
     throw new Error('A learning path needs at least one topic.');
   }
@@ -272,7 +257,7 @@ export function decodePathRevision(value: unknown): SavePathRevisionInput {
       ? {}
       : { pathId: decodeUuid(input.pathId, 'path id') }),
     expectedRevision: revision(input.expectedRevision, 'expected revision'),
-    title: nonEmptyText(input.title, 'path title', 500),
+    title: decodeRequiredText(input.title, 'path title', 500),
     topics,
   };
 }
@@ -291,7 +276,7 @@ function worldCoordinate(value: unknown): number {
 export function decodeLearningRecordPosition(
   value: unknown,
 ): MoveLearningRecordInput {
-  const input = record(value, 'learning record position');
+  const input = decodeRecord(value, 'learning record position');
   if (input.view !== 'distilled' && input.view !== 'expanded') {
     throw new Error('Invalid canvas view.');
   }

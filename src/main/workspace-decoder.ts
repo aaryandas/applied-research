@@ -4,6 +4,7 @@ import type {
   EntryKind,
   Project,
 } from '../contracts/workspace';
+import type { LearningEntryKind } from '../contracts/learning-records';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,6 +15,10 @@ const ENTRY_KINDS = new Set<EntryKind>([
   'source',
   'assistant',
   'experiment',
+]);
+const LEARNING_ENTRY_KINDS = new Set<LearningEntryKind>([
+  ...ENTRY_KINDS,
+  'question',
 ]);
 const PROJECT_KEYS = new Set([
   'createdAt',
@@ -41,6 +46,29 @@ const ASSISTANT_BODY_LIMIT = 30_000;
 
 export type EntryAuthorKind = 'human' | 'assistant' | 'system';
 
+export class WorkspaceValidationError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'WorkspaceValidationError';
+  }
+}
+
+export class WorkspaceValidationTypeError extends TypeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'WorkspaceValidationTypeError';
+  }
+}
+
+export function isWorkspaceValidationError(
+  value: unknown,
+): value is WorkspaceValidationError | WorkspaceValidationTypeError {
+  return (
+    value instanceof WorkspaceValidationError ||
+    value instanceof WorkspaceValidationTypeError
+  );
+}
+
 export interface DecodedEntryContent {
   kind: EntryKind;
   title: string;
@@ -50,15 +78,42 @@ export interface DecodedEntryContent {
   authorKind: EntryAuthorKind;
 }
 
+export interface StoredEntryRevisionRow {
+  revision: unknown;
+  kind: unknown;
+  title: unknown;
+  body: unknown;
+  url: unknown;
+  citationsJson: unknown;
+  authorKind: unknown;
+  recordedAt: unknown;
+}
+
+export interface DecodedStoredEntryRevision extends DecodedEntryContent {
+  revision: number;
+  citationsJson: string;
+  recordedAt: string;
+}
+
 interface WellFormedString {
   isWellFormed(): boolean;
 }
 
 export function decodeEntryKind(value: unknown): EntryKind {
   if (typeof value !== 'string' || !ENTRY_KINDS.has(value as EntryKind)) {
-    throw new Error('Invalid stored entry kind.');
+    throw new WorkspaceValidationError('Invalid stored entry kind.');
   }
   return value as EntryKind;
+}
+
+export function decodeLearningEntryKind(value: unknown): LearningEntryKind {
+  if (
+    typeof value !== 'string' ||
+    !LEARNING_ENTRY_KINDS.has(value as LearningEntryKind)
+  ) {
+    throw new WorkspaceValidationError('Invalid stored learning entry kind.');
+  }
+  return value as LearningEntryKind;
 }
 
 export function expectedAuthorKind(kind: EntryKind): EntryAuthorKind {
@@ -67,9 +122,14 @@ export function expectedAuthorKind(kind: EntryKind): EntryAuthorKind {
   return 'human';
 }
 
-function object(value: unknown, description: string): Record<string, unknown> {
+export function decodeRecord(
+  value: unknown,
+  description: string,
+): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`Invalid ${description}: expected an object.`);
+    throw new WorkspaceValidationTypeError(
+      `Invalid ${description}: expected an object.`,
+    );
   }
   return value as Record<string, unknown>;
 }
@@ -84,7 +144,7 @@ function exactKeys(
     actual.length !== expected.size ||
     actual.some((key) => !expected.has(key))
   ) {
-    throw new Error(
+    throw new WorkspaceValidationError(
       `Invalid ${description}: unsupported or missing fields (${actual.join(', ')}).`,
     );
   }
@@ -100,21 +160,41 @@ export function decodeText(
   maximumLength = Number.POSITIVE_INFINITY,
 ): string {
   if (typeof value !== 'string') {
-    throw new TypeError(`Invalid ${description}: expected text.`);
+    throw new WorkspaceValidationTypeError(
+      `Invalid ${description}: expected text.`,
+    );
   }
   if (!isWellFormed(value)) {
-    throw new Error(`Invalid ${description}: text is not well-formed Unicode.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: text is not well-formed Unicode.`,
+    );
   }
   if (value.length > maximumLength) {
-    throw new Error(`Invalid ${description}: text is too long.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: text is too long.`,
+    );
   }
   return value;
+}
+
+export function decodeRequiredText(
+  value: unknown,
+  description: string,
+  maximumLength: number,
+): string {
+  const decoded = decodeText(value, description, maximumLength);
+  if (!decoded.trim()) {
+    throw new WorkspaceValidationError(`Invalid ${description}: enter text.`);
+  }
+  return decoded;
 }
 
 export function decodeUuid(value: unknown, description: string): string {
   const decoded = decodeText(value, description);
   if (!UUID_PATTERN.test(decoded))
-    throw new Error(`Invalid ${description}: expected a UUID.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: expected a UUID.`,
+    );
   return decoded;
 }
 
@@ -124,7 +204,9 @@ export function decodeTimestamp(value: unknown, description: string): string {
     !Number.isFinite(Date.parse(decoded)) ||
     new Date(decoded).toISOString() !== decoded
   ) {
-    throw new Error(`Invalid ${description}: expected an ISO timestamp.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: expected an ISO timestamp.`,
+    );
   }
   return decoded;
 }
@@ -139,7 +221,9 @@ export function decodeCanvasCoordinate(
     value < 0 ||
     value > 10_000
   ) {
-    throw new Error(`Invalid ${description}: expected a canvas coordinate.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: expected a canvas coordinate.`,
+    );
   }
   return value;
 }
@@ -150,16 +234,20 @@ export function decodeHttpsUrl(value: unknown, description: string): string {
   try {
     url = new URL(decoded);
   } catch {
-    throw new Error(`Invalid ${description}: expected an HTTPS URL.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: expected an HTTPS URL.`,
+    );
   }
   if (url.protocol !== 'https:' || url.username || url.password) {
-    throw new Error(`Invalid ${description}: expected a safe HTTPS URL.`);
+    throw new WorkspaceValidationError(
+      `Invalid ${description}: expected a safe HTTPS URL.`,
+    );
   }
   return decoded;
 }
 
 function citation(value: unknown, bodyLength: number, index: number): Citation {
-  const decoded = object(value, `citation ${index}`);
+  const decoded = decodeRecord(value, `citation ${index}`);
   exactKeys(decoded, CITATION_KEYS, `citation ${index}`);
   const start = decoded.start;
   const end = decoded.end;
@@ -170,7 +258,9 @@ function citation(value: unknown, bodyLength: number, index: number): Citation {
     Number(end) < Number(start) ||
     Number(end) > bodyLength
   ) {
-    throw new Error(`Invalid citation ${index}: offsets are out of range.`);
+    throw new WorkspaceValidationError(
+      `Invalid citation ${index}: offsets are out of range.`,
+    );
   }
   return {
     title: decodeText(decoded.title, `citation ${index} title`, 200),
@@ -182,13 +272,15 @@ function citation(value: unknown, bodyLength: number, index: number): Citation {
 
 export function decodeCitations(value: unknown, body: string): Citation[] {
   if (!Array.isArray(value))
-    throw new Error('Invalid citations: expected a list.');
+    throw new WorkspaceValidationError('Invalid citations: expected a list.');
   return value.map((item, index) => citation(item, body.length, index));
 }
 
 export function decodeEntryAuthorKind(value: unknown): EntryAuthorKind {
   if (value !== 'human' && value !== 'assistant' && value !== 'system') {
-    throw new Error('Invalid stored entry author attribution.');
+    throw new WorkspaceValidationError(
+      'Invalid stored entry author attribution.',
+    );
   }
   return value;
 }
@@ -197,10 +289,10 @@ export function decodeEntryContent(
   value: unknown,
   authorKind: EntryAuthorKind,
 ): DecodedEntryContent {
-  const decoded = object(value, 'entry content');
+  const decoded = decodeRecord(value, 'entry content');
   const kind = decodeEntryKind(decoded.kind);
   if (expectedAuthorKind(kind) !== authorKind) {
-    throw new Error(
+    throw new WorkspaceValidationError(
       'Entry kind does not match its immutable author attribution.',
     );
   }
@@ -212,7 +304,7 @@ export function decodeEntryContent(
   const body = decodeText(decoded.body, 'entry body', bodyLimit);
   const citations = decodeCitations(decoded.citations, body);
   if (kind !== 'assistant' && citations.length > 0) {
-    throw new Error(
+    throw new WorkspaceValidationError(
       'Invalid entry content: only assistant entries can carry AI citations.',
     );
   }
@@ -221,8 +313,43 @@ export function decodeEntryContent(
   return { kind, title, body, url, citations, authorKind };
 }
 
+export function decodeStoredEntryRevision(
+  row: StoredEntryRevisionRow,
+): DecodedStoredEntryRevision {
+  const revision = row.revision;
+  if (!Number.isInteger(revision) || Number(revision) < 1) {
+    throw new WorkspaceValidationError('Invalid stored entry revision number.');
+  }
+  const citationsJson = decodeText(row.citationsJson, 'stored entry citations');
+  let citations: unknown;
+  try {
+    citations = JSON.parse(citationsJson) as unknown;
+  } catch (error_) {
+    throw new WorkspaceValidationError('Invalid stored entry citations.', {
+      cause: error_,
+    });
+  }
+  const authorKind = decodeEntryAuthorKind(row.authorKind);
+  const content = decodeEntryContent(
+    {
+      kind: row.kind,
+      title: row.title,
+      body: row.body,
+      url: row.url,
+      citations,
+    },
+    authorKind,
+  );
+  return {
+    ...content,
+    revision: Number(revision),
+    citationsJson: JSON.stringify(content.citations),
+    recordedAt: decodeTimestamp(row.recordedAt, 'entry revision timestamp'),
+  };
+}
+
 function entry(value: unknown, index: number): Entry {
-  const decoded = object(value, `entry ${index}`);
+  const decoded = decodeRecord(value, `entry ${index}`);
   exactKeys(decoded, ENTRY_KEYS, `entry ${index}`);
   const kind = decodeEntryKind(decoded.kind);
   const content = decodeEntryContent(decoded, expectedAuthorKind(kind));
@@ -240,18 +367,22 @@ function entry(value: unknown, index: number): Entry {
 }
 
 export function decodeLegacyProject(value: unknown): Project {
-  const decoded = object(value, 'legacy project');
+  const decoded = decodeRecord(value, 'legacy project');
   if ('schemaVersion' in decoded) {
-    throw new Error(
+    throw new WorkspaceValidationError(
       'This learning-space document was written by a newer application version.',
     );
   }
   exactKeys(decoded, PROJECT_KEYS, 'legacy project');
   if (!Array.isArray(decoded.entries))
-    throw new Error('Invalid legacy project: entries must be a list.');
+    throw new WorkspaceValidationError(
+      'Invalid legacy project: entries must be a list.',
+    );
   const entries = decoded.entries.map((item, index) => entry(item, index));
   if (new Set(entries.map((item) => item.id)).size !== entries.length) {
-    throw new Error('Invalid legacy project: duplicate entry id.');
+    throw new WorkspaceValidationError(
+      'Invalid legacy project: duplicate entry id.',
+    );
   }
   return {
     id: decodeUuid(decoded.id, 'project id'),

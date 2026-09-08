@@ -1,5 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import type { SourceCitation } from '../contracts/learning-records';
-import { decodeText, decodeUuid } from './workspace-decoder';
+import { SOURCE_TEXT_LIMIT } from './learning-record-validation';
+import {
+  decodeRecord,
+  decodeRequiredText,
+  decodeText,
+  decodeUuid,
+} from './workspace-decoder';
 
 export interface TrustedLearningPathAcceptance {
   projectId: string;
@@ -17,21 +24,46 @@ export interface TrustedLearningPathAcceptance {
   };
 }
 
-function record(value: unknown, description: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError(`Invalid ${description}: expected an object.`);
-  }
-  return value as Record<string, unknown>;
+export interface PriorTrustedLesson {
+  id: string;
+  title: string;
+  objective: string;
+  activity: string;
 }
 
-function requiredText(value: unknown, description: string): string {
-  const decoded = decodeText(value, description, 4_000);
-  if (!decoded.trim()) throw new Error(`Invalid ${description}: enter text.`);
-  return decoded;
+type TrustedStep =
+  TrustedLearningPathAcceptance['contribution']['steps'][number];
+
+function sameLessonMeaning(
+  left: Pick<PriorTrustedLesson, 'title' | 'objective' | 'activity'>,
+  right: Pick<TrustedStep, 'title' | 'objective' | 'activity'>,
+): boolean {
+  return (
+    left.title === right.title &&
+    left.objective === right.objective &&
+    left.activity === right.activity
+  );
+}
+
+export function allocateTrustedLessonIds(
+  previous: readonly PriorTrustedLesson[],
+  next: readonly TrustedStep[],
+): string[] {
+  return next.map((step) => {
+    const priorMatches = previous.filter((lesson) =>
+      sameLessonMeaning(lesson, step),
+    );
+    const nextMatchCount = next.filter((candidate) =>
+      sameLessonMeaning(candidate, step),
+    ).length;
+    return priorMatches.length === 1 && nextMatchCount === 1
+      ? priorMatches[0]!.id
+      : randomUUID();
+  });
 }
 
 function citation(value: unknown, index: number): SourceCitation {
-  const input = record(value, `backend citation ${index}`);
+  const input = decodeRecord(value, `backend citation ${index}`);
   if (
     !Number.isInteger(input.start) ||
     !Number.isInteger(input.end) ||
@@ -51,7 +83,7 @@ function citation(value: unknown, index: number): SourceCitation {
     quote: decodeText(
       input.quote,
       `backend citation ${index} quote`,
-      5_000_000,
+      SOURCE_TEXT_LIMIT,
     ),
   };
 }
@@ -59,14 +91,17 @@ function citation(value: unknown, index: number): SourceCitation {
 export function decodeTrustedLearningPath(
   value: unknown,
 ): TrustedLearningPathAcceptance {
-  const input = record(value, 'trusted learning path result');
+  const input = decodeRecord(value, 'trusted learning path result');
   if (
     !Number.isInteger(input.expectedRevision) ||
     Number(input.expectedRevision) < 0
   ) {
     throw new Error('Invalid expected path revision.');
   }
-  const contribution = record(input.contribution, 'learning path contribution');
+  const contribution = decodeRecord(
+    input.contribution,
+    'learning path contribution',
+  );
   if (
     contribution.kind !== 'learning-path' ||
     !Array.isArray(contribution.steps)
@@ -84,26 +119,33 @@ export function decodeTrustedLearningPath(
     expectedRevision: Number(input.expectedRevision),
     contribution: {
       kind: 'learning-path',
-      title: requiredText(contribution.title, 'learning path title'),
+      title: decodeRequiredText(
+        contribution.title,
+        'learning path title',
+        4_000,
+      ),
       steps: contribution.steps.map((value_, stepIndex) => {
-        const step = record(value_, `learning path step ${stepIndex}`);
+        const step = decodeRecord(value_, `learning path step ${stepIndex}`);
         if (!Array.isArray(step.citations)) {
           throw new Error(
             `Invalid learning path step ${stepIndex}: citations must be a list.`,
           );
         }
         return {
-          title: requiredText(
+          title: decodeRequiredText(
             step.title,
             `learning path step ${stepIndex} title`,
+            4_000,
           ),
-          objective: requiredText(
+          objective: decodeRequiredText(
             step.objective,
             `learning path step ${stepIndex} objective`,
+            4_000,
           ),
-          activity: requiredText(
+          activity: decodeRequiredText(
             step.activity,
             `learning path step ${stepIndex} activity`,
+            4_000,
           ),
           citations: step.citations.map(citation),
         };
