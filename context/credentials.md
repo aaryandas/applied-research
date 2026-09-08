@@ -30,11 +30,42 @@ Compare source-grounded explanation, misconception diagnosis, learning-path adap
 
 Primary catalog check on September 8: [GLM 5.3 Flash](https://openrouter.ai/z-ai/glm-5.3-flash) lists many standard providers at US$0.15/0.50 per million input/output tokens, with cheaper and promotional endpoints; [Gemini 3.8 Flash](https://openrouter.ai/google/gemini-3.8-flash) lists US$0.75/3.75 and discounted Flex endpoints; [Muse Spark 1.3](https://openrouter.ai/meta/muse-spark-1.3) lists US$1.25/4.25. Prices and endpoint capability support must be refreshed before admission. GLM's catalog advertises JSON output without schema enforcement; Gemini advertises JSON-schema structured outputs. Application-side validation remains mandatory for every model. No comparative tutoring evaluation has run yet.
 
-## Current implementation gaps
+## Desktop account/session implementation — September 8
 
-`src/main/index.ts` currently accepts an environment key or reads a user-selected plaintext key file, uses an ad hoc regex, then persists encrypted ciphertext through Electron `safeStorage`. That is the current development/MVP implementation, not the production contract. `safeStorage` itself is a supported Electron API; the gaps are credential ownership, onboarding and lifecycle, rather than a need to invent encryption.
+The desktop now initializes Better Auth's supported Electron client in main,
+opens GitHub's direct `/electron/init-oauth-proxy` provider flow, renews via
+`/api/auth/get-session`, and fetches authoritative public account/quota state from
+`/v1/account`. The renderer receives only named account operations and plain
+public state. Cookies, callback tokens, PKCE values and raw request controls stay
+in main.
 
-The importer reads before checking size; its Linux backend checks are not consistently applied to restore; provider status means a nonempty key rather than verified access. Replacing `.match()` with `.exec()` would address a Sonar suggestion without resolving this design. Do not close AR-12 on that basis, or use a green Sonar gate as production acceptance.
+The SDK encrypts session values with Electron `safeStorage`; a synchronous narrow
+adapter atomically stores only its two allowlisted ciphertext keys with mode
+`0600`. Sign-in fails closed when encryption is unavailable or Linux reports
+`basic_text`. Cancellation advances a local generation, removes the SDK's exact
+pending state and prevents late exchange/session writes from repopulating cleared
+credentials. Sign-out clears locally before a bounded remote revocation request
+and reports when that revocation cannot be confirmed.
+
+Better Auth Electron 1.7.3 declares `kElectron` in `client.d.mts` but does not
+export it from the shipped `client.mjs`. Its implementation stores state in the
+global `Symbol.for('better-auth:electron')` registry. The desktop uses only that
+exact registry to delete cancelled/mismatched attempt state; SDK code still owns
+state generation, PKCE and token exchange. This compatibility wrapper has focused
+tests and should be removed when the package publishes a usable cancellation API
+or matching runtime export. The same upgrade checklist must re-verify the SDK's
+swallowed encrypted-storage write errors and its two raw IPC sends. Main supplies
+`getWindow: () => null` to suppress `better-auth:authenticated`; version 1.7.3's
+internal fetch-error path can still target the focused window with
+`better-auth:error`, but no preload listener exposes that SDK-owned channel.
+
+The provider key-file importer is retired: the app neither reads nor deletes nor
+uploads previously imported development credential files. Direct environment-key
+tutoring remains only behind the explicit non-packaged
+`APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR=true` test/development gate and is disabled
+in packaged behavior. Astra Settings/onboarding and authenticated backend
+learning-request/result adoption remain separate follow-up slices, so this is not
+whole-AR-12 completion.
 
 ## Implementation gate
 
@@ -75,7 +106,13 @@ The coordinator classified the expanded API `DATABASE_URL` as a PostgreSQL URL o
 
 Published registry metadata was checked before the exact lockfile install. The notices relevant to this slice are: `better-auth`, `@better-auth/electron`, `@better-auth/drizzle-adapter`, `pg`, `effect` and `@types/pg` are MIT; `drizzle-orm` is Apache-2.0. Better Auth 1.7.3 accepts Drizzle `^0.45.2 || >=1.0.0-rc.1 <2.0.0`, pg `^8.0.0`, React 18/19 and Vitest 2/3/4. The Electron plugin requires Node 22+, Electron 36+, Better Auth/Core `^1.7.3` and its published exact Better Auth utility peers. The Drizzle adapter accepts Drizzle `^0.45.2 || >=1.0.0-rc.1 <2.0.0`; Drizzle's pg peer is `>=8`; pg 8.23.0 requires Node 16+. Node 24, Electron 44 and Vitest 4 satisfy these ranges without forced peer resolution. Sources: [Better Auth Electron](https://www.better-auth.com/docs/integrations/electron), [Better Auth Node](https://www.better-auth.com/docs/integrations/node), [OpenRouter Gemini 3.8 Flash](https://openrouter.ai/google/gemini-3.8-flash), [OpenRouter usage accounting](https://openrouter.ai/docs/api-reference/overview#usage-accounting).
 
-This is not whole-AR-12 completion. Desktop SDK/main/preload/UI wiring, OS-backed session storage and offline clearing are the next slice. The founder completed GitHub account confirmation; the remaining real-sign-in prerequisite is manual transfer of the approved client secret into the Railway API service, as described above. Deployment, migration execution against Railway and live provider acceptance remain coordinator gates; synthetic provider responses are not live-provider evidence.
+This is not whole-AR-12 completion. The account/session SDK, main/preload bridge,
+OS-backed ciphertext persistence and offline local clearing are implemented in the
+desktop slice described above. Astra Settings/onboarding and authenticated
+learning-result adoption remain follow-ups. The founder completed GitHub account
+confirmation; external secret/configuration, deployment, migration execution
+against Railway and live provider acceptance remain coordinator gates. Synthetic
+SDK/provider responses are not live-service evidence.
 
 ## Combined desktop dependency verification — September 8
 

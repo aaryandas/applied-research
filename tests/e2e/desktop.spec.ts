@@ -15,6 +15,7 @@ function launch(directory: string, key = ''): Promise<ElectronApplication> {
     env: {
       ...process.env,
       APPLIED_RESEARCH_DATA_DIR: directory,
+      APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR: key ? 'true' : 'false',
       OPENROUTER_API_KEY: key,
     },
   });

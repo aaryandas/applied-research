@@ -8,6 +8,10 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 import type { DesktopBridge } from '../contracts/desktop';
+import type {
+  DesktopAccountState,
+  DesktopSignOutResult,
+} from '../contracts/desktop-auth';
 import type { Entry, Project, ToolState } from '../contracts/workspace';
 
 const project: Project = {
@@ -30,8 +34,26 @@ const note: Entry = {
 };
 function setup(initial: Project[] = [project]) {
   let stateListener: (state: ToolState) => void = () => {};
+  let accountStateListener: (state: DesktopAccountState) => void = () => {};
+  const signedOutState: DesktopAccountState = {
+    session: 'signed-out',
+    account: null,
+    quota: null,
+    message: null,
+  };
   const bridge: DesktopBridge = {
     info: { platform: 'test', electronVersion: 'test' },
+    accountStatus: vi.fn(async () => signedOutState),
+    signIn: vi.fn(async () => signedOutState),
+    cancelSignIn: vi.fn(async () => signedOutState),
+    signOut: vi.fn(async (): Promise<DesktopSignOutResult> => ({
+      state: signedOutState,
+      remoteRevocation: 'confirmed',
+    })),
+    onAccountState: vi.fn((listener) => {
+      accountStateListener = listener;
+      return () => {};
+    }),
     listProjects: vi.fn(async () => initial),
     createProject: vi.fn(async (goal) => ({ ...project, goal })),
     saveEntry: vi.fn(async (draft) => ({
@@ -76,6 +98,8 @@ function setup(initial: Project[] = [project]) {
   };
   return {
     bridge,
+    emitAccountState: (state: DesktopAccountState) =>
+      act(() => accountStateListener(state)),
     emit: (state: ToolState) => act(() => stateListener(state)),
   };
 }

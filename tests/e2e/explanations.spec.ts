@@ -5,11 +5,47 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { cpus, platform, release, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const evidence = process.env.AR24_EVIDENCE_DIR;
+async function launchExplanationApplication(
+  directory: string,
+): Promise<ElectronApplication> {
+  const requestedExecutablePath = process.env.ELECTRON_EXECUTABLE_PATH;
+  const application = await electron.launch({
+    ...(requestedExecutablePath
+      ? { executablePath: requestedExecutablePath, args: [] }
+      : { args: ['.'] }),
+    env: {
+      ...process.env,
+      APPLIED_RESEARCH_DATA_DIR: directory,
+      OPENROUTER_API_KEY: '',
+    },
+  });
+  if (!requestedExecutablePath) return application;
+  try {
+    const actual = await application.evaluate(({ app }) => ({
+      executablePath: app.getPath('exe'),
+      isPackaged: app.isPackaged,
+    }));
+    expect(actual.isPackaged).toBe(true);
+    expect(realpathSync(actual.executablePath)).toBe(
+      realpathSync(requestedExecutablePath),
+    );
+    return application;
+  } catch (error) {
+    await application.close();
+    throw error;
+  }
+}
 function artifact(name: string): string {
   return evidence ? join(evidence, name) : test.info().outputPath(name);
 }
@@ -55,14 +91,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
   test.setTimeout(90_000);
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-scenes-'));
-  const application = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
-      OPENROUTER_API_KEY: '',
-    },
-  });
+  const application = await launchExplanationApplication(directory);
   try {
     const page = await openTools(application);
     const errors: string[] = [];
@@ -357,14 +386,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
 
 test('offers usable text and parameters when WebGL context creation is unavailable', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'ar24-no-webgl-'));
-  const application = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
-      OPENROUTER_API_KEY: '',
-    },
-  });
+  const application = await launchExplanationApplication(directory);
   try {
     const page = await openTools(application);
     // Fault injection at the browser boundary: exercise real Three initialization failure.
@@ -407,14 +429,7 @@ test('offers usable text and parameters when WebGL context creation is unavailab
 test('preserves typed arm drafts and exact camera pose across blur and focus', async () => {
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-repair-'));
-  const application = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
-      OPENROUTER_API_KEY: '',
-    },
-  });
+  const application = await launchExplanationApplication(directory);
   try {
     const page = await openTools(application);
     await page.emulateMedia({ reducedMotion: 'reduce' });

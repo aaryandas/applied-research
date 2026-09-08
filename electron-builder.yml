@@ -4,12 +4,17 @@ directories:
   output: dist
 files:
   - out/**/*
+  - '!out/backend/**/*'
   - drizzle/**/*
   - package.json
 extraResources:
   - LICENSE
 asar: true
 artifactName: '${name}-${version}-${os}-${arch}.${ext}'
+protocols:
+  - name: Applied Research Authentication
+    schemes:
+      - com.aaryandas.appliedresearch
 mac:
   category: public.app-category.education
   target: [dmg, zip]

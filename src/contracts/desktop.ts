@@ -8,6 +8,7 @@ import type {
   TutorRequest,
 } from './workspace';
 import type { LearningRecordsBridge } from './learning-records';
+import type { DesktopAccountState, DesktopSignOutResult } from './desktop-auth';
 
 export interface DesktopInfo {
   readonly platform: string;
@@ -15,6 +16,11 @@ export interface DesktopInfo {
 }
 export interface DesktopBridge {
   readonly info: DesktopInfo;
+  accountStatus(): Promise<DesktopAccountState>;
+  signIn(): Promise<DesktopAccountState>;
+  cancelSignIn(): Promise<DesktopAccountState>;
+  signOut(): Promise<DesktopSignOutResult>;
+  onAccountState(listener: (state: DesktopAccountState) => void): () => void;
   listProjects(): Promise<Project[]>;
   createProject(goal: string): Promise<Project>;
   saveEntry(draft: EntryDraft): Promise<Project>;
