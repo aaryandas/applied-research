@@ -16,6 +16,12 @@ export interface ProcessResult {
 }
 export type ProcessRunner = (request: ProcessRequest) => Promise<ProcessResult>;
 
+function launchDiagnostic(code: string | undefined): string {
+  if (code === 'ENOENT') return 'Executable not found';
+  if (code === 'EACCES') return 'permission denied';
+  return 'Process launch failed';
+}
+
 /** Detached process group includes grandchildren. Docker containers are removed separately. */
 export const runProcess: ProcessRunner = (request) => {
   if (request.signal.aborted)
@@ -35,7 +41,6 @@ export const runProcess: ProcessRunner = (request) => {
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
-        TMPDIR: process.env.TMPDIR,
       },
     });
     let status: ProcessResult['status'] = 'exited';
@@ -75,13 +80,7 @@ export const runProcess: ProcessRunner = (request) => {
     child.once('error', (error: NodeJS.ErrnoException) => {
       status = 'unavailable';
       // Node error codes are trusted infrastructure data; never retain error.message/argv.
-      const diagnostic =
-        error.code === 'ENOENT'
-          ? 'Executable not found'
-          : error.code === 'EACCES'
-            ? 'permission denied'
-            : 'Process launch failed';
-      stderr = Buffer.from(diagnostic);
+      stderr = Buffer.from(launchDiagnostic(error.code));
     });
     const abort = (): void => stop('cancelled');
     request.signal.addEventListener('abort', abort, { once: true });

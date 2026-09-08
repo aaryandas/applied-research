@@ -1,11 +1,12 @@
+import { evidenceDirectory } from './evidence-paths.mjs';
 /* global window */
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const evidence = resolve(process.argv[2] ?? '/private/tmp/ar-manim-evidence');
+const evidence = await evidenceDirectory(process.argv[2]);
 await mkdir(join(evidence, 'playback'), { recursive: true });
 const data = await mkdtemp(join(evidence, 'electron-data-'));
 const application = await electron.launch({
@@ -15,7 +16,7 @@ const application = await electron.launch({
   env: {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
-    TMPDIR: process.env.TMPDIR,
+    TMPDIR: data,
     AR_MANIM_HARNESS_DATA: data,
   },
   recordVideo: {

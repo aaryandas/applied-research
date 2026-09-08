@@ -1,3 +1,4 @@
+import { evidenceDirectory } from './evidence-paths.mjs';
 import assert from 'node:assert/strict';
 import {
   copyFile,
@@ -7,10 +8,10 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const evidence = resolve(process.argv[2] ?? '/private/tmp/ar-manim-evidence');
+const evidence = await evidenceDirectory(process.argv[2]);
 const moduleUrl = (name) =>
   pathToFileURL(join(evidence, 'compiled/render-worker', name)).href;
 const { AnimationRenderWorker } = await import(moduleUrl('worker.js'));

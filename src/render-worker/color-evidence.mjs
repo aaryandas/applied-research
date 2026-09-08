@@ -1,14 +1,16 @@
+import { evidenceDirectory, ffmpegExecutable } from './evidence-paths.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 // Independent pixel evidence, based on Fable's plane-box probe. No Manim/recipe math import.
-const evidence = resolve(process.argv[2] ?? '/private/tmp/ar-manim-evidence');
+const evidence = await evidenceDirectory(process.argv[2]);
+const executable = await ffmpegExecutable();
 const colors = { green: [167, 206, 154], warm: [251, 208, 148] };
 function pixels(name, time, color) {
   const frame = spawnSync(
-    'ffmpeg',
+    executable,
     [
       '-v',
       'error',
@@ -64,8 +66,10 @@ const endpoints = expectedEndpoints.map(([name, extent, expected]) => {
     (394.2 - y) / scale,
   ]);
   assert.ok(points.length > 0);
-  const measured = points.reduce((farthest, point) =>
-    Math.hypot(...point) > Math.hypot(...farthest) ? point : farthest,
+  const measured = points.reduce(
+    (farthest, point) =>
+      Math.hypot(...point) > Math.hypot(...farthest) ? point : farthest,
+    points[0],
   );
   return {
     name,

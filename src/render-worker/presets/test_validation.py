@@ -20,15 +20,17 @@ class BoundaryTests(unittest.TestCase):
 
     def test_labels_identity_versions_and_bounds(self):
         for changes in [{'extra': 1}, {'version': True}, {'version': 2}, {'assetVersion': 'url'}, {'id': 'bad'}, {'origin': {}}, {'title': '<script>'}, {'title': '\\LaTex'}, {'title': 'line\nbreak'}, {'title': 'a' * 49}, {'title': '\u202ehidden'}, {'recipe': 'python'}, {'parameters': {'matrix': [[1, 0], [0, 1]], 'vector': [4, 0]}}]:
+            raw = json.dumps({**LINEAR, **changes})
             with self.subTest(changes=changes), self.assertRaises(ValueError):
-                decode(json.dumps({**LINEAR, **changes}))
+                decode(raw)
 
     def test_weight_edges(self):
         for weights in [[0, 0], [-1, 1], [101, 1], [float('nan'), 1], [float('inf'), 1], [True, 1], [0.000000000001, 1]]:
             recipe = copy.deepcopy(WEIGHTED)
             recipe['parameters']['weights'] = weights
+            raw = json.dumps(recipe)
             with self.subTest(weights=weights), self.assertRaises(ValueError):
-                decode(json.dumps(recipe))
+                decode(raw)
         for weights in [[0, 1], [0.001, 100], [100, 100]]:
             recipe = copy.deepcopy(WEIGHTED)
             recipe['parameters']['weights'] = weights

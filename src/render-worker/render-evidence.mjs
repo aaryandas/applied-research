@@ -1,11 +1,12 @@
+import { evidenceDirectory } from './evidence-paths.mjs';
 import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { cpus, platform, release, arch } from 'node:os';
 
-const evidence = resolve(process.argv[2] ?? '/private/tmp/ar-manim-evidence');
+const evidence = await evidenceDirectory(process.argv[2]);
 const compiled = pathToFileURL(
   join(evidence, 'compiled/render-worker/worker.js'),
 ).href;

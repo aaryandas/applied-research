@@ -11,7 +11,9 @@ h1 {
   font-size: 22px;
   font-weight: 500;
 }
-p {
+p,
+output {
+  display: block;
   color: #a9b1b8;
   margin: 8px 0 12px;
 }

@@ -1,12 +1,14 @@
+import { evidenceDirectory, ffmpegExecutable } from './evidence-paths.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-const evidence = resolve(process.argv[2] ?? '/private/tmp/ar-manim-evidence');
+import { join } from 'node:path';
+const evidence = await evidenceDirectory(process.argv[2]);
+const executable = await ffmpegExecutable();
 const captures = join(evidence, 'captures');
 await mkdir(captures, { recursive: true });
 function ffmpeg(args) {
   const result = spawnSync(
-    'ffmpeg',
+    executable,
     ['-v', 'error', '-nostdin', '-y', ...args],
     { stdio: 'inherit' },
   );
