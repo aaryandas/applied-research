@@ -16,7 +16,7 @@ const MAX_ABSTRACT_TOKEN_CHARACTERS = 200;
 const MAX_ABSTRACT_TOKENS = 4_000;
 const OPENALEX_ORIGIN = 'https://openalex.org';
 const DOI_PREFIX = 'https://doi.org/';
-export const OPENALEX_PAPER_TYPES = [
+export const OPENALEX_PAPER_TYPES: readonly string[] = [
   'article',
   'conference-paper',
   'data-paper',
@@ -25,7 +25,7 @@ export const OPENALEX_PAPER_TYPES = [
   'report',
   'review',
   'software-paper',
-] as const;
+];
 const OPENALEX_PAPER_TYPE_SET = new Set<string>(OPENALEX_PAPER_TYPES);
 
 interface Decoded<T> {
