@@ -3,13 +3,15 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  net,
+  protocol,
   safeStorage,
   session,
   shell,
   WebContentsView,
 } from 'electron';
 import { join } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isAllowedNavigation } from './navigation';
 import {
@@ -32,6 +34,17 @@ import {
   type PageContext,
   type ProviderStatus,
 } from '../contracts/workspace';
+import { AUTH_CHANNELS } from '../contracts/desktop-auth';
+import { consoleDesktopAuthDiagnostics } from './auth-diagnostics';
+import {
+  desktopAuthCallbackArgument,
+  registerDesktopAuthProtocol,
+  registerDesktopAuthScheme,
+} from './auth-protocol';
+import { createDesktopAuthSdk, electronOauthStateRegistry } from './auth-sdk';
+import { createAuthStorage } from './auth-storage';
+import { makeBackendAccountTransport } from './auth-transport';
+import { createDesktopAuthController } from './desktop-auth';
 
 if (process.env.APPLIED_RESEARCH_DATA_DIR)
   app.setPath('userData', process.env.APPLIED_RESEARCH_DATA_DIR);
@@ -41,27 +54,66 @@ else if (!app.isPackaged)
     join(app.getPath('appData'), 'Applied Research Development'),
   );
 
+registerDesktopAuthScheme(protocol);
+
 let store: WorkspaceStore;
-let apiKey = process.env.OPENROUTER_API_KEY ?? '';
+let mainWindow: BrowserWindow | null = null;
+const developmentTutorEnabled =
+  !app.isPackaged &&
+  process.env.APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR === 'true';
+const apiKey = developmentTutorEnabled
+  ? (process.env.OPENROUTER_API_KEY ?? '')
+  : '';
 let model = process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL;
+const authStorage = createAuthStorage(
+  join(app.getPath('userData'), 'auth', 'session.json'),
+  consoleDesktopAuthDiagnostics,
+);
+const authSdk = createDesktopAuthSdk(authStorage);
+const authController = createDesktopAuthController({
+  sdk: authSdk,
+  storage: authStorage,
+  accountTransport: makeBackendAccountTransport(net.fetch),
+  oauthStates: electronOauthStateRegistry,
+  encryption: {
+    isUsable: () =>
+      safeStorage.isEncryptionAvailable() &&
+      !(
+        process.platform === 'linux' &&
+        safeStorage.getSelectedStorageBackend() === 'basic_text'
+      ),
+  },
+  diagnostics: consoleDesktopAuthDiagnostics,
+});
+authSdk.setupMain(() => mainWindow);
+
+const focusMainWindow = (): void => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+};
+
+const authProtocol = registerDesktopAuthProtocol({
+  app,
+  argv: process.argv,
+  defaultApp: Boolean(process.defaultApp),
+  diagnostics: consoleDesktopAuthDiagnostics,
+  executablePath: process.execPath,
+  onActivate: focusMainWindow,
+  onCallback: (url) => {
+    void authController.handleCallback(url).then((accepted) => {
+      if (accepted) focusMainWindow();
+    });
+  },
+  platform: process.platform,
+});
+if (!authProtocol.registered) authController.markProtocolUnavailable();
+const coldAuthCallback = desktopAuthCallbackArgument(process.argv);
+if (coldAuthCallback) void authController.handleCallback(coldAuthCallback);
 
 function providerStatus(): ProviderStatus {
   return { connected: Boolean(apiKey), model };
-}
-
-function restoreProvider(): void {
-  const directory = app.getPath('userData');
-  const keyFile = join(directory, 'openrouter.enc');
-  if (!apiKey && existsSync(keyFile) && safeStorage.isEncryptionAvailable()) {
-    try {
-      apiKey = safeStorage.decryptString(readFileSync(keyFile));
-    } catch {
-      apiKey = '';
-    }
-  }
-  const modelFile = join(directory, 'model.txt');
-  if (!process.env.OPENROUTER_MODEL && existsSync(modelFile))
-    model = readFileSync(modelFile, 'utf8').trim();
 }
 
 async function createWindow(): Promise<void> {
@@ -86,6 +138,7 @@ async function createWindow(): Promise<void> {
       webviewTag: false,
     },
   });
+  mainWindow = window;
   let guest: WebContentsView | null = null;
   let pending: AbortController | null = null;
   let guestError = '';
@@ -154,49 +207,39 @@ async function createWindow(): Promise<void> {
   handle(CHANNELS.experiment, (value) =>
     store.addExperiment(identifier(value)),
   );
+  handle(AUTH_CHANNELS.accountStatus, () => authController.accountStatus());
+  handle(AUTH_CHANNELS.signIn, () => authController.signIn());
+  handle(AUTH_CHANNELS.cancelSignIn, () => authController.cancelSignIn());
+  handle(AUTH_CHANNELS.signOut, () => authController.signOut());
+  const unsubscribeAccountState = authController.subscribe((state) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send(AUTH_CHANNELS.accountState, state);
+    }
+  });
   handle(CHANNELS.provider, providerStatus);
   handle(CHANNELS.model, (value) => {
+    if (!developmentTutorEnabled) {
+      throw new Error(
+        'Direct provider configuration is retired. Sign in to use managed learning.',
+      );
+    }
     const candidate = text(value, 200).trim();
     if (!/^[a-zA-Z0-9._:/-]+$/.test(candidate))
       throw new Error('Enter an OpenRouter model ID.');
-    writeFileSync(join(app.getPath('userData'), 'model.txt'), candidate);
     model = candidate;
     return providerStatus();
   });
-  handle(CHANNELS.connect, async () => {
-    const selection = await dialog.showOpenDialog(window, {
-      title: 'Choose a file containing your OpenRouter API key',
-      properties: ['openFile'],
-    });
-    const selected = selection.filePaths[0];
-    if (selection.canceled || !selected) return providerStatus();
-    const contents = readFileSync(selected, 'utf8');
-    if (contents.length > 8192)
-      throw new Error(
-        'Choose a small text file containing only your API key or OPENROUTER_API_KEY=…',
-      );
-    const candidate =
-      contents.match(/^OPENROUTER_API_KEY\s*=\s*["']?([^\s"']+)/m)?.[1] ??
-      contents.trim();
-    if (!/^sk-or-[a-zA-Z0-9-]{20,400}$/.test(candidate))
-      throw new Error('That file does not contain an OpenRouter API key.');
-    if (
-      !safeStorage.isEncryptionAvailable() ||
-      (process.platform === 'linux' &&
-        safeStorage.getSelectedStorageBackend() === 'basic_text')
-    )
-      throw new Error(
-        'OS credential encryption is unavailable. Configure OPENROUTER_API_KEY in your environment instead.',
-      );
-    writeFileSync(
-      join(app.getPath('userData'), 'openrouter.enc'),
-      safeStorage.encryptString(candidate),
-      { mode: 0o600 },
+  handle(CHANNELS.connect, () => {
+    throw new Error(
+      'Provider key-file import is retired. Sign in to use managed learning.',
     );
-    apiKey = candidate;
-    return providerStatus();
   });
   handle(CHANNELS.ask, async (value) => {
+    if (!developmentTutorEnabled) {
+      throw new Error(
+        'The development tutor is disabled. Sign in to use managed learning.',
+      );
+    }
     if (pending)
       throw new Error('Let the current answer finish, or stop it first.');
     const request = tutorRequest(value);
@@ -312,10 +355,16 @@ async function createWindow(): Promise<void> {
     if (!isAllowedNavigation(url, rendererUrl)) event.preventDefault();
   });
   window.on('closed', () => {
+    unsubscribeAccountState();
+    if (mainWindow === window) mainWindow = null;
     pending?.abort();
     if (guest && !guest.webContents.isDestroyed()) guest.webContents.close();
     for (const channel of Object.values(CHANNELS))
       ipcMain.removeHandler(channel);
+    for (const channel of Object.values(AUTH_CHANNELS)) {
+      if (channel !== AUTH_CHANNELS.accountState)
+        ipcMain.removeHandler(channel);
+    }
   });
   window.once('ready-to-show', () => window.show());
   await window.loadURL(rendererUrl);
@@ -323,6 +372,10 @@ async function createWindow(): Promise<void> {
 
 async function startApplication(): Promise<void> {
   try {
+    if (!authProtocol.ownsInstance) {
+      app.quit();
+      return;
+    }
     await app.whenReady();
     mkdirSync(app.getPath('userData'), { recursive: true });
     try {
@@ -341,7 +394,6 @@ async function startApplication(): Promise<void> {
       });
       return;
     }
-    restoreProvider();
     session.defaultSession.setPermissionRequestHandler(
       (_contents, _permission, callback) => callback(false),
     );
@@ -360,7 +412,11 @@ async function startApplication(): Promise<void> {
 }
 
 void startApplication();
-app.on('will-quit', () => store?.close());
+app.on('will-quit', () => {
+  authProtocol.dispose();
+  authController.dispose();
+  store?.close();
+});
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

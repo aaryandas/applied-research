@@ -50,6 +50,48 @@ const executable = executableByPlatform[process.platform];
 if (!executable || !existsSync(executable)) {
   throw new Error('Packaged application not found. Run npm run package first.');
 }
+
+const resourcesByPlatform = {
+  darwin: join(
+    'dist',
+    process.arch === 'arm64' ? 'mac-arm64' : 'mac',
+    'Applied Research.app',
+    'Contents',
+    'Resources',
+  ),
+  win32: join(
+    'dist',
+    process.arch === 'arm64' ? 'win-arm64-unpacked' : 'win-unpacked',
+    'resources',
+  ),
+  linux: join(
+    'dist',
+    process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked',
+    'resources',
+  ),
+};
+const resources = resourcesByPlatform[process.platform];
+if (!resources) throw new Error('Packaged resources path is unsupported.');
+const asarListing = spawnSync(
+  process.execPath,
+  [
+    'node_modules/@electron/asar/bin/asar.js',
+    'list',
+    join(resources, 'app.asar'),
+  ],
+  { encoding: 'utf8' },
+);
+if (asarListing.error) throw asarListing.error;
+if (asarListing.status !== 0) {
+  throw new Error('Packaged application archive could not be inspected.');
+}
+if (
+  asarListing.stdout
+    .split(/\r?\n/)
+    .some((entry) => entry.startsWith('/out/backend/'))
+) {
+  throw new Error('Desktop package contains excluded backend server code.');
+}
 const result = spawnSync(
   process.execPath,
   ['node_modules/@playwright/test/cli.js', 'test'],

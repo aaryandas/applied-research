@@ -12,6 +12,21 @@ Actions are pinned to immutable revisions. Jobs have read-only repository permis
 
 `release.yml` runs manually or on tags matching `v*`. It verifies the same revision through the reusable workflow, then builds native installer candidates for the runner architecture on macOS, Windows, and Linux. Artifacts are retained for 14 days. Linux candidates are AppImage, Windows NSIS, macOS DMG and ZIP. Architecture appears in each filename; additional architectures are not claimed.
 
+Desktop packages register only the `com.aaryandas.appliedresearch`
+authentication scheme. The exact callback is
+`com.aaryandas.appliedresearch://auth/callback`; main-process validation rejects
+other hosts, paths, query-bearing callbacks, mismatched state, replay and cold
+callbacks without a pending sign-in. The runtime also calls the platform
+protocol-registration API before readiness and fails new sign-in closed when
+registration is unavailable.
+
+Desktop packaging explicitly excludes `out/backend/**`. Server-only auth,
+accounting, provider adapters and system prompts remain deployment artifacts and
+must not ship inside the Electron installer. `drizzle/**` remains packaged for
+the desktop's reviewed local SQLite migrations. Packaged smoke tests must inspect
+the application archive as well as exercise protocol launch and local
+save/restart.
+
 A version tag must exactly equal `v` plus `package.json`'s version. Tag builds create a **draft GitHub Release** with installers and SHA-256 checksums only after all verification and packaging jobs pass. Manual runs produce workflow artifacts only. Publishing the draft to users is a deliberate separate step.
 
 The candidate installers are **unsigned and not notarized**. The default Electron icon is temporary. This pipeline verifies distribution mechanics, not production distribution readiness. Signing credentials, macOS identity/notarization, Windows signing, and final application artwork require dedicated setup. `electron-builder.yml` currently disables macOS signing explicitly; change that configuration when signing is selected. No auto-updater is configured.

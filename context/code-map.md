@@ -7,8 +7,9 @@ This map describes the implemented MVP. See [scope and limitations](mvp.md). Rea
 | `src/main/index.ts`             | Electron application and window lifecycle, security configuration     |
 | `src/main/startup-error.ts`     | Allow-listed startup messages and privacy-safe typed diagnostics      |
 | `src/main/navigation.ts`        | Renderer navigation policy and adjacent unit tests                    |
-| `src/preload/index.ts`          | Named workspace/tutor/provider/tool bridge and subscriptions          |
-| `src/contracts/desktop.ts`      | Shared serializable desktop contract                                  |
+| `src/preload/index.ts`          | Named workspace/account/tutor/tool bridge and subscriptions           |
+| `src/contracts/desktop.ts`      | Shared serializable desktop bridge contract                           |
+| `src/contracts/desktop-auth.ts` | Public account/session states, fixed origin/scheme and auth channels  |
 | `src/contracts/learning-api.ts` | Authenticated backend request/response, provenance and quota contract |
 | `src/backend/`                  | Better Auth, PostgreSQL accounting and bounded OpenRouter server      |
 | `tests/backend-postgres/`       | Disposable real PostgreSQL migration/auth/accounting verification     |
@@ -44,6 +45,15 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 ## MVP modules
 
 - `src/contracts/workspace.ts`: project/entry/request models and named channels.
+- `src/main/auth-sdk.ts`, `auth-storage.ts`: Better Auth Electron 1.7.3
+  main-process adapter and atomic permission-restricted persistence for the
+  ciphertext the SDK creates with Electron `safeStorage`.
+- `src/main/desktop-auth.ts`, `auth-protocol.ts`, `auth-transport.ts`: one-pending
+  sign-in lifecycle, callback mismatch/replay/cancellation defense, OS protocol
+  registration, SDK session renewal, bounded fixed-origin account transport and
+  immediate local sign-out with bounded remote revocation.
+- `src/main/auth-diagnostics.ts`: allowlisted auth diagnostic codes/messages and
+  safe error-class identity; raw remote/storage errors never cross the boundary.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.
 - `src/main/workspace-store.ts`: Drizzle/better-sqlite3 project, entry, placement and immutable content-revision persistence; transaction-boundary validation, attribution-preserving mutations and structured unreadable-project diagnostics.
 - `src/main/workspace-decoder.ts`: shared runtime decoding for legacy migration, stored records and write-boundary invariants.
@@ -60,7 +70,15 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/renderer/explanations/`: lazy Three.js/React Three Fiber selectable assembly and measured two-link arm; maintained OrbitControls, demand rendering, lifecycle/context-loss fallback, draft-preserving numeric controls and accessible scene interaction. `useArmInputs.ts` separates unfinished draft text from committed parameters. Recipe/geometry math, runtime cleanup and real Electron cases have independent review. Captures remain session-only; Reader/Canvas persistence and export are pending. First-load scene chunk is approximately 1.39 MB. `NOTICES.md` records original asset and upstream MIT provenance; consolidated distribution notices remain a release integration requirement.
 - `src/renderer/assets/`: bundled approved artwork and Familjen Grotesk, Fraunces, Martian Mono and Newsreader fonts with their OFL notices, verified against the reference manifest.
 
-Window/guest/credential lifecycle and IPC registration live in `src/main/index.ts`; real Electron tests exercise that wiring. Domain behavior has adjacent unit tests. Backend modules import installed Effect 3.22.1; no application code imports the pinned upstream reference subtree. Desktop authenticated-client integration, broad ingestion, web discovery/recipes, sync and durable background jobs remain unimplemented.
+Window/guest/account lifecycle and IPC registration live in `src/main/index.ts`;
+real Electron tests exercise that wiring. The legacy direct OpenRouter tutor is
+disabled in packaged builds and requires an explicit development-only opt-in;
+the provider key-file importer is retired and no prior files are read, removed or
+uploaded. Domain behavior has adjacent unit tests. Backend modules import
+installed Effect 3.22.1; no application code imports the pinned upstream
+reference subtree. Astra account Settings/onboarding, backend learning-request
+adoption, learning-result persistence, broad ingestion, web discovery/recipes,
+sync and durable background jobs remain unimplemented.
 
 `tests/integration/workspace-migration.test.ts` exercises legacy bytes, WAL-inclusive backups, rollback, stale-backup recovery and migration refusal. `tests/integration/workspace.test.ts` covers concurrent writers, cross-project rejection and revision conflicts. Native-module commands in `package.json` select the Node or Electron ABI before their corresponding test/runtime command; packaged migration coverage lives in `scripts/test-packaged.mjs`.
 
