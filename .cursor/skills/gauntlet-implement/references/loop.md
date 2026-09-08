@@ -8,11 +8,11 @@ You perform Specify through Compare. Critique is a **different** Fable session. 
 
 ## Checks
 
-| Change | Run |
-| --- | --- |
-| Docs/config/harness only | `npm run check` |
+| Change                    | Run                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| Docs/config/harness only  | `npm run check`                                                                             |
 | Main / preload / renderer | `npm run check` and Electron smoke (`npm run test:e2e`; Linux: `xvfb-run --auto-servernum`) |
-| Packaging | `npm run package` and `npm run test:packaged` |
+| Packaging                 | `npm run package` and `npm run test:packaged`                                               |
 
 Do not use `--passWithNoTests`. Do not skip engine-strict.
 
