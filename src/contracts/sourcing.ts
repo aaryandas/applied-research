@@ -1,4 +1,4 @@
-import type { PublicAccount, SourceRevisionInput } from './learning-api.js';
+import type { SourceRevisionInput } from './learning-api.js';
 
 export const SOURCING_API_VERSION = '2026-09-08';
 export const SOURCING_PUBLIC_MESSAGES = {
@@ -373,28 +373,3 @@ export type RetrieveEvidenceResponse =
       message: typeof SOURCING_PUBLIC_MESSAGES.noEvidence;
     }
   | SourcingFailure;
-
-/**
- * Authenticated account identity is supplied by backend composition, never by
- * these serializable request values.
- */
-export interface SourcingService {
-  discoverCandidates(
-    request: DiscoverSourcesRequest,
-    invocation: SourcingInvocation,
-  ): Promise<DiscoverSourcesResponse>;
-  acquireCanonicalSource(
-    request: AcquireCanonicalSourceRequest,
-    invocation: SourcingInvocation,
-  ): Promise<AcquireCanonicalSourceResponse>;
-  retrieveEvidence(
-    request: RetrieveEvidenceRequest,
-    invocation: SourcingInvocation,
-  ): Promise<RetrieveEvidenceResponse>;
-}
-
-/** Runtime-only invocation authority; it is never part of a request payload. */
-export interface SourcingInvocation {
-  account: PublicAccount;
-  signal: AbortSignal;
-}

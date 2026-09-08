@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { Data } from 'effect';
 import {
   SOURCE_DISCOVERY_PROVIDERS,
   SOURCE_KINDS,
@@ -36,22 +36,21 @@ import type {
   SourcingFailure,
   SourcingIntent,
 } from '../../contracts/sourcing.js';
-import type { SourceFormat } from '../../contracts/learning-api.js';
 import { isRemoteText, isUnicodeScalarBoundary } from '../text.js';
+import {
+  createValidationPrimitives,
+  includesMember,
+  isDenseArray,
+  sha256Text,
+  SOURCE_FORMATS,
+} from '../validation-primitives.js';
+import type { RetrievalIndexingAuthority } from './service.js';
 
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const DOI_PATTERN = /^10\.\d{4,9}\/[^\s]+$/;
 const ARXIV_PATTERN =
   /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/i;
 const OPENALEX_WORK_ID_PATTERN = /^W\d+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const SOURCE_FORMATS: readonly SourceFormat[] = [
-  'plain-text',
-  'markdown',
-  'html',
-  'pdf',
-];
 const SOURCING_INTENTS: readonly SourcingIntent[] = ['learning', 'research'];
 const SOURCE_ACCESS = [
   'public',
@@ -73,28 +72,25 @@ const PERMISSION_BASES = [
   'owner-permission',
 ] as const;
 
-export class SourcingContractValidationError extends Error {
-  override readonly name = 'SourcingContractValidationError';
-}
+export class SourcingContractValidationError extends Data.TaggedError(
+  'SourcingContractValidationError',
+)<{ readonly message: string }> {}
 
 function invalid(message: string): never {
-  throw new SourcingContractValidationError(message);
+  throw new SourcingContractValidationError({ message });
 }
 
-function strictRecord(
-  value: unknown,
-  allowedKeys: readonly string[],
-  message = 'Expected an object.',
-): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    invalid(message);
-  }
-  const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !allowedKeys.includes(key))) {
-    invalid('The value contains an unsupported field.');
-  }
-  return record;
-}
+const validation = createValidationPrimitives({
+  invalid,
+  unsupportedFieldMessage: 'The value contains an unsupported field.',
+});
+const {
+  boundedText,
+  identifier,
+  isoTimestamp,
+  sha256: validateSha256,
+  strictRecord,
+} = validation;
 
 function rejectDefinedFields(
   record: Record<string, unknown>,
@@ -104,43 +100,12 @@ function rejectDefinedFields(
   if (fields.some((field) => record[field] !== undefined)) invalid(message);
 }
 
-function includesMember<T>(values: readonly T[], value: unknown): value is T {
-  const candidates: readonly unknown[] = values;
-  return candidates.includes(value);
-}
-
-function isDenseArray(value: unknown): value is unknown[] {
-  if (!Array.isArray(value)) return false;
-  for (let index = 0; index < value.length; index += 1) {
-    if (!(index in value)) return false;
-  }
-  return true;
-}
-
-function boundedText(value: unknown, maximum: number, field: string): string {
-  if (
-    typeof value !== 'string' ||
-    !value.trim() ||
-    value.length > maximum ||
-    !isRemoteText(value)
-  ) {
-    invalid(`${field} is invalid.`);
-  }
-  return value;
-}
-
 function nullableBoundedText(
   value: unknown,
   maximum: number,
   field: string,
 ): string | null {
   return value === null ? null : boundedText(value, maximum, field);
-}
-
-function identifier(value: unknown, field: string): string {
-  const parsed = boundedText(value, 100, field);
-  if (!IDENTIFIER_PATTERN.test(parsed)) invalid(`${field} is invalid.`);
-  return parsed;
 }
 
 function boundedInteger(
@@ -172,15 +137,6 @@ function finiteScore(value: unknown): number {
   return value;
 }
 
-function isoTimestamp(value: unknown, field: string): string {
-  const text = boundedText(value, 40, field);
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString() !== text) {
-    invalid(`${field} must be an ISO timestamp.`);
-  }
-  return text;
-}
-
 function publicationDate(value: unknown): string | null {
   if (value === null) return null;
   const text = boundedText(value, 10, 'Publication date');
@@ -194,17 +150,11 @@ function publicationDate(value: unknown): string | null {
 }
 
 function httpsUrl(value: unknown, field: string): string {
-  const text = boundedText(value, 2_048, field);
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return invalid(`${field} must be an HTTPS URL.`);
-  }
-  if (url.protocol !== 'https:' || url.username || url.password) {
-    invalid(`${field} must be an HTTPS URL without credentials.`);
-  }
-  return url.href;
+  return validation.httpsUrl(value, {
+    field,
+    invalid: `${field} must be an HTTPS URL.`,
+    insecure: `${field} must be an HTTPS URL without credentials.`,
+  });
 }
 
 function nullableHttpsUrl(value: unknown, field: string): string | null {
@@ -434,7 +384,12 @@ function sourceUsePolicy(value: unknown): SourceUsePolicy {
   };
 }
 
-function sourceDescriptor(value: unknown): SourceDescriptor {
+interface ParsedSourceDescriptor {
+  descriptor: SourceDescriptor;
+  content: unknown;
+}
+
+function sourceDescriptor(value: unknown): ParsedSourceDescriptor {
   const input = strictRecord(value, [
     'sourceId',
     'kind',
@@ -455,13 +410,10 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
     invalid('Source kind is invalid.');
   }
   const sourceId = identifier(input.sourceId, 'Source id');
-  const originalLocation = strictRecord(input.originalLocation, [
-    'url',
-    'trust',
-  ]);
-  if (originalLocation.trust !== 'untrusted-public-url') {
-    invalid('Original source location trust is invalid.');
-  }
+  const originalLocation = untrustedLocation(
+    input.originalLocation,
+    'Original source URL',
+  );
   const providerIds = providerIdentities(input.providerIds);
   const openAlexIdentity = providerIds.find(
     (identity) => identity.provider === 'openalex',
@@ -479,30 +431,30 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
   const usePolicy = sourceUsePolicy(input.usePolicy);
   validateOpenAlexPermissionEvidence(providerIds, usePolicy);
   return {
-    sourceId,
-    kind: input.kind,
-    title: boundedText(input.title, 200, 'Source title'),
-    authorship: sourceAuthorship(input.authorship),
-    providerIds,
-    scholarlyIdentity: scholarlyIdentity(input.scholarlyIdentity),
-    originalLocation: {
-      url: httpsUrl(originalLocation.url, 'Original source URL'),
-      trust: originalLocation.trust,
-    },
-    acquisitionLocation,
-    publicationDate: publicationDate(input.publicationDate),
-    discoveredAt: isoTimestamp(input.discoveredAt, 'Discovery time'),
-    metadataSummary: nullableBoundedText(
-      input.metadataSummary,
-      4_000,
-      'Metadata summary',
-    ),
-    relationships: sourceRelationships(
-      input.relationships,
+    content: input.content,
+    descriptor: {
       sourceId,
-      input.kind,
-    ),
-    usePolicy,
+      kind: input.kind,
+      title: boundedText(input.title, 200, 'Source title'),
+      authorship: sourceAuthorship(input.authorship),
+      providerIds,
+      scholarlyIdentity: scholarlyIdentity(input.scholarlyIdentity),
+      originalLocation,
+      acquisitionLocation,
+      publicationDate: publicationDate(input.publicationDate),
+      discoveredAt: isoTimestamp(input.discoveredAt, 'Discovery time'),
+      metadataSummary: nullableBoundedText(
+        input.metadataSummary,
+        4_000,
+        'Metadata summary',
+      ),
+      relationships: sourceRelationships(
+        input.relationships,
+        sourceId,
+        input.kind,
+      ),
+      usePolicy,
+    },
   };
 }
 
@@ -537,13 +489,12 @@ function validateOpenAlexPermissionEvidence(
 }
 
 function metadataOnlySource(value: unknown): MetadataOnlySource {
-  const descriptor = sourceDescriptor(value);
-  const input = value as Record<string, unknown>;
-  const content = strictRecord(input.content, ['state']);
+  const parsed = sourceDescriptor(value);
+  const content = strictRecord(parsed.content, ['state']);
   if (content.state !== 'metadata-only') {
     invalid('Discovered source content state is invalid.');
   }
-  return { ...descriptor, content: { state: content.state } };
+  return { ...parsed.descriptor, content: { state: content.state } };
 }
 
 function sourceRevisionIdentity(value: unknown): SourceRevisionIdentity {
@@ -553,13 +504,11 @@ function sourceRevisionIdentity(value: unknown): SourceRevisionIdentity {
     'sha256',
     'canonicalizationVersion',
   ]);
-  if (typeof input.sha256 !== 'string' || !SHA256_PATTERN.test(input.sha256)) {
-    invalid('Source SHA-256 is invalid.');
-  }
+  const sha256 = validateSha256(input.sha256);
   return {
     sourceId: identifier(input.sourceId, 'Source id'),
     revisionId: identifier(input.revisionId, 'Source revision id'),
-    sha256: input.sha256,
+    sha256,
     canonicalizationVersion: identifier(
       input.canonicalizationVersion,
       'Canonicalization version',
@@ -709,13 +658,8 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
     SOURCING_LIMITS.canonicalTextCharacters,
     'Canonical source text',
   );
-  if (typeof input.sha256 !== 'string' || !SHA256_PATTERN.test(input.sha256)) {
-    invalid('Source SHA-256 is invalid.');
-  }
-  const actualSha256 = createHash('sha256')
-    .update(canonicalText, 'utf8')
-    .digest('hex');
-  if (actualSha256 !== input.sha256) {
+  const sha256 = validateSha256(input.sha256);
+  if (sha256Text(canonicalText) !== sha256) {
     invalid('Source SHA-256 does not match canonical text.');
   }
   if (!includesMember(SOURCE_FORMATS, input.format)) {
@@ -743,7 +687,7 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
     revisionId: identifier(input.revisionId, 'Source revision id'),
     title: boundedText(input.title, 200, 'Source title'),
     canonicalText,
-    sha256: input.sha256,
+    sha256,
     format: input.format,
     canonicalizationVersion: identifier(
       input.canonicalizationVersion,
@@ -768,30 +712,33 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
 }
 
 function acquiredSource(value: unknown): AcquiredSource {
-  const descriptor = sourceDescriptor(value);
-  const input = value as Record<string, unknown>;
-  const content = strictRecord(input.content, ['state', 'revision']);
+  const parsed = sourceDescriptor(value);
+  const content = strictRecord(parsed.content, ['state', 'revision']);
   if (content.state !== 'acquired') {
     invalid('Acquired source content state is invalid.');
   }
   const revision = acquiredRevision(content.revision);
-  const providerMatches = descriptor.providerIds.some(
+  const providerMatches = parsed.descriptor.providerIds.some(
     ({ provider, id }) =>
       provider === revision.provenance.providerIdentity.provider &&
       id === revision.provenance.providerIdentity.id,
   );
   if (
-    revision.sourceId !== descriptor.sourceId ||
-    descriptor.acquisitionLocation === null ||
+    revision.sourceId !== parsed.descriptor.sourceId ||
+    revision.title !== parsed.descriptor.title ||
+    parsed.descriptor.acquisitionLocation === null ||
     revision.provenance.acquiredFromUrl !==
-      descriptor.acquisitionLocation.url ||
-    revision.provenance.discoveredAt !== descriptor.discoveredAt ||
+      parsed.descriptor.acquisitionLocation.url ||
+    revision.provenance.discoveredAt !== parsed.descriptor.discoveredAt ||
     !providerMatches ||
-    descriptor.usePolicy.acquisition.status !== 'permitted'
+    parsed.descriptor.usePolicy.acquisition.status !== 'permitted'
   ) {
     invalid('Acquired source provenance does not match its descriptor.');
   }
-  return { ...descriptor, content: { state: content.state, revision } };
+  return {
+    ...parsed.descriptor,
+    content: { state: content.state, revision },
+  };
 }
 
 function passagePosition(value: unknown): PassageLocator['position'] {
@@ -1421,7 +1368,7 @@ function decodeRetrieveEvidenceResponse(
   return sourcingFailure(value);
 }
 
-export interface RetrieveEvidenceResponseContext {
+export interface RetrieveEvidenceResponseContext extends RetrievalIndexingAuthority {
   request: RetrieveEvidenceRequest;
   canonicalTextFor(sourceVersion: SourceRevisionIdentity): string | null;
 }
@@ -1455,12 +1402,14 @@ export function parseRetrieveEvidenceResponse(
       sourceRevisionMatches(source, evidence.sourceVersion),
     );
     const canonicalText = context.canonicalTextFor(evidence.sourceVersion);
-    const canonicalSha256 =
-      canonicalText === null
-        ? null
-        : createHash('sha256').update(canonicalText, 'utf8').digest('hex');
+    if (canonicalText === null) {
+      invalid('Canonical source text is unavailable for retrieved evidence.');
+    }
+    const indexing = context.indexingFor(evidence.sourceVersion);
+    const canonicalSha256 = sha256Text(canonicalText);
     if (
       requestedSource === undefined ||
+      indexing?.status !== 'permitted' ||
       evidence.provenance.query !== context.request.query ||
       evidence.provenance.intent !== context.request.intent ||
       evidence.provenance.rank > context.request.maxPassages ||
@@ -1470,10 +1419,7 @@ export function parseRetrieveEvidenceResponse(
         'Retrieval evidence does not match its request or source revision.',
       );
     }
-    validatePassageLocatorAgainstCanonicalText(
-      evidence.locator,
-      canonicalText!,
-    );
+    validatePassageLocatorAgainstCanonicalText(evidence.locator, canonicalText);
   }
   return response;
 }

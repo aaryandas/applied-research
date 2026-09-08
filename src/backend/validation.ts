@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Data } from 'effect';
 import {
   LEARNING_API_VERSION,
@@ -8,21 +7,16 @@ import type {
   LearnerContextItem,
   LearningOperation,
   LearningRequest,
-  SourceFormat,
   SourceProvenanceKind,
   SourceRevisionInput,
 } from '../contracts/learning-api.js';
 import { MAX_SOURCE_CHARACTERS } from './policy.js';
-import { isRemoteText } from './text.js';
-
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const SOURCE_FORMATS: readonly SourceFormat[] = [
-  'plain-text',
-  'markdown',
-  'html',
-  'pdf',
-];
+import {
+  createValidationPrimitives,
+  includesMember,
+  sha256Text,
+  SOURCE_FORMATS,
+} from './validation-primitives.js';
 const SOURCE_PROVENANCE: readonly SourceProvenanceKind[] = [
   'human-imported',
   'generated',
@@ -33,11 +27,6 @@ const CONTEXT_KINDS = [
   'human-question',
   'reported-result',
 ] as const;
-
-function includesMember<T>(values: readonly T[], value: unknown): value is T {
-  const candidates: readonly unknown[] = values;
-  return candidates.includes(value);
-}
 
 export class RequestValidationError extends Data.TaggedError(
   'RequestValidationError',
@@ -63,61 +52,25 @@ function unsupported(message: string, requestId: string | null): never {
   });
 }
 
-export function strictRecord(
-  value: unknown,
-  allowedKeys: readonly string[],
-  message = 'Expected an object.',
-): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    invalid(message);
-  }
-  const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !allowedKeys.includes(key))) {
-    invalid('The request contains an unsupported field.');
-  }
-  return record;
-}
-
-function boundedText(value: unknown, maximum: number, field: string): string {
-  if (
-    typeof value !== 'string' ||
-    !value.trim() ||
-    value.length > maximum ||
-    !isRemoteText(value)
-  ) {
-    invalid(`${field} is invalid.`);
-  }
-  return value;
-}
-
-function identifier(value: unknown, field: string): string {
-  const parsed = boundedText(value, 100, field);
-  if (!IDENTIFIER_PATTERN.test(parsed)) invalid(`${field} is invalid.`);
-  return parsed;
-}
+const validation = createValidationPrimitives({
+  invalid,
+  unsupportedFieldMessage: 'The request contains an unsupported field.',
+});
+const {
+  boundedText,
+  identifier,
+  isoTimestamp,
+  sha256: validateSha256,
+} = validation;
+export const strictRecord = validation.strictRecord;
 
 function nullableWebLocator(value: unknown): string | null {
   if (value === null) return null;
-  const text = boundedText(value, 2_048, 'Source locator');
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return invalid('Source locator must be an HTTPS URL or null.');
-  }
-  if (url.protocol !== 'https:' || url.username || url.password) {
-    invalid('Source locator must be an HTTPS URL without credentials.');
-  }
-  return url.href;
-}
-
-function isoTimestamp(value: unknown): string {
-  const text = boundedText(value, 40, 'Source acquisition time');
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString() !== text) {
-    invalid('Source acquisition time must be an ISO timestamp.');
-  }
-  return text;
+  return validation.httpsUrl(value, {
+    field: 'Source locator',
+    invalid: 'Source locator must be an HTTPS URL or null.',
+    insecure: 'Source locator must be an HTTPS URL without credentials.',
+  });
 }
 
 function sourceRevision(value: unknown): SourceRevisionInput {
@@ -132,9 +85,7 @@ function sourceRevision(value: unknown): SourceRevisionInput {
     'acquiredAt',
     'provenance',
   ]);
-  if (typeof input.sha256 !== 'string' || !SHA256_PATTERN.test(input.sha256)) {
-    invalid('Source SHA-256 is invalid.');
-  }
+  const sha256 = validateSha256(input.sha256);
   if (!includesMember(SOURCE_FORMATS, input.format)) {
     invalid('Source format is invalid.');
   }
@@ -147,10 +98,7 @@ function sourceRevision(value: unknown): SourceRevisionInput {
     MAX_SOURCE_CHARACTERS,
     'Canonical source text',
   );
-  const actualSha256 = createHash('sha256')
-    .update(canonicalText, 'utf8')
-    .digest('hex');
-  if (actualSha256 !== input.sha256) {
+  if (sha256Text(canonicalText) !== sha256) {
     invalid('Source SHA-256 does not match its canonical text.');
   }
   return {
@@ -158,13 +106,13 @@ function sourceRevision(value: unknown): SourceRevisionInput {
     revisionId: identifier(input.revisionId, 'Source revision id'),
     title: boundedText(input.title, 200, 'Source title'),
     canonicalText,
-    sha256: input.sha256,
+    sha256,
     format: input.format,
     canonicalizationVersion: identifier(
       input.canonicalizationVersion,
       'Canonicalization version',
     ),
-    acquiredAt: isoTimestamp(input.acquiredAt),
+    acquiredAt: isoTimestamp(input.acquiredAt, 'Source acquisition time'),
     provenance: {
       kind: provenance.kind,
       locator: nullableWebLocator(provenance.locator),
