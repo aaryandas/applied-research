@@ -13,14 +13,14 @@ import { createSceneRuntime, type SceneRuntime } from './runtime';
 
 extend({ AmbientLight, DirectionalLight });
 interface SceneContentsProps {
-  spec: ExplanationSpec;
-  reducedMotion: boolean;
-  runtimeRef: RefObject<SceneRuntime | null>;
-  onSelect: (part: PartId) => void;
-  onReady: () => void;
+  readonly spec: ExplanationSpec;
+  readonly reducedMotion: boolean;
+  readonly runtimeRef: RefObject<SceneRuntime | null>;
+  readonly onSelect: (part: PartId) => void;
+  readonly onReady: () => void;
 }
 interface SceneProps extends SceneContentsProps {
-  onLost: () => void;
+  readonly onLost: () => void;
 }
 function SceneContents(props: SceneContentsProps): ReactElement {
   const { scene, camera, gl, invalidate } = useThree();

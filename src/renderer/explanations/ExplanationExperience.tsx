@@ -36,12 +36,12 @@ const SceneCanvas = lazy(async () => ({
   default: (await import('./SceneCanvas')).SceneCanvas,
 }));
 interface ExperienceProps {
-  spec: ExplanationSpec;
-  active: boolean;
-  onChange: (spec: ExplanationSpec) => void;
-  onCapture: (capture: ExplanationCapture) => void;
+  readonly spec: ExplanationSpec;
+  readonly active: boolean;
+  readonly onChange: (spec: ExplanationSpec) => void;
+  readonly onCapture: (capture: ExplanationCapture) => void;
 }
-function ArmControls({ inputs }: { inputs: ArmInputs }): ReactElement {
+function ArmControls({ inputs }: { readonly inputs: ArmInputs }): ReactElement {
   const fieldId = useId();
   return (
     <div className="explanation-parameters">
@@ -167,13 +167,13 @@ function ValidExperience({
         className="explanation-viewport"
         data-state={running ? graphics : 'paused'}
       >
-        {!running && <p role="status">Scene paused while inactive.</p>}
+        {!running && <output>Scene paused while inactive.</output>}
         {running && graphics === 'unavailable' && (
           <div className="explanation-fallback">
-            <p role="status">
+            <output>
               3D view unavailable. WebGL may be disabled or its context was
               lost. Your parameters are unchanged.
-            </p>
+            </output>
             <button
               className="text-button"
               onClick={() => {
@@ -189,7 +189,7 @@ function ValidExperience({
           </div>
         )}
         {running && graphics !== 'unavailable' && (
-          <Suspense fallback={<p role="status">Loading 3D view…</p>}>
+          <Suspense fallback={<output>Loading 3D view…</output>}>
             <SceneCanvas
               key={attempt}
               spec={spec}
@@ -294,10 +294,10 @@ function ValidExperience({
             <br />Y = L₁ sin θ₁ + L₂ sin(θ₁ + θ₂)
           </p>
           {unfinishedInputs && (
-            <p role="status" className="explanation-help">
+            <output className="explanation-help">
               Finish or reset the edited values before capturing. The endpoint
               shows committed parameters.
-            </p>
+            </output>
           )}
         </>
       )}
@@ -314,13 +314,15 @@ function ValidExperience({
         Reader and Canvas attachment is not available yet.
       </p>
       {capture && (
-        <div className="explanation-capture" role="status">
+        <output className="explanation-capture">
           <strong>Captured · app-measured</strong>
-          <p>{describeCapture(capture)}</p>
+          <span className="explanation-capture-description">
+            {describeCapture(capture)}
+          </span>
           <span>
             Session only · {new Date(capture.capturedAt).toLocaleTimeString()}
           </span>
-        </div>
+        </output>
       )}
       <details className="explanation-provenance">
         <summary>Recipe and origin</summary>
@@ -359,7 +361,7 @@ export function ExplanationExperience(props: ExperienceProps): ReactElement {
 export function LocalExplanations({
   recipe,
 }: {
-  recipe: RecipeId | null;
+  readonly recipe: RecipeId | null;
 }): ReactElement | null {
   const [specs, setSpecs] = useState(() => ({
     'spatial-assembly': createExplanation('spatial-assembly'),

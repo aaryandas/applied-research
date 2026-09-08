@@ -48,7 +48,10 @@
   outline-offset: -4px;
   touch-action: none;
 }
-.explanation-viewport > p {
+.explanation-experience output {
+  display: block;
+}
+.explanation-viewport > output {
   padding: 24px;
 }
 .explanation-axis {
@@ -149,7 +152,8 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.explanation-capture p {
+.explanation-capture-description {
+  display: block;
   margin: 6px 0;
   font-variant-numeric: tabular-nums;
 }

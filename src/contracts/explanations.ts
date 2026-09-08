@@ -127,18 +127,22 @@ export function isExplanationSpec(value: unknown): value is ExplanationSpec {
     typeof value.caption === 'string' &&
     value.caption.length > 0 &&
     value.caption.length <= 400 &&
-    ![...value.caption].some(
-      (character) =>
-        character.charCodeAt(0) < 32 || character === '<' || character === '>',
-    );
+    ![...value.caption].some((character) => {
+      const point = character.codePointAt(0);
+      return (
+        point !== undefined &&
+        (point < 32 || character === '<' || character === '>')
+      );
+    });
   if (!validIdentity || !plainCaption || !isRecord(value.parameters))
     return false;
   const parameters = value.parameters;
   if (value.recipe === 'spatial-assembly') {
+    const allowedParts: readonly unknown[] = PART_IDS;
     return (
       exactKeys(parameters, ['separation', 'selectedPart']) &&
       isBounded(parameters.separation, 0, 1) &&
-      PART_IDS.some((part) => part === parameters.selectedPart)
+      allowedParts.includes(parameters.selectedPart)
     );
   }
   if (
