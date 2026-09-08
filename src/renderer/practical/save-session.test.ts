@@ -3,6 +3,7 @@ import type {
   PracticalCommitResult,
   RecordPracticalResultInput,
 } from '../../contracts/practical-work';
+import { MAX_PRACTICAL_FIELD_LENGTH } from './draft-limits';
 import { createPracticalSaveSession } from './save-session';
 
 const input: RecordPracticalResultInput = {
@@ -89,7 +90,7 @@ describe('practical save session', () => {
     );
   });
 
-  it.each(['failed', 'cancelled', 'conflict'] as const)(
+  it.each(['failed', 'cancelled'] as const)(
     'retains draft after %s and permits explicit retry',
     async (status) => {
       const commit = vi
@@ -171,4 +172,91 @@ describe('practical save session', () => {
     expect((await saving).status).toBe('ready');
     expect(commit).toHaveBeenCalledTimes(1);
   });
+});
+
+it('latches conflicts across edits and refuses shell flush retries until reconciliation', async () => {
+  const commit = vi.fn(async (): Promise<PracticalCommitResult> => ({
+    status: 'conflict',
+  }));
+  const onChange = vi.fn();
+  const session = createPracticalSaveSession({ input, commit, onChange });
+  session.update({ prediction: 'Keep this wording' });
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'conflict',
+  });
+  session.update({ attempt: 'Still editable' });
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'conflict',
+  });
+  expect(commit).toHaveBeenCalledTimes(1);
+  expect(onChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      status: 'conflict',
+      draft: expect.objectContaining({
+        prediction: 'Keep this wording',
+        attempt: 'Still editable',
+      }),
+    }),
+  );
+});
+
+it('preserves over-limit text and blocks direct flush until the user shortens it', async () => {
+  const commit = vi.fn(async () => committed(1));
+  const onChange = vi.fn();
+  const session = createPracticalSaveSession({ input, commit, onChange });
+  const longText = 'x'.repeat(MAX_PRACTICAL_FIELD_LENGTH + 1);
+  session.update({ prediction: longText });
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'failed',
+  });
+  expect(commit).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({ prediction: longText }),
+      status: 'too-long',
+    }),
+  );
+  session.update({ prediction: longText.slice(1) });
+  expect((await session.flush()).status).toBe('ready');
+  expect(commit).toHaveBeenCalledTimes(1);
+});
+
+it('blocks loading/missing references, then saves only after their metadata is ready', async () => {
+  const commit = vi.fn(async () => committed(1));
+  const session = createPracticalSaveSession({
+    input,
+    commit,
+    onChange: vi.fn(),
+    evidence: { status: 'loading', items: [] },
+  });
+  session.update({
+    selectedEvidence: { kind: 'user-selected-file', selectionId: 'file' },
+  });
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'unavailable',
+  });
+  const file = {
+    kind: 'user-selected-file' as const,
+    selectionId: 'file',
+    displayName: 'test.txt',
+    mediaType: 'text/plain',
+    byteLength: 10,
+  };
+  session.addEvidence(file);
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'unavailable',
+  });
+  session.setEvidence({ status: 'ready', items: [] });
+  expect(await session.flush()).toEqual({
+    status: 'blocked',
+    reason: 'unavailable',
+  });
+  session.setEvidence({ status: 'ready', items: [file] });
+  expect((await session.flush()).status).toBe('ready');
+  expect(commit).toHaveBeenCalledTimes(1);
 });
