@@ -72,9 +72,15 @@ export function createAuthenticationService(
         const isElectronSocialSignIn =
           context.path === '/sign-in/social' &&
           context.query?.client_id === 'electron';
-        if (isElectronSocialSignIn && context.body) {
-          context.body.callbackURL = ELECTRON_AUTH_CALLBACK_URL;
-        }
+        if (!isElectronSocialSignIn || !context.body) return;
+        return {
+          context: {
+            body: {
+              ...context.body,
+              callbackURL: ELECTRON_AUTH_CALLBACK_URL,
+            },
+          },
+        };
       }),
     },
     plugins: [

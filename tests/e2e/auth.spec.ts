@@ -338,6 +338,9 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
     const secondCallback = callbackFor(secondOpened);
     expect(await emitCallback(application, secondCallback)).toBe(true);
     await expect
+      .poll(() => oauthStateCount(application), { timeout: 10_000 })
+      .toBe(0);
+    await expect
       .poll(() => requestCount(application, '/api/auth/electron/token'), {
         timeout: 10_000,
       })
