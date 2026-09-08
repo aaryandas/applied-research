@@ -8,6 +8,7 @@ export interface ProcessRequest {
   maxOutputBytes?: number;
 }
 export interface ProcessResult {
+  launch: 'not-started' | 'started' | 'unknown';
   status: 'exited' | 'cancelled' | 'timeout' | 'output-limit' | 'unavailable';
   code: number | null;
   stdout: string;
@@ -20,6 +21,7 @@ export const runProcess: ProcessRunner = (request) => {
   if (request.signal.aborted)
     return Promise.resolve({
       status: 'cancelled',
+      launch: 'not-started',
       code: null,
       stdout: '',
       stderr: '',
@@ -37,6 +39,10 @@ export const runProcess: ProcessRunner = (request) => {
       },
     });
     let status: ProcessResult['status'] = 'exited';
+    let launch: ProcessResult['launch'] = 'not-started';
+    child.once('spawn', () => {
+      launch = 'started';
+    });
     let stdout: Buffer = Buffer.alloc(0);
     let stderr: Buffer = Buffer.alloc(0);
     const limit = request.maxOutputBytes ?? 32_768;
@@ -66,8 +72,16 @@ export const runProcess: ProcessRunner = (request) => {
     child.stderr.on('data', (chunk: Buffer) => {
       stderr = append(stderr, chunk);
     });
-    child.once('error', () => {
+    child.once('error', (error: NodeJS.ErrnoException) => {
       status = 'unavailable';
+      // Node error codes are trusted infrastructure data; never retain error.message/argv.
+      const diagnostic =
+        error.code === 'ENOENT'
+          ? 'Executable not found'
+          : error.code === 'EACCES'
+            ? 'permission denied'
+            : 'Process launch failed';
+      stderr = Buffer.from(diagnostic);
     });
     const abort = (): void => stop('cancelled');
     request.signal.addEventListener('abort', abort, { once: true });
@@ -76,6 +90,7 @@ export const runProcess: ProcessRunner = (request) => {
       clearTimeout(timer);
       request.signal.removeEventListener('abort', abort);
       resolve({
+        launch,
         status,
         code,
         stdout: stdout.toString('utf8'),
@@ -92,7 +107,15 @@ export function safeDiagnostics(result: ProcessResult): {
   stderr: string;
 } {
   const summarize = (output: string): string => {
+    // Docker 29 uses a different connection-error sentence; normalize to one safe marker.
+    const normalized = output.replace(
+      /failed to connect to the docker API/gi,
+      'Cannot connect to the Docker daemon',
+    );
     const messages = [
+      'Executable not found',
+      'Process launch failed',
+      'Process runner failed',
       'AR_RENDER_COMPLETE',
       'AR_RENDER_FAILED',
       'permission denied',
@@ -100,7 +123,7 @@ export function safeDiagnostics(result: ProcessResult): {
       'No such image',
     ];
     return (
-      messages.filter((message) => output.includes(message)).join('\n') ||
+      messages.filter((message) => normalized.includes(message)).join('\n') ||
       (output.length > 0 ? 'Third-party output withheld.' : '')
     );
   };

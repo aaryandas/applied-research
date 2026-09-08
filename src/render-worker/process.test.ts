@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { runProcess, safeDiagnostics } from './process.js';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('bounded real child process execution', () => {
   it('uses argv without shell evaluation, drops provider environment, bounds safe diagnostics', async () => {
@@ -16,6 +19,7 @@ describe('bounded real child process execution', () => {
     });
     delete process.env.AR_TEST_PROVIDER_SECRET;
     expect(result.status).toBe('exited');
+    expect(result.launch).toBe('started');
     expect(result.stdout.trim()).toBe('$(touch /tmp/no-ar-execution)');
     expect(result.stderr.trim()).toBe('absent');
     expect(safeDiagnostics(result)).toEqual({
@@ -115,4 +119,39 @@ it('terminates a real grandchild in the same process group', async () => {
       }
     })
     .toBe('gone');
+});
+
+it('normalizes Docker connection diagnostics without retaining paths or source labels', () => {
+  expect(
+    safeDiagnostics({
+      launch: 'started',
+      status: 'exited',
+      code: 1,
+      stdout: '',
+      stderr:
+        'failed to connect to the docker API at unix:///private/source-label.sock; check if the daemon is running',
+    }),
+  ).toEqual({ stdout: '', stderr: 'Cannot connect to the Docker daemon' });
+});
+
+it('classifies an existing non-executable file without echoing its path', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ar-process-access-'));
+  const command = join(directory, 'private-label');
+  try {
+    await writeFile(command, '#!/bin/sh\nexit 0\n', { mode: 0o600 });
+    const result = await runProcess({
+      command,
+      args: [],
+      signal: new AbortController().signal,
+      timeoutMs: 1000,
+    });
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      launch: 'not-started',
+      stderr: 'permission denied',
+    });
+    expect(result.stderr).not.toContain(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -1,5 +1,6 @@
 import { readdir, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { safeDiagnostics } from './process.js';
 import type { ProcessResult, ProcessRunner } from './process.js';
 
 export const MANIM_IMAGE =
@@ -61,7 +62,13 @@ export function renderArguments(job: DockerJob, context: string): string[] {
     '/recipes/render.py',
   ];
 }
-export class ContainerCleanupError extends Error {}
+export class ContainerCleanupError extends Error {
+  readonly diagnostics: { stdout: string; stderr: string };
+  constructor(result: ProcessResult) {
+    super('Container cleanup could not be verified.');
+    this.diagnostics = safeDiagnostics(result);
+  }
+}
 async function directoryBytes(directory: string): Promise<number> {
   let bytes = 0;
   for (const item of await readdir(directory, { withFileTypes: true })) {
@@ -125,11 +132,20 @@ export async function renderContainer(
       timeoutMs: job.timeoutMs,
     });
   } catch {
-    result = { status: 'unavailable', code: null, stdout: '', stderr: '' };
+    result = {
+      launch: 'unknown',
+      status: 'unavailable',
+      code: null,
+      stdout: '',
+      stderr: 'Process runner failed',
+    };
   } finally {
     clearInterval(monitor);
     job.signal.removeEventListener('abort', cancel);
   }
+  // Only explicit spawn evidence proves no container could have been created.
+  // A daemon connection error after an attempted launch is not such evidence.
+  if (result.launch === 'not-started') return result;
   // Killing docker's process group alone does not stop its daemon-owned container.
   const cleanup = await runtime
     .run({
@@ -139,16 +155,17 @@ export async function renderContainer(
       timeoutMs: 10_000,
     })
     .catch((): ProcessResult => ({
+      launch: 'unknown',
       status: 'unavailable',
       code: null,
       stdout: '',
-      stderr: '',
+      stderr: 'Process runner failed',
     }));
   if (
     cleanup.status !== 'exited' ||
     (cleanup.code !== 0 && !cleanup.stderr.includes('No such container'))
   ) {
-    throw new ContainerCleanupError('Container cleanup could not be verified.');
+    throw new ContainerCleanupError(cleanup);
   }
   return outputExceeded ? { ...result, status: 'output-limit' } : result;
 }

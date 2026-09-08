@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { cpus, platform, release, arch } from 'node:os';
@@ -80,7 +81,30 @@ const cases = [
 ];
 await mkdir(join(evidence, 'renders'), { recursive: true });
 const worker = await AnimationRenderWorker.create();
+const compiledFiles = [
+  'render-worker/worker.js',
+  'render-worker/docker.js',
+  'render-worker/process.js',
+  'render-worker/media.js',
+  'render-worker/recipe-math.js',
+  'render-worker/fixtures.js',
+  'contracts/animation-recipes.js',
+  'render-worker/presets/render.py',
+  'render-worker/presets/scenes.py',
+  'render-worker/presets/validation.py',
+];
+const sourceHashes = Object.fromEntries(
+  await Promise.all(
+    compiledFiles.map(async (path) => [
+      path,
+      createHash('sha256')
+        .update(await readFile(join(evidence, 'compiled', path)))
+        .digest('hex'),
+    ]),
+  ),
+);
 const receipt = {
+  sourceHashes,
   machine: {
     cpu: cpus()[0]?.model,
     platform: platform(),

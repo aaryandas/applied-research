@@ -14,6 +14,7 @@ export const VIDEO_METADATA = {
   format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '10.000' },
 };
 export const OK_PROCESS: ProcessResult = {
+  launch: 'started',
   status: 'exited',
   code: 0,
   stdout: '',

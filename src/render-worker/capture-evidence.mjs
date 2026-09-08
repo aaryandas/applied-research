@@ -22,7 +22,7 @@ for (const name of [
 ]) {
   const times = name.startsWith('linear')
     ? [0.5, 2.5, 3.5, 5.5, 7.5, 9.5]
-    : [0.5, 2.5, 4.5, 5.5, 7.5, 9.5];
+    : [0.5, 2.5, 4.5, 6.0, 7.5, 9.5];
   const frames = [];
   for (const [index, time] of times.entries()) {
     const frame = join(captures, `${name}-${index}-${time}s.png`);

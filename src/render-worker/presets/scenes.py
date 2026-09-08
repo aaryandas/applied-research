@@ -2,7 +2,7 @@
 import math
 import numpy as np
 from manim import (Scene, Text, VGroup, Line, Arrow, Dot, Polygon, Rectangle,
-                   NumberPlane, UpdateFromAlphaFunc, Transform, linear, LEFT)
+                   NumberPlane, UpdateFromAlphaFunc, linear, LEFT)
 
 INK = '#eceae4'
 MUTED = '#a9b1b8'
@@ -33,7 +33,8 @@ def coords(vector):
 def arrow(start, end, color):
     if np.linalg.norm(end - start) < 1e-7:
         return Dot(end, radius=0.055, color=color)
-    return Arrow(start, end, buff=0, color=color, stroke_width=4, max_tip_length_to_length_ratio=0.18)
+    # Preserve visible color in short moving arrows; length still bounds the stroke.
+    return Arrow(start, end, buff=0, color=color, stroke_width=5, max_stroke_width_to_length_ratio=12, max_tip_length_to_length_ratio=0.18)
 
 
 class RecipeScene(Scene):
@@ -107,8 +108,8 @@ class RecipeScene(Scene):
         self.remove(basis)
         self.add(text(f'Basis x -> {coords(matrix[:, 0])}', 0.1, -0.57, 21, COOL), text(f'Basis y -> {coords(matrix[:, 1])}', 0.1, -1.05, 21, GREEN))
         self.add(text(f'A v = {coords(result)}', 0.1, -1.77, 29, WARM))
-        self.add(text(f'x: {number(a)} x {number(vector[0])} + {number(b)} x {number(vector[1])}', 0.1, -2.38, 19, MUTED),
-                 text(f'y: {number(c)} x {number(vector[0])} + {number(d)} x {number(vector[1])}', 0.1, -2.78, 19, MUTED))
+        self.add(text(f'x: {number(a)} × {number(vector[0])} + {number(b)} × {number(vector[1])}', 0.1, -2.38, 19, MUTED),
+                 text(f'y: {number(c)} × {number(vector[0])} + {number(d)} × {number(vector[1])}', 0.1, -2.78, 19, MUTED))
         self.wait(5)
 
     def weighted_combination(self):
@@ -139,7 +140,10 @@ class RecipeScene(Scene):
             arrow(origin, plane.c2p(*((1 - alpha + alpha * second) * b)), GREEN)))), run_time=2, rate_func=linear)
         self.wait(1)
         self.stage_label('3 / Combine the vectors  -  place the scaled arrows head to tail')
-        self.play(Transform(inputs[1], arrow(plane.c2p(*(first * a)), plane.c2p(*result), GREEN)), run_time=2, rate_func=linear)
+        shifted = first * a
+        self.play(UpdateFromAlphaFunc(inputs, lambda mob, alpha: mob.become(VGroup(
+            arrow(origin, plane.c2p(*shifted), COOL),
+            arrow(plane.c2p(*(alpha * shifted)), plane.c2p(*(alpha * shifted + second * b)), GREEN)))), run_time=2, rate_func=linear)
         self.add(arrow(origin, plane.c2p(*result), WARM))
         self.wait(1)
         self.stage_label('4 / Read the result  -  the weighted vector joins origin to endpoint')

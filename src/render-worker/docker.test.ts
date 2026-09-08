@@ -89,3 +89,24 @@ it('reports failed cleanup as a distinct error', async () => {
     }),
   ).rejects.toThrow('cleanup');
 });
+
+it('skips removal only with explicit not-started evidence, even if cleanup would fail', async () => {
+  const request = await job();
+  const run = vi.fn(async (): Promise<ProcessResult> => ({
+    ...OK_PROCESS,
+    launch: 'not-started',
+    status: 'unavailable',
+    code: null,
+    stderr: 'Executable not found',
+  }));
+  const result = await renderContainer(request, {
+    command: 'docker',
+    context: 'orbstack',
+    run,
+  });
+  expect(result).toMatchObject({
+    status: 'unavailable',
+    launch: 'not-started',
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+});

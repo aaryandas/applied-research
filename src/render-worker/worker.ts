@@ -164,11 +164,11 @@ export class AnimationRenderWorker {
         reason: 'cleanup',
         diagnostics: EMPTY_DIAGNOSTICS,
       }))
-      .then(job.resolve)
-      .finally(() => {
+      .then((outcome) => {
         job.detach();
         this.active = undefined;
         this.pump();
+        job.resolve(outcome);
       });
   }
   private async execute(job: QueuedJob): Promise<RenderOutcome> {
@@ -249,7 +249,7 @@ export class AnimationRenderWorker {
         outcome = {
           status: 'failed',
           reason: 'cleanup',
-          diagnostics: EMPTY_DIAGNOSTICS,
+          diagnostics: error.diagnostics,
         };
       } else {
         outcome = job.controller.signal.aborted

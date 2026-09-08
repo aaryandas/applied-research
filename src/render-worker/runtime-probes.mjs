@@ -52,7 +52,33 @@ try {
   });
   receipt.unavailable = await broken.render(JSON.stringify(LINEAR_EXAMPLE));
   assert.equal(receipt.unavailable.status, 'failed');
+  assert.equal(receipt.unavailable.reason, 'runtime');
+  assert.equal(receipt.unavailable.diagnostics.stderr, 'Executable not found');
   await broken.close();
+  // A real Docker CLI pointed at a nonexistent private socket, without changing any context/daemon.
+  const offlineSocket = `unix://${root}/absent.sock`;
+  const disconnected = await AnimationRenderWorker.create({
+    temporaryRoot: root,
+    run: (request) =>
+      runProcess(
+        request.command === 'docker'
+          ? {
+              ...request,
+              args: ['--host', offlineSocket, ...request.args.slice(2)],
+            }
+          : request,
+      ),
+  });
+  receipt.daemonUncertain = await disconnected.render(
+    JSON.stringify(LINEAR_EXAMPLE),
+  );
+  assert.equal(receipt.daemonUncertain.status, 'failed');
+  assert.equal(receipt.daemonUncertain.reason, 'cleanup');
+  assert.match(
+    receipt.daemonUncertain.diagnostics.stderr,
+    /Cannot connect to the Docker daemon/,
+  );
+  await disconnected.close();
   assert.deepEqual(await readdir(root), []);
   const damaged = await mkdtemp(join(root, 'damaged-'));
   const path = join(damaged, 'artifact.mp4');

@@ -19,3 +19,5 @@ Specific official APIs checked for the installed 0.21 release:
 - [ManimConfig](https://docs.manim.community/en/stable/reference/manim._config.utils.ManimConfig.html) and [v0.21.0 defaults](https://github.com/ManimCommunity/manim/blob/v0.21.0/manim/_config/default.cfg): fixed Cairo renderer, resolution, frame rate, output format, cache and media paths.
 
 The actual pinned image was executed and reported Manim `0.21.0`, Python `3.14.7`, `aarch64`, UID `501` on this machine. This evidence verifies the approved runtime without installing a new rendering framework or silently changing foundations.
+
+The repair also checks the [0.21.0 Arrow stroke-width limiter](https://github.com/ManimCommunity/manim/blob/v0.21.0/manim/mobject/geometry/line.py). Short-arrow stroke width is bounded by both the requested width and the configured length ratio. The presets retain their palette and use a capped stroke verified against decoded moving-video pixels.

@@ -164,6 +164,7 @@ describe('bounded render queue', () => {
         async (request: ProcessRequest): Promise<ProcessResult> =>
           request.args.includes('run')
             ? {
+                launch: status === 'unavailable' ? 'not-started' : 'started',
                 status,
                 code: 1,
                 stdout: 'private source label',
@@ -253,4 +254,45 @@ it('requires non-root execution for the constrained mount ownership', async () =
   } finally {
     uid.mockRestore();
   }
+});
+
+it('admits the eighth retained result immediately after awaiting the seventh', async () => {
+  const worker = await create(successfulRuntime);
+  for (let index = 0; index < 8; index++) {
+    expect((await worker.render(json)).status).toBe('succeeded');
+  }
+  expect(await worker.render(json)).toMatchObject({
+    status: 'failed',
+    reason: 'capacity',
+  });
+});
+
+it('reports a real missing executable as runtime without attempting container removal', async () => {
+  const { runProcess } = await import('./process.js');
+  const run = vi.fn((request: ProcessRequest) =>
+    runProcess({ ...request, command: '/no/ar/docker' }),
+  );
+  const worker = await create(run);
+  expect(await worker.render(json)).toEqual({
+    status: 'failed',
+    reason: 'runtime',
+    diagnostics: { stdout: '', stderr: 'Executable not found' },
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+});
+
+it('preserves safe diagnostics for uncertain cleanup even when both commands report a disconnected daemon', async () => {
+  const run = vi.fn(async (): Promise<ProcessResult> => ({
+    ...OK_PROCESS,
+    code: 1,
+    stderr:
+      'Cannot connect to the Docker daemon at a private path\nprivate source label',
+  }));
+  const worker = await create(run);
+  expect(await worker.render(json)).toEqual({
+    status: 'failed',
+    reason: 'cleanup',
+    diagnostics: { stdout: '', stderr: 'Cannot connect to the Docker daemon' },
+  });
+  expect(run.mock.calls).toHaveLength(2);
 });
