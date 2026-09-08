@@ -7,6 +7,7 @@ import type {
   PassageLocator,
   RetrieveEvidenceResponse,
 } from '../../contracts/sourcing.js';
+import { SOURCING_PUBLIC_MESSAGES } from '../../contracts/sourcing.js';
 import {
   parseAcquireCanonicalSourceRequest,
   parseAcquireCanonicalSourceResponse as parseAcquisitionResponseValue,
@@ -19,7 +20,7 @@ import {
 } from './contract-validation.js';
 
 const requestId = 'request-01';
-const sourceId = 'source-001';
+const sourceId = 'openalex-W2741809807';
 const revisionId = 'revision-001';
 const canonicalText = 'Alpha 😀 evidence from the canonical paper.';
 const sha256 = createHash('sha256').update(canonicalText).digest('hex');
@@ -29,13 +30,14 @@ const paperCandidate: MetadataOnlySource = {
   kind: 'paper',
   title: 'A Primary Research Paper',
   authorship: { kind: 'authored', creators: ['Ada Researcher'] },
-  providerIds: [
-    { provider: 'openalex', id: 'W2741809807' },
-    { provider: 'semantic-scholar', id: 'CorpusId:123456' },
-  ],
+  providerIds: [{ provider: 'openalex', id: 'W2741809807' }],
   scholarlyIdentity: { doi: '10.1234/example.2026.1', arxivId: '2609.01234v1' },
   originalLocation: {
     url: 'https://example.edu/papers/primary',
+    trust: 'untrusted-public-url',
+  },
+  acquisitionLocation: {
+    url: 'https://example.edu/papers/primary.pdf',
     trust: 'untrusted-public-url',
   },
   publicationDate: '2026-09-01',
@@ -62,7 +64,7 @@ const paperCandidate: MetadataOnlySource = {
     acquisition: {
       status: 'permitted',
       basis: 'license',
-      evidenceUrl: 'https://example.edu/papers/primary/license',
+      evidenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
     },
     indexing: {
       status: 'unknown',
@@ -97,11 +99,6 @@ const sourceVersion = {
 
 const retrievalSourceVersion = {
   ...sourceVersion,
-  indexing: {
-    status: 'permitted',
-    basis: 'license',
-    evidenceUrl: 'https://example.edu/papers/primary/license',
-  },
 } as const;
 
 const retrievalRequest = {
@@ -149,7 +146,7 @@ const discoveryPartial: DiscoverSourcesResponse = {
   candidates: [paperCandidate],
   issues: [
     {
-      provider: 'semantic-scholar',
+      provider: 'openalex',
       reason: 'rate-limited',
       retryAfterMilliseconds: 2_000,
     },
@@ -174,9 +171,14 @@ const acquisitionSuccess: AcquireCanonicalSourceResponse = {
         acquiredAt: '2026-09-08T15:01:00.000Z',
         provenance: {
           kind: 'discovered',
-          locator: paperCandidate.originalLocation.url,
+          acquiredFromUrl: 'https://example.edu/papers/primary.pdf',
           providerIdentity: paperCandidate.providerIds[0]!,
           discoveredAt: paperCandidate.discoveredAt,
+        },
+        extraction: {
+          method: 'publisher-text-v1',
+          coverage: 'complete',
+          note: null,
         },
       },
     },
@@ -217,34 +219,39 @@ const failureFixtures = [
   {
     outcome: 'invalid-request',
     requestId: null,
-    message: 'The sourcing request is invalid.',
+    message: SOURCING_PUBLIC_MESSAGES.invalidRequest,
   },
   {
     outcome: 'unauthenticated',
     requestId: null,
-    message: 'Authentication is required.',
+    message: SOURCING_PUBLIC_MESSAGES.unauthenticated,
   },
   {
     outcome: 'cancelled',
     requestId,
-    message: 'The sourcing request was cancelled.',
+    message: SOURCING_PUBLIC_MESSAGES.cancelled,
   },
   {
     outcome: 'timed-out',
     requestId,
-    message: 'The sourcing request timed out.',
+    message: SOURCING_PUBLIC_MESSAGES.timedOut,
     retryable: true,
   },
   {
     outcome: 'rate-limited',
     requestId,
-    message: 'The source provider rate limit was reached.',
+    message: SOURCING_PUBLIC_MESSAGES.rateLimited,
     retryAfterMilliseconds: 2_000,
+  },
+  {
+    outcome: 'budget-exhausted',
+    requestId,
+    message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
   },
   {
     outcome: 'unavailable',
     requestId: null,
-    message: 'The sourcing operation is unavailable.',
+    message: SOURCING_PUBLIC_MESSAGES.unavailable,
     retryable: true,
   },
 ] as const;
@@ -273,6 +280,13 @@ describe('sourcing request validation', () => {
       ...acquisitionRequest,
       providerIdentity: { provider: 'unreviewed-provider', id: 'external-001' },
     },
+    {
+      ...acquisitionRequest,
+      providerIdentity: {
+        provider: 'openalex',
+        id: 'https://openalex.org/W2741809807',
+      },
+    },
     { ...retrievalRequest, sourceRevisions: [] },
     { ...retrievalRequest, maxPassages: 0 },
     {
@@ -292,7 +306,7 @@ describe('sourcing request validation', () => {
     },
   );
 
-  it('requires explicit indexing permission for every retrieval source', () => {
+  it('rejects caller-supplied indexing authority on retrieval sources', () => {
     expect(() =>
       parseRetrieveEvidenceRequest({
         ...retrievalRequest,
@@ -379,6 +393,7 @@ describe('sourcing response validation', () => {
         { provider: 'mit-open-courseware', id: '6.006-lecture-01' },
       ],
       scholarlyIdentity: { doi: null, arxivId: null },
+      acquisitionLocation: null,
       publicationDate: null,
       metadataSummary: null,
       relationships: [
@@ -421,6 +436,24 @@ describe('sourcing response validation', () => {
     );
   });
 
+  it('retains distinct landing and acquisition locations with extraction coverage', () => {
+    if (acquisitionSuccess.outcome !== 'success') {
+      throw new Error('Expected the acquisition success fixture.');
+    }
+    const source = acquisitionSuccess.source;
+    expect(source.originalLocation.url).toBe(
+      'https://example.edu/papers/primary',
+    );
+    expect(source.content.revision.provenance.acquiredFromUrl).toBe(
+      'https://example.edu/papers/primary.pdf',
+    );
+    expect(source.content.revision.extraction).toEqual({
+      method: 'publisher-text-v1',
+      coverage: 'complete',
+      note: null,
+    });
+  });
+
   it('binds acquisition responses to the requested source and provider', () => {
     const request = parseAcquireCanonicalSourceRequest(acquisitionRequest);
     expect(() =>
@@ -433,8 +466,8 @@ describe('sourcing response validation', () => {
       parseAcquisitionResponseValue(acquisitionSuccess, {
         ...request,
         providerIdentity: {
-          provider: 'semantic-scholar',
-          id: 'CorpusId:123456',
+          provider: 'curated-catalog',
+          id: 'different-provider-record',
         },
       }),
     ).toThrow(SourcingContractValidationError);
@@ -562,12 +595,12 @@ describe('sourcing response validation', () => {
     const noEvidence: RetrieveEvidenceResponse = {
       outcome: 'no-evidence',
       requestId,
-      message: 'No exact source passage supports this query.',
+      message: SOURCING_PUBLIC_MESSAGES.noEvidence,
     };
     const notPermitted: AcquireCanonicalSourceResponse = {
       outcome: 'not-permitted',
       requestId,
-      message: 'Acquisition has not been authorized.',
+      message: SOURCING_PUBLIC_MESSAGES.notPermitted,
       decision: 'unknown',
     };
     expect(parseRetrieveEvidenceResponse(noEvidence)).toEqual(noEvidence);
@@ -576,7 +609,21 @@ describe('sourcing response validation', () => {
     );
   });
 
+  it.each(['https://api.openalex.org/works?api_key=SECRET', 'x'.repeat(501)])(
+    'rejects non-catalogue public message %#',
+    (message) => {
+      expect(() =>
+        parseDiscoverSourcesResponse({
+          outcome: 'invalid-request',
+          requestId,
+          message,
+        }),
+      ).toThrow(SourcingContractValidationError);
+    },
+  );
+
   it.each([
+    { ...paperCandidate, sourceId: 'source-001' },
     {
       ...discoverySuccess,
       candidates: [
@@ -756,6 +803,7 @@ describe('sourcing response validation', () => {
       scholarlyIdentity: { doi: null, arxivId: 'not-arxiv' },
     },
     { ...paperCandidate, publicationDate: '2026-02-30' },
+    { ...paperCandidate, publicationDate: '2026' },
     {
       ...paperCandidate,
       originalLocation: {
@@ -777,6 +825,17 @@ describe('sourcing response validation', () => {
       usePolicy: {
         ...paperCandidate.usePolicy,
         access: 'free-means-permitted',
+      },
+    },
+    {
+      ...paperCandidate,
+      usePolicy: {
+        ...paperCandidate.usePolicy,
+        acquisition: {
+          status: 'permitted',
+          basis: 'license',
+          evidenceUrl: 'https://example.edu/papers/primary.pdf',
+        },
       },
     },
     {

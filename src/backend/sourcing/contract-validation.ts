@@ -5,6 +5,7 @@ import {
   SOURCE_RETRIEVAL_PROVIDERS,
   SOURCING_API_VERSION,
   SOURCING_LIMITS,
+  SOURCING_PUBLIC_MESSAGES,
 } from '../../contracts/sourcing.js';
 import type {
   AcquireCanonicalSourceRequest,
@@ -14,6 +15,7 @@ import type {
   DiscoverSourcesRequest,
   DiscoverSourcesResponse,
   MetadataOnlySource,
+  OpenAlexWorkId,
   PassageLocator,
   PermissionDecision,
   ProviderIdentity,
@@ -21,7 +23,6 @@ import type {
   RetrieveEvidenceRequest,
   RetrieveEvidenceResponse,
   RetrievalEvidence,
-  RetrievalSourceRevision,
   ScholarlyIdentity,
   SourceAuthorship,
   SourceDescriptor,
@@ -43,6 +44,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const DOI_PATTERN = /^10\.\d{4,9}\/[^\s]+$/;
 const ARXIV_PATTERN =
   /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/i;
+const OPENALEX_WORK_ID_PATTERN = /^W\d+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SOURCE_FORMATS: readonly SourceFormat[] = [
   'plain-text',
@@ -62,6 +64,7 @@ const SOURCE_QUALITY = ['high', 'medium', 'low', 'unknown'] as const;
 const PROVIDER_ISSUE_REASONS = [
   'timed-out',
   'rate-limited',
+  'budget-exhausted',
   'unavailable',
 ] as const;
 const PERMISSION_BASES = [
@@ -213,10 +216,16 @@ function providerIdentity(value: unknown): ProviderIdentity {
   if (!includesMember(SOURCE_DISCOVERY_PROVIDERS, input.provider)) {
     invalid('Source discovery provider is invalid.');
   }
-  return {
-    provider: input.provider,
-    id: boundedText(input.id, 512, 'Provider source id'),
-  };
+  const id = boundedText(input.id, 512, 'Provider source id');
+  if (input.provider === 'openalex') {
+    if (!isOpenAlexWorkId(id)) invalid('OpenAlex work id is invalid.');
+    return { provider: input.provider, id };
+  }
+  return { provider: input.provider, id };
+}
+
+function isOpenAlexWorkId(value: string): value is OpenAlexWorkId {
+  return OPENALEX_WORK_ID_PATTERN.test(value);
 }
 
 function providerIdentities(
@@ -434,6 +443,7 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
     'providerIds',
     'scholarlyIdentity',
     'originalLocation',
+    'acquisitionLocation',
     'publicationDate',
     'discoveredAt',
     'metadataSummary',
@@ -452,17 +462,34 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
   if (originalLocation.trust !== 'untrusted-public-url') {
     invalid('Original source location trust is invalid.');
   }
+  const providerIds = providerIdentities(input.providerIds);
+  const openAlexIdentity = providerIds.find(
+    (identity) => identity.provider === 'openalex',
+  );
+  if (
+    openAlexIdentity !== undefined &&
+    sourceId !== `openalex-${openAlexIdentity.id}`
+  ) {
+    invalid('OpenAlex source id is not deterministic from its work id.');
+  }
+  const acquisitionLocation =
+    input.acquisitionLocation === null
+      ? null
+      : untrustedLocation(input.acquisitionLocation, 'Acquisition source URL');
+  const usePolicy = sourceUsePolicy(input.usePolicy);
+  validateOpenAlexPermissionEvidence(providerIds, usePolicy);
   return {
     sourceId,
     kind: input.kind,
     title: boundedText(input.title, 200, 'Source title'),
     authorship: sourceAuthorship(input.authorship),
-    providerIds: providerIdentities(input.providerIds),
+    providerIds,
     scholarlyIdentity: scholarlyIdentity(input.scholarlyIdentity),
     originalLocation: {
       url: httpsUrl(originalLocation.url, 'Original source URL'),
       trust: originalLocation.trust,
     },
+    acquisitionLocation,
     publicationDate: publicationDate(input.publicationDate),
     discoveredAt: isoTimestamp(input.discoveredAt, 'Discovery time'),
     metadataSummary: nullableBoundedText(
@@ -475,8 +502,38 @@ function sourceDescriptor(value: unknown): SourceDescriptor {
       sourceId,
       input.kind,
     ),
-    usePolicy: sourceUsePolicy(input.usePolicy),
+    usePolicy,
   };
+}
+
+function untrustedLocation(
+  value: unknown,
+  field: string,
+): SourceDescriptor['originalLocation'] {
+  const input = strictRecord(value, ['url', 'trust']);
+  if (input.trust !== 'untrusted-public-url') {
+    invalid(`${field} trust is invalid.`);
+  }
+  return { url: httpsUrl(input.url, field), trust: input.trust };
+}
+
+function validateOpenAlexPermissionEvidence(
+  providerIds: readonly ProviderIdentity[],
+  policy: SourceUsePolicy,
+): void {
+  if (!providerIds.some(({ provider }) => provider === 'openalex')) return;
+  const decisions = [policy.acquisition, policy.indexing];
+  for (const decision of decisions) {
+    if (decision.status !== 'permitted') continue;
+    if (
+      policy.license.status !== 'known' ||
+      policy.license.url === null ||
+      decision.basis !== 'license' ||
+      decision.evidenceUrl !== policy.license.url
+    ) {
+      invalid('OpenAlex permission requires matching license evidence.');
+    }
+  }
 }
 
 function metadataOnlySource(value: unknown): MetadataOnlySource {
@@ -508,27 +565,6 @@ function sourceRevisionIdentity(value: unknown): SourceRevisionIdentity {
       'Canonicalization version',
     ),
   };
-}
-
-function retrievalSourceRevision(value: unknown): RetrievalSourceRevision {
-  const input = strictRecord(value, [
-    'sourceId',
-    'revisionId',
-    'sha256',
-    'canonicalizationVersion',
-    'indexing',
-  ]);
-  const identity = sourceRevisionIdentity({
-    sourceId: input.sourceId,
-    revisionId: input.revisionId,
-    sha256: input.sha256,
-    canonicalizationVersion: input.canonicalizationVersion,
-  });
-  const indexing = permissionDecision(input.indexing, 'Indexing');
-  if (indexing.status !== 'permitted') {
-    invalid('Evidence retrieval requires explicit indexing permission.');
-  }
-  return { ...identity, indexing };
 }
 
 function requestEnvelope(value: unknown): Record<string, unknown> {
@@ -627,7 +663,7 @@ export function parseRetrieveEvidenceRequest(
   ) {
     invalid('Evidence source revisions are invalid.');
   }
-  const sourceRevisions = input.sourceRevisions.map(retrievalSourceRevision);
+  const sourceRevisions = input.sourceRevisions.map(sourceRevisionIdentity);
   const identities = new Set(
     sourceRevisions.map(
       ({ sourceId, revisionId }) => `${sourceId}\u0000${revisionId}`,
@@ -666,6 +702,7 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
     'canonicalizationVersion',
     'acquiredAt',
     'provenance',
+    'extraction',
   ]);
   const canonicalText = boundedText(
     input.canonicalText,
@@ -686,12 +723,20 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
   }
   const provenance = strictRecord(input.provenance, [
     'kind',
-    'locator',
+    'acquiredFromUrl',
     'providerIdentity',
     'discoveredAt',
   ]);
   if (provenance.kind !== 'discovered') {
     invalid('Acquired source provenance is invalid.');
+  }
+  const extraction = strictRecord(input.extraction, [
+    'method',
+    'coverage',
+    'note',
+  ]);
+  if (extraction.coverage !== 'complete' && extraction.coverage !== 'partial') {
+    invalid('Source extraction coverage is invalid.');
   }
   return {
     sourceId: identifier(input.sourceId, 'Source id'),
@@ -707,9 +752,17 @@ function acquiredRevision(value: unknown): AcquiredCanonicalSourceRevision {
     acquiredAt: isoTimestamp(input.acquiredAt, 'Acquisition time'),
     provenance: {
       kind: provenance.kind,
-      locator: httpsUrl(provenance.locator, 'Acquisition locator'),
+      acquiredFromUrl: httpsUrl(
+        provenance.acquiredFromUrl,
+        'Acquisition locator',
+      ),
       providerIdentity: providerIdentity(provenance.providerIdentity),
       discoveredAt: isoTimestamp(provenance.discoveredAt, 'Discovery time'),
+    },
+    extraction: {
+      method: boundedText(extraction.method, 100, 'Extraction method'),
+      coverage: extraction.coverage,
+      note: nullableBoundedText(extraction.note, 500, 'Extraction note'),
     },
   };
 }
@@ -729,7 +782,9 @@ function acquiredSource(value: unknown): AcquiredSource {
   );
   if (
     revision.sourceId !== descriptor.sourceId ||
-    revision.provenance.locator !== descriptor.originalLocation.url ||
+    descriptor.acquisitionLocation === null ||
+    revision.provenance.acquiredFromUrl !==
+      descriptor.acquisitionLocation.url ||
     revision.provenance.discoveredAt !== descriptor.discoveredAt ||
     !providerMatches ||
     descriptor.usePolicy.acquisition.status !== 'permitted'
@@ -919,6 +974,16 @@ function providerIssue<
   if (!includesMember(PROVIDER_ISSUE_REASONS, input.reason)) {
     invalid('Provider issue reason is invalid.');
   }
+  if (input.reason === 'budget-exhausted') {
+    if (input.retryAfterMilliseconds !== null) {
+      invalid('Budget exhaustion cannot carry a retry delay.');
+    }
+    return {
+      provider: input.provider,
+      reason: input.reason,
+      retryAfterMilliseconds: null,
+    };
+  }
   return {
     provider: input.provider,
     reason: input.reason,
@@ -950,8 +1015,12 @@ function responseRequestId(value: unknown): string {
   return identifier(value, 'Request id');
 }
 
-function safeMessage(value: unknown): string {
-  return boundedText(value, 500, 'Public response message');
+function fixedMessage<Message extends string>(
+  value: unknown,
+  expected: Message,
+): Message {
+  if (value !== expected) invalid('Public response message is invalid.');
+  return expected;
 }
 
 function validateResponseRequestId(
@@ -983,7 +1052,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
         envelope.requestId === null
           ? null
           : responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.invalidRequest,
+      ),
     };
   }
   if (envelope.outcome === 'unauthenticated') {
@@ -998,7 +1070,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
         envelope.requestId === null
           ? null
           : responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.unauthenticated,
+      ),
     };
   }
   if (envelope.outcome === 'cancelled') {
@@ -1010,7 +1085,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.cancelled,
+      ),
     };
   }
   if (envelope.outcome === 'timed-out') {
@@ -1025,7 +1103,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.timedOut,
+      ),
       retryable: envelope.retryable,
     };
   }
@@ -1038,7 +1119,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.rateLimited,
+      ),
       retryAfterMilliseconds:
         envelope.retryAfterMilliseconds === null
           ? null
@@ -1048,6 +1132,21 @@ function sourcingFailure(value: unknown): SourcingFailure {
               86_400_000,
               'Retry delay',
             ),
+    };
+  }
+  if (envelope.outcome === 'budget-exhausted') {
+    rejectDefinedFields(
+      envelope,
+      ['retryable', 'retryAfterMilliseconds'],
+      'Budget-exhausted outcome is invalid.',
+    );
+    return {
+      outcome: envelope.outcome,
+      requestId: responseRequestId(envelope.requestId),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+      ),
     };
   }
   if (envelope.outcome === 'unavailable') {
@@ -1065,7 +1164,10 @@ function sourcingFailure(value: unknown): SourcingFailure {
         envelope.requestId === null
           ? null
           : responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.unavailable,
+      ),
       retryable: envelope.retryable,
     };
   }
@@ -1136,7 +1238,10 @@ function decodeDiscoverSourcesResponse(
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.noResults,
+      ),
     };
   }
   rejectDefinedFields(
@@ -1200,7 +1305,10 @@ function decodeAcquireCanonicalSourceResponse(
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.notPermitted,
+      ),
       decision: envelope.decision,
     };
   }
@@ -1299,7 +1407,10 @@ function decodeRetrieveEvidenceResponse(
     return {
       outcome: envelope.outcome,
       requestId: responseRequestId(envelope.requestId),
-      message: safeMessage(envelope.message),
+      message: fixedMessage(
+        envelope.message,
+        SOURCING_PUBLIC_MESSAGES.noEvidence,
+      ),
     };
   }
   rejectDefinedFields(

@@ -1,10 +1,18 @@
-import type {
-  PublicAccount,
-  SourceFormat,
-  SourceRevisionInput,
-} from './learning-api.js';
+import type { PublicAccount, SourceRevisionInput } from './learning-api.js';
 
 export const SOURCING_API_VERSION = '2026-09-08';
+export const SOURCING_PUBLIC_MESSAGES = {
+  invalidRequest: 'The sourcing request is invalid.',
+  unauthenticated: 'Authentication is required.',
+  cancelled: 'The sourcing request was cancelled.',
+  timedOut: 'The sourcing request timed out.',
+  rateLimited: 'The source provider rate limit was reached.',
+  budgetExhausted: 'The sourcing request budget is exhausted.',
+  unavailable: 'The sourcing operation is unavailable.',
+  noResults: 'No source candidates were found.',
+  noEvidence: 'No exact source passage supports this query.',
+  notPermitted: 'Source acquisition is not permitted.',
+} as const;
 export const SOURCING_LIMITS = {
   queryCharacters: 2_000,
   discoveryResults: 50,
@@ -19,7 +27,6 @@ export const SOURCING_LIMITS = {
 
 export const SOURCE_DISCOVERY_PROVIDERS = [
   'openalex',
-  'semantic-scholar',
   'mit-open-courseware',
   'curated-catalog',
 ] as const;
@@ -40,10 +47,13 @@ export type SourceKind = (typeof SOURCE_KINDS)[number];
 export type SourcingIntent = 'learning' | 'research';
 export type SourceQuality = 'high' | 'medium' | 'low' | 'unknown';
 
-export interface ProviderIdentity {
-  provider: SourceDiscoveryProvider;
-  id: string;
-}
+export type OpenAlexWorkId = `W${number}`;
+export type ProviderIdentity =
+  | { provider: 'openalex'; id: OpenAlexWorkId }
+  | {
+      provider: Exclude<SourceDiscoveryProvider, 'openalex'>;
+      id: string;
+    };
 
 export interface ScholarlyIdentity {
   doi: string | null;
@@ -119,13 +129,18 @@ export interface UntrustedOriginalLocation {
 }
 
 export interface SourceDescriptor {
+  /** OpenAlex works use the deterministic form `openalex-${workId}`. */
   sourceId: string;
   kind: SourceKind;
   title: string;
   authorship: SourceAuthorship;
   providerIds: ProviderIdentity[];
   scholarlyIdentity: ScholarlyIdentity;
+  /** Provider landing page retained for attribution and navigation. */
   originalLocation: UntrustedOriginalLocation;
+  /** Fetchable resource selected by policy; null never authorizes acquisition. */
+  acquisitionLocation: UntrustedOriginalLocation | null;
+  /** Unknown or year-only provider dates are null; adapters never invent a day. */
   publicationDate: string | null;
   discoveredAt: string;
   metadataSummary: string | null;
@@ -139,17 +154,26 @@ export interface MetadataOnlySource extends SourceDescriptor {
 
 export interface DiscoveredAcquisitionProvenance {
   kind: 'discovered';
-  locator: string;
+  acquiredFromUrl: string;
   providerIdentity: ProviderIdentity;
   discoveredAt: string;
 }
 
+/**
+ * This is not yet accepted by the learning request wire. Later local
+ * integration owns `toSourceRevisionInput`, including provenance preservation
+ * and the smaller learning-context bound.
+ */
 export interface AcquiredCanonicalSourceRevision extends Omit<
   SourceRevisionInput,
   'provenance'
 > {
-  format: SourceFormat;
   provenance: DiscoveredAcquisitionProvenance;
+  extraction: {
+    method: string;
+    coverage: 'complete' | 'partial';
+    note: string | null;
+  };
 }
 
 export interface AcquiredSource extends SourceDescriptor {
@@ -164,10 +188,6 @@ export interface SourceRevisionIdentity {
   revisionId: string;
   sha256: string;
   canonicalizationVersion: string;
-}
-
-export interface RetrievalSourceRevision extends SourceRevisionIdentity {
-  indexing: PermittedUseDecision;
 }
 
 export interface DiscoverSourcesRequest {
@@ -191,7 +211,7 @@ export interface RetrieveEvidenceRequest {
   requestId: string;
   intent: SourcingIntent;
   query: string;
-  sourceRevisions: RetrievalSourceRevision[];
+  sourceRevisions: SourceRevisionIdentity[];
   maxPassages: number;
 }
 
@@ -230,54 +250,67 @@ export interface RetrievalEvidence {
   };
 }
 
-export type ProviderIssueReason = 'timed-out' | 'rate-limited' | 'unavailable';
+export type ProviderIssueReason =
+  'timed-out' | 'rate-limited' | 'budget-exhausted' | 'unavailable';
 
-export interface ProviderIssue<
+export type ProviderIssue<
   Provider extends SourceDiscoveryProvider | SourceRetrievalProvider =
     SourceDiscoveryProvider | SourceRetrievalProvider,
-> {
-  provider: Provider;
-  reason: ProviderIssueReason;
-  retryAfterMilliseconds: number | null;
-}
+> =
+  | {
+      provider: Provider;
+      reason: Exclude<ProviderIssueReason, 'budget-exhausted'>;
+      retryAfterMilliseconds: number | null;
+    }
+  | {
+      provider: Provider;
+      reason: 'budget-exhausted';
+      retryAfterMilliseconds: null;
+    };
 
 export interface InvalidSourcingRequest {
   outcome: 'invalid-request';
   requestId: string | null;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.invalidRequest;
 }
 
 export interface UnauthenticatedSourcingRequest {
   outcome: 'unauthenticated';
   requestId: string | null;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.unauthenticated;
 }
 
 export interface CancelledSourcingRequest {
   outcome: 'cancelled';
   requestId: string;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.cancelled;
 }
 
 export interface TimedOutSourcingRequest {
   outcome: 'timed-out';
   requestId: string;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.timedOut;
   retryable: boolean;
 }
 
 export interface RateLimitedSourcingRequest {
   outcome: 'rate-limited';
   requestId: string;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.rateLimited;
   retryAfterMilliseconds: number | null;
 }
 
 export interface UnavailableSourcingRequest {
   outcome: 'unavailable';
   requestId: string | null;
-  message: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.unavailable;
   retryable: boolean;
+}
+
+export interface BudgetExhaustedSourcingRequest {
+  outcome: 'budget-exhausted';
+  requestId: string;
+  message: typeof SOURCING_PUBLIC_MESSAGES.budgetExhausted;
 }
 
 export type SourcingFailure =
@@ -286,6 +319,7 @@ export type SourcingFailure =
   | CancelledSourcingRequest
   | TimedOutSourcingRequest
   | RateLimitedSourcingRequest
+  | BudgetExhaustedSourcingRequest
   | UnavailableSourcingRequest;
 
 export type DiscoverSourcesResponse =
@@ -303,7 +337,7 @@ export type DiscoverSourcesResponse =
   | {
       outcome: 'no-results';
       requestId: string;
-      message: string;
+      message: typeof SOURCING_PUBLIC_MESSAGES.noResults;
     }
   | SourcingFailure;
 
@@ -316,7 +350,7 @@ export type AcquireCanonicalSourceResponse =
   | {
       outcome: 'not-permitted';
       requestId: string;
-      message: string;
+      message: typeof SOURCING_PUBLIC_MESSAGES.notPermitted;
       decision: 'forbidden' | 'unknown';
     }
   | SourcingFailure;
@@ -336,7 +370,7 @@ export type RetrieveEvidenceResponse =
   | {
       outcome: 'no-evidence';
       requestId: string;
-      message: string;
+      message: typeof SOURCING_PUBLIC_MESSAGES.noEvidence;
     }
   | SourcingFailure;
 
