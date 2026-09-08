@@ -1,0 +1,11 @@
+---
+description: Renderer visual language and isolation when editing src/renderer
+globs: src/renderer/**
+alwaysApply: false
+---
+
+Read [context/design.md](../../context/design.md) before changing visual behavior. Port tokens and type from that page (Field Atlas: Source Serif 4 + Hanken Grotesk, field/paper/evening palettes). Do not invent a second visual system. Do not copy historical `context/design-system/` specimens into the shipped app unless the owning design page says to.
+
+Renderer owns presentation and transient UI state only. No Node, Electron, main, or preload imports (ESLint already forbids them). No credentials, vault paths, OpenRouter keys, or SQL in renderer code or `import.meta.env`.
+
+Cover empty, loading, error, offline, canceled, and retry states when a surface can enter them. Do not treat a happy-path screenshot as done.

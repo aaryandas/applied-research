@@ -15,6 +15,7 @@ Start at [AGENTS.md](../AGENTS.md). This folder holds the complete maintained pr
 | [Releases](releases.md)                     | Installer candidates, signing and Sonar configuration       |
 | [Effect](effect.md)                         | Pinned upstream source, API lookup and adoption boundaries  |
 | [Knowledge base](knowledge-base.md)         | Obsidian indexes and lossless migration records             |
+| [Factory](factory.md)                       | Cursor SDLC graph, memory/knowledge rules, harness handoff  |
 
 Product and domain pages govern current product intent. Architecture and checked-in code/configuration distinguish implemented behavior from proposals. The design reference includes historical specimens; its visual guidance does not override current product scope. If code and accepted intent disagree, surface the discrepancy rather than treating it as a new decision.
 

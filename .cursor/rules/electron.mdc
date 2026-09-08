@@ -1,0 +1,12 @@
+---
+description: Electron process isolation for main, preload, and the renderer seam
+alwaysApply: true
+---
+
+Keep main, preload, and renderer separate. Context isolation, sandboxing, disabled Node integration, navigation restrictions, denied new windows, and denied permissions stay on. Production CSP must not grow renderer network or inline-script exceptions for convenience.
+
+Expose only named, validated bridge operations on `window.desktop`. Never raw IPC, credentials, SQL, or arbitrary filesystem access. Renderer never imports `electron`, `node:*`, `src/main`, or `src/preload`.
+
+Add bridge methods only when a product path needs them. Validate at the main-process boundary. TypeScript types in `src/contracts/` are not a substitute for runtime checks on external input.
+
+Do not load or import `context/repos/effect/` as application code. Do not put secrets in Vite-prefixed variables, renderer bundles, Linear, chat, or reviewer envelopes.

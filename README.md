@@ -33,17 +33,19 @@ Historical plans, research, and design evidence are in the [Obsidian knowledge b
 
 ## Repository layout
 
-| Location                 | Purpose                                                                         |
-| ------------------------ | ------------------------------------------------------------------------------- |
-| `src/main/`              | Electron lifecycle, privileged operations, navigation policy                    |
-| `src/preload/`           | Small typed bridge exposed through contextBridge                                |
-| `src/renderer/`          | React renderer and styles; no Node or Electron imports                          |
-| `src/contracts/`         | Serializable types shared across process seams                                  |
-| `tests/`                 | Test setup and real Electron smoke tests; unit tests live beside source         |
-| `scripts/`               | Packaging verification and release tooling                                      |
-| `.github/`               | CI, release, Sonar, and dependency updates                                      |
-| `context/`               | Architecture, development, release instructions, and the knowledge-base pointer |
-| `context/design-system/` | Visual reference and owned assets, excluded from application packaging          |
+| Location                 | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `src/main/`              | Electron lifecycle, privileged operations, navigation policy                                |
+| `src/preload/`           | Small typed bridge exposed through contextBridge                                            |
+| `src/renderer/`          | React renderer and styles; no Node or Electron imports                                      |
+| `src/contracts/`         | Serializable types shared across process seams                                              |
+| `tests/`                 | Test setup and real Electron smoke tests; unit tests live beside source                     |
+| `scripts/`               | Packaging verification and release tooling                                                  |
+| `.github/`               | CI, release, Sonar, and dependency updates                                                  |
+| `context/`               | Architecture, development, release instructions, and the knowledge-base pointer             |
+| `factory/`               | Cursor factory BOARD, envelopes, and automation recipes (see [factory](context/factory.md)) |
+| `.cursor/`               | Factory skills, subagents, path rules, and Bugbot review notes                              |
+| `context/design-system/` | Visual reference and owned assets, excluded from application packaging                      |
 
 GitHub: [aaryandas/applied-research](https://github.com/aaryandas/applied-research). Planning: [Linear](https://linear.app/aaryan-das/project/applied-research-64943086779b).
 
