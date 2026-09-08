@@ -17,6 +17,7 @@ This map describes the scaffold, not proposed features. Read [architecture](arch
 | `.github/workflows/verify.yml` | Shared cross-platform verification                                |
 | `.github/workflows/`           | Pull request CI, candidate releases and optional Sonar analysis   |
 | `context/design-system/`       | Standalone visual reference; not shipped with the scaffold        |
+| `context/factory.md`           | Cursor factory graph and harness implementation handoff           |
 | `context/repos/effect/`        | Read-only upstream reference; not application code                |
 
 Unit tests live beside their source. Persistence, learning-path orchestration, provider integrations, and backend services do not yet have implementations or finalized module interfaces. Add map entries when those responsibilities exist.
