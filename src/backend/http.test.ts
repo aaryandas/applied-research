@@ -10,6 +10,7 @@ import type { DiagnosticRecord } from './diagnostics.js';
 import { makeDiagnostics } from './diagnostics.js';
 import type { HttpDependencies } from './http.js';
 import type { LearningService } from './learning.js';
+import { API_ORIGIN } from './policy.js';
 import { startHttpServer } from './runtime.js';
 
 const userA: PublicAccount = { id: 'user-a', name: 'Ada', image: null };
@@ -100,6 +101,26 @@ describe('backend HTTP journeys', () => {
       ok: true,
     });
     expect(active.auth.handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the configured HTTPS origin only as the relative request parser base', async () => {
+    const active = await server();
+    const port = Number(new URL(active.origin).port);
+    const responseText = await new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const socket = createConnection(port, '127.0.0.1');
+      socket.once('error', reject);
+      socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+      socket.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      socket.once('connect', () => {
+        socket.end(
+          `GET ${API_ORIGIN}/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`,
+        );
+      });
+    });
+
+    expect(responseText).toMatch(/^HTTP\/1\.1 200 OK/m);
+    expect(responseText).toContain('{"status":"ok"}');
   });
 
   it('returns the session-derived account and current monthly quota', async () => {

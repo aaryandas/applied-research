@@ -10,7 +10,7 @@ import type { AuthService } from './auth.js';
 import type { Diagnostics } from './diagnostics.js';
 import { silentDiagnostics } from './diagnostics.js';
 import type { LearningService } from './learning.js';
-import { MAX_REQUEST_BYTES } from './policy.js';
+import { API_ORIGIN, MAX_REQUEST_BYTES } from './policy.js';
 import { parseLearningRequest, RequestValidationError } from './validation.js';
 
 export interface HttpDependencies {
@@ -240,7 +240,7 @@ export function createHttpHandler(
   dependencies: HttpDependencies,
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
-    const url = new URL(request.url ?? '/', 'http://backend.invalid');
+    const url = new URL(request.url ?? '/', API_ORIGIN);
     if (url.pathname === '/health' && request.method === 'GET') {
       writeJson(response, 200, { status: 'ok' });
       return;

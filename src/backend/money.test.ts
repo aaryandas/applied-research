@@ -13,8 +13,12 @@ describe('decimal-safe provider cost conversion', () => {
     expect(usdToMicrousd(input)).toBe(expected);
   });
 
-  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, null, {}, '1e200'])(
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, {}, '1e200'])(
     'rejects invalid provider cost %s',
     (input) => expect(() => usdToMicrousd(input)).toThrow(),
   );
+
+  it('reports a nonnumeric provider cost as a type error', () => {
+    expect(() => usdToMicrousd(null)).toThrow(TypeError);
+  });
 });

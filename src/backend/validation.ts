@@ -34,6 +34,11 @@ const CONTEXT_KINDS = [
   'reported-result',
 ] as const;
 
+function includesMember<T>(values: readonly T[], value: unknown): value is T {
+  const candidates: readonly unknown[] = values;
+  return candidates.includes(value);
+}
+
 export class RequestValidationError extends Data.TaggedError(
   'RequestValidationError',
 )<{
@@ -130,11 +135,11 @@ function sourceRevision(value: unknown): SourceRevisionInput {
   if (typeof input.sha256 !== 'string' || !SHA256_PATTERN.test(input.sha256)) {
     invalid('Source SHA-256 is invalid.');
   }
-  if (!SOURCE_FORMATS.some((format) => format === input.format)) {
+  if (!includesMember(SOURCE_FORMATS, input.format)) {
     invalid('Source format is invalid.');
   }
   const provenance = strictRecord(input.provenance, ['kind', 'locator']);
-  if (!SOURCE_PROVENANCE.some((kind) => kind === provenance.kind)) {
+  if (!includesMember(SOURCE_PROVENANCE, provenance.kind)) {
     invalid('Source provenance is invalid.');
   }
   const canonicalText = boundedText(
@@ -154,14 +159,14 @@ function sourceRevision(value: unknown): SourceRevisionInput {
     title: boundedText(input.title, 200, 'Source title'),
     canonicalText,
     sha256: input.sha256,
-    format: input.format as SourceFormat,
+    format: input.format,
     canonicalizationVersion: identifier(
       input.canonicalizationVersion,
       'Canonicalization version',
     ),
     acquiredAt: isoTimestamp(input.acquiredAt),
     provenance: {
-      kind: provenance.kind as SourceProvenanceKind,
+      kind: provenance.kind,
       locator: nullableWebLocator(provenance.locator),
     },
   };
@@ -194,12 +199,12 @@ function learnerContext(value: unknown): LearnerContextItem[] {
   }
   const parsed = value.map((item): LearnerContextItem => {
     const input = strictRecord(item, ['id', 'kind', 'text']);
-    if (!CONTEXT_KINDS.some((kind) => kind === input.kind)) {
+    if (!includesMember(CONTEXT_KINDS, input.kind)) {
       invalid('Learner context attribution is invalid.');
     }
     return {
       id: identifier(input.id, 'Learner context id'),
-      kind: input.kind as LearnerContextItem['kind'],
+      kind: input.kind,
       text: boundedText(input.text, 4_000, 'Learner context text'),
     };
   });
@@ -249,13 +254,13 @@ export function parseLearningRequest(value: unknown): LearningRequest {
   if (input.apiVersion !== LEARNING_API_VERSION) {
     unsupported('This learning API version is not supported.', requestId);
   }
-  if (!LEARNING_MODEL_ALLOWLIST.some((model) => model === input.model)) {
+  if (!includesMember(LEARNING_MODEL_ALLOWLIST, input.model)) {
     unsupported('This learning model is not supported.', requestId);
   }
   return {
     apiVersion: LEARNING_API_VERSION,
     requestId,
-    model: input.model as LearningRequest['model'],
+    model: input.model,
     operation: operation(input.operation, requestId),
   };
 }

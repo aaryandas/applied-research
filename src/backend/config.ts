@@ -1,6 +1,8 @@
 import { Data } from 'effect';
-import { LEARNING_MODEL_ALLOWLIST } from '../contracts/learning-api.js';
-import type { LearningModel } from '../contracts/learning-api.js';
+import {
+  LEARNING_MODEL_ALLOWLIST,
+  type LearningModel,
+} from '../contracts/learning-api.js';
 import {
   API_ORIGIN,
   MAX_CONCURRENT_PROVIDER_REQUESTS,
@@ -65,14 +67,19 @@ function monthlyLimit(value: string | undefined): number {
   return microusd;
 }
 
+function isLearningModel(value: string): value is LearningModel {
+  const approvedModels: readonly string[] = LEARNING_MODEL_ALLOWLIST;
+  return approvedModels.includes(value);
+}
+
 function model(value: string | undefined): LearningModel {
   const selected = value ?? LEARNING_MODEL_ALLOWLIST[0];
-  if (!LEARNING_MODEL_ALLOWLIST.some((candidate) => candidate === selected)) {
+  if (!isLearningModel(selected)) {
     throw new ConfigurationError({
       message: 'AI_MODEL is not in the approved allowlist.',
     });
   }
-  return selected as LearningModel;
+  return selected;
 }
 
 function validateBackendUrl(

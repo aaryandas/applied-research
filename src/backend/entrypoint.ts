@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { loadBackendConfig } from './config.js';
-import { ConfigurationError } from './config.js';
+import { ConfigurationError, loadBackendConfig } from './config.js';
 import { consoleDiagnostics } from './diagnostics.js';
 import { startBackend } from './runtime.js';
 
@@ -19,7 +18,9 @@ export async function runBackend(): Promise<void> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runBackend().catch((cause) => {
+  try {
+    await runBackend();
+  } catch (cause) {
     consoleDiagnostics.report(
       cause instanceof ConfigurationError
         ? 'backend.configuration-invalid'
@@ -27,5 +28,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       cause,
     );
     process.exitCode = 1;
-  });
+  }
 }

@@ -49,10 +49,10 @@ export async function applyInitialMigration(
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  void Promise.resolve()
-    .then(() => applyInitialMigration(loadDatabaseUrl(process.env)))
-    .catch((cause) => {
-      consoleDiagnostics.report('database.migration-failed', cause);
-      process.exitCode = 1;
-    });
+  try {
+    await applyInitialMigration(loadDatabaseUrl(process.env));
+  } catch (cause) {
+    consoleDiagnostics.report('database.migration-failed', cause);
+    process.exitCode = 1;
+  }
 }

@@ -10,18 +10,19 @@ import type {
   AccountingFailure,
   AccountingStore,
   ReservationResult,
+  SettlementInput,
 } from './accounting.js';
 import { utcMonthStart } from './accounting.js';
 import type { BackendConfig } from './config.js';
 import type { Diagnostics } from './diagnostics.js';
 import { silentDiagnostics } from './diagnostics.js';
-import type {
-  ChargeKnowledge,
-  ProviderCompletion,
-  ProviderService,
+import {
+  ProviderFailure,
+  reservationMicrousdFor,
+  type ChargeKnowledge,
+  type ProviderCompletion,
+  type ProviderService,
 } from './provider.js';
-import { ProviderFailure } from './provider.js';
-import { reservationMicrousdFor } from './provider.js';
 import { MODEL_ADMISSION, PROMPT_VERSION } from './policy.js';
 
 const PRICING_FRESHNESS_DAYS = 30;
@@ -124,17 +125,42 @@ function settlementResponse(
       requestId,
       message: 'The learning request was cancelled.',
       retryable: charge.kind === 'none',
-      accounting:
-        charge.kind === 'none'
-          ? 'released'
-          : charge.kind === 'known'
-            ? 'charged'
-            : 'reservation-retained',
+      accounting: cancelledAccounting(charge),
     };
   }
   if (charge.kind === 'none') return unavailable(requestId, 'released');
   if (charge.kind === 'known') return unavailable(requestId, 'charged');
   return unavailable(requestId, 'reservation-retained');
+}
+
+function cancelledAccounting(
+  charge: ChargeKnowledge,
+): 'released' | 'charged' | 'reservation-retained' {
+  switch (charge.kind) {
+    case 'none':
+      return 'released';
+    case 'known':
+      return 'charged';
+    case 'unknown':
+      return 'reservation-retained';
+  }
+}
+
+function failureDisposition(
+  charge: ChargeKnowledge,
+): SettlementInput['disposition'] {
+  switch (charge.kind) {
+    case 'none':
+      return { kind: 'release' };
+    case 'known':
+      return {
+        kind: 'charge',
+        actualMicrousd: charge.actualMicrousd,
+        providerRequestId: null,
+      };
+    case 'unknown':
+      return { kind: 'retain' };
+  }
 }
 
 function handleProviderFailure(
@@ -151,16 +177,7 @@ function handleProviderFailure(
     failure.charge,
     failure.cancelled,
   );
-  const disposition =
-    failure.charge.kind === 'none'
-      ? ({ kind: 'release' } as const)
-      : failure.charge.kind === 'known'
-        ? ({
-            kind: 'charge',
-            actualMicrousd: failure.charge.actualMicrousd,
-            providerRequestId: null,
-          } as const)
-        : ({ kind: 'retain' } as const);
+  const disposition = failureDisposition(failure.charge);
   return options.accounting
     .settle({
       accountId: account.id,

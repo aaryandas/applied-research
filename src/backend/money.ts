@@ -2,7 +2,7 @@ export const MICROUSD_PER_USD = 1_000_000;
 
 export function usdToMicrousd(value: unknown): number {
   if (typeof value !== 'number' && typeof value !== 'string') {
-    throw new Error('Provider cost is missing.');
+    throw new TypeError('Provider cost is missing.');
   }
   const decimal = typeof value === 'number' ? value.toString() : value;
   const match = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(decimal);

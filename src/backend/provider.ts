@@ -3,10 +3,10 @@ import type {
   GenerateLearningPathOperation,
   LearningOperation,
   LearningRequest,
+  LearningSuccess,
   SourceCitation,
   SourceRevisionInput,
 } from '../contracts/learning-api.js';
-import type { LearningSuccess } from '../contracts/learning-api.js';
 import { usdToMicrousd } from './money.js';
 import {
   MAX_OUTPUT_CHARACTERS,

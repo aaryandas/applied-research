@@ -5,9 +5,5 @@ export function isRemoteText(value: string): boolean {
 
 export function isUnicodeScalarBoundary(value: string, index: number): boolean {
   if (index <= 0 || index >= value.length) return true;
-  const preceding = value.charCodeAt(index - 1);
-  const following = value.charCodeAt(index);
-  const followsHighSurrogate = preceding >= 0xd800 && preceding <= 0xdbff;
-  const startsWithLowSurrogate = following >= 0xdc00 && following <= 0xdfff;
-  return !(followsHighSurrogate && startsWithLowSurrogate);
+  return (value.codePointAt(index - 1) ?? 0) <= 0xffff;
 }
