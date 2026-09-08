@@ -1,0 +1,15 @@
+---
+description: Factory inner loop, envelopes, BOARD, Fable isolation, and landing rules. Use when coordinating, dispatching, reviewing factory PRs, or editing factory/ or gauntlet skills.
+globs: factory/**,.cursor/skills/gauntlet-*/**,.cursor/agents/**
+alwaysApply: false
+---
+
+Factory law lives in [context/factory.md](../../context/factory.md). Chat and Automation Memories may notice; Linear records; `context/` governs; code implements.
+
+Never dispatch a worker without `factory/envelopes/AR-*.md`. Cap concurrent implementers + critics + integrate at 7. Inner loop is Specify → Build → Exercise Electron → Compare → independent critique. Cap 3 critique rounds then Park. Each critique is a **new** Fable session: spec + artifacts only, never the implementer transcript.
+
+Workers open a draft PR and stop. They must not mark Done or accept their own work. Independent acceptance is `critic-fable` only. Merge to `integration` only with label `gauntlet:land` after CI gate + Bugbot + Fable WIN. Do not auto-merge to `main`, deploy, publish, sign, or change billing.
+
+Subscribe to CI/PR rather than polling. `/loop` and stop-hooks are status-only. Persist `factory/BOARD.md` (and a Linear note or `factory/receipts/` draft) before the context window is summarized.
+
+Serialize record/source-version/link schema, design tokens, preload bridges, integration merge, desktop/Playwright, and Sonar. Parallelize only uncoupled slices.

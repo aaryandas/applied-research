@@ -12,17 +12,17 @@ The repository currently implements a development scaffold: Electron, React, str
 
 [Context index](context/README.md) describes authority and ownership. Do not load the whole context directory or its vendored repositories.
 
-| Task                                         | Read                                                                              |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| Product behavior, scope, learning loop       | [Product](context/product.md), [domain](context/domain.md)                        |
-| Process boundaries, backend design, security | [Architecture](context/architecture.md), [conventions](context/conventions.md)    |
-| Find implementation and tests                | [Code map](context/code-map.md)                                                   |
-| UI and visual assets                         | [Design](context/design.md), then the relevant `context/design-system/` reference |
-| Setup, commands, CI                          | [Development](context/development.md)                                             |
-| Packaging, releases, Sonar                   | [Releases](context/releases.md)                                                   |
-| Effect APIs and patterns                     | [Effect guide](context/effect.md), then specific upstream source/tests            |
-| Historical research or decisions             | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes       |
-| Cursor software factory (loop, graph, harness) | [Factory](context/factory.md)                                                   |
+| Task                                           | Read                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| Product behavior, scope, learning loop         | [Product](context/product.md), [domain](context/domain.md)                        |
+| Process boundaries, backend design, security   | [Architecture](context/architecture.md), [conventions](context/conventions.md)    |
+| Find implementation and tests                  | [Code map](context/code-map.md)                                                   |
+| UI and visual assets                           | [Design](context/design.md), then the relevant `context/design-system/` reference |
+| Setup, commands, CI                            | [Development](context/development.md)                                             |
+| Packaging, releases, Sonar                     | [Releases](context/releases.md)                                                   |
+| Effect APIs and patterns                       | [Effect guide](context/effect.md), then specific upstream source/tests            |
+| Historical research or decisions               | [Knowledge base](context/knowledge-base.md), then the linked Obsidian notes       |
+| Cursor software factory (loop, graph, harness) | [Factory](context/factory.md)                                                     |
 
 Before choosing or replacing technology, read the [decision audit](context/decision-audit.md). It records prior selections, later revisions, missing interview evidence, and discrepancies with this scaffold. Installed tooling is not proof of a founder decision.
 
@@ -55,3 +55,14 @@ npm run dist          # unsigned installer candidates
 Run `check` for code/config changes, Electron smoke tests for main/preload/renderer changes, and packaging plus packaged smoke tests for packaging changes. Linux desktop checks need a display or `xvfb-run --auto-servernum`. Test observable behavior and real risk; never weaken gates to get green CI.
 
 Actions use full commit pins. PR code receives no provider, signing, or Sonar secrets. Releases remain unsigned draft candidates until signing/distribution is configured. Detailed conventions and operational limitations remain in the linked context pages.
+
+## Cursor Cloud factory
+
+The [factory](context/factory.md) page owns the SDLC graph. This checkout includes the harness:
+
+- Skills: `.cursor/skills/gauntlet-coordinator/`, `gauntlet-implement`, `gauntlet-critic`, `gauntlet-integrate`
+- Subagents: `.cursor/agents/implement-sol.md`, `implement-visual.md`, `critic-fable.md`, `integrate.md`
+- Path rules: `.cursor/rules/*.mdc` — Bugbot reads `.cursor/BUGBOT.md`, not those rules
+- In-flight graph: Linear plus `factory/BOARD.md`; worker extra prompt is one envelope
+
+Coordinator sessions do not implement product features. Never dispatch without an envelope. Workers must not mark Done or self-accept. Independent acceptance is `critic-fable` (Fable 5.1 High, readonly). Land to `integration` only with label `gauntlet:land` after CI gate + Bugbot + Fable WIN. Automations are founder-enabled from [factory/automation-recipes.md](factory/automation-recipes.md). Cursor Automation Memories are scratch, not product law.

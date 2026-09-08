@@ -172,16 +172,16 @@ Promotion rule: chat/memory may notice; Linear records; `context/` governs; code
 
 ## Roles and Cursor primitives
 
-| Role | Primitive | Model | Sees | Must not see |
-| --- | --- | --- | --- | --- |
-| Coordinator | One Cloud Agent | Strong reasoning | BOARD, Linear frontier, envelopes, PR URLs, spend | Full diffs, screenshots, Effect tree, vault |
-| implement-sol | Cloud subagent, own branch | `gpt-5.6-sol` High | One envelope + owning context pages + ownership glob | Other tickets, critic history, secrets |
-| implement-visual | Cloud subagent | Astra if available, else Sol High | Visual/motion/Manim/Three.js envelopes | Independent acceptance of its own PR |
-| critic-fable | Fresh readonly subagent | `claude-fable-5-1-thinking-high` | Spec, criteria, artifacts, references | Builder rationale, Memories |
-| integrate | Small Cloud Agent | Fast/cheap OK | Frozen SHA, CI, Bugbot, Fable verdict | Redesign |
-| Explore/Bash/Browser | Built-in subagents | Fast | Noisy search/logs/DOM | Decisions |
-| Status | Scheduled Automation, **no repo** | Any | BOARD + open PRs | Code edits |
-| Bugbot | Managed PR review | Bugbot | Diff + `.cursor/BUGBOT.md` | Product vault, secrets |
+| Role                 | Primitive                         | Model                             | Sees                                                 | Must not see                                |
+| -------------------- | --------------------------------- | --------------------------------- | ---------------------------------------------------- | ------------------------------------------- |
+| Coordinator          | One Cloud Agent                   | Strong reasoning                  | BOARD, Linear frontier, envelopes, PR URLs, spend    | Full diffs, screenshots, Effect tree, vault |
+| implement-sol        | Cloud subagent, own branch        | `gpt-5.6-sol` High                | One envelope + owning context pages + ownership glob | Other tickets, critic history, secrets      |
+| implement-visual     | Cloud subagent                    | Astra if available, else Sol High | Visual/motion/Manim/Three.js envelopes               | Independent acceptance of its own PR        |
+| critic-fable         | Fresh readonly subagent           | `claude-fable-5-1-thinking-high`  | Spec, criteria, artifacts, references                | Builder rationale, Memories                 |
+| integrate            | Small Cloud Agent                 | Fast/cheap OK                     | Frozen SHA, CI, Bugbot, Fable verdict                | Redesign                                    |
+| Explore/Bash/Browser | Built-in subagents                | Fast                              | Noisy search/logs/DOM                                | Decisions                                   |
+| Status               | Scheduled Automation, **no repo** | Any                               | BOARD + open PRs                                     | Code edits                                  |
+| Bugbot               | Managed PR review                 | Bugbot                            | Diff + `.cursor/BUGBOT.md`                           | Product vault, secrets                      |
 
 Concurrency: count coordinator? **No.** Count implementers + critics + integrate that are in-flight. Max **7**. Status Automation does not count.
 
@@ -191,15 +191,15 @@ Concurrency: count coordinator? **No.** Count implementers + critics + integrate
 
 Do **not** always-apply the full gauntlet prompt.
 
-| Layer | Location | When loaded |
-| --- | --- | --- |
-| Index | Root `AGENTS.md` | Always; keep short |
-| Path law | `.cursor/rules/*.mdc` | Matching globs |
-| Playbooks | `.cursor/skills/gauntlet-*/` | Coordinator `@`s or agent-decides |
-| Node payload | `factory/envelopes/AR-*.md` + Linear | Worker prompt |
-| Evidence | `factory/evidence/AR-*/` + PR artifacts | Critic |
-| Graph | Linear + `factory/BOARD.md` | Coordinator |
-| Archive | Obsidian | Human; coordinator only on a named conflict |
+| Layer        | Location                                | When loaded                                 |
+| ------------ | --------------------------------------- | ------------------------------------------- |
+| Index        | Root `AGENTS.md`                        | Always; keep short                          |
+| Path law     | `.cursor/rules/*.mdc`                   | Matching globs                              |
+| Playbooks    | `.cursor/skills/gauntlet-*/`            | Coordinator `@`s or agent-decides           |
+| Node payload | `factory/envelopes/AR-*.md` + Linear    | Worker prompt                               |
+| Evidence     | `factory/evidence/AR-*/` + PR artifacts | Critic                                      |
+| Graph        | Linear + `factory/BOARD.md`             | Coordinator                                 |
+| Archive      | Obsidian                                | Human; coordinator only on a named conflict |
 
 Envelope (worker’s entire extra prompt):
 
@@ -224,7 +224,11 @@ Coupling: parallelize uncoupled slices only. Serialize record/source-version/lin
 
 ## Implementation handoff (new session)
 
-You are implementing the **Cursor factory harness** for `aaryandas/applied-research`, not the Applied Research product UI/backend (Reader, Canvas, Railway, OpenRouter app-managed AI, Clicky, Manim). Stop at a working harness: files in git, recipes for Automations the founder enables, and a dry-run coordinator prompt. If you expand into product implementation, you have left scope.
+The **Cursor factory harness** for `aaryandas/applied-research` is in git: skills, subagents, rules, `.cursor/BUGBOT.md`, and `factory/` envelopes. Do **not** rebuild it, and do not implement product UI/backend (Reader, Canvas, Railway, OpenRouter app-managed AI, Clicky, Manim) unless the founder expands scope.
+
+**Coordinator session:** confirm the tree below exists, BOARD is readable, list Ready vs blocked founder actions (Linear MCP, Bugbot, `integration` branch, secrets). If Linear MCP is missing, draft receipts under `factory/receipts/` and stop after the dry-run report.
+
+**Harness edit:** change protocol in this page first, then keep the files below true. If you expand into product implementation, you have left scope.
 
 ### Read first
 
@@ -264,6 +268,7 @@ factory/envelopes/.gitkeep
 factory/contracts/.gitkeep
 factory/evidence/.gitkeep
 factory/automation-recipes.md             # copy-paste for cursor.com/automations
+factory/receipts/                        # drafted Linear notes when MCP is missing
 ```
 
 Keep skill `SKILL.md` files short; put long protocol in `references/` under each skill so context stays progressive.
@@ -288,7 +293,7 @@ If a configured model is unavailable, record the actual id that ran in BOARD and
 
 ### Automation recipes to document (founder enables)
 
-1. **Start coordinator** — Linear issue status → Ready *or* Slack keyword. Repo: this repo. Prompt: “You are the factory coordinator. Read `context/factory.md`. Do not implement product features. Dispatch per BOARD.”
+1. **Start coordinator** — Linear issue status → Ready _or_ Slack keyword. Repo: this repo. Prompt: “You are the factory coordinator. Read `context/factory.md`. Do not implement product features. Dispatch per BOARD.”
 2. **Status** — cron 4 hours, **no repository**. Prompt: summarize open factory PRs and Parked tickets; do not edit code. Memories allowed for last-report pointer only.
 3. **Fable critic** — draft PR opened / PR pushed, only if coordinator did not already attach a critic. Prompt: load `gauntlet-critic` skill; readonly.
 4. **Do not** add a cron that keeps building. **Do not** add deploy-on-green.
@@ -317,6 +322,8 @@ founder actions (Linear MCP, Bugbot, integration branch, secrets).
 If Linear is missing, draft receipts under factory/ and say so.
 Stop after the dry-run report unless the founder expands scope.
 ```
+
+That prompt is the post-harness coordinator dry-run. The harness-implementation prompt (build the tree, then report) is historical; do not run it again unless files are missing.
 
 ### Founder actions this session cannot do
 
