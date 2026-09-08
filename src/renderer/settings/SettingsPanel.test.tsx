@@ -269,3 +269,126 @@ it('shows missing usage without inventing a quota, then renders the supplied rem
   expect(screen.getByText(/No AI allowance remaining/)).toBeVisible();
   expect(screen.getByRole('button', { name: 'Back to work' })).toBeVisible();
 });
+
+it('shows checking without asserting signed-out or offering a session action before mount refresh (Fable P3)', async () => {
+  const auth = bridge();
+  let resolve!: (state: DesktopAccountState) => void;
+  auth.methods.accountStatus.mockReturnValue(
+    new Promise((yes) => {
+      resolve = yes;
+    }),
+  );
+  render(
+    <SettingsPanel
+      accountBridge={auth.methods}
+      appearance={appearance}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Checking your account…')).toBeVisible();
+  expect(screen.queryByText('You’re signed out')).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: /sign in|sign out|cancel sign-in/i }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Back to work' })).toBeVisible();
+  await act(async () => resolve(signedIn));
+  expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  expect(
+    screen.queryByText('Sign in to use AI guidance.'),
+  ).not.toBeInTheDocument();
+  const time = document.querySelector('time')!;
+  const date = new Date(time.dateTime);
+  const zone = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts(date)
+    .find((part) => part.type === 'timeZoneName')!.value;
+  expect(time).toHaveTextContent(zone);
+  expect(time).toHaveTextContent(String(date.getFullYear()));
+});
+
+it('announces a pending cancel, accepts a completed sign-in and offers sign-out', async () => {
+  const auth = bridge();
+  let resolve!: (state: DesktopAccountState) => void;
+  auth.methods.cancelSignIn.mockReturnValue(
+    new Promise((yes) => {
+      resolve = yes;
+    }),
+  );
+  render(
+    <SettingsPanel
+      accountBridge={auth.methods}
+      appearance={appearance}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+  const cancel = await screen.findByRole('button', { name: 'Cancel sign-in' });
+  cancel.focus();
+  fireEvent.click(cancel);
+  expect(screen.getAllByRole('status')[0]).toHaveTextContent(
+    'Cancelling sign-in…',
+  );
+  expect(screen.queryByText('You’re signed out')).not.toBeInTheDocument();
+  act(() => auth.emit(signedIn));
+  expect(
+    screen.queryByRole('button', { name: 'Sign out' }),
+  ).not.toBeInTheDocument();
+  await act(async () => resolve(signedIn));
+  const signOut = screen.getByRole('button', { name: 'Sign out' });
+  expect(signOut).toHaveFocus();
+  expect(screen.getAllByRole('status')[0]).toHaveTextContent(
+    'Sign-in finished before it could be cancelled. You can sign out below.',
+  );
+  fireEvent.click(signOut);
+  await act(async () => {});
+  expect(auth.methods.signOut).toHaveBeenCalledTimes(1);
+});
+
+it('does not claim sign-out succeeded when the bridge rejects', async () => {
+  const auth = bridge(signedIn);
+  auth.methods.signOut.mockRejectedValue(new Error('PRIVATE'));
+  render(
+    <SettingsPanel
+      accountBridge={auth.methods}
+      appearance={appearance}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+  expect(screen.getAllByRole('status')[0]).toHaveTextContent('Signing out…');
+  expect(screen.queryByText('You’re signed out')).not.toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      'Sign-out could not be confirmed. Retry connection to check your account.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/signed out/i)).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Retry connection' }),
+  ).toBeVisible();
+});
+
+it('retries a failed subscription through the visible retry control', async () => {
+  const auth = bridge(signedIn);
+  auth.methods.onAccountState.mockImplementationOnce(() => {
+    throw new Error('synthetic');
+  });
+  render(
+    <SettingsPanel
+      accountBridge={auth.methods}
+      appearance={appearance}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
+  expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
+  expect(auth.methods.onAccountState).toHaveBeenCalledTimes(2);
+  act(() =>
+    auth.emit({
+      ...signedOut,
+      session: 'expired',
+      message: 'Your session has expired.',
+    }),
+  );
+  expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  expect(screen.getByText('Sign in to use AI guidance.')).toBeVisible();
+});

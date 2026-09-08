@@ -2,6 +2,10 @@ import type { DesktopAccountState } from '../../contracts/desktop-auth';
 import type { SettingsAccountBridge } from './types';
 
 type AccountOperation = 'refresh' | 'sign-in' | 'cancel' | 'sign-out';
+interface OperationVersion {
+  readonly operation: number;
+  readonly revision: number;
+}
 export interface AccountSnapshot {
   readonly state: DesktopAccountState;
   readonly pending: AccountOperation | null;
@@ -19,12 +23,16 @@ const failureMessages: Record<AccountOperation, string> = {
     'Could not refresh your account. Try again when you have a connection.',
   'sign-in': 'Could not start sign-in. Please try again.',
   cancel:
-    'Sign-in was cancelled here, but could not be confirmed. Please try again.',
+    'Cancellation could not be confirmed. Retry connection to check your account.',
   'sign-out':
-    'Signed out here. Sign-out on this device and other sessions could not be confirmed. Please try again when connected.',
+    'Sign-out could not be confirmed. Retry connection to check your account.',
 };
 const unconfirmedSignOut =
   'Signed out on this device. Sign-out of the online session could not be confirmed.';
+
+function unavailable(message: string): DesktopAccountState {
+  return { session: 'unavailable', account: null, quota: null, message };
+}
 
 export interface AccountSession {
   getSnapshot(): AccountSnapshot;
@@ -50,7 +58,7 @@ export function createAccountSession(
   let operation = 0;
   let connection = 0;
   let revision = 0;
-  let rejectLateSignIn = false;
+  let unsubscribe: (() => void) | null = null;
 
   function publish(next: AccountSnapshot): void {
     snapshot = next;
@@ -68,67 +76,106 @@ export function createAccountSession(
 
   function receive(state: DesktopAccountState): void {
     if (!active) return;
+    const isEndingSession =
+      snapshot.pending === 'sign-out' || snapshot.pending === 'cancel';
     const isLateSignIn =
-      rejectLateSignIn &&
+      isEndingSession &&
       (state.session === 'signed-in' || state.session === 'signing-in');
     if (isLateSignIn) return;
     revision++;
     accept(state);
-    const isEndingSession =
-      snapshot.pending === 'sign-out' || snapshot.pending === 'cancel';
     if (!isEndingSession) publish({ ...snapshot, pending: null });
   }
 
-  async function run(kind: AccountOperation): Promise<void> {
-    const currentOperation = ++operation;
-    const currentRevision = ++revision;
-    publish({ ...snapshot, pending: kind });
-    const isCurrent = (): boolean => active && operation === currentOperation;
-    const hasNoNewerEvent = (): boolean =>
-      isCurrent() && revision === currentRevision;
-    try {
-      if (kind === 'sign-out') {
-        const result = await bridge.signOut();
-        if (isCurrent() && snapshot.state.session === 'signed-out') {
-          accept({
-            ...signedOut,
+  function isCurrent(version: OperationVersion): boolean {
+    return active && operation === version.operation;
+  }
+
+  function hasNoNewerEvent(version: OperationVersion): boolean {
+    return isCurrent(version) && revision === version.revision;
+  }
+
+  async function completeSignOut(version: OperationVersion): Promise<void> {
+    const result = await bridge.signOut();
+    if (!isCurrent(version) || snapshot.state.session !== 'signed-out') return;
+    const newerMessage =
+      revision !== version.revision ? snapshot.state.message : null;
+    const revocationMessage =
+      result.remoteRevocation === 'unconfirmed'
+        ? unconfirmedSignOut
+        : 'Signed out on this device.';
+    accept({
+      ...signedOut,
+      message: newerMessage ?? result.state.message ?? revocationMessage,
+    });
+  }
+
+  async function completeStateOperation(
+    kind: Exclude<AccountOperation, 'sign-out'>,
+    version: OperationVersion,
+  ): Promise<void> {
+    const methods = {
+      refresh: () => bridge.accountStatus(),
+      'sign-in': () => bridge.signIn(),
+      cancel: () => bridge.cancelSignIn(),
+    };
+    const state = await methods[kind]();
+    if (!hasNoNewerEvent(version)) return;
+    const signInWonCancellation =
+      kind === 'cancel' && state.session === 'signed-in';
+    accept(
+      signInWonCancellation
+        ? {
+            ...state,
             message:
-              (revision !== currentRevision ? snapshot.state.message : null) ??
-              result.state.message ??
-              (result.remoteRevocation === 'unconfirmed'
-                ? unconfirmedSignOut
-                : 'Signed out on this device.'),
-          });
-        }
-      } else {
-        const methods = {
-          refresh: () => bridge.accountStatus(),
-          'sign-in': () => bridge.signIn(),
-          cancel: () => bridge.cancelSignIn(),
-        };
-        const state = await methods[kind]();
-        if (hasNoNewerEvent()) {
-          const isCancelledIdentity =
-            kind === 'cancel' &&
-            (state.session === 'signed-in' || state.session === 'signing-in');
-          if (!isCancelledIdentity) accept(state);
-        }
-      }
+              'Sign-in finished before it could be cancelled. You can sign out below.',
+          }
+        : state,
+    );
+  }
+
+  function reportOperationFailure(
+    kind: AccountOperation,
+    version: OperationVersion,
+  ): void {
+    const endingSessionFailed =
+      isCurrent(version) &&
+      (kind === 'sign-out' || kind === 'cancel') &&
+      snapshot.state.session === 'signed-out';
+    if (hasNoNewerEvent(version) || endingSessionFailed) {
+      accept(unavailable(failureMessages[kind]));
+    }
+  }
+
+  async function run(kind: AccountOperation): Promise<void> {
+    const version = { operation: ++operation, revision: ++revision };
+    publish({ ...snapshot, pending: kind });
+    try {
+      if (kind === 'sign-out') await completeSignOut(version);
+      else await completeStateOperation(kind, version);
     } catch {
-      const endingSessionFailed =
-        isCurrent() &&
-        (kind === 'sign-out' || kind === 'cancel') &&
-        snapshot.state.session === 'signed-out';
-      if (hasNoNewerEvent() || endingSessionFailed) {
-        accept({
-          session: 'unavailable',
-          account: null,
-          quota: null,
-          message: failureMessages[kind],
-        });
-      }
+      reportOperationFailure(kind, version);
     } finally {
-      if (isCurrent()) publish({ ...snapshot, pending: null });
+      if (isCurrent(version)) publish({ ...snapshot, pending: null });
+    }
+  }
+
+  function subscribeToAccount(): boolean {
+    if (unsubscribe) return true;
+    const currentConnection = ++connection;
+    try {
+      unsubscribe = bridge.onAccountState((state) => {
+        if (connection === currentConnection) receive(state);
+      });
+      return true;
+    } catch {
+      accept(
+        unavailable(
+          'Account updates are unavailable. Retry connection to try again.',
+        ),
+      );
+      publish({ ...snapshot, pending: null });
+      return false;
     }
   }
 
@@ -142,28 +189,14 @@ export function createAccountSession(
     },
     connect(): () => void {
       active = true;
-      const currentConnection = ++connection;
-      let unsubscribe = (): void => {};
-      try {
-        unsubscribe = bridge.onAccountState((state) => {
-          if (connection === currentConnection) receive(state);
-        });
-        void run('refresh');
-      } catch {
-        accept({
-          session: 'unavailable',
-          account: null,
-          quota: null,
-          message:
-            'Account updates are unavailable. Reopen Settings to try again.',
-        });
-        publish({ ...snapshot, pending: null });
-      }
+      if (subscribeToAccount()) void run('refresh');
       return () => {
         active = false;
         operation++;
         revision++;
-        unsubscribe();
+        connection++;
+        unsubscribe?.();
+        unsubscribe = null;
       };
     },
     refresh(): void {
@@ -173,8 +206,7 @@ export function createAccountSession(
         snapshot.state.session === 'signing-in'
       )
         return;
-      rejectLateSignIn = false;
-      void run('refresh');
+      if (subscribeToAccount()) void run('refresh');
     },
     signIn(): void {
       const cannotStart =
@@ -183,7 +215,7 @@ export function createAccountSession(
         snapshot.state.session === 'signed-in' ||
         snapshot.state.session === 'signing-in';
       if (cannotStart) return;
-      rejectLateSignIn = false;
+      if (!subscribeToAccount()) return;
       accept({
         session: 'signing-in',
         account: null,
@@ -199,17 +231,15 @@ export function createAccountSession(
         snapshot.pending === 'cancel'
       )
         return;
-      rejectLateSignIn = true;
       accept(signedOut);
       void run('cancel');
     },
     signOut(): void {
       if (!active || snapshot.pending || snapshot.state.session !== 'signed-in')
         return;
-      rejectLateSignIn = true;
       accept({
         ...signedOut,
-        message: 'Signed out here. Confirming sign-out…',
+        message: 'Signing out…',
       });
       void run('sign-out');
     },

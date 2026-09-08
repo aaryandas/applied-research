@@ -16,7 +16,13 @@ export function formatMicrousd(value: number): string {
 }
 
 export function formatQuotaMonth(month: string): string {
-  return `${new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`))} (UTC)`;
+  const firstDay = new Date(`${month}-01T00:00:00Z`);
+  const label = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(firstDay);
+  return `${label} (UTC)`;
 }
 
 export function accountInitials(name: string): string {
