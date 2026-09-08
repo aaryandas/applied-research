@@ -13,7 +13,8 @@ Frozen revision: `<sha>` · Base: `<sha>`
 ## Verification
 
 - [ ] `npm run check` on the frozen revision
-- [ ] Electron suite on macOS (`npm run test:e2e`) — link the CI run or the recorded video
+- [ ] Electron suite green on macOS CI — link the run
+- [ ] Cloud verifier screen recording attached to the ticket
 - [ ] Sonar: zero new violations on this diff, or list issue keys with a false-positive reason for the founder
 - [ ] Independent review comment present (Claude action or named critic) with PASS
 - [ ] Known limits stated below

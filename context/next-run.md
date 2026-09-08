@@ -18,7 +18,7 @@ No terminal-screen coordination. Nothing is dispatched by typing into another ag
 
 1. **Todo → In Development** when the implementer opens a draft PR labeled `lane:<name>` (Linear GitHub integration flips it).
 2. **In Development → In Testing** when the implementer marks the PR ready. The PR body carries the frozen revision, the local check and e2e results, and the Sonar delta.
-3. **In Testing → In Review** by the cloud verifier after it attaches the video and Bugbot results. Failures go back to In Development with the failing spec named.
+3. **In Testing → In Review** by the cloud verifier after it attaches its screen recording and pass/fail list. Failures go back to In Development with the failing criterion named.
 4. **In Review → Done** by the coordinator after the independent critic's PASS and a green merge-queue run.
 
 Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and a line in the decisions issue if the founder must answer.
@@ -33,7 +33,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and
 - `Lane guard`.
 - Independent review comment with PASS.
 - Sonar: zero new violations on the diff. Run `npm run sonar:scan:native` from the PR worktree with `SONAR_HOST_URL=http://127.0.0.1:9000` and `SONAR_TOKEN` in the environment; the Docker scanner cannot reach the server from a second worktree. False positives are listed by issue key in the PR for the founder, never suppressed.
-- Video evidence comes from the cloud verifier's own screen recording of the Electron run, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
+- Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
 
 ## Traps fixed in tooling
 
@@ -53,19 +53,20 @@ Run these before any lane starts. Tickets are in `.github/next-run-tickets.json`
 
 Local concurrency: at most three implementers on the laptop. Close a Superset terminal the moment its PR is open. Stop SonarQube (`npm run sonar:stop`) when no scan is queued.
 
-## Cloud verification prompt
+## Cloud verification
 
-Paste into the Cursor automation. Replace nothing; the ticket supplies the values.
+The cloud verifier does not run Playwright. CI on macOS owns the automated suite. The verifier launches the real app on its cloud desktop, walks the ticket's acceptance journey by hand, and its built-in screen recording is the evidence attached to the ticket.
+
+Paste into the Cursor automation; the ticket supplies the values.
 
 ```text
-You verify one frozen revision for the Applied Research desktop app.
-Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}. Lane: {{pr.label:lane}}.
-1. Check out exactly that revision. Run `npm ci`, then `npm run check`.
-2. Run the Electron suite: `APPLIED_RESEARCH_SOFTWARE_GL=1 xvfb-run --auto-servernum npm run test:e2e`. Record the run with your own screen recording; that recording is the evidence.
-3. Run `npm run package` and `xvfb-run --auto-servernum npm run test:packaged`.
-4. Attach your recording of the run and the pass/fail list to the ticket. Name the exact revision in the comment.
-5. If everything named in the ticket's acceptance passes, move the ticket to In Review. Otherwise move it to In Development with the failing spec and the first error line.
-Do not edit source, tests, thresholds, or Sonar configuration. Do not use any provider key; the synthetic backend in the specs is sufficient.
+You verify one frozen revision of the Applied Research desktop app by using it, not by running its test suite.
+Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}.
+1. Check out exactly that revision. `npm ci`, then `npm run native:electron`, then `npm run dev` to launch the app on this desktop.
+2. Start screen recording. Walk every acceptance criterion listed on the ticket as a user would: enter a topic on Opening, use the sidebar, read, save notes, open Canvas, change a setting, quit and relaunch to confirm what persisted. Try the empty, error and cancel cases the ticket names.
+3. Stop recording. Attach the recording and a short pass/fail list per criterion to the ticket, naming the exact revision.
+4. If every criterion passes, move the ticket to In Review. Otherwise move it to In Development with the failing criterion and what you saw.
+Do not edit source, tests, or configuration. Do not use any provider key; sign-in flows that need a real account stop at the browser handoff and are reported as such.
 ```
 
 ## Worker prompt shape

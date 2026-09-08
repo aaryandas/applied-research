@@ -18,7 +18,6 @@ import { join } from 'node:path';
 import {
   closeTestApplication,
   useElectronCloseHandling,
-  electronLaunchArgs,
 } from './electron-lifecycle';
 
 const evidence = process.env.AR24_EVIDENCE_DIR;
@@ -26,11 +25,10 @@ async function launchExplanationApplication(
   directory: string,
 ): Promise<ElectronApplication> {
   const requestedExecutablePath = process.env.ELECTRON_EXECUTABLE_PATH;
-  const extraArgs = electronLaunchArgs();
   const application = await electron.launch({
     ...(requestedExecutablePath
-      ? { executablePath: requestedExecutablePath, args: extraArgs }
-      : { args: ['.', ...extraArgs] }),
+      ? { executablePath: requestedExecutablePath, args: [] }
+      : { args: ['.'] }),
     env: {
       ...process.env,
       APPLIED_RESEARCH_DATA_DIR: directory,

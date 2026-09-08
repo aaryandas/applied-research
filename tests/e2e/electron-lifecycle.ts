@@ -17,19 +17,3 @@ export async function closeTestApplication(
   });
   await application.close();
 }
-
-/**
- * Extra Chromium switches for headless Linux verifiers (xvfb, no GPU):
- * set APPLIED_RESEARCH_SOFTWARE_GL=1 so WebGL scenes render in software.
- * Video evidence is recorded by the cloud verifier, not by Playwright.
- */
-export function electronLaunchArgs(): string[] {
-  return process.env.APPLIED_RESEARCH_SOFTWARE_GL === '1'
-    ? [
-        '--use-gl=angle',
-        '--use-angle=swiftshader',
-        '--enable-unsafe-swiftshader',
-        '--ignore-gpu-blocklist',
-      ]
-    : [];
-}
