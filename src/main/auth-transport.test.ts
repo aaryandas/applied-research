@@ -39,6 +39,78 @@ describe('backend account transport', () => {
     ).toThrow('invalid');
   });
 
+  it('decodes each exact unauthenticated and unavailable outcome', () => {
+    expect(
+      decodeAccountResponse({
+        outcome: 'unauthenticated',
+        requestId: 'request-1',
+        message: 'Authentication is required.',
+      }),
+    ).toEqual({
+      outcome: 'unauthenticated',
+      requestId: 'request-1',
+      message: 'Authentication is required.',
+    });
+    for (const accounting of [
+      'none',
+      'released',
+      'charged',
+      'reservation-retained',
+    ] as const) {
+      expect(
+        decodeAccountResponse({
+          outcome: 'unavailable',
+          requestId: null,
+          message: 'Temporarily unavailable.',
+          retryable: false,
+          accounting,
+        }),
+      ).toMatchObject({ outcome: 'unavailable', accounting });
+    }
+    expect(() =>
+      decodeAccountResponse({
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: 'yes',
+        accounting: 'none',
+      }),
+    ).toThrow('invalid');
+    expect(() =>
+      decodeAccountResponse({
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+        accounting: 'invented',
+      }),
+    ).toThrow('invalid');
+  });
+
+  it('rejects malformed account and quota scalar fields', () => {
+    for (const value of [null, [], 'not-an-object']) {
+      expect(() => decodeAccountResponse(value)).toThrow('invalid');
+    }
+    expect(() =>
+      decodeAccountResponse({
+        ...validAccountResponse,
+        account: {
+          ...validAccountResponse.account,
+          image: 'https://image.test',
+        },
+        quota: { ...validAccountResponse.quota, month: '2026-13' },
+      }),
+    ).toThrow('invalid');
+    for (const limitMicrousd of [-1, Number.MAX_SAFE_INTEGER + 1, '20']) {
+      expect(() =>
+        decodeAccountResponse({
+          ...validAccountResponse,
+          quota: { ...validAccountResponse.quota, limitMicrousd },
+        }),
+      ).toThrow('invalid');
+    }
+  });
+
   it('uses only the fixed origin, account route, cookie and desktop origin', async () => {
     const request = vi.fn<typeof fetch>(async () =>
       Response.json(validAccountResponse),
@@ -82,6 +154,59 @@ describe('backend account transport', () => {
       transport.account('cookie', new AbortController().signal),
     ).rejects.toThrow('too large');
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a declared oversized body and rejects an empty body', async () => {
+    const cancel = vi.fn();
+    const declared = makeBackendAccountTransport(
+      async () =>
+        new Response(new ReadableStream<Uint8Array>({ cancel }), {
+          headers: { 'content-length': String(64 * 1024 + 1) },
+        }),
+    );
+    await expect(
+      declared.account('cookie', new AbortController().signal),
+    ).rejects.toThrow('too large');
+    expect(cancel).toHaveBeenCalledOnce();
+
+    const empty = makeBackendAccountTransport(
+      async () => new Response(null, { status: 200 }),
+    );
+    await expect(
+      empty.account('cookie', new AbortController().signal),
+    ).rejects.toThrow('empty');
+  });
+
+  it('accepts status-matched unauthenticated and unavailable responses', async () => {
+    const unauthenticated = makeBackendAccountTransport(async () =>
+      Response.json(
+        {
+          outcome: 'unauthenticated',
+          requestId: null,
+          message: 'Authentication is required.',
+        },
+        { status: 401 },
+      ),
+    );
+    await expect(
+      unauthenticated.account('cookie', new AbortController().signal),
+    ).resolves.toMatchObject({ outcome: 'unauthenticated' });
+
+    const unavailable = makeBackendAccountTransport(async () =>
+      Response.json(
+        {
+          outcome: 'unavailable',
+          requestId: 'request-1',
+          message: 'Temporarily unavailable.',
+          retryable: true,
+          accounting: 'none',
+        },
+        { status: 503 },
+      ),
+    );
+    await expect(
+      unavailable.account('cookie', new AbortController().signal),
+    ).resolves.toMatchObject({ outcome: 'unavailable' });
   });
 
   it('rejects redirects and malformed remote JSON', async () => {

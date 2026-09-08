@@ -30,11 +30,16 @@ const successAccount: AccountResponse = {
   },
 };
 
-function callback(state = STATE): string {
-  const token = Buffer.from(
-    JSON.stringify({ state, identifier: 'synthetic-authorization-code' }),
-  ).toString('base64url');
+function callbackPayload(payload: unknown): string {
+  const token = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${DESKTOP_AUTH_CALLBACK}#token=${token}`;
+}
+
+function callback(state = STATE): string {
+  return callbackPayload({
+    state,
+    identifier: 'synthetic-authorization-code',
+  });
 }
 
 function temporaryStoragePath(): string {
@@ -46,7 +51,9 @@ function temporaryStoragePath(): string {
 interface HarnessOverrides {
   readonly account?: BackendAccountTransport['account'];
   readonly authenticate?: DesktopAuthSdk['authenticate'];
+  readonly encryption?: () => boolean;
   readonly encryptionUsable?: boolean;
+  readonly getCookie?: DesktopAuthSdk['getCookie'];
   readonly getSession?: DesktopAuthSdk['getSession'];
   readonly remoteSignOutTimeoutMs?: number;
   readonly requestGithubAuth?: DesktopAuthSdk['requestGithubAuth'];
@@ -79,9 +86,10 @@ function harness(overrides: HarnessOverrides = {}) {
       storage.hasPersistedSession() ? 'present' : 'missing',
     requestGithubAuth: vi.fn(async () => registry.add(STATE)),
     setupMain: vi.fn(),
-    signOut: async () => 'success',
+    signOut: vi.fn<DesktopAuthSdk['signOut']>(async () => 'success'),
   };
   if (overrides.authenticate) sdk.authenticate = overrides.authenticate;
+  if (overrides.getCookie) sdk.getCookie = overrides.getCookie;
   if (overrides.getSession) sdk.getSession = overrides.getSession;
   if (overrides.requestGithubAuth) {
     sdk.requestGithubAuth = vi.fn(overrides.requestGithubAuth);
@@ -95,7 +103,10 @@ function harness(overrides: HarnessOverrides = {}) {
     storage,
     accountTransport,
     oauthStates: registry,
-    encryption: { isUsable: () => overrides.encryptionUsable ?? true },
+    encryption: {
+      isUsable:
+        overrides.encryption ?? (() => overrides.encryptionUsable ?? true),
+    },
     attemptTimeoutMs: 20,
     remoteSignOutTimeoutMs: overrides.remoteSignOutTimeoutMs ?? 20,
   });
@@ -147,6 +158,43 @@ describe('desktop auth controller', () => {
     ).resolves.toBe(false);
   });
 
+  it('strictly decodes callback URLs and accepts well-formed astral text', async () => {
+    const { controller } = harness();
+    await controller.signIn();
+    const malformed = [
+      'not a URL',
+      'https://auth/callback#token=abc',
+      'com.aaryandas.appliedresearch://wrong/callback#token=abc',
+      'com.aaryandas.appliedresearch://auth/wrong#token=abc',
+      `${DESKTOP_AUTH_CALLBACK}?unexpected=1#token=abc`,
+      DESKTOP_AUTH_CALLBACK,
+      `${DESKTOP_AUTH_CALLBACK}#token=%`,
+      `${DESKTOP_AUTH_CALLBACK}#token=${'a'.repeat(4_097)}`,
+      'com.aaryandas.appliedresearch:' + 'x'.repeat(8_193),
+      callbackPayload(null),
+      callbackPayload([]),
+      callbackPayload({
+        state: STATE,
+        identifier: 'code',
+        extra: 'rejected',
+      }),
+      callbackPayload({ state: 'short', identifier: 'code' }),
+      callbackPayload({ state: STATE, identifier: '' }),
+      callbackPayload({ state: STATE, identifier: 'x'.repeat(513) }),
+      callbackPayload({ state: STATE, identifier: 'code\u0000' }),
+    ];
+    for (const url of malformed) {
+      await expect(controller.handleCallback(url)).resolves.toBe(false);
+    }
+
+    await expect(
+      controller.handleCallback(
+        callbackPayload({ state: STATE, identifier: 'code-🧪' }),
+      ),
+    ).resolves.toBe(true);
+    expect(controller.state().session).toBe('signed-in');
+  });
+
   it('cancels a delayed browser-open attempt and never adopts its state', async () => {
     let finishOpening: (() => void) | undefined;
     const { controller, registry } = harness({
@@ -171,6 +219,63 @@ describe('desktop auth controller', () => {
     await expect(controller.handleCallback(callback())).resolves.toBe(false);
   });
 
+  it('queues only one matching callback while the system browser is opening', async () => {
+    let finishOpening: (() => void) | undefined;
+    const setup = harness({
+      requestGithubAuth: () => {
+        setup.registry.add(STATE);
+        return new Promise<void>((resolve) => {
+          finishOpening = resolve;
+        });
+      },
+    });
+    const signingIn = setup.controller.signIn();
+    await expect(setup.controller.handleCallback(callback())).resolves.toBe(
+      true,
+    );
+    await expect(setup.controller.handleCallback(callback())).resolves.toBe(
+      false,
+    );
+    finishOpening?.();
+    await expect(signingIn).resolves.toMatchObject({ session: 'signed-in' });
+  });
+
+  it('fails closed when browser launch or SDK state initialization fails', async () => {
+    const browserFailure = harness({
+      requestGithubAuth: async () => {
+        throw new Error('synthetic browser failure');
+      },
+    });
+    await expect(browserFailure.controller.signIn()).resolves.toMatchObject({
+      session: 'unavailable',
+    });
+
+    const noState = harness({ requestGithubAuth: async () => {} });
+    await expect(noState.controller.signIn()).resolves.toMatchObject({
+      session: 'unavailable',
+    });
+
+    const duplicateState = harness({
+      requestGithubAuth: async () => {
+        duplicateState.registry.add(STATE);
+        duplicateState.registry.add(OTHER_STATE);
+      },
+    });
+    await expect(duplicateState.controller.signIn()).resolves.toMatchObject({
+      session: 'unavailable',
+    });
+  });
+
+  it('disables new sign-in when protocol registration failed', async () => {
+    const setup = harness();
+    setup.controller.markProtocolUnavailable();
+    await expect(setup.controller.signIn()).resolves.toMatchObject({
+      session: 'unavailable',
+      message: expect.stringContaining('protocol'),
+    });
+    expect(setup.sdk.requestGithubAuth).not.toHaveBeenCalled();
+  });
+
   it('denies a late successful exchange from repopulating cleared credentials', async () => {
     let finishExchange: (() => void) | undefined;
     let storageForExchange: AuthStorage | null = null;
@@ -189,12 +294,35 @@ describe('desktop auth controller', () => {
     });
     storageForExchange = setup.storage;
     await setup.controller.signIn();
+    await expect(setup.controller.accountStatus()).resolves.toMatchObject({
+      session: 'signing-in',
+    });
     const exchange = setup.controller.handleCallback(callback());
     expect(setup.controller.cancelSignIn().session).toBe('signed-out');
     finishExchange?.();
     await expect(exchange).resolves.toBe(false);
     expect(setup.storage.hasPersistedSession()).toBe(false);
     expect(setup.controller.state().session).toBe('signed-out');
+  });
+
+  it('reports rejected and failed SDK exchanges without accepting a session', async () => {
+    const rejected = harness({ authenticate: async () => 'unavailable' });
+    await rejected.controller.signIn();
+    await expect(rejected.controller.handleCallback(callback())).resolves.toBe(
+      true,
+    );
+    expect(rejected.controller.state().session).toBe('unavailable');
+
+    const failed = harness({
+      authenticate: async () => {
+        throw new Error('synthetic exchange failure');
+      },
+    });
+    await failed.controller.signIn();
+    await expect(failed.controller.handleCallback(callback())).resolves.toBe(
+      true,
+    );
+    expect(failed.controller.state().session).toBe('unavailable');
   });
 
   it('renews with the SDK before fetching authoritative account and quota', async () => {
@@ -245,6 +373,68 @@ describe('desktop auth controller', () => {
     expect(offline.storage.hasPersistedSession()).toBe(true);
   });
 
+  it('uses authoritative account rejection and unavailability outcomes', async () => {
+    const unauthorized = harness({
+      account: async () => ({
+        outcome: 'unauthenticated',
+        requestId: null,
+        message: 'Authentication is required.',
+      }),
+    });
+    unauthorized.storage.acceptEpoch(0);
+    await unauthorized.storage.runAtEpoch(0, async () => {
+      unauthorized.storage.setItem(AUTH_STORAGE_KEYS[0], 'ciphertext');
+    });
+    await expect(
+      unauthorized.controller.accountStatus(),
+    ).resolves.toMatchObject({
+      session: 'expired',
+    });
+    expect(unauthorized.storage.hasPersistedSession()).toBe(false);
+
+    const unavailable = harness({
+      account: async () => ({
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+        accounting: 'none',
+      }),
+    });
+    unavailable.storage.acceptEpoch(0);
+    await unavailable.storage.runAtEpoch(0, async () => {
+      unavailable.storage.setItem(AUTH_STORAGE_KEYS[0], 'ciphertext');
+    });
+    await expect(unavailable.controller.accountStatus()).resolves.toMatchObject(
+      {
+        session: 'unavailable',
+      },
+    );
+    expect(unavailable.storage.hasPersistedSession()).toBe(true);
+  });
+
+  it('treats a present SDK session without a cookie as absent', async () => {
+    const expired = harness({
+      getCookie: () => '',
+      getSession: async () => 'present',
+    });
+    expired.storage.acceptEpoch(0);
+    await expired.storage.runAtEpoch(0, async () => {
+      expired.storage.setItem(AUTH_STORAGE_KEYS[0], 'ciphertext');
+    });
+    await expect(expired.controller.accountStatus()).resolves.toMatchObject({
+      session: 'expired',
+    });
+
+    const signedOut = harness({
+      getCookie: () => '',
+      getSession: async () => 'present',
+    });
+    await expect(signedOut.controller.accountStatus()).resolves.toMatchObject({
+      session: 'signed-out',
+    });
+  });
+
   it('clears locally before bounded remote sign-out and blocks late writes', async () => {
     let observedCookie: string | null = null;
     const setup = harness({
@@ -275,6 +465,43 @@ describe('desktop auth controller', () => {
     expect(setup.storage.hasPersistedSession()).toBe(false);
   });
 
+  it('confirms remote revocation and avoids an empty remote sign-out', async () => {
+    const confirmed = harness();
+    confirmed.storage.acceptEpoch(0);
+    await confirmed.storage.runAtEpoch(0, async () => {
+      confirmed.storage.setItem(AUTH_STORAGE_KEYS[0], 'ciphertext');
+    });
+    await expect(confirmed.controller.signOut()).resolves.toMatchObject({
+      remoteRevocation: 'confirmed',
+      state: { session: 'signed-out' },
+    });
+
+    const emptySignOut = vi.fn<DesktopAuthSdk['signOut']>(
+      async () => 'success',
+    );
+    const empty = harness({ signOut: emptySignOut });
+    await expect(empty.controller.signOut()).resolves.toMatchObject({
+      remoteRevocation: 'confirmed',
+    });
+    expect(emptySignOut).not.toHaveBeenCalled();
+  });
+
+  it('reports unconfirmed revocation when stored ciphertext cannot be decrypted', async () => {
+    const setup = harness({ encryptionUsable: false });
+    setup.storage.acceptEpoch(0);
+    await setup.storage.runAtEpoch(0, async () => {
+      setup.storage.setItem(AUTH_STORAGE_KEYS[0], 'ciphertext');
+    });
+    await expect(setup.controller.signOut()).resolves.toMatchObject({
+      remoteRevocation: 'unconfirmed',
+      state: {
+        session: 'signed-out',
+        message: expect.stringContaining('could not be confirmed'),
+      },
+    });
+    expect(setup.sdk.signOut).not.toHaveBeenCalled();
+  });
+
   it('fails closed when OS encryption is unavailable', async () => {
     const { controller, sdk } = harness({ encryptionUsable: false });
     await expect(controller.signIn()).resolves.toMatchObject({
@@ -283,6 +510,37 @@ describe('desktop auth controller', () => {
       quota: null,
     });
     expect(sdk.requestGithubAuth).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the encryption availability check throws', async () => {
+    const setup = harness({
+      encryption: () => {
+        throw new Error('synthetic keychain failure');
+      },
+    });
+    await expect(setup.controller.accountStatus()).resolves.toMatchObject({
+      session: 'unavailable',
+    });
+  });
+
+  it('publishes public state and removes subscriptions', async () => {
+    const setup = harness();
+    const listener = vi.fn();
+    const unsubscribe = setup.controller.subscribe(listener);
+    expect(listener).toHaveBeenCalledWith({
+      session: 'signed-out',
+      account: null,
+      quota: null,
+      message: null,
+    });
+    await setup.controller.signIn();
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ session: 'signing-in' }),
+    );
+    unsubscribe();
+    setup.controller.cancelSignIn();
+    setup.controller.cancelSignIn();
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it('times out one pending attempt and finalizes it on dispose', async () => {

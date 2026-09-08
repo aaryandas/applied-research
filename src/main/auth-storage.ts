@@ -109,9 +109,6 @@ export function createAuthStorage(
     try {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const serialized = JSON.stringify(Object.fromEntries(values));
-      if (Buffer.byteLength(serialized, 'utf8') > MAX_STORAGE_FILE_BYTES) {
-        throw new RangeError('Secure session storage is too large.');
-      }
       writeFileSync(temporaryPath, serialized, {
         encoding: 'utf8',
         flag: 'wx',

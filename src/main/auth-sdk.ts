@@ -72,7 +72,7 @@ async function boundedResponse(response: Response): Promise<Response> {
   });
 }
 
-async function fetchWithElectronNet(
+export async function fetchWithElectronNet(
   input: string | URL | globalThis.Request,
   init?: RequestInit,
 ): Promise<Response> {

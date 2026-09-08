@@ -4,6 +4,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,40 @@ describe('auth storage', () => {
       }),
     ).rejects.toThrow('rejected');
     expect(reports).toHaveLength(2);
+  });
+
+  it('rejects malformed, unknown and oversized persisted records', () => {
+    for (const contents of [
+      'null',
+      '[]',
+      '{"unknown":"ciphertext"}',
+      '{"applied-research-auth.cookie":42}',
+      '{broken-json',
+    ]) {
+      const path = temporaryFile();
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, contents);
+      const storage = createAuthStorage(path);
+      expect(storage.getItem(AUTH_STORAGE_KEYS[0])).toBeNull();
+      expect(storage.failureCount).toBeGreaterThan(0);
+    }
+
+    const oversizedPath = temporaryFile();
+    mkdirSync(join(oversizedPath, '..'), { recursive: true });
+    writeFileSync(oversizedPath, 'x'.repeat(2 * 256 * 1024 + 1_025));
+    const oversized = createAuthStorage(oversizedPath);
+    expect(oversized.hasPersistedSession()).toBe(false);
+    expect(oversized.failureCount).toBe(1);
+  });
+
+  it('rejects non-string values even for allowlisted SDK keys', async () => {
+    const storage = createAuthStorage(temporaryFile());
+    storage.acceptEpoch(1);
+    await expect(
+      storage.runAtEpoch(1, async () => {
+        storage.setItem(AUTH_STORAGE_KEYS[0], 42);
+      }),
+    ).rejects.toThrow('rejected');
   });
 
   it('denies stale async writes and exposes a read-only revocation snapshot', async () => {

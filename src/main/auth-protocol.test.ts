@@ -79,6 +79,8 @@ describe('desktop auth protocol', () => {
     openUrl(event, DESKTOP_AUTH_CALLBACK);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(callback).toHaveBeenCalledWith(DESKTOP_AUTH_CALLBACK);
+    openUrl(event, 'com.aaryandas.appliedresearch:' + 'x'.repeat(8_193));
+    expect(callback).toHaveBeenCalledOnce();
 
     registration.dispose();
     expect(fake.listeners.has('open-url')).toBe(false);
@@ -99,6 +101,47 @@ describe('desktop auth protocol', () => {
         `com.aaryandas.appliedresearch:${'x'.repeat(8_193)}`,
       ]),
     ).toBeNull();
+  });
+
+  it('routes Windows/Linux second-instance callbacks and ignores oversized URLs', () => {
+    const fake = fakeApp('linux');
+    const callback = vi.fn();
+    const activate = vi.fn();
+    const registration = registerDesktopAuthProtocol({
+      app: fake.app,
+      argv: ['/app'],
+      defaultApp: false,
+      executablePath: '/app',
+      onActivate: activate,
+      onCallback: callback,
+      platform: fake.platform,
+    });
+    const secondInstance = fake.listeners.get('second-instance') as
+      ((event: Event, argv: string[]) => void) | undefined;
+    secondInstance?.({ preventDefault: vi.fn(), defaultPrevented: false }, [
+      DESKTOP_AUTH_CALLBACK,
+    ]);
+    expect(callback).toHaveBeenCalledWith(DESKTOP_AUTH_CALLBACK);
+    expect(activate).toHaveBeenCalledOnce();
+    registration.dispose();
+    expect(fake.listeners.has('second-instance')).toBe(false);
+  });
+
+  it('fails development registration without an entry script', () => {
+    const fake = fakeApp();
+    const report = vi.fn();
+    const registration = registerDesktopAuthProtocol({
+      app: fake.app,
+      argv: ['/Electron'],
+      defaultApp: true,
+      diagnostics: { report },
+      executablePath: '/Electron',
+      onActivate: vi.fn(),
+      onCallback: vi.fn(),
+      platform: fake.platform,
+    });
+    expect(registration.registered).toBe(false);
+    expect(report).toHaveBeenCalledWith('auth.protocol-registration-failed');
   });
 
   it('reports registration failure without accepting arbitrary URLs', () => {

@@ -12,7 +12,11 @@ import {
   shell,
 } from '../../tests/electron-mock';
 
-import { createDesktopAuthSdk, electronOauthStateRegistry } from './auth-sdk';
+import {
+  createDesktopAuthSdk,
+  electronOauthStateRegistry,
+  fetchWithElectronNet,
+} from './auth-sdk';
 import { AUTH_STORAGE_KEYS, createAuthStorage } from './auth-storage';
 
 const STATE = 'AbCdEfGhIjKlMn01';
@@ -166,6 +170,93 @@ describe('installed Better Auth Electron SDK adapter', () => {
     await expect(sdk.getSession(new AbortController().signal)).rejects.toThrow(
       'redirected',
     );
+  });
+
+  it('bounds declared response sizes and preserves bounded empty responses', async () => {
+    const cancel = vi.fn();
+    net.fetch.mockResolvedValueOnce(
+      new Response(new ReadableStream<Uint8Array>({ cancel }), {
+        headers: { 'content-length': String(256 * 1024 + 1) },
+      }),
+    );
+    await expect(
+      fetchWithElectronNet(
+        'https://api-production-e7aa.up.railway.app/api/auth/get-session',
+      ),
+    ).rejects.toThrow('too large');
+    expect(cancel).toHaveBeenCalledOnce();
+
+    net.fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(
+      fetchWithElectronNet(
+        new Request(
+          'https://api-production-e7aa.up.railway.app/api/auth/sign-out',
+        ),
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+  });
+
+  it('rejects non-authentication request targets before Electron dispatch', async () => {
+    await expect(
+      fetchWithElectronNet('https://untrusted.example/api/auth/get-session'),
+    ).rejects.toThrow('target');
+    await expect(
+      fetchWithElectronNet(
+        'https://api-production-e7aa.up.railway.app/v1/account',
+      ),
+    ).rejects.toThrow('target');
+    expect(net.fetch).not.toHaveBeenCalled();
+  });
+
+  it('maps SDK mutation and session errors to narrow outcomes', async () => {
+    const storage = createAuthStorage(temporaryStoragePath());
+    storage.acceptEpoch(1);
+    const sdk = createDesktopAuthSdk(storage);
+    Reflect.set(
+      globalThis,
+      SDK_OAUTH_STATE_REGISTRY,
+      new Map([[STATE, 'verifier']]),
+    );
+    net.fetch
+      .mockResolvedValueOnce(
+        Response.json({ message: 'Rejected.' }, { status: 400 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ message: 'Expired.' }, { status: 401 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ message: 'Unavailable.' }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(Response.json({ session: null, user: null }))
+      .mockResolvedValueOnce(
+        Response.json({ message: 'Unavailable.' }, { status: 503 }),
+      );
+    const token = Buffer.from(
+      JSON.stringify({ state: STATE, identifier: 'synthetic-code' }),
+    ).toString('base64url');
+
+    await expect(
+      storage.runAtEpoch(1, () =>
+        sdk.authenticate(token, new AbortController().signal),
+      ),
+    ).resolves.toBe('unavailable');
+    await expect(sdk.getSession(new AbortController().signal)).resolves.toBe(
+      'missing',
+    );
+    await expect(sdk.getSession(new AbortController().signal)).resolves.toBe(
+      'unavailable',
+    );
+    await expect(sdk.getSession(new AbortController().signal)).resolves.toBe(
+      'missing',
+    );
+    await expect(sdk.signOut(new AbortController().signal)).resolves.toBe(
+      'unavailable',
+    );
+  });
+
+  it('returns no SDK states when the installed registry is absent', () => {
+    Reflect.deleteProperty(globalThis, SDK_OAUTH_STATE_REGISTRY);
+    expect(electronOauthStateRegistry.states()).toEqual([]);
   });
 
   it('does not persist plaintext when encryption is unavailable', () => {
