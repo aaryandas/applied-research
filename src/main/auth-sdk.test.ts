@@ -18,6 +18,7 @@ import {
   fetchWithElectronNet,
 } from './auth-sdk';
 import { AUTH_STORAGE_KEYS, createAuthStorage } from './auth-storage';
+import { createDesktopAuthController } from './desktop-auth';
 
 const STATE = 'AbCdEfGhIjKlMn01';
 const SDK_OAUTH_STATE_REGISTRY = Symbol.for('better-auth:electron');
@@ -60,6 +61,92 @@ afterEach(() => {
 });
 
 describe('installed Better Auth Electron SDK adapter', () => {
+  it('retains the second verifier across cancellation and a stale callback', async () => {
+    const storage = createAuthStorage(temporaryStoragePath());
+    const sdk = createDesktopAuthSdk(storage);
+    const controller = createDesktopAuthController({
+      sdk,
+      storage,
+      oauthStates: electronOauthStateRegistry,
+      encryption: { isUsable: () => true },
+      accountTransport: {
+        account: async () => ({
+          outcome: 'success',
+          account: { id: 'account-1', name: 'Builder', image: null },
+          quota: {
+            month: '2026-09',
+            limitMicrousd: 20_000_000,
+            committedMicrousd: 0,
+            reservedMicrousd: 0,
+            remainingMicrousd: 20_000_000,
+          },
+        }),
+      },
+    });
+
+    await controller.signIn();
+    const firstUrl = new URL(String(shell.openExternal.mock.calls.at(-1)?.[0]));
+    const firstState = firstUrl.searchParams.get('state');
+    if (!firstState) throw new Error('First SDK state is absent.');
+    const firstToken = Buffer.from(
+      JSON.stringify({ state: firstState, identifier: 'stale-code' }),
+    ).toString('base64url');
+    controller.cancelSignIn();
+    await expect(
+      controller.handleCallback(
+        `com.aaryandas.appliedresearch://auth/callback#token=${firstToken}`,
+      ),
+    ).resolves.toBe(false);
+
+    await controller.signIn();
+    const secondUrl = new URL(
+      String(shell.openExternal.mock.calls.at(-1)?.[0]),
+    );
+    const secondState = secondUrl.searchParams.get('state');
+    if (!secondState) throw new Error('Second SDK state is absent.');
+    await expect(
+      controller.handleCallback(
+        `com.aaryandas.appliedresearch://auth/callback#token=${firstToken}`,
+      ),
+    ).resolves.toBe(false);
+    net.fetch
+      .mockResolvedValueOnce(
+        authResponse(
+          {
+            token: 'synthetic-token',
+            user: {
+              id: 'account-1',
+              name: 'Builder',
+              email: 'builder@example.invalid',
+              emailVerified: true,
+              createdAt: '2026-09-08T00:00:00.000Z',
+              updatedAt: '2026-09-08T00:00:00.000Z',
+            },
+          },
+          'better-auth.session_token=session-secret; Path=/; HttpOnly',
+        ),
+      )
+      .mockResolvedValueOnce(
+        authResponse({
+          user: { id: 'account-1', name: 'Builder' },
+          session: { id: 'session-1' },
+        }),
+      );
+    const secondToken = Buffer.from(
+      JSON.stringify({ state: secondState, identifier: 'current-code' }),
+    ).toString('base64url');
+
+    await expect(
+      controller.handleCallback(
+        `com.aaryandas.appliedresearch://auth/callback#token=${secondToken}`,
+      ),
+    ).resolves.toBe(true);
+    expect(net.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/electron/token'),
+      expect.any(Object),
+    );
+  });
+
   it('owns GitHub state/PKCE, exchanges the token and persists encrypted cookies', async () => {
     const storagePath = temporaryStoragePath();
     const storage = createAuthStorage(storagePath);

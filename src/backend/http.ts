@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import type { Effect } from 'effect';
 import type {
   AccountResponse,
@@ -21,6 +20,7 @@ import { parseLearningRequest, RequestValidationError } from './validation.js';
 
 export interface HttpDependencies {
   readonly auth: AuthService;
+  readonly electronAuthCallbackScript: Buffer;
   readonly learning: LearningService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
@@ -53,11 +53,6 @@ const ELECTRON_AUTH_CALLBACK_HTML = `<!doctype html>
     <script type="module" src="${ELECTRON_AUTH_CALLBACK_SCRIPT_PATH}"></script>
   </body>
 </html>`;
-
-const ELECTRON_AUTH_CALLBACK_SCRIPT = new URL(
-  '../public/electron-auth-callback.js',
-  import.meta.url,
-);
 
 function responseStatus(response: LearningResponse | AccountResponse): number {
   switch (response.outcome) {
@@ -317,8 +312,11 @@ export function createHttpHandler(
       url.pathname === ELECTRON_AUTH_CALLBACK_SCRIPT_PATH &&
       request.method === 'GET'
     ) {
-      const script = await readFile(ELECTRON_AUTH_CALLBACK_SCRIPT);
-      writeStatic(response, 'text/javascript; charset=utf-8', script);
+      writeStatic(
+        response,
+        'text/javascript; charset=utf-8',
+        dependencies.electronAuthCallbackScript,
+      );
       return;
     }
     if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {

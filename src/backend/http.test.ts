@@ -22,6 +22,10 @@ const quota = {
   reservedMicrousd: 0,
   remainingMicrousd: 20_000_000,
 };
+const electronAuthCallbackScript = Buffer.from(
+  '/* synthetic maintained proxy bundle */',
+  'utf8',
+);
 const validRequest: LearningRequest = {
   apiVersion: '2026-09-08',
   requestId: 'request-01',
@@ -62,6 +66,7 @@ function testDependencies() {
   };
   const dependencies: HttpDependencies = {
     auth,
+    electronAuthCallbackScript,
     learning,
     ready: async () => true,
     runEffect: (effect) => Effect.runPromise(effect),
@@ -122,6 +127,18 @@ describe('backend HTTP journeys', () => {
     );
     expect(body).not.toContain('<script>');
     expect(active.auth.handle).not.toHaveBeenCalled();
+
+    const script = await fetch(`${active.origin}/auth/electron/callback.js`);
+    expect(script.status).toBe(200);
+    expect(script.headers.get('content-type')).toBe(
+      'text/javascript; charset=utf-8',
+    );
+    expect(script.headers.get('content-security-policy')).toBe(
+      response.headers.get('content-security-policy'),
+    );
+    expect(Buffer.from(await script.arrayBuffer())).toEqual(
+      electronAuthCallbackScript,
+    );
   });
 
   it('uses the configured HTTPS origin only as the relative request parser base', async () => {

@@ -24,6 +24,7 @@ describe('managed backend runtime', () => {
     const backend = await startBackend(config, {
       host: '127.0.0.1',
       diagnostics: silentDiagnostics,
+      electronAuthCallbackScript: Buffer.from('synthetic proxy bundle'),
     });
     const origin = `http://127.0.0.1:${backend.port}`;
     expect(await (await fetch(`${origin}/health`)).json()).toEqual({

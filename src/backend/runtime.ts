@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { Context, Effect, Layer, ManagedRuntime } from 'effect';
 import type { Server } from 'node:http';
 import type { AuthService } from './auth.js';
@@ -34,7 +35,13 @@ export interface StartBackendOptions {
   readonly host?: string;
   readonly request?: typeof fetch;
   readonly diagnostics?: Diagnostics;
+  readonly electronAuthCallbackScript?: Buffer;
 }
+
+const ELECTRON_AUTH_CALLBACK_SCRIPT = new URL(
+  '../public/electron-auth-callback.js',
+  import.meta.url,
+);
 
 function makeBackendLayer(
   config: BackendConfig,
@@ -137,6 +144,9 @@ export async function startBackend(
   config: BackendConfig,
   options: StartBackendOptions = {},
 ): Promise<BackendHandle> {
+  const electronAuthCallbackScript =
+    options.electronAuthCallbackScript ??
+    (await readFile(ELECTRON_AUTH_CALLBACK_SCRIPT));
   const runtime = ManagedRuntime.make(
     makeBackendLayer(
       config,
@@ -149,6 +159,7 @@ export async function startBackend(
     const server = await startHttpServer(
       {
         auth: services.auth,
+        electronAuthCallbackScript,
         learning: services.learning,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
