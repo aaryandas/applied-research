@@ -53,7 +53,13 @@ flowchart LR
   validated IPC dispatch, the local SQLite workspace store, and Better Auth's
   Electron client/session transport. The provider key-file importer is retired;
   direct tutoring is disabled in packaged behavior and requires explicit
-  non-packaged development opt-in.
+  non-packaged development opt-in. Better Auth receives `getWindow: () => null`,
+  so its successful-authentication user payload is not sent on the SDK's raw
+  `better-auth:authenticated` channel. Version 1.7.3 can still send an SDK-owned
+  `better-auth:error` event to Electron's focused window after an internal fetch
+  error; preload exposes no listener for that channel, and sandboxing/context
+  isolation keep it outside the public bridge. Recheck and remove that coupling
+  when upgrading the SDK.
 - **Preload** exposes named workspace, public account/session, tutor and tool-view
   operations plus typed state subscriptions. It bundles to CommonJS for
   Electron's sandbox. No raw IPC, cookies/tokens, provider credentials, SQL or

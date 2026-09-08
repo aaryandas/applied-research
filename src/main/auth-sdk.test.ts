@@ -65,6 +65,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
     const storage = createAuthStorage(storagePath);
     storage.acceptEpoch(1);
     const sdk = createDesktopAuthSdk(storage);
+    sdk.setupMain();
 
     await storage.runAtEpoch(1, () => sdk.requestGithubAuth());
     expect(shell.openExternal).toHaveBeenCalledOnce();
@@ -139,7 +140,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
 
   it('keeps the SDK default bridges, protocol handler, CSP and image proxy disabled', () => {
     const sdk = createDesktopAuthSdk(createAuthStorage(temporaryStoragePath()));
-    sdk.setupMain(() => null);
+    sdk.setupMain();
 
     expect(ipcMain.handle).not.toHaveBeenCalled();
     expect(protocol.handle).not.toHaveBeenCalled();

@@ -53,7 +53,11 @@ global `Symbol.for('better-auth:electron')` registry. The desktop uses only that
 exact registry to delete cancelled/mismatched attempt state; SDK code still owns
 state generation, PKCE and token exchange. This compatibility wrapper has focused
 tests and should be removed when the package publishes a usable cancellation API
-or matching runtime export.
+or matching runtime export. The same upgrade checklist must re-verify the SDK's
+swallowed encrypted-storage write errors and its two raw IPC sends. Main supplies
+`getWindow: () => null` to suppress `better-auth:authenticated`; version 1.7.3's
+internal fetch-error path can still target the focused window with
+`better-auth:error`, but no preload listener exposes that SDK-owned channel.
 
 The provider key-file importer is retired: the app neither reads nor deletes nor
 uploads previously imported development credential files. Direct environment-key

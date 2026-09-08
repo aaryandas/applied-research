@@ -1,7 +1,7 @@
 import { electronClient } from '@better-auth/electron/client';
 import { createAuthClient } from 'better-auth/client';
 import type { BetterAuthClientPlugin } from 'better-auth/client';
-import { net, type BrowserWindow } from 'electron';
+import { net } from 'electron';
 import type { AuthStorage } from './auth-storage';
 import {
   DESKTOP_AUTH_API_ORIGIN,
@@ -22,7 +22,7 @@ export interface DesktopAuthSdk {
   getCookie(): string;
   getSession(signal: AbortSignal): Promise<SdkSessionResult>;
   requestGithubAuth(): Promise<void>;
-  setupMain(getWindow: () => BrowserWindow | null): void;
+  setupMain(): void;
   signOut(signal: AbortSignal): Promise<SdkMutationResult>;
 }
 
@@ -152,9 +152,9 @@ export function createDesktopAuthSdk(storage: AuthStorage): DesktopAuthSdk {
       return result.data?.user ? 'present' : 'missing';
     },
     requestGithubAuth: () => authClient.requestAuth({ provider: 'github' }),
-    setupMain(getWindow) {
+    setupMain() {
       authClient.setupMain({
-        getWindow,
+        getWindow: () => null,
         csp: false,
         bridges: false,
         scheme: false,

@@ -19,12 +19,24 @@ const REMOTE_SIGN_OUT_TIMEOUT_MS = 5_000;
 const MAX_CALLBACK_URL_CHARACTERS = 8_192;
 const MAX_CALLBACK_TOKEN_CHARACTERS = 4_096;
 const OAUTH_STATE_PATTERN = /^[A-Za-z0-9]{16}$/;
+const EXPIRED_MESSAGE =
+  'Your session expired. Sign in again to use remote learning.';
+const SERVICE_UNAVAILABLE_MESSAGE =
+  'Account service is temporarily unavailable.';
+const SIGN_IN_FAILED_MESSAGE = 'Sign-in could not be completed. Try again.';
 
 const SIGNED_OUT_STATE: DesktopAccountState = {
   session: 'signed-out',
   account: null,
   quota: null,
   message: null,
+};
+
+const EXPIRED_STATE: DesktopAccountState = {
+  session: 'expired',
+  account: null,
+  quota: null,
+  message: EXPIRED_MESSAGE,
 };
 
 interface PendingSignIn {
@@ -153,14 +165,9 @@ function stateFromAccountResponse(
         message: null,
       };
     case 'unauthenticated':
-      return {
-        session: 'expired',
-        account: null,
-        quota: null,
-        message: 'Your session expired. Sign in again to use remote learning.',
-      };
+      return EXPIRED_STATE;
     case 'unavailable':
-      return unavailable('Account service is temporarily unavailable.');
+      return unavailable(SERVICE_UNAVAILABLE_MESSAGE);
   }
 }
 
@@ -219,6 +226,26 @@ export function createDesktopAuthController(
     );
   };
 
+  const failExchange = (
+    attempt: PendingSignIn,
+    callback: ParsedCallback,
+    failuresBeforeExchange: number,
+    cause?: unknown,
+  ): boolean => {
+    options.oauthStates.delete(callback.state);
+    if (pending !== attempt || generation !== attempt.generation) return false;
+    pending = null;
+    if (cause === undefined) diagnostics.report('auth.exchange-failed');
+    else diagnostics.report('auth.exchange-failed', cause);
+    if (options.storage.failureCount !== failuresBeforeExchange) {
+      options.storage.clear();
+      storageUnavailable();
+    } else {
+      publish(unavailable(SIGN_IN_FAILED_MESSAGE));
+    }
+    return true;
+  };
+
   const refreshAccount = async (
     expectedGeneration: number,
   ): Promise<DesktopAccountState> => {
@@ -247,23 +274,11 @@ export function createDesktopAuthController(
       }
       if (session === 'unavailable') {
         diagnostics.report('auth.session-refresh-failed');
-        return publish(
-          unavailable('Account service is temporarily unavailable.'),
-        );
+        return publish(unavailable(SERVICE_UNAVAILABLE_MESSAGE));
       }
       if (session === 'missing') {
         if (!options.storage.clear()) return storageUnavailable();
-        return publish(
-          hadPersistedSession
-            ? {
-                session: 'expired',
-                account: null,
-                quota: null,
-                message:
-                  'Your session expired. Sign in again to use remote learning.',
-              }
-            : SIGNED_OUT_STATE,
-        );
+        return publish(hadPersistedSession ? EXPIRED_STATE : SIGNED_OUT_STATE);
       }
       const cookie = await options.storage.runAtEpoch(
         expectedGeneration,
@@ -272,17 +287,7 @@ export function createDesktopAuthController(
       if (expectedGeneration !== generation) return publicState;
       if (!cookie) {
         if (!options.storage.clear()) return storageUnavailable();
-        return publish(
-          hadPersistedSession
-            ? {
-                session: 'expired',
-                account: null,
-                quota: null,
-                message:
-                  'Your session expired. Sign in again to use remote learning.',
-              }
-            : SIGNED_OUT_STATE,
-        );
+        return publish(hadPersistedSession ? EXPIRED_STATE : SIGNED_OUT_STATE);
       }
       const response = await options.accountTransport.account(
         cookie,
@@ -297,9 +302,7 @@ export function createDesktopAuthController(
     } catch (cause) {
       if (expectedGeneration !== generation) return publicState;
       diagnostics.report('auth.session-refresh-failed', cause);
-      return publish(
-        unavailable('Account service is temporarily unavailable.'),
-      );
+      return publish(unavailable(SERVICE_UNAVAILABLE_MESSAGE));
     } finally {
       inFlight.delete(controller);
     }
@@ -317,38 +320,20 @@ export function createDesktopAuthController(
       const result = await options.storage.runAtEpoch(attempt.generation, () =>
         options.sdk.authenticate(callback.token, attempt.controller.signal),
       );
-      options.oauthStates.delete(callback.state);
-      if (pending !== attempt || generation !== attempt.generation)
-        return false;
-      pending = null;
       if (
         result !== 'success' ||
         options.storage.failureCount !== failuresBeforeExchange
       ) {
-        diagnostics.report('auth.exchange-failed');
-        if (options.storage.failureCount !== failuresBeforeExchange) {
-          options.storage.clear();
-          storageUnavailable();
-        } else {
-          publish(unavailable('Sign-in could not be completed. Try again.'));
-        }
-        return true;
+        return failExchange(attempt, callback, failuresBeforeExchange);
       }
-      await refreshAccount(attempt.generation);
-      return true;
-    } catch (cause) {
       options.oauthStates.delete(callback.state);
       if (pending !== attempt || generation !== attempt.generation)
         return false;
       pending = null;
-      diagnostics.report('auth.exchange-failed', cause);
-      if (options.storage.failureCount !== failuresBeforeExchange) {
-        options.storage.clear();
-        storageUnavailable();
-      } else {
-        publish(unavailable('Sign-in could not be completed. Try again.'));
-      }
+      await refreshAccount(attempt.generation);
       return true;
+    } catch (cause) {
+      return failExchange(attempt, callback, failuresBeforeExchange, cause);
     }
   };
 
@@ -407,6 +392,7 @@ export function createDesktopAuthController(
       );
     },
     async signIn() {
+      if (publicState.session === 'signed-in') return publicState;
       if (!protocolAvailable) return publicState;
       if (!encryptionIsUsable()) {
         options.storage.clear();

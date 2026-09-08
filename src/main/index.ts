@@ -85,7 +85,7 @@ const authController = createDesktopAuthController({
   },
   diagnostics: consoleDesktopAuthDiagnostics,
 });
-authSdk.setupMain(() => mainWindow);
+authSdk.setupMain();
 
 const focusMainWindow = (): void => {
   if (!mainWindow || mainWindow.isDestroyed()) return;

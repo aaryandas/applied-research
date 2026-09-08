@@ -33,9 +33,23 @@ function launch(directory: string): Promise<ElectronApplication> {
 }
 
 async function installSyntheticAuth(application: ElectronApplication) {
-  await application.evaluate(async ({ session, shell }) => {
+  await application.evaluate(async ({ BrowserWindow, session, shell }) => {
     Reflect.set(globalThis, 'ar12OpenedAuthUrls', []);
     Reflect.set(globalThis, 'ar12AuthRequestPaths', []);
+    Reflect.set(globalThis, 'ar12MainFrameIpcChannels', []);
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Synthetic main window is absent.');
+    const originalSend = window.webContents.send.bind(window.webContents);
+    const intercepted = Reflect.set(
+      window.webContents,
+      'send',
+      (channel: string, ...args: unknown[]) => {
+        const channels = Reflect.get(globalThis, 'ar12MainFrameIpcChannels');
+        if (Array.isArray(channels)) channels.push(channel);
+        return originalSend(channel, ...args);
+      },
+    );
+    if (!intercepted) throw new Error('Synthetic IPC interception failed.');
     const replaced = Reflect.set(shell, 'openExternal', async (url: string) => {
       const opened = Reflect.get(globalThis, 'ar12OpenedAuthUrls');
       if (Array.isArray(opened)) opened.push(url);
@@ -121,6 +135,19 @@ async function installSyntheticAuth(application: ElectronApplication) {
       }
       return new Response('Synthetic route not found.', { status: 404 });
     });
+  });
+}
+
+async function betterAuthIpcChannels(
+  application: ElectronApplication,
+): Promise<readonly string[]> {
+  return application.evaluate(() => {
+    const channels = Reflect.get(globalThis, 'ar12MainFrameIpcChannels');
+    if (!Array.isArray(channels)) return [];
+    return channels.filter(
+      (channel): channel is string =>
+        typeof channel === 'string' && channel.startsWith('better-auth:'),
+    );
   });
 }
 
@@ -258,6 +285,7 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
       message: null,
     });
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(1);
+    expect(await betterAuthIpcChannels(application)).toEqual([]);
     await emitCallback(application, secondCallback);
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(1);
 

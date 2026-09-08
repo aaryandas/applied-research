@@ -351,6 +351,29 @@ describe('desktop auth controller', () => {
     expect(order).toEqual(['get-session', 'account:session-cookie']);
   });
 
+  it('keeps a signed-in session until explicit sign-out can revoke it', async () => {
+    const setup = harness();
+    setup.storage.acceptEpoch(0);
+    await setup.storage.runAtEpoch(0, async () => {
+      setup.storage.setItem(AUTH_STORAGE_KEYS[0], 'persisted-ciphertext');
+    });
+    await expect(setup.controller.accountStatus()).resolves.toMatchObject({
+      session: 'signed-in',
+    });
+
+    await expect(setup.controller.signIn()).resolves.toMatchObject({
+      session: 'signed-in',
+    });
+    expect(setup.sdk.requestGithubAuth).not.toHaveBeenCalled();
+    expect(setup.storage.hasPersistedSession()).toBe(true);
+
+    await expect(setup.controller.signOut()).resolves.toMatchObject({
+      state: { session: 'signed-out' },
+      remoteRevocation: 'confirmed',
+    });
+    expect(setup.sdk.signOut).toHaveBeenCalledOnce();
+  });
+
   it('distinguishes expired sessions from temporary remote unavailability', async () => {
     const expired = harness({ getSession: async () => 'missing' });
     expired.storage.acceptEpoch(0);
