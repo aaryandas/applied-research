@@ -15,7 +15,7 @@
     {
       "title": "Day zero: Linear automations and Cursor cloud verification",
       "priority": 1,
-      "description": "In Linear: enable the GitHub integration (PR opened -> In Development, PR merged -> Done). Add the automation: status In Testing -> trigger the Cursor cloud agent with the verification prompt in `context/next-run.md`. The agent launches the frozen revision on its cloud desktop, walks the ticket's acceptance journey by hand with its built-in screen recording on, attaches the recording and a pass/fail list to the ticket, and moves it to In Review. One owner per transition; the coordinator alone moves In Review -> Done."
+      "description": "In Linear: enable the GitHub integration (PR opened -> In Development, PR ready for review -> In Testing, PR merged -> Done). Add the Cursor automation: status In Testing -> cloud agent, using the prompt in `context/next-run.md` pasted verbatim (Cursor does not interpolate {{ticket}} / {{pr}} tokens). Starting branch must be the current integration branch, never main. Linear MCP on; computer use on. Serialise In Testing transitions — do not bulk-move tickets while a verifier is running. The agent launches the frozen revision on its cloud desktop, walks the ticket's acceptance journey by hand with its built-in screen recording on, attaches the recording and a pass/fail list to the ticket, and moves it to In Review. One owner per transition; the coordinator alone moves In Review -> Done."
     },
     {
       "title": "Day zero: Sonar quality profile decisions",
