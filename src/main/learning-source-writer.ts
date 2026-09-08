@@ -187,6 +187,29 @@ export function writeSourceHighlight(
       'Highlight offsets and quote must exactly match scalar boundaries in the saved source revision.',
     );
   }
+  const existing = transaction
+    .select({ id: sourceHighlights.id, createdAt: sourceHighlights.createdAt })
+    .from(sourceHighlights)
+    .where(
+      and(
+        eq(sourceHighlights.projectId, input.projectId),
+        eq(sourceHighlights.sourceRevisionId, input.revisionId),
+        eq(sourceHighlights.start, input.start),
+        eq(sourceHighlights.end, input.end),
+        eq(sourceHighlights.quote, input.quote),
+      ),
+    )
+    .get();
+  if (existing) {
+    return acknowledgement({
+      projectId: input.projectId,
+      recordId: existing.id,
+      revision: 1,
+      revisionId: null,
+      recordedAt: new Date(existing.createdAt),
+      changed: false,
+    });
+  }
   const id = randomUUID();
   const recordedAt = new Date();
   transaction
