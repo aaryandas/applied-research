@@ -1,0 +1,74 @@
+{
+  "_comment": "Each PR carries exactly one lane:<name> label. The lane guard fails the PR if it touches a path outside its lane plus the shared allowlist. Contract changes go through lane:contracts first.",
+  "shared": [
+    "context/**",
+    "*.md",
+    ".github/**",
+    "package.json",
+    "package-lock.json",
+    "tests/e2e/**"
+  ],
+  "lanes": {
+    "shell": [
+      "src/renderer/App.tsx",
+      "src/renderer/App.test.tsx",
+      "src/renderer/Shell*.tsx",
+      "src/renderer/shell/**",
+      "src/renderer/use*.ts",
+      "src/renderer/main.tsx",
+      "src/renderer/styles.css",
+      "src/renderer/tokens.css"
+    ],
+    "reader": ["src/renderer/reader/**"],
+    "canvas": ["src/renderer/canvas/**"],
+    "practical": ["src/renderer/practical/**"],
+    "settings": ["src/renderer/settings/**"],
+    "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
+    "opening": [
+      "src/renderer/Opening.tsx",
+      "src/renderer/Opening.test.tsx",
+      "src/renderer/FieldAtlas.tsx",
+      "src/renderer/assets/**"
+    ],
+    "storage": [
+      "src/main/workspace-*.ts",
+      "src/main/learning-*.ts",
+      "src/main/trusted-learning-records.ts",
+      "drizzle/**",
+      "tests/integration/**"
+    ],
+    "auth": [
+      "src/main/auth-*.ts",
+      "src/main/desktop-auth*.ts",
+      "src/backend/auth.ts",
+      "src/backend/electron-auth-callback-client.ts",
+      "src/backend/policy.ts"
+    ],
+    "backend": [
+      "src/backend/**",
+      "railway.json",
+      "tsconfig.backend.json",
+      "scripts/copy-backend-assets.mjs"
+    ],
+    "sourcing": ["src/backend/sourcing/*.ts", "src/contracts/sourcing.ts"],
+    "openalex": ["src/backend/sourcing/openalex/**"],
+    "main": [
+      "src/main/index.ts",
+      "src/main/startup-error.ts",
+      "src/main/validation.ts",
+      "src/main/tutor.ts",
+      "src/preload/**"
+    ],
+    "contracts": ["src/contracts/**"],
+    "delivery": [
+      "scripts/**",
+      "electron-builder.yml",
+      "compose.sonar.yml",
+      "eslint.config.js",
+      "vitest.config.ts",
+      "playwright.config.ts",
+      "tsconfig*.json",
+      ".prettierignore"
+    ]
+  }
+}

@@ -10,6 +10,8 @@ jobs:
   verify:
     name: Verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # macOS is the shipping platform; Linux and Windows report but do not block the gate.
+    continue-on-error: ${{ matrix.os != 'macos-latest' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -74,7 +76,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Require all platforms to pass
+      - name: Require the shipping platform to pass
         env:
           RESULT: ${{ needs.verify.result }}
         run: test "$RESULT" = success
