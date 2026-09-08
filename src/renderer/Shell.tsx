@@ -66,6 +66,7 @@ export function Shell({
     flush,
     navigate,
     message,
+    saving,
   } = useWorkspaceFlush();
   const onPathChange = useCallback((path: PathOrigin | undefined): void => {
     setSelectedPath(path);
@@ -141,6 +142,8 @@ export function Shell({
   return (
     <div
       className={`reader-shell desktop-workspace${isCanvas ? ' canvas-focused' : ''}`}
+      inert={saving}
+      aria-busy={saving}
     >
       <ReaderSidebar
         workspace={workspace}

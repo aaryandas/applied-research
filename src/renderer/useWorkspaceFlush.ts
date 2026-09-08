@@ -11,6 +11,7 @@ export function useWorkspaceFlush() {
   const pending = useRef<Promise<boolean> | null>(null);
   const navigating = useRef(false);
   const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
   const registerReaderFlush = useCallback((flush: Flush | null) => {
     reader.current = flush;
   }, []);
@@ -30,6 +31,7 @@ export function useWorkspaceFlush() {
   );
   const flush = useCallback((): Promise<boolean> => {
     if (pending.current) return pending.current;
+    setSaving(true);
     pending.current = (async () => {
       try {
         for (const callback of [
@@ -54,6 +56,7 @@ export function useWorkspaceFlush() {
       }
     })().finally(() => {
       pending.current = null;
+      setSaving(false);
     });
     return pending.current;
   }, []);
@@ -111,5 +114,6 @@ export function useWorkspaceFlush() {
     flush,
     navigate,
     message,
+    saving,
   };
 }

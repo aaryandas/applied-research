@@ -21,6 +21,9 @@ import { App } from './App';
 import { fixture } from './reader/reader.test.fixtures';
 import { createCanvasFixture } from './canvas/canvas-fixture';
 
+// Scene runtime behavior is covered by its own component and Electron tests.
+vi.mock('./explanations/SceneCanvas', () => ({ SceneCanvas: () => <div /> }));
+
 const signedOut: DesktopAccountState = {
   session: 'signed-out',
   account: null,
@@ -141,13 +144,13 @@ it('shares saved Reader questions with both Canvas modes and restores the outlin
   fireEvent.change(await screen.findByLabelText('In your own words'), {
     target: { value: 'How can I measure uncertainty?' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Canvas' }));
+  fireEvent.click(screen.getByLabelText('Canvas'));
   await screen.findByRole('region', { name: 'Learning canvas' });
   expect(bridge.saveQuestion).toHaveBeenCalledWith(
     expect.objectContaining({ body: 'How can I measure uncertainty?' }),
   );
   expect(sidebar).toHaveClass('shell-icon-rail');
-  expect(screen.getByRole('button', { name: 'Canvas' })).toHaveAttribute(
+  expect(screen.getByLabelText('Canvas')).toHaveAttribute(
     'aria-current',
     'page',
   );
@@ -177,19 +180,17 @@ it('renders empty Canvas and Practical views and returns to saved projects', asy
   const { bridge, project } = setup();
   render(<App bridge={bridge} />);
   await reopen(project);
-  fireEvent.click(screen.getByRole('button', { name: 'Canvas' }));
+  fireEvent.click(screen.getByLabelText('Canvas'));
   await screen.findByText(
     'Your saved notes, questions and insights will appear here.',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Practical' }));
+  fireEvent.click(screen.getByLabelText('Practical'));
   await screen.findByText(/Choose a lesson with an activity/);
-  fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
+  fireEvent.click(screen.getByLabelText('Reading'));
   await waitFor(() =>
     expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Applied Research home' }),
-  );
+  fireEvent.click(screen.getByLabelText('Applied Research home'));
   await screen.findByLabelText('What do you want to learn about?');
   expect(bridge.listProjects).toHaveBeenCalledTimes(2);
 });
@@ -201,7 +202,7 @@ it('keeps incomplete Reader drafts mounted when navigation or quit cannot save',
   await reopen(project);
   fireEvent.click(screen.getByRole('button', { name: 'Save a question' }));
   await screen.findByLabelText('In your own words');
-  fireEvent.click(screen.getByRole('button', { name: 'Canvas' }));
+  fireEvent.click(screen.getByLabelText('Canvas'));
   await screen.findByText(/Your work is still open/);
   expect(screen.getByLabelText('In your own words')).toBeVisible();
   const event = new Event('beforeunload', { cancelable: true });
@@ -231,7 +232,7 @@ it('opens real lesson content and blocks replacement of an unsaved practical att
       screen.getByRole('button', { name: /Joint angles and hand position/ }),
     ).toHaveAttribute('aria-current', 'page'),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Practical' }));
+  fireEvent.click(screen.getByLabelText('Practical'));
   await screen.findByRole('heading', {
     name: 'Joint angles and hand position',
   });
@@ -239,7 +240,7 @@ it('opens real lesson content and blocks replacement of an unsaved practical att
   fireEvent.change(screen.getByLabelText('Expected outcome'), {
     target: { value: 'I expect a larger displacement.' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Profile and settings' }));
+  fireEvent.click(screen.getByLabelText('Profile and settings'));
   await screen.findByText(/Your work is still open/);
   expect(screen.getByLabelText('Expected outcome')).toHaveValue(
     'I expect a larger displacement.',
@@ -254,7 +255,7 @@ it('uses account operations and applies Settings appearance without replacing Re
   const { bridge, project, emitAccount } = setup();
   render(<App bridge={bridge} />);
   await reopen(project);
-  const settings = screen.getByRole('button', { name: 'Profile and settings' });
+  const settings = screen.getByLabelText('Profile and settings');
   settings.focus();
   fireEvent.click(settings);
   await screen.findByRole('heading', { name: 'Settings' });

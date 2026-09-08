@@ -60,9 +60,11 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       /shell-icon-rail/,
     );
     await expect(
-      page.getByText('Moving the shoulder changes the whole arm.', {
-        exact: true,
-      }),
+      page
+        .getByRole('region', { name: 'Learning canvas', exact: true })
+        .getByText('Moving the shoulder changes the whole arm.', {
+          exact: true,
+        }),
     ).toBeVisible();
     await page.getByRole('button', { name: 'Expanded', exact: true }).click();
     await expect(
@@ -76,6 +78,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
     const before = await node.boundingBox();
     if (!before) throw new Error('Saved note is not laid out.');
     await node.focus();
+    await node.press('Enter');
     await node.press('ArrowRight');
     await expect
       .poll(async () =>
@@ -93,10 +96,12 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
         await window.desktop.getLearningWorkspace(project!.id)
       ).placements.filter((placement) => placement.view === 'expanded');
     });
-    await page
-      .getByRole('button', { name: 'Return to reading', exact: true })
-      .click();
+    const savedTransform = await node.evaluate(
+      (element) => element.style.transform,
+    );
+    await node.getByRole('button', { name: /Open exact highlight/ }).click();
     await expect(prose).toBeVisible();
+    await expect(prose.locator('mark')).toHaveText(text.slice(0, 40));
     await page.screenshot({ path: test.info().outputPath('reader.png') });
     await page.getByRole('button', { name: 'Canvas', exact: true }).click();
     await expect(
@@ -109,6 +114,9 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       ).placements.filter((placement) => placement.view === 'expanded');
     });
     expect(reopenedPlacement).toEqual(committed);
+    await expect
+      .poll(() => node.evaluate((element) => element.style.transform))
+      .toBe(savedTransform);
     await page
       .getByRole('button', { name: 'Profile and settings', exact: true })
       .click();
