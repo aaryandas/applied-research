@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
-import type { CommitResult } from '../../src/contracts/learning-records';
+import type {
+  CommitResult,
+  SaveHighlightInput,
+} from '../../src/contracts/learning-records';
 import { WorkspaceStore } from '../../src/main/workspace-store';
 
 const directories: string[] = [];
@@ -168,6 +171,55 @@ it('persists the connected source, highlight, human work and insight loop exactl
   const reopened = new WorkspaceStore(path);
   expect(reopened.getLearningWorkspace(project.id)).toEqual(moved);
   reopened.close();
+});
+
+it('returns the original highlight after a lost acknowledgement is retried', () => {
+  const store = new WorkspaceStore(':memory:');
+  const project = store.create('Retry an exact highlight');
+  const source = committed(
+    store.importTextSource({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Retry source',
+      text: 'same same',
+      acquiredAt: '2026-09-08T12:00:00.000Z',
+    }),
+  );
+  const input = {
+    projectId: project.id,
+    expectedRevision: 0,
+    sourceId: source.id,
+    revisionId: source.currentVersionId,
+    start: 0,
+    end: 4,
+    quote: 'same',
+  } satisfies SaveHighlightInput;
+
+  store.saveHighlight(input); // The commit succeeds, but its acknowledgement is lost.
+  const original = store.getLearningWorkspace(project.id).highlights[0];
+  const projectTimestamp = store.get(project.id).updatedAt;
+  const retry = store.saveHighlight(input);
+
+  expect(retry).toEqual({
+    status: 'committed',
+    acknowledgement: {
+      projectId: project.id,
+      recordId: original?.id,
+      revision: 1,
+      revisionId: null,
+      committedAt: original?.createdAt,
+      changed: false,
+    },
+    record: original,
+  });
+  expect(store.getLearningWorkspace(project.id).highlights).toEqual([original]);
+  expect(store.get(project.id).updatedAt).toBe(projectTimestamp);
+  const otherOccurrence = committed(
+    store.saveHighlight({ ...input, start: 5, end: 9 }),
+  );
+  expect(otherOccurrence.id).not.toBe(original?.id);
+  expect(store.getLearningWorkspace(project.id).highlights).toHaveLength(2);
+  store.close();
 });
 
 it('returns typed stale-write conflicts without changing any persisted state', () => {
