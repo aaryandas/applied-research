@@ -8,6 +8,17 @@ import type {
   SourceHighlight,
   SourceRecord,
 } from '../../contracts/learning-records';
+function acknowledgement(recordId: string, revision = 1) {
+  return {
+    projectId: 'project',
+    recordId,
+    revision,
+    revisionId: `${recordId}-v${revision}`,
+    committedAt: '',
+    changed: true,
+  };
+}
+
 export function fixture() {
   let workspace: LearningWorkspace = {
     project: {
@@ -24,22 +35,24 @@ export function fixture() {
     unreadableProjects: [],
   };
   let sequence = 0;
-  function acknowledgement(recordId: string) {
-    return {
-      projectId: 'project',
-      recordId,
-      revision: 1,
-      revisionId: `${recordId}-v1`,
-      committedAt: '',
-      changed: true,
-    };
-  }
   async function save(
     input: SaveHumanEntryInput,
     kind: 'note' | 'question' | 'insight',
     supports: LearningEntryRecord['current']['supports'] = [],
   ): Promise<CommitResult<LearningEntryRecord>> {
     const id = input.entryId ?? `entry-${++sequence}`;
+    const previous = workspace.entries.find((entry) => entry.id === id);
+    if ((previous?.currentRevision ?? 0) !== input.expectedRevision)
+      return {
+        status: 'conflict',
+        conflict: {
+          code: 'revision-conflict',
+          projectId: input.projectId,
+          recordId: id,
+          expectedRevision: input.expectedRevision,
+          currentRevision: previous?.currentRevision ?? 0,
+        },
+      };
     const current = {
       revision: input.expectedRevision + 1,
       kind,
@@ -58,7 +71,7 @@ export function fixture() {
       currentRevision: current.revision,
       current,
       createdAt: '',
-      revisions: [current],
+      revisions: [...(previous?.revisions ?? []), current],
     };
     workspace = {
       ...workspace,
@@ -69,7 +82,7 @@ export function fixture() {
     };
     return {
       status: 'committed',
-      acknowledgement: acknowledgement(id),
+      acknowledgement: acknowledgement(id, current.revision),
       record,
     };
   }
@@ -80,11 +93,24 @@ export function fixture() {
     getLearningWorkspace: vi.fn(async () => workspace),
     importTextSource: vi.fn<LearningRecordsBridge['importTextSource']>(
       async (input) => {
-        const id = 'source';
+        const id = input.sourceId ?? 'source';
+        const previous = workspace.sources.find((item) => item.id === id);
+        if ((previous?.currentRevision ?? 0) !== input.expectedRevision)
+          return {
+            status: 'conflict',
+            conflict: {
+              code: 'revision-conflict',
+              projectId: input.projectId,
+              recordId: id,
+              expectedRevision: input.expectedRevision,
+              currentRevision: previous?.currentRevision ?? 0,
+            },
+          };
+        const revision = input.expectedRevision + 1;
         const version = {
-          revisionId: 'source-v1',
+          revisionId: `${id}-v${revision}`,
           sourceId: id,
-          revision: 1,
+          revision,
           title: input.title,
           canonicalText: input.text,
           sha256: 'synthetic',
@@ -99,16 +125,22 @@ export function fixture() {
         const record: SourceRecord = {
           id,
           projectId: input.projectId,
-          currentRevision: 1,
+          currentRevision: revision,
           currentVersionId: version.revisionId,
           currentVersion: version,
           createdAt: '',
-          versions: [version],
+          versions: [...(previous?.versions ?? []), version],
         };
-        workspace = { ...workspace, sources: [record] };
+        workspace = {
+          ...workspace,
+          sources: [
+            ...workspace.sources.filter((item) => item.id !== id),
+            record,
+          ],
+        };
         return {
           status: 'committed',
-          acknowledgement: acknowledgement(id),
+          acknowledgement: acknowledgement(id, revision),
           record,
         };
       },

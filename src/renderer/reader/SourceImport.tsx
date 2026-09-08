@@ -10,13 +10,17 @@ export function SourceImport({
   source,
   onImported,
   onCancel,
-}: {
+}: Readonly<{
   bridge: LearningRecordsBridge;
   projectId: string;
   source?: SourceRecord | undefined;
   onImported: (source: SourceRecord) => void;
   onCancel: () => void;
-}): ReactElement {
+}>): ReactElement {
+  const [attempt] = useState(() => ({
+    sourceId: source?.id ?? crypto.randomUUID(),
+    acquiredAt: new Date().toISOString(),
+  }));
   const [title, setTitle] = useState(source?.currentVersion.title ?? '');
   const [text, setText] = useState(source?.currentVersion.canonicalText ?? '');
   const [locator, setLocator] = useState(
@@ -30,6 +34,7 @@ export function SourceImport({
   const [conflictRevision, setConflictRevision] = useState<number | null>(null);
   const [latestSource, setLatestSource] = useState<SourceRecord | null>(null);
   async function save(): Promise<void> {
+    if (saving || conflictRevision !== null) return;
     if (locator) {
       try {
         const url = new URL(locator);
@@ -47,11 +52,11 @@ export function SourceImport({
     try {
       const result = await bridge.importTextSource({
         projectId,
-        ...(source ? { sourceId: source.id } : {}),
+        sourceId: attempt.sourceId,
         expectedRevision,
         title,
         text,
-        acquiredAt: new Date().toISOString(),
+        acquiredAt: attempt.acquiredAt,
         ...(locator ? { locator } : {}),
       });
       if (result.status === 'conflict') {
@@ -78,29 +83,32 @@ export function SourceImport({
     >
       <h2>{source ? 'Update source' : 'Add a source'}</h2>
       <label>
-        Source title
+        <span>Source title</span>
         <input
           required
           value={title}
-          disabled={saving}
+          readOnly={saving}
+          aria-busy={saving}
           onChange={(event) => setTitle(event.target.value)}
         />
       </label>
       <label>
-        Exact source text
+        <span>Exact source text</span>
         <textarea
           required
           value={text}
-          disabled={saving}
+          readOnly={saving}
+          aria-busy={saving}
           onChange={(event) => setText(event.target.value)}
         />
       </label>
       <label>
-        Source locator (optional)
+        <span>Source locator (optional)</span>
         <input
           type="url"
           value={locator}
-          disabled={saving}
+          readOnly={saving}
+          aria-busy={saving}
           onChange={(event) => setLocator(event.target.value)}
         />
       </label>
@@ -112,9 +120,15 @@ export function SourceImport({
             try {
               const latest = await bridge.getLearningWorkspace(projectId);
               const current = latest.sources.find(
-                (item) => item.id === source?.id,
+                (item) => item.id === attempt.sourceId,
               );
-              if (!current) throw new Error('missing');
+              if (
+                latest.project.id !== projectId ||
+                !current ||
+                conflictRevision === null ||
+                current.currentRevision < conflictRevision
+              )
+                throw new Error('missing');
               setLatestSource(current);
               setError(
                 'Review the saved source below. Your pasted text is unchanged.',
@@ -151,7 +165,11 @@ export function SourceImport({
         </section>
       )}
       <div className="reader-actions">
-        <button disabled={saving || conflictRevision !== null}>
+        <button
+          type="submit"
+          disabled={conflictRevision !== null}
+          aria-disabled={saving}
+        >
           {saving ? 'Importing…' : 'Import source'}
         </button>
         <button type="button" disabled={saving} onClick={onCancel}>
