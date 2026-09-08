@@ -80,7 +80,7 @@ const asarListing = spawnSync(
     'list',
     join(resources, 'app.asar'),
   ],
-  { encoding: 'utf8' },
+  { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
 );
 if (asarListing.error) throw asarListing.error;
 if (asarListing.status !== 0) {
