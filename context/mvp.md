@@ -2,6 +2,16 @@
 
 The founder redirected the September 7 presearch to implementation: “we can do hardening later, lets get mvp done”, then explicitly selected OpenRouter. This authorizes the first working goal → learning activity → saved work loop. It defers the proposed durable-task recovery work; it does not accept that proposal or change the previously agreed product requirements.
 
+## Assembled workspace — September 8
+
+The shell-wiring integration replaces the MVP entry-card screen with Opening → Reader and a persistent topic sidebar. Reader, Distilled/Expanded Canvas, Practical Work and account Settings consume the existing component contracts. Canvas automatically uses an icon rail and thin top bar. Pasted sources, exact highlights, human notes/questions/insights and Canvas positions use named durable learning-record operations; Find searches saved local sources and writing. Appearance is shared across Opening and Settings, with dark as the default and the existing stored Light/Dark choice respected.
+
+Reader also exposes the existing assembly and arm illustrations as explicit session-local examples. They have no inferred source attachment. Practical Work resolves the selected lesson's retained path revision; no selected activity yields its empty state. Its durable result operation is not yet declared/exposed, so edits remain explicitly unsaved and prevent navigation or ordinary window close until the missing producer is integrated. No legacy-entry save fallback or new IPC foundation is introduced.
+
+The shell flushes component drafts/placements for navigation, project changes, Save work / Cmd/Ctrl+S and ordinary window close. Force quit/crash recovery remains outside this barrier. Account Settings uses the reviewed sign-in/cancel/sign-out/status/event operations; the historical provider-key importer and MVP companion/tool controls below are no longer exposed in this shell. Live AI curriculum/tutor composition and durable practical-result persistence remain coordinator work. The sections below preserve the historical MVP scope and setup, not the current navigation contract.
+
+Integration follow-ups: initial source/note placement defaults can overlap. Canvas also compares saved record IDs with revision-based source node IDs when identifying fixed nodes, so measured layout can reposition a saved source. These need producer/Canvas ownership; the shell preserves existing coordinates because records do not distinguish automatic placement from a learner's move. On macOS, the first quit attempt can close the saved workspace while leaving the application process running after the asynchronous save barrier; native quit continuation needs lifecycle ownership.
+
 ## Implemented experience
 
 The interface follows Field Atlas: the approved apple-landscape opening and centered prompt, shared day/evening tokens and local font definitions, the arch mark, opaque workspace surfaces, warm margins for human writing and a blue sans-serif inset for AI assistance. The goal form and provider preferences use native dialogs. See [the design contract](design.md) for visual authority and the distinction between working app flows and historical specimens.

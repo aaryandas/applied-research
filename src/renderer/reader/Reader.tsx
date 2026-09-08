@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
   type Ref,
 } from 'react';
 import type {
@@ -35,6 +36,10 @@ export interface ReaderProps {
   onWorkspace: (workspace: LearningWorkspace) => void;
   registerFlush: (flush: (() => Promise<boolean>) | null) => void;
   navigationRef?: Ref<ReaderNavigationControls>;
+  /** Optional shell-owned navigation and inline explanation slots. */
+  sidebar?: ReactNode;
+  explanation?: ReactNode;
+  onPathChange?: (path: PathOrigin | undefined) => void;
 }
 
 export interface ReaderNavigationControls {
@@ -54,6 +59,9 @@ function ProjectReader({
   onWorkspace,
   registerFlush,
   navigationRef,
+  sidebar,
+  explanation,
+  onPathChange,
 }: Readonly<ReaderProps>): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
   const [receivedWorkspace, setReceivedWorkspace] = useState(initial);
@@ -97,6 +105,10 @@ function ProjectReader({
   const [supports, setSupports] = useState<string[]>([]);
   const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
   const isOccupied = busy || Boolean(importing);
+  function selectPath(next: PathOrigin | undefined): void {
+    setPath(next);
+    onPathChange?.(next);
+  }
   useImperativeHandle(navigationRef, () => ({
     openOrigin,
     editEntry: (reference) => {
@@ -152,7 +164,7 @@ function ProjectReader({
       const lesson = pathRevision?.topics
         .find((item) => item.id === origin.topicId)
         ?.lessons.find((item) => item.id === origin.lessonId);
-      setPath(origin);
+      selectPath(origin);
       setSpan(null);
       setReveal(null);
       if (!lesson) {
@@ -268,7 +280,7 @@ function ProjectReader({
         const resolved = resolveOrigin(workspace, origin);
         setVersion(resolved.version);
         setSpan(resolved.span);
-        setPath(origin.path);
+        selectPath(origin.path);
         setMessage(null);
         setReveal({ span: resolved.span });
       } catch (error) {
@@ -363,14 +375,18 @@ function ProjectReader({
   }
   return (
     <div className="reader-shell">
-      <ReaderSidebar
-        workspace={workspace}
-        selectedLessonId={path?.lessonId}
-        onNavigate={(destination) =>
-          void beforeNavigation(() => onNavigate(destination))
-        }
-        onLesson={(origin) => void openLesson(origin)}
-      />
+      {sidebar === undefined ? (
+        <ReaderSidebar
+          workspace={workspace}
+          selectedLessonId={path?.lessonId}
+          onNavigate={(destination) =>
+            void beforeNavigation(() => onNavigate(destination))
+          }
+          onLesson={(origin) => void openLesson(origin)}
+        />
+      ) : (
+        sidebar
+      )}
       <main className="reader-main">
         <header className="reader-header">
           <h1>Reading</h1>
@@ -387,7 +403,10 @@ function ProjectReader({
         ))}
         <output className="reader-status">{message}</output>
         <div className="reader-layout">
-          <article>{renderSourceContent()}</article>
+          <article>
+            {renderSourceContent()}
+            {explanation}
+          </article>
           <ReaderContext
             workspace={workspace}
             session={session}
@@ -402,7 +421,7 @@ function ProjectReader({
                 setVersion(source.currentVersion);
                 setSpan(null);
                 setReveal(null);
-                setPath(undefined);
+                selectPath(undefined);
               })
             }
           />

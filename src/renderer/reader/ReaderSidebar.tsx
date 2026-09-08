@@ -13,6 +13,8 @@ export interface ReaderSidebarProps {
   selectedLessonId?: string | undefined;
   onNavigate: (destination: WorkspaceDestination) => void;
   onLesson: (origin: PathOrigin) => void;
+  destination?: WorkspaceDestination;
+  collapsed?: boolean;
 }
 
 export function ReaderSidebar({
@@ -20,30 +22,51 @@ export function ReaderSidebar({
   selectedLessonId,
   onNavigate,
   onLesson,
+  destination = 'reader',
+  collapsed = false,
 }: Readonly<ReaderSidebarProps>): ReactElement {
   return (
-    <nav className="reader-sidebar" aria-label="Project navigation">
-      <button className="reader-brand" onClick={() => onNavigate('home')}>
+    <nav
+      className={`reader-sidebar${collapsed ? ' shell-icon-rail' : ''}`}
+      aria-label="Project navigation"
+    >
+      <button
+        className="reader-brand"
+        aria-label="Applied Research home"
+        title="Home"
+        onClick={() => onNavigate('home')}
+      >
         <BrandMark />
-        Applied Research
+        <span>Applied Research</span>
       </button>
       <p className="reader-project">{workspace.project.goal}</p>
       <div className="reader-workspace-links">
-        <button aria-current="page" onClick={() => onNavigate('reader')}>
-          <Icon name="arrow" />
-          Reading
+        <button
+          aria-label="Reading"
+          title="Reading"
+          aria-current={destination === 'reader' ? 'page' : undefined}
+          onClick={() => onNavigate('reader')}
+        >
+          <Icon name="book" />
+          <span>Reading</span>
         </button>
-        <button onClick={() => onNavigate('canvas')}>
+        <button
+          aria-label="Canvas"
+          title="Canvas"
+          aria-current={destination === 'canvas' ? 'page' : undefined}
+          onClick={() => onNavigate('canvas')}
+        >
           <Icon name="canvas" />
-          Canvas
+          <span>Canvas</span>
         </button>
-        <button onClick={() => onNavigate('practical')}>
-          <Icon name="companion" />
-          Practical
-        </button>
-        <button onClick={() => onNavigate('find')}>
-          <Icon name="arrow" />
-          Find
+        <button
+          aria-label="Practical"
+          title="Practical"
+          aria-current={destination === 'practical' ? 'page' : undefined}
+          onClick={() => onNavigate('practical')}
+        >
+          <Icon name="tool" />
+          <span>Practical</span>
         </button>
       </div>
       <div className="reader-outline">
@@ -84,9 +107,25 @@ export function ReaderSidebar({
           </section>
         ))}
       </div>
-      <button className="reader-profile" onClick={() => onNavigate('settings')}>
+      <button
+        className="reader-find"
+        aria-label="Find"
+        title="Find"
+        aria-current={destination === 'find' ? 'page' : undefined}
+        onClick={() => onNavigate('find')}
+      >
+        <Icon name="search" />
+        <span>Find</span>
+      </button>
+      <button
+        className="reader-profile"
+        aria-label="Profile and settings"
+        title="Settings"
+        aria-current={destination === 'settings' ? 'page' : undefined}
+        onClick={() => onNavigate('settings')}
+      >
         <Icon name="settings" />
-        Profile and settings
+        <span>Profile and settings</span>
       </button>
     </nav>
   );

@@ -123,7 +123,7 @@ describe('shared project context controls', () => {
       />,
     );
     for (const [name, destination] of [
-      ['Applied Research', 'home'],
+      ['Applied Research home', 'home'],
       ['Reading', 'reader'],
       ['Canvas', 'canvas'],
       ['Practical', 'practical'],

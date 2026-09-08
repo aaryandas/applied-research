@@ -1,0 +1,201 @@
+/* Composition follows the approved portable specimen's 280px outline / 64px Canvas rail. */
+.desktop-workspace {
+  height: 100dvh;
+  overflow: hidden;
+}
+.desktop-workspace > .reader-sidebar {
+  width: 280px;
+}
+.shell-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.shell-reader {
+  flex: 1;
+  min-height: 0;
+}
+.shell-reader > .reader-shell {
+  height: 100%;
+}
+.shell-content [hidden] {
+  display: none;
+}
+.shell-topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 16px;
+}
+.shell-topbar strong {
+  font: 500 13px/1.5 var(--font-ui);
+}
+.shell-project-context {
+  color: var(--muted);
+  font: 400 12px/1.4 var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-segmented {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.shell-segmented button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.shell-segmented [aria-pressed='true'] {
+  background: var(--surface-subtle);
+  color: var(--accent);
+}
+.shell-topbar > button:last-child {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.desktop-workspace > .shell-icon-rail {
+  width: 64px;
+  padding: 8px 10px 14px;
+  align-items: center;
+}
+.shell-icon-rail .reader-brand,
+.shell-icon-rail .reader-workspace-links button,
+.shell-icon-rail .reader-profile {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  justify-content: center;
+}
+.shell-icon-rail .reader-brand span,
+.shell-icon-rail .reader-project,
+.shell-icon-rail .reader-outline,
+.shell-icon-rail .reader-workspace-links span,
+.shell-icon-rail .reader-profile span {
+  display: none;
+}
+.shell-icon-rail .reader-workspace-links {
+  margin-top: 24px;
+}
+.shell-icon-rail .reader-profile {
+  margin-top: auto;
+}
+.shell-content > .workspace-canvas {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.shell-scroll,
+.shell-find {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 52px;
+}
+.shell-find {
+  padding: 0 32px 60px;
+}
+.shell-find label,
+.shell-find ul {
+  max-width: 68ch;
+}
+.shell-find ul {
+  list-style: none;
+  padding: 0;
+}
+.shell-find li {
+  margin: 20px 0;
+  overflow-wrap: anywhere;
+}
+.shell-find li button {
+  width: 100%;
+  text-align: left;
+}
+.shell-find li small,
+.shell-find li span {
+  display: block;
+}
+.shell-find li small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.shell-save-status {
+  padding: 8px 24px;
+  color: var(--muted);
+}
+.shell-save-button {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  background: var(--paper) !important;
+  font-size: 12px !important;
+}
+.shell-explanations {
+  margin-top: 48px;
+}
+.shell-opening-status {
+  position: absolute;
+  z-index: 1;
+  margin: 16px;
+}
+@media (max-width: 900px) {
+  .shell-project-context {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  .desktop-workspace {
+    flex-direction: row;
+    min-height: 0;
+  }
+  .desktop-workspace > .reader-sidebar {
+    width: 220px;
+    max-height: none;
+  }
+  .desktop-workspace > .shell-icon-rail {
+    width: 64px;
+  }
+  .desktop-workspace .reader-workspace-links {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .shell-topbar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+}
+.desktop-workspace .reader-find {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  margin-top: 12px;
+}
+.shell-icon-rail .reader-find {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  justify-content: center;
+  margin-top: auto;
+}
+.shell-icon-rail .reader-find span {
+  display: none;
+}
+.shell-icon-rail .reader-profile {
+  margin-top: 6px;
+}
+
+.app-shell > .opening-frame[hidden] {
+  display: none;
+}
