@@ -67,6 +67,12 @@ flowchart LR
 - **Renderer** owns presentation. ESLint rejects imports from Electron, Node, main, and preload. Transient selection/focus/viewport state belongs here; durable drafts will need validated operations into trusted local storage.
 - **Contracts** contains types that cross the process seam. Add runtime validation when external inputs or commands are introduced; TypeScript alone does not validate messages.
 - **Backend** owns Better Auth GitHub/Electron server routes, authoritative PostgreSQL sessions, account-scoped UTC-month usage and the validated OpenRouter adapter. `src/contracts/learning-api.ts` is its exact serializable public learning contract. Effect owns composition, reservation/settlement interruption boundaries and scoped pool finalization; PostgreSQL work has finite server/client timeouts, and the backend never receives a body-supplied account id. Per-account admission permits at most two active provider requests while terminal uncertainty continues to count against money, not the active slot.
+  The fixed same-origin `/auth/electron/callback` page loads a self-hosted bundle
+  of Better Auth's Electron proxy client under a restrictive CSP and calls
+  `ensureElectronRedirect()`. The backend pins Electron social sign-in to that
+  page; it never trusts a caller-selected callback destination. The page reads
+  only the short-lived SDK redirect cookie and neither displays nor stores its
+  value.
 
 Context isolation, renderer sandboxing, disabled Node integration, denied new
 windows, restricted document navigation, and denied permissions are explicit

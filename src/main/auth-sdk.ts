@@ -9,6 +9,7 @@ import {
 } from '../contracts/desktop-auth';
 
 const AUTH_BASE_URL = `${DESKTOP_AUTH_API_ORIGIN}/api/auth`;
+const ELECTRON_AUTH_CALLBACK_URL = `${DESKTOP_AUTH_API_ORIGIN}/auth/electron/callback`;
 const AUTH_STORAGE_PREFIX = 'applied-research-auth';
 const AUTH_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_AUTH_RESPONSE_BYTES = 256 * 1024;
@@ -151,7 +152,11 @@ export function createDesktopAuthSdk(storage: AuthStorage): DesktopAuthSdk {
       }
       return result.data?.user ? 'present' : 'missing';
     },
-    requestGithubAuth: () => authClient.requestAuth({ provider: 'github' }),
+    requestGithubAuth: () =>
+      authClient.requestAuth({
+        provider: 'github',
+        callbackURL: ELECTRON_AUTH_CALLBACK_URL,
+      }),
     setupMain() {
       authClient.setupMain({
         getWindow: () => null,

@@ -20,6 +20,13 @@ callbacks without a pending sign-in. The runtime also calls the platform
 protocol-registration API before readiness and fails new sign-in closed when
 registration is unavailable.
 
+The backend pins Electron social sign-in to its same-origin
+`/auth/electron/callback` page. That page runs a self-hosted bundle of the
+maintained Better Auth Electron proxy client under a restrictive CSP; no CDN,
+inline script, token display or browser storage is used. The bundle is a backend
+deployment asset and remains excluded from desktop installers with the rest of
+`out/backend/**`.
+
 Desktop packaging explicitly excludes `out/backend/**`. Server-only auth,
 accounting, provider adapters and system prompts remain deployment artifacts and
 must not ship inside the Electron installer. `drizzle/**` remains packaged for

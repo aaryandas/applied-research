@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { electron } from '@better-auth/electron';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
@@ -13,6 +14,7 @@ import { Database } from './database.js';
 import type { DatabaseService } from './database.js';
 import {
   DESKTOP_TRUSTED_ORIGIN,
+  ELECTRON_AUTH_CALLBACK_URL,
   SESSION_EXPIRES_SECONDS,
   SESSION_UPDATE_SECONDS,
 } from './policy.js';
@@ -65,6 +67,16 @@ export function createAuthenticationService(
       cookieCache: { enabled: false },
     },
     rateLimit: { enabled: true, window: 60, max: 100 },
+    hooks: {
+      before: createAuthMiddleware(async (context) => {
+        const isElectronSocialSignIn =
+          context.path === '/sign-in/social' &&
+          context.query?.client_id === 'electron';
+        if (isElectronSocialSignIn && context.body) {
+          context.body.callbackURL = ELECTRON_AUTH_CALLBACK_URL;
+        }
+      }),
+    },
     plugins: [
       electron({
         clientID: 'electron',

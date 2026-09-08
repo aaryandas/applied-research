@@ -4,6 +4,9 @@ export const API_ORIGIN = 'https://api-production-e7aa.up.railway.app';
 export const DESKTOP_SCHEME = 'com.aaryandas.appliedresearch';
 export const DESKTOP_TRUSTED_ORIGIN = `${DESKTOP_SCHEME}:/`;
 export const DESKTOP_CALLBACK = `${DESKTOP_SCHEME}://auth/callback`;
+export const ELECTRON_AUTH_CALLBACK_PATH = '/auth/electron/callback';
+export const ELECTRON_AUTH_CALLBACK_SCRIPT_PATH = '/auth/electron/callback.js';
+export const ELECTRON_AUTH_CALLBACK_URL = `${API_ORIGIN}${ELECTRON_AUTH_CALLBACK_PATH}`;
 export const GITHUB_CALLBACK = `${API_ORIGIN}/api/auth/callback/github`;
 
 export const SESSION_EXPIRES_SECONDS = 7 * 24 * 60 * 60;

@@ -6,6 +6,7 @@ import {
   type Page,
 } from '@playwright/test';
 import { Buffer } from 'node:buffer';
+import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import {
   mkdtempSync,
   mkdirSync,
@@ -34,28 +35,48 @@ function launch(directory: string): Promise<ElectronApplication> {
 
 async function installSyntheticAuth(application: ElectronApplication) {
   await application.firstWindow();
-  await application.evaluate(async ({ BrowserWindow, session, shell }) => {
+  await application.evaluate(async ({ app, BrowserWindow, session, shell }) => {
     Reflect.set(globalThis, 'ar12OpenedAuthUrls', []);
     Reflect.set(globalThis, 'ar12AuthRequestPaths', []);
     Reflect.set(globalThis, 'ar12MainFrameIpcChannels', []);
-    const window = BrowserWindow.getAllWindows()[0];
-    if (!window) throw new Error('Synthetic main window is absent.');
-    const originalSend = window.webContents.send.bind(window.webContents);
-    const intercepted = Reflect.set(
-      window.webContents,
-      'send',
-      (channel: string, ...args: unknown[]) => {
-        const channels = Reflect.get(globalThis, 'ar12MainFrameIpcChannels');
-        if (Array.isArray(channels)) channels.push(channel);
-        return originalSend(channel, ...args);
-      },
-    );
-    if (!intercepted) throw new Error('Synthetic IPC interception failed.');
+    const interceptMainFrameIpc = (window: ElectronBrowserWindow): void => {
+      const originalSend = window.webContents.send.bind(window.webContents);
+      const intercepted = Reflect.set(
+        window.webContents,
+        'send',
+        (channel: string, ...args: unknown[]) => {
+          const channels = Reflect.get(globalThis, 'ar12MainFrameIpcChannels');
+          if (Array.isArray(channels)) channels.push(channel);
+          return originalSend(channel, ...args);
+        },
+      );
+      if (!intercepted) throw new Error('Synthetic IPC interception failed.');
+    };
+    for (const window of BrowserWindow.getAllWindows()) {
+      interceptMainFrameIpc(window);
+    }
+    app.on('browser-window-created', (_event, window) => {
+      interceptMainFrameIpc(window);
+    });
     const replaced = Reflect.set(shell, 'openExternal', async (url: string) => {
       const opened = Reflect.get(globalThis, 'ar12OpenedAuthUrls');
       if (Array.isArray(opened)) opened.push(url);
     });
     if (!replaced) throw new Error('Synthetic shell interception failed.');
+
+    const jsonResponse = (
+      body: unknown,
+      init: { readonly headers?: HeadersInit; readonly status?: number } = {},
+    ): Response => {
+      const bytes = new TextEncoder().encode(JSON.stringify(body));
+      const headers = new Headers(init.headers);
+      headers.set('content-length', String(bytes.byteLength));
+      headers.set('content-type', 'application/json');
+      return new Response(bytes, {
+        headers,
+        status: init.status ?? 200,
+      });
+    };
 
     await session.defaultSession.protocol.handle('https', (request) => {
       const url = new URL(request.url);
@@ -67,7 +88,7 @@ async function installSyntheticAuth(application: ElectronApplication) {
         });
       }
       if (url.pathname.endsWith('/electron/token')) {
-        return Response.json(
+        return jsonResponse(
           {
             token: 'synthetic-public-response',
             user: {
@@ -88,7 +109,7 @@ async function installSyntheticAuth(application: ElectronApplication) {
         );
       }
       if (url.pathname.endsWith('/get-session')) {
-        return Response.json(
+        return jsonResponse(
           {
             user: { id: 'account-1', name: 'Synthetic Builder' },
             session: { id: 'session-1' },
@@ -102,14 +123,14 @@ async function installSyntheticAuth(application: ElectronApplication) {
         );
       }
       if (url.pathname.endsWith('/sign-out')) {
-        return Response.json({ success: true });
+        return jsonResponse({ success: true });
       }
       if (url.pathname === '/v1/account') {
         if (
           request.headers.get('origin') !== 'com.aaryandas.appliedresearch:/' ||
           !request.headers.get('cookie')?.includes('better-auth.session_token=')
         ) {
-          return Response.json(
+          return jsonResponse(
             {
               outcome: 'unauthenticated',
               requestId: null,
@@ -118,7 +139,7 @@ async function installSyntheticAuth(application: ElectronApplication) {
             { status: 401 },
           );
         }
-        return Response.json({
+        return jsonResponse({
           outcome: 'success',
           account: {
             id: 'account-1',
@@ -189,6 +210,15 @@ async function requestCount(
   }, path);
 }
 
+async function oauthStateCount(
+  application: ElectronApplication,
+): Promise<number> {
+  return application.evaluate(() => {
+    const states = Reflect.get(globalThis, Symbol.for('better-auth:electron'));
+    return states instanceof Map ? states.size : 0;
+  });
+}
+
 function callbackFor(openedUrl: string): string {
   const state = new URL(openedUrl).searchParams.get('state');
   if (!state) throw new Error('Synthetic sign-in state is absent.');
@@ -201,38 +231,69 @@ function callbackFor(openedUrl: string): string {
 async function emitCallback(
   application: ElectronApplication,
   callback: string,
-): Promise<void> {
-  await application.evaluate(({ app }, url) => {
+): Promise<boolean> {
+  return application.evaluate(({ app }, url) => {
     const event = { defaultPrevented: false, preventDefault() {} };
-    if (process.platform === 'darwin') app.emit('open-url', event, url);
-    else app.emit('second-instance', event, [url], process.cwd(), {});
+    return process.platform === 'darwin'
+      ? app.emit('open-url', event, url)
+      : app.emit('second-instance', event, [url], process.cwd(), {});
   }, callback);
 }
 
-function waitForSession(
+async function beginAccountStateObservation(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const previous = Reflect.get(window, 'ar12AccountStateUnsubscribe');
+    if (typeof previous === 'function') previous();
+    const states: DesktopAccountState[] = [];
+    Reflect.set(window, 'ar12ObservedAccountStates', states);
+    Reflect.set(
+      window,
+      'ar12AccountStateUnsubscribe',
+      window.desktop.onAccountState((state) => states.push(state)),
+    );
+  });
+}
+
+async function waitForSession(
   page: Page,
   session: DesktopAccountState['session'],
 ): Promise<DesktopAccountState> {
-  return page.evaluate(
-    (expectedSession) =>
-      new Promise<DesktopAccountState>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          unsubscribe();
-          reject(new Error('Timed out waiting for account state.'));
-        }, 10_000);
-        const unsubscribe = window.desktop.onAccountState((state) => {
-          if (state.session !== expectedSession) return;
-          window.clearTimeout(timeout);
-          unsubscribe();
-          resolve(state);
+  let observed: DesktopAccountState | null = null;
+  await expect
+    .poll(
+      async () => {
+        observed = await page.evaluate(() => {
+          const states = Reflect.get(window, 'ar12ObservedAccountStates');
+          if (!Array.isArray(states)) return null;
+          const state = states.at(-1);
+          return state && typeof state === 'object'
+            ? (state as DesktopAccountState)
+            : null;
         });
-      }),
-    session,
-  );
+        return observed;
+      },
+      { timeout: 10_000 },
+    )
+    .toMatchObject({ session });
+  if (!observed) {
+    return page.evaluate((expectedSession) => {
+      const states = Reflect.get(window, 'ar12ObservedAccountStates');
+      if (!Array.isArray(states)) throw new Error('Account states are absent.');
+      const state = states.findLast(
+        (candidate) =>
+          typeof candidate === 'object' &&
+          candidate !== null &&
+          Reflect.get(candidate, 'session') === expectedSession,
+      );
+      if (!state) throw new Error('Expected account state is absent.');
+      return state as DesktopAccountState;
+    }, session);
+  }
+  return observed;
 }
 
 test('uses the real Electron SDK for cancellation, encrypted restart and sign-out', async () => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   const directory = mkdtempSync(join(tmpdir(), 'ar12-electron-auth-'));
   let application = await launch(directory);
   try {
@@ -251,29 +312,48 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
     expect(await page.evaluate(() => window.desktop.signIn())).toMatchObject({
       session: 'signing-in',
     });
+    expect(await oauthStateCount(application)).toBe(1);
     const firstOpened = await latestOpenedUrl(application);
     if (!firstOpened) throw new Error('First synthetic browser URL is absent.');
     const firstCallback = callbackFor(firstOpened);
     expect(
       await page.evaluate(() => window.desktop.cancelSignIn()),
     ).toMatchObject({ session: 'signed-out' });
-    await emitCallback(application, firstCallback);
+    expect(await oauthStateCount(application)).toBe(0);
+    expect(await emitCallback(application, firstCallback)).toBe(true);
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(0);
 
     await page.evaluate(() => window.desktop.signIn());
+    expect(await oauthStateCount(application)).toBe(1);
     const secondOpened = await latestOpenedUrl(application);
     if (!secondOpened)
       throw new Error('Second synthetic browser URL is absent.');
     expect(new URL(secondOpened).searchParams.get('state')).not.toBe(
       new URL(firstOpened).searchParams.get('state'),
     );
-    await emitCallback(application, firstCallback);
+    expect(await emitCallback(application, firstCallback)).toBe(true);
+    expect(await oauthStateCount(application)).toBe(1);
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(0);
 
-    const signedIn = waitForSession(page, 'signed-in');
+    await beginAccountStateObservation(page);
     const secondCallback = callbackFor(secondOpened);
-    await emitCallback(application, secondCallback);
-    expect(await signedIn).toEqual({
+    expect(await emitCallback(application, secondCallback)).toBe(true);
+    await expect
+      .poll(() => requestCount(application, '/api/auth/electron/token'), {
+        timeout: 10_000,
+      })
+      .toBe(1);
+    await expect
+      .poll(() => requestCount(application, '/api/auth/get-session'), {
+        timeout: 10_000,
+      })
+      .toBe(1);
+    await expect
+      .poll(() => requestCount(application, '/v1/account'), {
+        timeout: 10_000,
+      })
+      .toBe(1);
+    expect(await waitForSession(page, 'signed-in')).toEqual({
       session: 'signed-in',
       account: { id: 'account-1', name: 'Synthetic Builder', image: null },
       quota: {
@@ -287,7 +367,7 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
     });
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(1);
     expect(await betterAuthIpcChannels(application)).toEqual([]);
-    await emitCallback(application, secondCallback);
+    expect(await emitCallback(application, secondCallback)).toBe(true);
     expect(await requestCount(application, '/api/auth/electron/token')).toBe(1);
 
     const sessionPath = join(directory, 'auth', 'session.json');
@@ -332,9 +412,9 @@ test('real Electron refuses an SDK persistence write failure', async () => {
     if (!opened) throw new Error('Synthetic browser URL is absent.');
     mkdirSync(join(directory, 'auth', 'session.json'), { recursive: true });
 
-    const unavailable = waitForSession(page, 'unavailable');
-    await emitCallback(application, callbackFor(opened));
-    expect(await unavailable).toMatchObject({
+    await beginAccountStateObservation(page);
+    expect(await emitCallback(application, callbackFor(opened))).toBe(true);
+    expect(await waitForSession(page, 'unavailable')).toMatchObject({
       session: 'unavailable',
       account: null,
       quota: null,
