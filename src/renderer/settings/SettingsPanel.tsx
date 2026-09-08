@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactElement } from 'react';
+import type { DesktopSessionStatus } from '../../contracts/desktop-auth';
 import { AppearanceControl } from './AppearanceControl';
 import {
   accountInitials,
@@ -21,7 +22,7 @@ const statusLabels = {
   'signed-in': 'Signed in',
   expired: 'Your session has expired',
   unavailable: 'Account unavailable',
-};
+} satisfies Record<DesktopSessionStatus, string>;
 
 export function SettingsPanel({
   accountBridge,
@@ -42,19 +43,28 @@ export function SettingsPanel({
   const account = isSignedIn ? state.account : null;
   const quota = isSignedIn ? state.quota : null;
   const isSigningIn = state.session === 'signing-in';
-  const mainAction = isSigningIn
-    ? session.cancel
-    : isSignedIn
-      ? session.signOut
-      : session.signIn;
-  const actionLabel = isSigningIn
-    ? 'Cancel sign-in'
-    : isSignedIn
-      ? 'Sign out'
-      : 'Sign in';
+  const signInAction = { run: session.signIn, label: 'Sign in' };
+  const actions = {
+    'signed-out': signInAction,
+    expired: signInAction,
+    unavailable: signInAction,
+    'signing-in': { run: session.cancel, label: 'Cancel sign-in' },
+    'signed-in': { run: session.signOut, label: 'Sign out' },
+  } satisfies Record<DesktopSessionStatus, { run: () => void; label: string }>;
+  const action = actions[state.session];
+  const isCheckingAccount = receivedAt === null && pending === 'refresh';
   const actionDisabled = pending !== null && !isSigningIn;
-  const feedback =
-    state.message ?? (pending === 'refresh' ? 'Refreshing account…' : '');
+  const pendingMessages = {
+    refresh: 'Refreshing account…',
+    'sign-in': 'Starting sign-in…',
+    cancel: 'Cancelling sign-in…',
+    'sign-out': 'Signing out…',
+  };
+  const feedback = state.message ?? (pending ? pendingMessages[pending] : '');
+  const isEndingSession = pending === 'cancel' || pending === 'sign-out';
+  let accountLabel = statusLabels[state.session];
+  if (isCheckingAccount) accountLabel = 'Checking your account…';
+  else if (isEndingSession) accountLabel = pendingMessages[pending];
 
   return (
     <section className="settings-panel" aria-labelledby={heading}>
@@ -80,25 +90,26 @@ export function SettingsPanel({
                   account ? 'settings-muted' : 'settings-session-title'
                 }
               >
-                {statusLabels[state.session]}
+                {accountLabel}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            className="settings-button"
-            aria-disabled={actionDisabled}
-            onClick={() => {
-              if (!actionDisabled) mainAction();
-            }}
-          >
-            {actionLabel}
-          </button>
+          {!isCheckingAccount && (
+            <button
+              type="button"
+              className="settings-button"
+              aria-disabled={actionDisabled}
+              onClick={() => {
+                if (!actionDisabled) action.run();
+              }}
+            >
+              {action.label}
+            </button>
+          )}
         </div>
-        <p className="settings-muted">
-          Sign in to use AI guidance. Your saved work stays on this device when
-          you sign out.
-        </p>
+        {!isSignedIn && !isCheckingAccount && (
+          <p className="settings-muted">Sign in to use AI guidance.</p>
+        )}
         <div className="settings-status-row">
           <p
             className="settings-feedback"
@@ -162,10 +173,12 @@ export function SettingsPanel({
                   at{' '}
                   <time dateTime={receivedAt.toISOString()}>
                     {receivedAt.toLocaleString('en-US', {
+                      year: 'numeric',
                       month: 'short',
                       day: 'numeric',
                       hour: 'numeric',
                       minute: '2-digit',
+                      timeZoneName: 'short',
                     })}
                   </time>
                 </>

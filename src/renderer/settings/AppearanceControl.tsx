@@ -7,6 +7,7 @@ export function AppearanceControl({
 }: SettingsAppearanceControl): ReactElement {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
+  // The ref rejects same-tick clicks before React commits the pending state.
   const busy = useRef(false);
   const mounted = useRef(false);
   useEffect(() => {
@@ -35,11 +36,7 @@ export function AppearanceControl({
 
   return (
     <div className="settings-appearance">
-      <div
-        className="settings-theme-options"
-        role="group"
-        aria-label="Appearance"
-      >
+      <fieldset className="settings-theme-options" aria-label="Appearance">
         {(['light', 'dark'] as const).map((theme) => (
           <button
             key={theme}
@@ -53,7 +50,7 @@ export function AppearanceControl({
             {theme === 'light' ? 'Light' : 'Dark'}
           </button>
         ))}
-      </div>
+      </fieldset>
       <p className="settings-feedback" role="status" aria-live="polite">
         {message}
       </p>

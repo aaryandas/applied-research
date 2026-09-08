@@ -99,18 +99,20 @@
   flex-shrink: 0;
   background: var(--surface);
 }
-.settings-panel button:hover,
+.settings-panel button:not([aria-disabled='true']):hover,
 .settings-account-entry:hover {
   background: var(--surface-subtle);
 }
 .settings-panel button:focus-visible,
 .settings-account-entry:focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 3px;
+  outline-offset: 4px;
 }
 .settings-panel button[aria-disabled='true'] {
   color: var(--muted);
   cursor: wait;
+  opacity: 0.5;
+  transform: none;
 }
 .settings-status-row {
   display: flex;
@@ -127,7 +129,8 @@
 }
 .settings-coordinate {
   font: 12px/1.4 var(--font-mono);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 .settings-usage {
@@ -156,6 +159,9 @@
   max-width: 280px;
 }
 .settings-theme-options {
+  margin: 0;
+  border: 0;
+  min-width: 0;
   display: inline-flex;
   gap: 3px;
   padding: 4px;

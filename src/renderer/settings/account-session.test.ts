@@ -3,7 +3,7 @@ import type {
   DesktopAccountState,
   DesktopSignOutResult,
 } from '../../contracts/desktop-auth';
-import { createAccountSession } from './account-session';
+import { createAccountSession, type AccountSession } from './account-session';
 import type { SettingsAccountBridge } from './types';
 
 function deferred<T>() {
@@ -72,9 +72,10 @@ function setup() {
     unsubscribe,
   };
 }
-const settle = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
+const waitForIdle = async (session: AccountSession): Promise<void> => {
+  await vi.waitFor(() => expect(session.getSnapshot().pending).toBeNull(), {
+    interval: 1,
+  });
 };
 
 describe('account session ordering', () => {
@@ -88,17 +89,20 @@ describe('account session ordering', () => {
     );
     emit(signedIn);
     refresh.resolve(unavailable);
-    await settle();
+    await refresh.promise;
+    await waitForIdle(session);
     expect(session.getSnapshot().state).toEqual(signedIn);
     expect(bridge.accountStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('cancels while sign-in is unresolved and ignores its late reply and callback', async () => {
+  it('suppresses positives only during pending cancel and ignores an older sign-in reply', async () => {
     const { bridge, session, emit } = setup();
     session.connect();
-    await settle();
+    await waitForIdle(session);
     const signIn = deferred<DesktopAccountState>();
+    const cancel = deferred<DesktopAccountState>();
     bridge.signIn.mockReturnValue(signIn.promise);
+    bridge.cancelSignIn.mockReturnValue(cancel.promise);
     session.signIn();
     session.signIn();
     session.refresh();
@@ -108,15 +112,18 @@ describe('account session ordering', () => {
     session.cancel();
     expect(session.getSnapshot().state.account).toBeNull();
     expect(bridge.cancelSignIn).toHaveBeenCalledTimes(1);
-    await settle();
-    signIn.resolve(signedIn);
     emit(signedIn);
     emit(waiting);
-    await settle();
     expect(session.getSnapshot().state.session).toBe('signed-out');
-    bridge.signIn.mockResolvedValue(waiting);
-    session.signIn();
-    await settle();
+    expect(session.getSnapshot().pending).toBe('cancel');
+    cancel.resolve(signedOut);
+    await waitForIdle(session);
+    signIn.resolve(signedIn);
+    await signIn.promise;
+    expect(session.getSnapshot().state.session).toBe('signed-out');
+    // Settled operations trust the producer, including sign-in from another shell surface.
+    emit(waiting);
+    expect(session.getSnapshot().state).toEqual(waiting);
     emit(signedIn);
     expect(session.getSnapshot().state).toEqual(signedIn);
   });
@@ -124,9 +131,9 @@ describe('account session ordering', () => {
   it('keeps waiting after the early reply, then accepts the terminal event', async () => {
     const { bridge, session, emit } = setup();
     session.connect();
-    await settle();
+    await waitForIdle(session);
     session.signIn();
-    await settle();
+    await waitForIdle(session);
     expect(session.getSnapshot().pending).toBeNull();
     expect(session.getSnapshot().state).toEqual(waiting);
     session.signIn();
@@ -140,13 +147,14 @@ describe('account session ordering', () => {
   it('ignores an early waiting reply after a terminal sign-in event', async () => {
     const { bridge, session, emit } = setup();
     session.connect();
-    await settle();
+    await waitForIdle(session);
     const signIn = deferred<DesktopAccountState>();
     bridge.signIn.mockReturnValue(signIn.promise);
     session.signIn();
     emit(signedIn);
     signIn.resolve(waiting);
-    await settle();
+    await signIn.promise;
+    await waitForIdle(session);
     expect(session.getSnapshot().state).toEqual(signedIn);
   });
 
@@ -156,7 +164,7 @@ describe('account session ordering', () => {
       const { bridge, session, emit } = setup();
       bridge.accountStatus.mockResolvedValue(signedIn);
       session.connect();
-      await settle();
+      await waitForIdle(session);
       const signOut = deferred<DesktopSignOutResult>();
       bridge.signOut.mockReturnValue(signOut.promise);
       session.signIn();
@@ -170,7 +178,7 @@ describe('account session ordering', () => {
       emit(signedOut);
       emit(signedIn);
       signOut.resolve({ state: signedOut, remoteRevocation });
-      await settle();
+      await waitForIdle(session);
       expect(session.getSnapshot().state.session).toBe('signed-out');
       expect(session.getSnapshot().state.message).toContain(
         remoteRevocation === 'confirmed'
@@ -185,12 +193,12 @@ describe('account session ordering', () => {
     const { bridge, session, emit } = setup();
     bridge.accountStatus.mockResolvedValue(unavailable);
     session.connect();
-    await settle();
+    await waitForIdle(session);
     expect(session.getSnapshot().state).toEqual(unavailable);
     bridge.accountStatus.mockResolvedValue(signedIn);
     session.refresh();
     session.refresh();
-    await settle();
+    await waitForIdle(session);
     expect(bridge.accountStatus).toHaveBeenCalledTimes(2);
     expect(session.getSnapshot().state).toEqual(signedIn);
     emit({ ...unavailable, account: signedIn.account, quota: signedIn.quota });
@@ -203,7 +211,7 @@ describe('account session ordering', () => {
     async (method) => {
       const { bridge, session, emit } = setup();
       session.connect();
-      await settle();
+      await waitForIdle(session);
       const failure = deferred<never>();
       if (method === 'refresh') {
         bridge.accountStatus.mockReturnValue(failure.promise);
@@ -215,7 +223,7 @@ describe('account session ordering', () => {
       }
       if (method === 'cancelSignIn') {
         session.signIn();
-        await settle();
+        await waitForIdle(session);
         bridge.cancelSignIn.mockReturnValue(failure.promise);
         session.cancel();
         emit(signedOut);
@@ -227,10 +235,15 @@ describe('account session ordering', () => {
         emit(signedOut);
       }
       failure.reject(new Error('PRIVATE INTERNAL DETAILS'));
-      await settle();
+      await waitForIdle(session);
       expect(session.getSnapshot().state.session).toBe('unavailable');
-      expect(session.getSnapshot().state.message).toMatch(/try again/i);
+      expect(session.getSnapshot().state.message).toMatch(
+        /try again|Retry connection/i,
+      );
       expect(session.getSnapshot().state.message).not.toContain('PRIVATE');
+      expect(session.getSnapshot().state.message).not.toMatch(
+        /signed out|was cancelled/i,
+      );
       expect(session.getSnapshot().state.account).toBeNull();
     },
   );
@@ -246,14 +259,14 @@ describe('account session ordering', () => {
     const before = session.getSnapshot();
     emit(signedIn);
     refresh.resolve(signedIn);
-    await settle();
+    await refresh.promise;
     expect(session.getSnapshot()).toBe(before);
     expect(changed).not.toHaveBeenCalled();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     stop();
     bridge.accountStatus.mockResolvedValue(signedOut);
     session.connect();
-    await settle();
+    await waitForIdle(session);
     expect(session.getSnapshot().state).toEqual(signedOut);
   });
 
@@ -266,4 +279,101 @@ describe('account session ordering', () => {
     expect(session.getSnapshot().state.session).toBe('unavailable');
     expect(bridge.signIn).not.toHaveBeenCalled();
   });
+});
+
+it.each(['confirmed', 'unconfirmed'] as const)(
+  'trusts a new producer sign-in after %s sign-out settles (Fable P1)',
+  async (remoteRevocation) => {
+    const { bridge, session, emit } = setup();
+    bridge.accountStatus.mockResolvedValue(signedIn);
+    bridge.signOut.mockResolvedValue({ state: signedOut, remoteRevocation });
+    session.connect();
+    await waitForIdle(session);
+    session.signOut();
+    await waitForIdle(session);
+    expect(session.getSnapshot().state.session).toBe('signed-out');
+    emit(waiting);
+    expect(session.getSnapshot().state).toEqual(waiting);
+    emit(signedIn);
+    expect(session.getSnapshot().state).toEqual(signedIn);
+  },
+);
+
+it('accepts the authoritative signed-in cancel reply when completion won the race (Fable P2)', async () => {
+  const { bridge, session, emit } = setup();
+  session.connect();
+  await waitForIdle(session);
+  const signIn = deferred<DesktopAccountState>();
+  const cancel = deferred<DesktopAccountState>();
+  bridge.signIn.mockReturnValue(signIn.promise);
+  bridge.cancelSignIn.mockReturnValue(cancel.promise);
+  session.signIn();
+  session.cancel();
+  emit(signedIn);
+  expect(session.getSnapshot().state.account).toBeNull();
+  cancel.resolve(signedIn);
+  await waitForIdle(session);
+  expect(session.getSnapshot().state).toEqual({
+    ...signedIn,
+    message:
+      'Sign-in finished before it could be cancelled. You can sign out below.',
+  });
+  signIn.resolve(waiting);
+  await signIn.promise;
+  expect(session.getSnapshot().state.session).toBe('signed-in');
+  session.signOut();
+  await waitForIdle(session);
+  expect(bridge.signOut).toHaveBeenCalledTimes(1);
+});
+
+it('preserves a newer terminal event over an older cancel reply', async () => {
+  const { bridge, session, emit } = setup();
+  session.connect();
+  await waitForIdle(session);
+  session.signIn();
+  await waitForIdle(session);
+  const cancel = deferred<DesktopAccountState>();
+  bridge.cancelSignIn.mockReturnValue(cancel.promise);
+  session.cancel();
+  emit(unavailable);
+  cancel.resolve(signedIn);
+  await waitForIdle(session);
+  expect(session.getSnapshot().state).toEqual(unavailable);
+});
+
+it('resubscribes before a retry refresh and receives later events (Fable P4)', async () => {
+  const { bridge, session, emit, unsubscribe } = setup();
+  bridge.onAccountState.mockImplementationOnce(() => {
+    throw new Error('synthetic failure');
+  });
+  const disconnect = session.connect();
+  expect(session.getSnapshot().state.session).toBe('unavailable');
+  expect(bridge.accountStatus).not.toHaveBeenCalled();
+  bridge.accountStatus.mockResolvedValue(signedIn);
+  session.refresh();
+  await waitForIdle(session);
+  expect(bridge.onAccountState).toHaveBeenCalledTimes(2);
+  expect(bridge.onAccountState.mock.invocationCallOrder[1]).toBeLessThan(
+    bridge.accountStatus.mock.invocationCallOrder[0]!,
+  );
+  emit(unavailable);
+  expect(session.getSnapshot().state).toEqual(unavailable);
+  disconnect();
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
+});
+
+it('keeps subscription retry failure honest and refuses an unobserved sign-in', async () => {
+  const { bridge, session } = setup();
+  bridge.onAccountState.mockImplementation(() => {
+    throw new Error('private');
+  });
+  session.connect();
+  session.refresh();
+  session.signIn();
+  expect(bridge.onAccountState).toHaveBeenCalledTimes(3);
+  expect(bridge.accountStatus).not.toHaveBeenCalled();
+  expect(bridge.signIn).not.toHaveBeenCalled();
+  expect(session.getSnapshot().state.session).toBe('unavailable');
+  expect(session.getSnapshot().state.message).toContain('Retry connection');
+  await waitForIdle(session);
 });
