@@ -47,7 +47,7 @@ jobs:
           path_to_claude_code_executable: ${{ steps.claude.outputs.path }}
           # The allowlist lets Claude read the PR and post its verdict with gh.
           claude_args: >-
-            --model claude-fable-5-1 --max-turns 40 --setting-sources user
+            --model claude-fable-5-1 --max-turns 80 --setting-sources user
             --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
           prompt: |
             You are the independent critic for this repository. Review this pull request on two axes and post one comment.

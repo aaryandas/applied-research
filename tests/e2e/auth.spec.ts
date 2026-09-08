@@ -202,7 +202,7 @@ async function requestCount(
   application: ElectronApplication,
   path: string,
 ): Promise<number> {
-  return application.evaluate((expectedPath) => {
+  return application.evaluate((_electron, expectedPath) => {
     const requests = Reflect.get(globalThis, 'ar12AuthRequestPaths');
     return Array.isArray(requests)
       ? requests.filter((requestPath) => requestPath === expectedPath).length

@@ -3,6 +3,7 @@ import {
   expect,
   test,
   type ElectronApplication,
+  type Page,
 } from '@playwright/test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +25,51 @@ function launch(directory: string, key = ''): Promise<ElectronApplication> {
       OPENROUTER_API_KEY: key,
     },
   });
+}
+
+const OPENING_VIEWPORTS: ReadonlyArray<readonly [number, number]> = [
+  [1280, 800],
+  [1440, 900],
+  [820, 620],
+];
+
+// Resizes the content area and waits for the renderer to see it. Returns false
+// when the display cannot show that size (CI runners have small screens); the
+// skipped size is recorded as a test annotation instead of a false failure.
+async function resizeViewport(
+  application: ElectronApplication,
+  page: Page,
+  width: number,
+  height: number,
+): Promise<boolean> {
+  const fits = await application.evaluate(
+    ({ BrowserWindow, screen }, size) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window) return false;
+      window.setMinimumSize(820, 620);
+      window.setContentSize(size.width, size.height);
+      const area = screen.getPrimaryDisplay().workAreaSize;
+      const frame = window.getSize();
+      const content = window.getContentSize();
+      const chrome = [frame[0]! - content[0]!, frame[1]! - content[1]!];
+      return (
+        size.width + chrome[0]! <= area.width &&
+        size.height + chrome[1]! <= area.height
+      );
+    },
+    { width, height },
+  );
+  if (!fits) {
+    test.info().annotations.push({
+      type: 'viewport-skipped',
+      description: `${width}x${height} does not fit this display`,
+    });
+    return false;
+  }
+  await expect
+    .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
+    .toEqual([width, height]);
+  return true;
 }
 
 test('saves an offline learning space, edits and layout across a real Electron restart', async () => {
@@ -456,22 +502,8 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       );
     });
     expect(fonts.every((font) => font.loaded)).toBe(true);
-    for (const [width, height] of [
-      [1280, 800],
-      [1440, 900],
-      [820, 620],
-    ]) {
-      await application.evaluate(
-        ({ BrowserWindow }, size) => {
-          const window = BrowserWindow.getAllWindows()[0];
-          window?.setMinimumSize(820, 620);
-          window?.setContentSize(size.width, size.height);
-        },
-        { width: width!, height: height! },
-      );
-      await expect
-        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
-        .toEqual([width, height]);
+    for (const [width, height] of OPENING_VIEWPORTS) {
+      if (!(await resizeViewport(application, page, width!, height!))) continue;
       await page.screenshot({
         path: test.info().outputPath(`opening-empty-${width}x${height}.png`),
       });
@@ -493,22 +525,8 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         .getByRole('navigation', { name: 'Your projects' })
         .getByRole('button'),
     ).toHaveCount(1);
-    for (const [width, height] of [
-      [1280, 800],
-      [1440, 900],
-      [820, 620],
-    ]) {
-      await application.evaluate(
-        ({ BrowserWindow }, size) =>
-          BrowserWindow.getAllWindows()[0]?.setContentSize(
-            size.width,
-            size.height,
-          ),
-        { width: width!, height: height! },
-      );
-      await expect
-        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
-        .toEqual([width, height]);
+    for (const [width, height] of OPENING_VIEWPORTS) {
+      if (!(await resizeViewport(application, page, width!, height!))) continue;
       await page.screenshot({
         path: test.info().outputPath(`opening-saved-${width}x${height}.png`),
       });
@@ -720,22 +738,8 @@ test('retains the topic and focus after real bridge creation failures and suppre
       'Your topic is still here. Try again.',
     );
     await expect(input).toHaveCSS('outline-style', 'none');
-    for (const [width, height] of [
-      [1280, 800],
-      [1440, 900],
-      [820, 620],
-    ]) {
-      await application.evaluate(
-        ({ BrowserWindow }, size) => {
-          const window = BrowserWindow.getAllWindows()[0];
-          window?.setMinimumSize(820, 620);
-          window?.setContentSize(size.width, size.height);
-        },
-        { width: width!, height: height! },
-      );
-      await expect
-        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
-        .toEqual([width, height]);
+    for (const [width, height] of OPENING_VIEWPORTS) {
+      if (!(await resizeViewport(application, page, width!, height!))) continue;
       await page.screenshot({
         path: test
           .info()
