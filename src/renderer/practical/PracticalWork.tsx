@@ -108,13 +108,14 @@ function ActivityWork(
   const [message, setMessage] = useState('');
   const [embeddedOpen, setEmbeddedOpen] = useState(false);
   const pendingAction = useRef<Promise<void> | null>(null);
+  const { registerFlush } = props;
   useEffect(
     () =>
-      props.registerFlush(async () => {
+      registerFlush(async () => {
         await pendingAction.current;
         return session.flush();
       }),
-    [props.registerFlush, session],
+    [registerFlush, session],
   );
   const update = (patch: Partial<PracticalDraft>): void =>
     session.update(patch);
