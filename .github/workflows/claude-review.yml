@@ -37,7 +37,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The workflow token posts the review comment; no Claude GitHub App install is needed.
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          claude_args: '--model claude-fable-5-1 --max-turns 40'
+          # track_progress gives Claude a tracking comment it can update; the allowlist lets it read the PR and post.
+          track_progress: true
+          claude_args: >-
+            --model claude-fable-5-1 --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),mcp__github_comment__update_claude_comment"
           prompt: |
             You are the independent critic for this repository. Review this pull request on two axes and post one comment.
             Standards: context/design-handoff/GAUNTLET-PROMPT.md "TypeScript and Effect standards", context/conventions.md, context/architecture.md (process boundaries, bridge exposure, credential handling).
