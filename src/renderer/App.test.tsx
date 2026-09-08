@@ -371,12 +371,70 @@ it('opens account settings from Opening and returns focus to its entry', async (
   localStorage.setItem('applied-research-theme', 'light');
   render(<App bridge={bridge} />);
   await screen.findByLabelText('What do you want to learn about?');
+  const input = screen.getByLabelText('What do you want to learn about?');
+  fireEvent.change(input, { target: { value: 'An unfinished topic' } });
   const button = screen.getByRole('button', { name: 'Settings' });
   fireEvent.click(button);
   await screen.findByRole('heading', { name: 'Settings' });
   fireEvent.click(screen.getByRole('button', { name: 'Back to work' }));
   await waitFor(() => expect(button).toHaveFocus());
-  expect(
-    screen.getByLabelText('What do you want to learn about?'),
-  ).toBeVisible();
+  expect(input).toBeVisible();
+  expect(input).toHaveValue('An unfinished topic');
+});
+
+it('ignores a slow project response after a different project has opened', async () => {
+  const { bridge, project } = setup();
+  const first = fixture().workspace;
+  const second: LearningWorkspace = {
+    ...fixture().workspace,
+    project: {
+      ...first.project,
+      id: 'second-project',
+      goal: 'Another saved topic',
+    },
+  };
+  vi.mocked(bridge.listProjects).mockResolvedValue([
+    project,
+    { ...second.project, entries: [] },
+  ]);
+  let finishFirst: (workspace: LearningWorkspace) => void = () => {};
+  vi.mocked(bridge.getLearningWorkspace)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFirst = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(second);
+  render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: new RegExp(project.goal) }),
+  );
+  await waitFor(() =>
+    expect(bridge.getLearningWorkspace).toHaveBeenCalledOnce(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Another saved topic/ }));
+  await screen.findByRole('heading', { name: 'Reading' });
+  await act(async () => {
+    finishFirst(first);
+  });
+  expect(screen.getByText('Another saved topic')).toBeVisible();
+  expect(screen.queryByText(project.goal)).not.toBeInTheDocument();
+});
+
+it('keeps appearance usable when preference storage is unavailable', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('storage blocked');
+  });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('storage blocked');
+  });
+  const { bridge } = setup({ empty: true });
+  render(<App bridge={bridge} />);
+  await screen.findByLabelText('What do you want to learn about?');
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  fireEvent.click(screen.getByRole('button', { name: 'Use daylight theme' }));
+  await waitFor(() =>
+    expect(document.documentElement.dataset.theme).toBe('light'),
+  );
 });

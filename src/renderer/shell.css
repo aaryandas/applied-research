@@ -195,3 +195,7 @@
 .shell-icon-rail .reader-profile {
   margin-top: 6px;
 }
+
+.app-shell > .opening-frame[hidden] {
+  display: none;
+}

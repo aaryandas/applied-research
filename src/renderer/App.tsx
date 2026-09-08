@@ -163,7 +163,7 @@ export function App({
           </button>
         </nav>
       </header>
-      {settings ? (
+      {settings && (
         <SettingsPanel
           accountBridge={bridge}
           appearance={appearance}
@@ -172,40 +172,39 @@ export function App({
             requestAnimationFrame(() => settingsEntry.current?.focus());
           }}
         />
-      ) : (
-        <main className="opening-frame">
-          {error && (
-            <div className="notice" role="alert">
-              <span>{error}</span>
-              <button
-                onClick={() => {
-                  setLoading(true);
-                  setError('');
-                  void loadProjects();
-                }}
-              >
-                Retry loading projects
-              </button>
-            </div>
-          )}
-          {loading ? (
-            <p role="status">Opening your work…</p>
-          ) : (
-            <>
-              {opening && (
-                <p className="shell-opening-status" role="status">
-                  Opening project…
-                </p>
-              )}
-              <Opening
-                projects={projects}
-                onCreate={createProject}
-                onReopen={(id) => void openProject(id)}
-              />
-            </>
-          )}
-        </main>
       )}
+      <main className="opening-frame" hidden={settings}>
+        {error && (
+          <div className="notice" role="alert">
+            <span>{error}</span>
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError('');
+                void loadProjects();
+              }}
+            >
+              Retry loading projects
+            </button>
+          </div>
+        )}
+        {loading ? (
+          <p role="status">Opening your work…</p>
+        ) : (
+          <>
+            {opening && (
+              <p className="shell-opening-status" role="status">
+                Opening project…
+              </p>
+            )}
+            <Opening
+              projects={projects}
+              onCreate={createProject}
+              onReopen={(id) => void openProject(id)}
+            />
+          </>
+        )}
+      </main>
     </div>
   );
 }

@@ -46,7 +46,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
       const selection = window.getSelection()!;
       selection.removeAllRanges();
       selection.addRange(range);
-      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      document.dispatchEvent(new Event('selectionchange'));
     });
     await page.getByRole('button', { name: 'Note', exact: true }).click();
     await page

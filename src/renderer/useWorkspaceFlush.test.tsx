@@ -36,6 +36,7 @@ it('serializes navigation, drains every producer, and preserves failed drafts', 
     navigation = result.current.navigate(first);
     void result.current.navigate(second);
   });
+  expect(result.current.saving).toBe(true);
   expect(first).not.toHaveBeenCalled();
   expect(second).not.toHaveBeenCalled();
   await act(async () => {
@@ -43,6 +44,7 @@ it('serializes navigation, drains every producer, and preserves failed drafts', 
     await navigation;
   });
   expect(first).toHaveBeenCalledOnce();
+  expect(result.current.saving).toBe(false);
   expect(reader).toHaveBeenCalledOnce();
   expect(canvas).toHaveBeenCalledOnce();
   expect(practical).toHaveBeenCalledOnce();
