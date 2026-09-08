@@ -37,13 +37,14 @@
     "sonar:logs": "docker compose --env-file .env.sonar -f compose.sonar.yml logs --tail 100 sonarqube",
     "sonar:scan": "npm run test:coverage && docker compose --env-file .env.sonar -f compose.sonar.yml run --rm scanner",
     "native:node": "npm rebuild better-sqlite3",
-    "native:electron": "electron-builder install-app-deps",
+    "native:electron": "electron-rebuild -f -w better-sqlite3",
     "dev:backend": "npm run build:backend && npm run start:backend",
     "test:backend:postgres": "vitest run --config vitest.backend-postgres.config.ts",
     "build:backend": "tsc -p tsconfig.backend.json && node scripts/copy-backend-assets.mjs",
     "start:backend": "node --enable-source-maps out/backend/backend/entrypoint.js",
     "migrate:backend": "npm run build:backend && node --enable-source-maps out/backend/backend/migrate.js",
-    "migrate:backend:built": "node --enable-source-maps out/backend/backend/migrate.js"
+    "migrate:backend:built": "node --enable-source-maps out/backend/backend/migrate.js",
+    "sonar:scan:native": "npm run test:coverage && sonar -Dsonar.projectKey=applied-research-local '-Dsonar.projectVersion=not provided' -Dsonar.scm.disabled=true -Dsonar.qualitygate.wait=true -Dsonar.typescript.tsconfigPaths=tsconfig.node.json,tsconfig.web.json"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.3",
@@ -61,8 +62,10 @@
     "three": "0.185.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.0.1",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.63.0",
+    "@sonar/scan": "5.0.0",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@types/better-sqlite3": "9.6.0",
@@ -81,6 +84,7 @@
     "eslint-plugin-react-refresh": "0.5.6",
     "globals": "17.12.0",
     "jsdom": "29.1.1",
+    "minimatch": "10.2.6",
     "prettier": "3.9.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",

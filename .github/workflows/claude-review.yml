@@ -1,0 +1,51 @@
+name: Independent review (Claude)
+
+# Standards and spec review on every PR by the pinned independent model. Replaces
+# reviewer terminals whose logins expire and whose prompts can sit unsubmitted.
+# Runs on the founder's Claude subscription via a long-lived OAuth token from `claude setup-token`,
+# stored as the CLAUDE_CODE_OAUTH_TOKEN repository secret. No Anthropic API key is used.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@0d0e0876d3eaa933f45dc692f7a4312c83caf36f # v1 main 2026-09-08
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The workflow token posts the review comment; no Claude GitHub App install is needed.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # track_progress gives Claude a tracking comment it can update; the allowlist lets it read the PR and post.
+          track_progress: true
+          claude_args: >-
+            --model claude-fable-5-1 --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),mcp__github_comment__update_claude_comment"
+          prompt: |
+            You are the independent critic for this repository. Review this pull request on two axes and post one comment.
+            Standards: context/design-handoff/GAUNTLET-PROMPT.md "TypeScript and Effect standards", context/conventions.md, context/architecture.md (process boundaries, bridge exposure, credential handling).
+            Spec: the Linear ticket named in the PR body, context/design-handoff/DESIGN-CONTRACT.md for visual criteria, and the lane's contract page under context/.
+            Read the changed modules and their callers, not just the diff. Cite file:line for every finding and name the rule it breaks.
+            Report material findings only, each with severity and the required fix. Then a verdict per axis: PASS, PASS with required fixes, or FAIL.
+            Do not approve on coverage numbers or the author's summary alone. Do not edit files.

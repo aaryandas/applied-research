@@ -8,5 +8,6 @@ export default defineConfig({
   retries: 0,
   timeout: 30_000,
   reporter: [['list'], ['html', { open: 'never' }]],
-  use: { trace: 'retain-on-failure' },
+  // Video is the acceptance evidence attached to the Linear ticket; keep it on.
+  use: { trace: 'retain-on-failure', video: 'on' },
 });

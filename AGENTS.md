@@ -29,7 +29,7 @@ Before choosing or replacing technology, read the [decision audit](context/decis
 
 ## Working rules
 
-- For the full application build, start at [the design/build handoff](context/design-handoff/README.md). Track all substantial work and decisions in the existing Applied Research Linear project (team AR). Present material ambiguities immediately with recommendations/options and obtain the founder’s decision before dependent implementation. Prefer supported libraries to custom equivalents; do not silently introduce or replace foundations.
+- For the full application build, start at [the design/build handoff](context/design-handoff/README.md) and run it in the [next-run workflow](context/next-run.md): one lane label and one PR per ticket, Linear status transitions trigger cloud verification, macOS is the only blocking CI platform. Track all substantial work and decisions in the existing Applied Research Linear project (team AR). Present material ambiguities immediately with recommendations/options and obtain the founder’s decision before dependent implementation. Prefer supported libraries to custom equivalents; do not silently introduce or replace foundations.
 
 - Use Node 24 LTS and npm, exact dependencies, and the committed lockfile. Install with `npm ci`.
 - Keep main, preload, and renderer separate. Preserve sandboxing, context isolation, navigation restrictions, and permission denial. Expose only named, validated bridge operations; never raw IPC, credentials, SQL, or arbitrary filesystem access.
