@@ -726,9 +726,8 @@ function acquiredSource(value: unknown): AcquiredSource {
   if (
     revision.sourceId !== parsed.descriptor.sourceId ||
     revision.title !== parsed.descriptor.title ||
-    parsed.descriptor.acquisitionLocation === null ||
     revision.provenance.acquiredFromUrl !==
-      parsed.descriptor.acquisitionLocation.url ||
+      parsed.descriptor.acquisitionLocation?.url ||
     revision.provenance.discoveredAt !== parsed.descriptor.discoveredAt ||
     !providerMatches ||
     parsed.descriptor.usePolicy.acquisition.status !== 'permitted'
@@ -979,6 +978,15 @@ function validateResponseRequestId(
   }
 }
 
+function nullableResponseRequestId(value: unknown): string | null {
+  return value === null ? null : responseRequestId(value);
+}
+
+function retryableResponseField(value: unknown, message: string): boolean {
+  if (typeof value !== 'boolean') invalid(message);
+  return value;
+}
+
 function sourcingFailure(value: unknown): SourcingFailure {
   const envelope = strictRecord(value, [
     'outcome',
@@ -987,138 +995,125 @@ function sourcingFailure(value: unknown): SourcingFailure {
     'retryable',
     'retryAfterMilliseconds',
   ]);
-  if (envelope.outcome === 'invalid-request') {
-    rejectDefinedFields(
-      envelope,
-      ['retryable', 'retryAfterMilliseconds'],
-      'Invalid-request outcome is invalid.',
-    );
-    return {
-      outcome: envelope.outcome,
-      requestId:
-        envelope.requestId === null
-          ? null
-          : responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.invalidRequest,
-      ),
-    };
+  switch (envelope.outcome) {
+    case 'invalid-request':
+      rejectDefinedFields(
+        envelope,
+        ['retryable', 'retryAfterMilliseconds'],
+        'Invalid-request outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: nullableResponseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.invalidRequest,
+        ),
+      };
+    case 'unauthenticated':
+      rejectDefinedFields(
+        envelope,
+        ['retryable', 'retryAfterMilliseconds'],
+        'Unauthenticated outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: nullableResponseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.unauthenticated,
+        ),
+      };
+    case 'cancelled':
+      rejectDefinedFields(
+        envelope,
+        ['retryable', 'retryAfterMilliseconds'],
+        'Cancelled outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: responseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.cancelled,
+        ),
+      };
+    case 'timed-out':
+      rejectDefinedFields(
+        envelope,
+        ['retryAfterMilliseconds'],
+        'Timed-out outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: responseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.timedOut,
+        ),
+        retryable: retryableResponseField(
+          envelope.retryable,
+          'Timed-out outcome is invalid.',
+        ),
+      };
+    case 'rate-limited':
+      rejectDefinedFields(
+        envelope,
+        ['retryable'],
+        'Rate-limited outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: responseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.rateLimited,
+        ),
+        retryAfterMilliseconds:
+          envelope.retryAfterMilliseconds === null
+            ? null
+            : boundedInteger(
+                envelope.retryAfterMilliseconds,
+                0,
+                86_400_000,
+                'Retry delay',
+              ),
+      };
+    case 'budget-exhausted':
+      rejectDefinedFields(
+        envelope,
+        ['retryable', 'retryAfterMilliseconds'],
+        'Budget-exhausted outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: responseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+        ),
+      };
+    case 'unavailable':
+      rejectDefinedFields(
+        envelope,
+        ['retryAfterMilliseconds'],
+        'Unavailable outcome is invalid.',
+      );
+      return {
+        outcome: envelope.outcome,
+        requestId: nullableResponseRequestId(envelope.requestId),
+        message: fixedMessage(
+          envelope.message,
+          SOURCING_PUBLIC_MESSAGES.unavailable,
+        ),
+        retryable: retryableResponseField(
+          envelope.retryable,
+          'Unavailable outcome is invalid.',
+        ),
+      };
+    default:
+      return invalid('Sourcing failure outcome is invalid.');
   }
-  if (envelope.outcome === 'unauthenticated') {
-    rejectDefinedFields(
-      envelope,
-      ['retryable', 'retryAfterMilliseconds'],
-      'Unauthenticated outcome is invalid.',
-    );
-    return {
-      outcome: envelope.outcome,
-      requestId:
-        envelope.requestId === null
-          ? null
-          : responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.unauthenticated,
-      ),
-    };
-  }
-  if (envelope.outcome === 'cancelled') {
-    rejectDefinedFields(
-      envelope,
-      ['retryable', 'retryAfterMilliseconds'],
-      'Cancelled outcome is invalid.',
-    );
-    return {
-      outcome: envelope.outcome,
-      requestId: responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.cancelled,
-      ),
-    };
-  }
-  if (envelope.outcome === 'timed-out') {
-    rejectDefinedFields(
-      envelope,
-      ['retryAfterMilliseconds'],
-      'Timed-out outcome is invalid.',
-    );
-    if (typeof envelope.retryable !== 'boolean') {
-      invalid('Timed-out outcome is invalid.');
-    }
-    return {
-      outcome: envelope.outcome,
-      requestId: responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.timedOut,
-      ),
-      retryable: envelope.retryable,
-    };
-  }
-  if (envelope.outcome === 'rate-limited') {
-    rejectDefinedFields(
-      envelope,
-      ['retryable'],
-      'Rate-limited outcome is invalid.',
-    );
-    return {
-      outcome: envelope.outcome,
-      requestId: responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.rateLimited,
-      ),
-      retryAfterMilliseconds:
-        envelope.retryAfterMilliseconds === null
-          ? null
-          : boundedInteger(
-              envelope.retryAfterMilliseconds,
-              0,
-              86_400_000,
-              'Retry delay',
-            ),
-    };
-  }
-  if (envelope.outcome === 'budget-exhausted') {
-    rejectDefinedFields(
-      envelope,
-      ['retryable', 'retryAfterMilliseconds'],
-      'Budget-exhausted outcome is invalid.',
-    );
-    return {
-      outcome: envelope.outcome,
-      requestId: responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.budgetExhausted,
-      ),
-    };
-  }
-  if (envelope.outcome === 'unavailable') {
-    rejectDefinedFields(
-      envelope,
-      ['retryAfterMilliseconds'],
-      'Unavailable outcome is invalid.',
-    );
-    if (typeof envelope.retryable !== 'boolean') {
-      invalid('Unavailable outcome is invalid.');
-    }
-    return {
-      outcome: envelope.outcome,
-      requestId:
-        envelope.requestId === null
-          ? null
-          : responseRequestId(envelope.requestId),
-      message: fixedMessage(
-        envelope.message,
-        SOURCING_PUBLIC_MESSAGES.unavailable,
-      ),
-      retryable: envelope.retryable,
-    };
-  }
-  return invalid('Sourcing failure outcome is invalid.');
 }
 
 function metadataCandidates(value: unknown): MetadataOnlySource[] {
