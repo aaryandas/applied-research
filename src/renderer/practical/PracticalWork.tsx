@@ -21,6 +21,10 @@ import {
   createPracticalSaveSession,
   type PracticalSaveState,
 } from './save-session';
+import {
+  ActivityGuidanceControls,
+  type PracticalActivityGuidance,
+} from './ActivityGuidanceControls';
 import { PracticalField } from './PracticalField';
 import { exceedsPracticalFieldLimit } from './draft-limits';
 import {
@@ -49,6 +53,7 @@ export interface PracticalWorkProps {
   returnedEvidence: readonly ReturnedPracticalEvidence[];
   evidenceStatus?: PracticalEvidenceStatus;
   tool?: PracticalTool;
+  activityGuidance?: PracticalActivityGuidance;
   selectFile?: () => Promise<SelectedPracticalFile | null>;
   recordPracticalResult?: (
     input: RecordPracticalResultInput,
@@ -159,7 +164,13 @@ function ActivityWork(
   const [message, setMessage] = useState('');
   const [embeddedOpen, setEmbeddedOpen] = useState(false);
   const pendingAction = useRef<Promise<void> | null>(null);
-  const { registerFlush, evidenceStatus = 'ready', returnedEvidence } = props;
+  const {
+    registerFlush,
+    evidenceStatus = 'ready',
+    returnedEvidence,
+    activityGuidance,
+  } = props;
+  const stopGuidance = activityGuidance?.stop;
   const evidence = mergeEvidence(returnedEvidence, files);
   useEffect(() => {
     session.setEvidence({
@@ -170,10 +181,18 @@ function ActivityWork(
   useEffect(
     () =>
       registerFlush(async () => {
+        try {
+          await stopGuidance?.();
+        } catch {
+          setMessage(
+            'Guidance could not stop. Keep this activity open and try again.',
+          );
+          return { status: 'blocked', reason: 'failed' };
+        }
         await pendingAction.current;
         return session.flush();
       }),
-    [registerFlush, session],
+    [registerFlush, session, stopGuidance],
   );
   const selected = state.draft.selectedEvidence;
   const selectionAvailable = selectionIsAvailable(selected, {
@@ -205,6 +224,21 @@ function ActivityWork(
       });
     pendingAction.current = operation;
   }
+  function guidanceRequest(
+    target: PracticalTarget['target'],
+  ): PracticalGuidanceRequest {
+    return {
+      trigger: 'explicit-action',
+      target: {
+        scope: 'applied-research',
+        surface: 'practical-work',
+        attemptId: props.attemptId,
+        activity: structuredClone(activity),
+        target,
+      },
+    };
+  }
+
   function guide(
     target: PracticalGuidanceRequest['target']['target'],
   ): ReactNode {
@@ -213,18 +247,7 @@ function ActivityWork(
       <button
         type="button"
         className="practical-button practical-guidance"
-        onClick={() =>
-          props.onRequestGuidance?.({
-            trigger: 'explicit-action',
-            target: {
-              scope: 'applied-research',
-              surface: 'practical-work',
-              attemptId: props.attemptId,
-              activity: structuredClone(activity),
-              target,
-            },
-          })
-        }
+        onClick={() => props.onRequestGuidance?.(guidanceRequest(target))}
       >
         {GUIDANCE_LABELS[target]}
       </button>
@@ -253,6 +276,25 @@ function ActivityWork(
           {activity.instructions}
         </p>
         {guide('activity-instructions')}
+        <ActivityGuidanceControls
+          status={activityGuidance?.status ?? 'unavailable'}
+          busy={busy}
+          onStart={() =>
+            runAction(async () => {
+              await activityGuidance?.start(
+                guidanceRequest('activity-instructions'),
+              );
+            })
+          }
+          onStop={() => {
+            if (!stopGuidance) return;
+            void stopGuidance().catch(() =>
+              setMessage(
+                'Guidance could not stop. Keep this activity open and try again.',
+              ),
+            );
+          }}
+        />
       </section>
       <div className="practical-preparation">
         <PracticalField
@@ -297,6 +339,7 @@ function ActivityWork(
               disabled={busy}
               onClick={() =>
                 runAction(async () => {
+                  await stopGuidance?.();
                   await props.tool?.openExternal?.();
                 })
               }
@@ -465,7 +508,10 @@ function ActivityWork(
           A working result is evidence of what happened. Understanding takes
           explanation and further checks.
         </p>
-        <output className="practical-copy practical-status">
+        <output
+          className="practical-copy practical-status"
+          aria-label="Save status"
+        >
           {saveStatus}
         </output>
         {message && (
@@ -495,6 +541,7 @@ function ActivityWork(
             disabled={busy || !canPersist}
             onClick={() =>
               runAction(async () => {
+                await stopGuidance?.();
                 const result = await session.flush();
                 if (result.status === 'ready')
                   await props.onReturnToLearning(structuredClone(activity));
