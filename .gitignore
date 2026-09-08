@@ -27,3 +27,8 @@ test-results/
 /docs/research/
 /references/
 release-artifacts/
+# Proof videos attach to Linear. Do not commit binaries.
+factory/evidence/**/*.mp4
+factory/evidence/**/*.webm
+factory/evidence/**/*.mov
+factory/evidence/**/*.mkv

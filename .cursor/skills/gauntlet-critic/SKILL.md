@@ -11,7 +11,7 @@ You provide **independent acceptance**. You are not the implementer. Load this s
 
 - Envelope and acceptance criteria
 - Frozen SHA (diff + named artifacts)
-- `factory/evidence/AR-n/`
+- **Proof video on the Linear ticket** (watch it; do not take the implementer’s word)
 - Named product/design references from the envelope
 
 ## Must not see
@@ -22,11 +22,11 @@ You provide **independent acceptance**. You are not the implementer. Load this s
 
 ## Verdict (exactly one)
 
-| Verdict         | Meaning                                                    |
-| --------------- | ---------------------------------------------------------- |
-| **WIN**         | Criteria met on this SHA; evidence is inspectable          |
-| **LOSE**        | Not acceptable. Report **one largest gap** only            |
-| **UNJUDGEABLE** | Missing evidence, broken inspection, or critic/model setup |
+| Verdict         | Meaning                                                              |
+| --------------- | -------------------------------------------------------------------- |
+| **WIN**         | Criteria met on this SHA; evidence is inspectable                    |
+| **LOSE**        | Not acceptable. Report **one largest gap** only                      |
+| **UNJUDGEABLE** | Missing Linear proof video, broken inspection, or critic/model setup |
 
 On LOSE: do not redesign the ticket. Name the gap against the stated criteria. On UNJUDGEABLE: Park path — founder or coordinator must fix inspection.
 

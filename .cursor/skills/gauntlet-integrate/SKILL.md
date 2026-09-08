@@ -1,6 +1,6 @@
 ---
 name: gauntlet-integrate
-description: Land a factory PR onto integration when gauntlet:land, CI gate, Bugbot, and Fable WIN are all present. Use as the integrate agent. Do not redesign.
+description: Land a factory PR onto integration when gauntlet:land, CI gate, Bugbot, Fable WIN, and Linear proof video are all present. Use as the integrate agent. Do not redesign.
 ---
 
 # Gauntlet integrate
@@ -13,6 +13,7 @@ Merge mutex for Applied Research. Target branch is **`integration`**, never `mai
 2. **CI gate** success on the frozen SHA
 3. Bugbot success (no unresolved blocking findings)
 4. Fable **WIN** for that SHA (not an older SHA)
+5. **Proof video on the Linear issue** for that SHA (unless the envelope says harness-only skip)
 
 If any are missing: stop. Do not land. Do not substitute author thumbs-up for Fable.
 

@@ -1,7 +1,7 @@
 # Implementer inner loop
 
 ```text
-Specify → Build → Exercise Electron → Compare vs reference → independent critique
+Specify → Build → Exercise Electron → Record proof video → Attach to Linear → Compare vs reference → independent critique
 ```
 
 You perform Specify through Compare. Critique is a **different** Fable session. If you are asked to “fix what Fable said,” treat the new critique criteria as given; do not argue from your previous rationale.
@@ -21,6 +21,7 @@ Do not use `--passWithNoTests`. Do not skip engine-strict.
 - Draft. Cite `AR-n` and the envelope path.
 - Frozen SHA is the commit you asked to be reviewed. New commits need a new critic session.
 - States to evidence when applicable: empty, loading, error, offline, canceled, retry.
+- Proof video on Linear for this SHA (unless the envelope says harness-only skip). Cite the Linear URL in the PR.
 
 ## Visual fallback
 

@@ -7,16 +7,17 @@
 
 ## Outcome
 
-Cursor Cloud Agents can read the Applied Research ticket DAG (Ready / deps / acceptance) so the factory coordinator can dispatch envelopes without inventing AR ids.
+Cursor Cloud Agents can read the Applied Research ticket DAG **and attach proof videos** to issues so the founder can verify a feature without opening the PR.
 
 ## Why
 
-Harness dry-run on 2026-09-08: this agent had GitHub `gh` (read) and factory files, but **no Linear MCP tools**. Coordinator cannot legally move tickets or attach receipts to real AR issues until MCP is connected.
+Harness dry-run on 2026-09-08: Linear MCP namespace exists but **needsAuth**. Coordinator cannot list AR tickets or **attach proof videos** until you authenticate it for Cloud Agents.
 
 ## Acceptance
 
-- Linear MCP available to Cloud Agents on `aaryandas/applied-research`
+- Linear MCP available to Cloud Agents on `aaryandas/applied-research` (read + **file attach**)
 - Coordinator can list AR tickets and statuses
+- Worker can attach `proof.mp4` to the Linear issue for a user-visible ticket
 - Founder confirms which issues are factory graph vs product-decision audit
 
 ## Must not

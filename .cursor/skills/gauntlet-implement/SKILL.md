@@ -21,9 +21,9 @@ Do not scan `context/repos/effect/` as app code. Do not treat Memories or Obsidi
 - Stay inside the ownership glob. Do not touch forbidden paths.
 - Node 24, `npm ci`, exact lockfile. Never weaken CI, CSP, or coverage.
 - Named, validated preload operations only. No renderer secrets.
-- Evidence goes to `factory/evidence/AR-n/`.
-- Inner loop: Specify → Build → Exercise Electron when relevant → Compare vs reference. Cap **3** rounds then stop for Park (coordinator parks; you stop).
-- Open a **draft** PR. Stop.
+- Evidence: record a **proof video** of the acceptance path and **attach it to the Linear issue**. See [references/proof-video.md](references/proof-video.md). Do not commit the binary.
+- Inner loop: Specify → Build → Exercise Electron when relevant → Record proof → Attach to Linear → Compare vs reference. Cap **3** rounds then stop for Park (coordinator parks; you stop).
+- Open a **draft** PR that cites the Linear issue. Stop.
 
 ## Must not
 

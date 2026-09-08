@@ -6,9 +6,9 @@ alwaysApply: false
 
 Factory law lives in [context/factory.md](../../context/factory.md). Chat and Automation Memories may notice; Linear records; `context/` governs; code implements.
 
-Never dispatch a worker without `factory/envelopes/AR-*.md`. Cap concurrent implementers + critics + integrate at 7. Inner loop is Specify → Build → Exercise Electron → Compare → independent critique. Cap 3 critique rounds then Park. Each critique is a **new** Fable session: spec + artifacts only, never the implementer transcript.
+Never dispatch a worker without `factory/envelopes/AR-*.md`. Cap concurrent implementers + critics + integrate at 7. Inner loop is Specify → Build → Exercise Electron → Record proof video → Attach to Linear → Compare → independent critique. Cap 3 critique rounds then Park. Each critique is a **new** Fable session: spec + artifacts + Linear proof video, never the implementer transcript.
 
-Workers open a draft PR and stop. They must not mark Done or accept their own work. Independent acceptance is `critic-fable` only. Merge to `integration` only with label `gauntlet:land` after CI gate + Bugbot + Fable WIN. Do not auto-merge to `main`, deploy, publish, sign, or change billing.
+Workers open a draft PR and stop. They must not mark Done or accept their own work. User-visible tickets are not InReview without a proof video on the Linear issue. Independent acceptance is `critic-fable` only. Merge to `integration` only with label `gauntlet:land` after CI gate + Bugbot + Fable WIN. Do not auto-merge to `main`, deploy, publish, sign, or change billing. Slack is not part of this factory.
 
 Subscribe to CI/PR rather than polling. `/loop` and stop-hooks are status-only. Persist `factory/BOARD.md` (and a Linear note or `factory/receipts/` draft) before the context window is summarized.
 

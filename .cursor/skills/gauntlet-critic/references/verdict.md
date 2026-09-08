@@ -9,8 +9,9 @@ Each critique is a new Fable session (`claude-fable-5-1-thinking-high`, `readonl
 3. Provenance: human vs AI text; source vs experiment
 4. Electron isolation if the diff touches processes
 5. Artifacts vs [context/design.md](../../../../context/design.md) when visual
+6. **Proof video on Linear** for this SHA (unless harness-only skip). Watch it. UNJUDGEABLE if missing.
 
-A passing `npm run check` is not a WIN if the envelope’s user-visible criteria are unmet. A screenshot of the happy path is not a WIN if other required states are in scope.
+A passing `npm run check` is not a WIN if the envelope’s user-visible criteria are unmet. A screenshot of the happy path is not a WIN. A video that does not show the stated acceptance path is LOSE.
 
 ## Output shape
 

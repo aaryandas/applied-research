@@ -9,7 +9,8 @@
 3. Confirm check name **CI gate** succeeded (workflow in `.github/workflows/ci.yml` → reusable verify).
 4. Confirm Bugbot: no unresolved blocking comments, or fail-on-unresolved if enabled.
 5. Confirm Fable WIN text for this SHA in the PR or `factory/evidence/AR-n/`.
-6. Rebase; merge; update BOARD.
+6. Confirm the Linear issue has the proof video for this SHA (unless harness-only skip).
+7. Rebase; merge; update BOARD.
 
 ## Not landing
 

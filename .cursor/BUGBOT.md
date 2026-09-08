@@ -10,6 +10,7 @@ Project review gates for Bugbot. Agent coding conventions live in `.cursor/rules
 - **Process isolation:** renderer importing Electron/Node/main/preload; raw IPC; disabled sandbox, context isolation, or navigation restrictions; new CSP exceptions for renderer networking without a recorded product decision.
 - **Effect-as-app:** importing or shipping `context/repos/effect/` as an application dependency.
 - **Factory self-accept:** PR that claims Done, lands to `main`, deploys, or skips independent critique. Product workers must not merge themselves.
+- **Missing proof:** `AR-*` user-visible slice with no proof video attached to the Linear issue (screenshot-only or “tests passed” is not enough).
 - **Secrets in git:** `.env`, tokens, signing material, real vault contents, private experiment data.
 
 ## Do not block on
@@ -21,6 +22,6 @@ Project review gates for Bugbot. Agent coding conventions live in `.cursor/rules
 
 ## Evidence
 
-Require named acceptance criteria from the ticket envelope when the PR is an `AR-*` factory slice. A passing unit test that does not cover the stated risk is not enough. Prefer Electron smoke / Playwright for main/preload/renderer behavior.
+Require named acceptance criteria from the ticket envelope when the PR is an `AR-*` factory slice. A passing unit test that does not cover the stated risk is not enough. Prefer Electron smoke / Playwright **and** a Linear proof video for user-visible behavior.
 
 If the diff touches persistence, auth, or providers, demand a threat note in the PR: what the renderer still cannot see.

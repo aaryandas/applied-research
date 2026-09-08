@@ -10,7 +10,8 @@ Source of the loop: founder gauntlet prompt (2026-09-08) originally at `~/.super
 
 Until the founder records otherwise:
 
-- Factory is **session-bound**. Automations may **start** a coordinator or send **status**. They must not keep implementing after the coordinator run ends.
+- Factory is **session-bound**. Automations may **start** a coordinator (Linear Ready) or send **status** (Linear comment). They must not keep implementing after the coordinator run ends. **Slack is out of this factory.**
+- User-visible tickets are not InReview until a **proof video is attached to the Linear issue**. That video is how the founder verifies the feature. Do not substitute a screenshot, a unit-test log, or a PR description. Harness-only tickets may skip the video when the envelope says so.
 - Land reviewed slices to an **`integration` branch** (create it). Do **not** auto-merge to `main`, deploy, publish, sign, or change billing.
 - Merge only with label `gauntlet:land` after CI gate + Bugbot + independent Fable review. No merge-queue agent until that label exists.
 - **Playbook** remains deferred. Do not resurrect its rejected design.
@@ -36,8 +37,7 @@ flowchart TB
 
   subgraph kick [Automations - kick and report only]
     LinKick[Linear: ticket Ready]
-    SlackKick[Slack: start factory]
-    Status[Cron: Slack/Linear status - no code]
+    Status[Cron: Linear status comment - no code]
   end
 
   subgraph coord [Coordinator Cloud Agent]
@@ -56,6 +56,7 @@ flowchart TB
   end
 
   subgraph gates [Review gates]
+    Video[Proof video on Linear ticket]
     PR[Draft PR per ticket]
     CI[GitHub Actions: CI gate]
     Bugbot[Bugbot + .cursor/BUGBOT.md]
@@ -78,10 +79,8 @@ flowchart TB
   end
 
   Start --> LinKick
-  Start --> SlackKick
   Sleep --> Status
   LinKick --> Preflight
-  SlackKick --> Preflight
   Preflight --> Frontier
   Frontier --> Envelope
   Envelope --> Dispatch
@@ -89,11 +88,16 @@ flowchart TB
   Dispatch --> Visual
   Sol --> Explore
   Visual --> Explore
+  Sol --> Video
+  Visual --> Video
+  Video --> Graph
+  Video --> PR
   Sol --> PR
   Visual --> PR
   PR --> CI
   PR --> Bugbot
   PR --> Fable
+  Video --> Fable
   Dispatch --> Subscribe
   Subscribe -->|wake| Frontier
   CI --> Label
@@ -118,12 +122,12 @@ stateDiagram-v2
   [*] --> Backlog: created with outcome, deps, acceptance
   Backlog --> Ready: deps contract-checkpointed, files owned, envelope written
   Ready --> Implementing: worker dispatched
-  Implementing --> InReview: draft PR + evidence on frozen SHA
+  Implementing --> InReview: draft PR + proof video on Linear
   InReview --> Repairing: Fable or Bugbot blocking findings
   Repairing --> InReview: same critic criteria, new evidence
   InReview --> Integrating: CI + Bugbot + Fable pass, gauntlet:land
   Integrating --> Done: on integration, Sonar recorded if applicable
-  Implementing --> Parked: blocked / same-cause stall / needs founder
+  Implementing --> Parked: blocked / same-cause stall / needs founder / no Linear video
   InReview --> Parked: critic/model unavailable
   Integrating --> Parked: merge conflict or Sonar blocker
   Parked --> Ready: founder unblocks
@@ -136,14 +140,16 @@ stateDiagram-v2
 flowchart LR
   S[Specify] --> B[Build]
   B --> E[Exercise Electron]
-  E --> C[Compare vs reference]
+  E --> V[Record proof video]
+  V --> L[Attach to Linear ticket]
+  L --> C[Compare vs reference]
   C --> K[Independent critique]
   K -->|LOSE: one largest gap| B
   K -->|WIN| I[Integrate mutex]
   K -->|UNJUDGEABLE| P[Park + inspection fix]
 ```
 
-Cap inner rounds at **3** then Park. Each critique is a **new** Fable session: spec + artifacts only, never the implementer transcript.
+Cap inner rounds at **3** then Park. Each critique is a **new** Fable session: spec + artifacts + Linear proof video only, never the implementer transcript. Missing Linear video is **UNJUDGEABLE**, not a WIN.
 
 ### Knowledge / memory graph
 
@@ -156,6 +162,7 @@ flowchart TD
   Ctx[context/ - accepted law]
   Code[git - implementation]
   Obs[Obsidian - archive]
+  Proof[Proof video on Linear ticket]
 
   Chat -->|notice| Linear
   Chat -->|notice| Board
@@ -164,6 +171,7 @@ flowchart TD
   Ctx --> Code
   Obs -->|named conflict only| Linear
   Code --> Ctx
+  Proof -->|founder watches| Linear
 ```
 
 Promotion rule: chat/memory may notice; Linear records; `context/` governs; code implements; Obsidian explains history. Agents write **down** that ladder, never **up** from Memories into product law.
@@ -177,7 +185,7 @@ Promotion rule: chat/memory may notice; Linear records; `context/` governs; code
 | Coordinator          | One Cloud Agent                   | Strong reasoning                  | BOARD, Linear frontier, envelopes, PR URLs, spend    | Full diffs, screenshots, Effect tree, vault |
 | implement-sol        | Cloud subagent, own branch        | `gpt-5.6-sol` High                | One envelope + owning context pages + ownership glob | Other tickets, critic history, secrets      |
 | implement-visual     | Cloud subagent                    | Astra if available, else Sol High | Visual/motion/Manim/Three.js envelopes               | Independent acceptance of its own PR        |
-| critic-fable         | Fresh readonly subagent           | `claude-fable-5-1-thinking-high`  | Spec, criteria, artifacts, references                | Builder rationale, Memories                 |
+| critic-fable         | Fresh readonly subagent           | `claude-fable-5-1-thinking-high`  | Spec, criteria, Linear proof video, artifacts        | Builder rationale, Memories                 |
 | integrate            | Small Cloud Agent                 | Fast/cheap OK                     | Frozen SHA, CI, Bugbot, Fable verdict                | Redesign                                    |
 | Explore/Bash/Browser | Built-in subagents                | Fast                              | Noisy search/logs/DOM                                | Decisions                                   |
 | Status               | Scheduled Automation, **no repo** | Any                               | BOARD + open PRs                                     | Code edits                                  |
@@ -191,15 +199,15 @@ Concurrency: count coordinator? **No.** Count implementers + critics + integrate
 
 Do **not** always-apply the full gauntlet prompt.
 
-| Layer        | Location                                | When loaded                                 |
-| ------------ | --------------------------------------- | ------------------------------------------- |
-| Index        | Root `AGENTS.md`                        | Always; keep short                          |
-| Path law     | `.cursor/rules/*.mdc`                   | Matching globs                              |
-| Playbooks    | `.cursor/skills/gauntlet-*/`            | Coordinator `@`s or agent-decides           |
-| Node payload | `factory/envelopes/AR-*.md` + Linear    | Worker prompt                               |
-| Evidence     | `factory/evidence/AR-*/` + PR artifacts | Critic                                      |
-| Graph        | Linear + `factory/BOARD.md`             | Coordinator                                 |
-| Archive      | Obsidian                                | Human; coordinator only on a named conflict |
+| Layer        | Location                                      | When loaded                                 |
+| ------------ | --------------------------------------------- | ------------------------------------------- |
+| Index        | Root `AGENTS.md`                              | Always; keep short                          |
+| Path law     | `.cursor/rules/*.mdc`                         | Matching globs                              |
+| Playbooks    | `.cursor/skills/gauntlet-*/`                  | Coordinator `@`s or agent-decides           |
+| Node payload | `factory/envelopes/AR-*.md` + Linear          | Worker prompt                               |
+| Evidence     | Linear proof video + `factory/evidence/AR-*/` | Founder verify + critic                     |
+| Graph        | Linear + `factory/BOARD.md`                   | Coordinator                                 |
+| Archive      | Obsidian                                      | Human; coordinator only on a named conflict |
 
 Envelope (worker’s entire extra prompt):
 
@@ -213,10 +221,23 @@ Deps satisfied:
 Acceptance criteria:
 States: empty / loading / error / offline / canceled / retry
 Evidence dir: factory/evidence/AR-n/
+Proof video: required | harness-only skip
+Linear issue:
 Do not self-accept. Open a draft PR. Stop.
 ```
 
 Reviewed **contract checkpoints** can release consumer tickets before the producer is Done. Integration still requires the accepted producer implementation.
+
+### Proof video (founder verify)
+
+For every ticket whose acceptance is user-visible in the app, InReview is illegal until a **proof video is attached to the Linear issue**.
+
+1. Worker runs the app (Electron) and records a screen capture of the acceptance path (computer-use + RecordScreen). Cover required states when the envelope lists them.
+2. Save locally under `factory/evidence/AR-n/proof.mp4` (or `.webm`). **Do not commit the binary to git** (gitignored). Linear is the durable copy.
+3. Attach that file to the Linear issue. Comment the frozen SHA and what the video shows.
+4. Cite the Linear issue in the draft PR. Founder verifies by watching the Linear attachment, not by reading the PR.
+
+Harness-only / docs-only envelopes may set `Proof video: harness-only skip`. Missing Linear MCP: Park; draft `factory/receipts/` with the local path; do not pretend the founder can verify.
 
 Coupling: parallelize uncoupled slices only. Serialize record/source-version/link schema, design tokens, preload bridges, integration merge, desktop/Playwright, and Sonar.
 
@@ -278,13 +299,13 @@ Keep skill `SKILL.md` files short; put long protocol in `references/` under each
 - `implement-sol`: `model` gpt-5.6-sol High (use the repo’s supported id form, e.g. `gpt-5.6-sol[effort=high]` if that is what Cursor honors).
 - `critic-fable`: `readonly: true`, Fable 5.1 High, description must say **independent acceptance**; never the author.
 - `implement-visual`: visual/motion/Manim/Three.js; cannot supply the acceptance verdict for its own PR.
-- `integrate`: merge to `integration` only when `gauntlet:land` + CI gate + Bugbot success + Fable WIN.
+- `integrate`: merge to `integration` only when `gauntlet:land` + CI gate + Bugbot success + Fable WIN + Linear proof video (unless harness-only skip).
 
 If a configured model is unavailable, record the actual id that ran in BOARD and Park visual-Astra tickets rather than silently swapping into self-review.
 
 ### Coordinator skill must enforce
 
-1. Preflight: Node 24 / `npm ci` documented; Linear access; GitHub; computer-use; remaining live-test budget; Fable launch probe (one bounded call). Surface failures in the conversation **and** a drafted Linear note; continue independent harness work.
+1. Preflight: Node 24 / `npm ci` documented; Linear MCP (read **and** attach files); GitHub; computer-use for proof video; remaining live-test budget; Fable launch probe (one bounded call). Surface failures in the conversation **and** a drafted Linear note; continue independent harness work. Never mark InReview without the Linear proof video when the envelope requires it.
 2. Never dispatch without an envelope.
 3. Never let a worker mark Done.
 4. Subscriptions instead of polling.
@@ -293,8 +314,8 @@ If a configured model is unavailable, record the actual id that ran in BOARD and
 
 ### Automation recipes to document (founder enables)
 
-1. **Start coordinator** — Linear issue status → Ready _or_ Slack keyword. Repo: this repo. Prompt: “You are the factory coordinator. Read `context/factory.md`. Do not implement product features. Dispatch per BOARD.”
-2. **Status** — cron 4 hours, **no repository**. Prompt: summarize open factory PRs and Parked tickets; do not edit code. Memories allowed for last-report pointer only.
+1. **Start coordinator** — Linear issue status → Ready. Repo: this repo. No Slack. Prompt: “You are the factory coordinator. Read `context/factory.md`. Do not implement product features. Dispatch per BOARD.”
+2. **Status** — cron 4 hours, **no repository**. Prompt: summarize open factory PRs and Parked tickets on Linear; do not edit code. Memories allowed for last-report pointer only.
 3. **Fable critic** — draft PR opened / PR pushed, only if coordinator did not already attach a critic. Prompt: load `gauntlet-critic` skill; readonly.
 4. **Do not** add a cron that keeps building. **Do not** add deploy-on-green.
 
@@ -327,7 +348,7 @@ That prompt is the post-harness coordinator dry-run. The harness-implementation 
 
 ### Founder actions this session cannot do
 
-- Connect Linear MCP and Slack.
+- Authenticate Linear MCP so agents can attach proof videos to tickets.
 - Enable Bugbot and branch rules.
 - Add Cloud Secrets (Linear, OpenRouter for later product work, Sonar).
 - Paste design-handoff from the SuperSet worktree into git.
