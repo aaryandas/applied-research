@@ -1,0 +1,243 @@
+.workspace-canvas {
+  --ground: var(--paper, #0c0f12);
+  --cold: var(--accent, #7bc7c9);
+  --warm: var(--human, #fbd094);
+  --surface-hover: var(--surface-subtle, #1d2328);
+  --passage: var(--human-soft, #fbd09421);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 320px;
+  overflow: hidden;
+  background: var(--ground, #0c0f12);
+  color: var(--ink, #eceae4);
+  font:
+    14px/1.5 'Familjen Grotesk',
+    sans-serif;
+  --xy-background-color: var(--ground, #0c0f12);
+  --xy-background-pattern-dots-color: var(--line, #22272c);
+  --xy-edge-stroke: var(--cold, #7bc7c9);
+  --xy-edge-stroke-width: 1.5;
+}
+.workspace-canvas button {
+  font-family: 'Familjen Grotesk', sans-serif;
+  cursor: pointer;
+  color: inherit;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 8px 10px;
+}
+.workspace-canvas button:hover {
+  color: var(--cold, #7bc7c9);
+  background: var(--surface-hover, #1d2328);
+}
+.workspace-canvas :focus-visible {
+  outline: 2px solid var(--cold, #7bc7c9);
+  outline-offset: 3px;
+}
+.workspace-canvas ::selection {
+  background: var(--passage, #fbd09421);
+  color: var(--ink, #eceae4);
+}
+.workspace-canvas-node {
+  padding: 24px;
+  background: var(--surface, #14181c);
+  border: 1px solid var(--line, #22272c);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.workspace-canvas-node[data-selected='true'] {
+  outline: 2px solid var(--cold, #7bc7c9);
+  outline-offset: 3px;
+}
+.workspace-canvas-kind {
+  display: block;
+  margin-bottom: 18px;
+  color: var(--muted, #a9a6a0);
+  font:
+    12px/1.4 'Familjen Grotesk',
+    sans-serif;
+}
+.workspace-canvas-title,
+.workspace-canvas-body {
+  white-space: pre-wrap;
+  margin: 0;
+  font:
+    400 24px/1.4 'Newsreader',
+    serif;
+  font-optical-sizing: auto;
+  color: var(--human-ink, #efe6cf);
+}
+.workspace-canvas-title:has(+ .workspace-canvas-body) {
+  margin-bottom: 14px;
+}
+.workspace-canvas-insight {
+  background: color-mix(
+    in srgb,
+    var(--warm, #fbd094) 3%,
+    var(--surface, #14181c)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--warm, #fbd094) 22%,
+    var(--line, #22272c)
+  );
+}
+.workspace-canvas-question {
+  border-style: dashed;
+  border-radius: 12px;
+}
+.workspace-canvas-highlight {
+  background: var(--ground, #0c0f12);
+  border-radius: 12px;
+}
+.workspace-canvas-highlight .workspace-canvas-body {
+  font-size: 20px;
+  color: var(--ink, #eceae4);
+}
+.workspace-canvas-topic {
+  border-radius: 12px;
+  background: var(--ground, #0c0f12);
+  border-color: color-mix(in srgb, var(--cold) 45%, var(--line));
+}
+.workspace-canvas-lesson {
+  border-radius: 12px;
+}
+.workspace-canvas-source {
+  border-radius: 12px;
+}
+.workspace-canvas-assistant {
+  border-color: var(--cold, #7bc7c9);
+}
+.workspace-canvas-assistant .workspace-canvas-body {
+  font:
+    14px/1.5 'Familjen Grotesk',
+    sans-serif;
+  color: var(--ink, #eceae4);
+}
+.workspace-canvas-result,
+.workspace-canvas-experiment {
+  border-radius: 6px;
+  border-style: double;
+  border-width: 3px;
+}
+.workspace-canvas-support {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--ground, #0c0f12);
+}
+.workspace-canvas-support .workspace-canvas-title,
+.workspace-canvas-support .workspace-canvas-body {
+  font-size: 17px;
+  line-height: 1.45;
+}
+.workspace-canvas-support .workspace-canvas-kind {
+  margin-bottom: 8px;
+}
+.workspace-canvas button.workspace-canvas-origin {
+  padding: 0;
+  margin-top: 14px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted, #a9a6a0);
+}
+.workspace-canvas-diagnostic {
+  margin: 12px 0 0;
+  color: var(--warm, #fbd094);
+  font:
+    13px/1.5 'Familjen Grotesk',
+    sans-serif;
+}
+.workspace-canvas .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.workspace-canvas-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--surface, #14181c);
+}
+.workspace-canvas-controls output {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-canvas-state {
+  position: absolute;
+  z-index: 2;
+  top: 35%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 36ch;
+  text-align: center;
+}
+.workspace-canvas-feedback {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.workspace-canvas-errors {
+  position: absolute;
+  z-index: 5;
+  top: 16px;
+  right: 16px;
+  max-width: min(360px, calc(100% - 32px));
+  padding: 16px;
+  background: var(--surface, #14181c);
+  border-radius: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-canvas *,
+  .workspace-canvas *::before,
+  .workspace-canvas *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.workspace-canvas-topic,
+.workspace-canvas-lesson,
+.workspace-canvas-source {
+  padding: 20px;
+}
+.workspace-canvas-topic .workspace-canvas-title {
+  font-size: 22px;
+}
+.workspace-canvas-lesson .workspace-canvas-title,
+.workspace-canvas-source .workspace-canvas-title {
+  font-size: 20px;
+}
+.workspace-canvas-node[data-author='assistant'] .workspace-canvas-body {
+  font:
+    14px/1.5 'Familjen Grotesk',
+    sans-serif;
+  color: var(--ink);
+}
+.workspace-canvas-kind svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.workspace-canvas-kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-canvas-insight > .workspace-canvas-kind svg {
+  color: var(--warm);
+}
+.workspace-canvas-locator {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}

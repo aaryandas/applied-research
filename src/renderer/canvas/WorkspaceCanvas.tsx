@@ -1,0 +1,377 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  applyNodeChanges,
+  Background,
+  BackgroundVariant,
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  type NodeChange,
+} from '@xyflow/react';
+import type { CanvasView } from '../../contracts/learning-records';
+import { LearningNode } from './CanvasNode';
+import { CanvasActions } from './actions';
+import { arrangeMeasuredNodes } from './layout';
+import { deriveCanvasGraph, type CanvasNode } from './graph';
+import type { WorkspaceCanvasProps } from './types';
+import { PlacementSession } from './placement-session';
+import '@xyflow/react/dist/style.css';
+import './canvas.css';
+
+const nodeTypes = { learning: LearningNode };
+const READABLE_FIT_ZOOM = 0.85;
+const PAN_STEP = 80;
+
+export function WorkspaceCanvas(
+  props: WorkspaceCanvasProps,
+): React.JSX.Element {
+  return (
+    <ReactFlowProvider key={props.workspace.project.id}>
+      <CanvasSession key={props.workspace.project.id} {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasSession({
+  workspace,
+  view,
+  onViewChange,
+  onOpenOrigin,
+  onEditEntry,
+  onMove,
+  registerFlush,
+  onShellControls,
+  status = 'ready',
+  onRetry,
+}: WorkspaceCanvasProps): React.JSX.Element {
+  const graph = useMemo(
+    () => deriveCanvasGraph(workspace, view),
+    [workspace, view],
+  );
+  const [nodes, setNodes] = useState(graph.nodes);
+  const [receivedGraph, setReceivedGraph] = useState(graph);
+  const [session] = useState(
+    () => new PlacementSession({ projectId: workspace.project.id, onMove }),
+  );
+  const placements = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
+  );
+  const failures = [...placements.values()].filter(
+    (draft) => draft.phase === 'failed',
+  );
+  const [zoom, setZoom] = useState(1);
+  const [notice, setNotice] = useState('');
+  const flow = useReactFlow<CanvasNode>();
+  const active = useRef(true);
+  const navigationRequest = useRef(0);
+  useEffect(() => {
+    session.setWriter(onMove);
+  }, [session, onMove]);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  if (receivedGraph !== graph) {
+    setReceivedGraph(graph);
+    setNodes((previous) =>
+      graph.nodes.map((node) => {
+        const draft = placements.get(`${view}:${node.id}`)?.input;
+        const existing = previous.find((item) => item.id === node.id);
+        return {
+          ...node,
+          selected: existing?.selected ?? false,
+          ...(draft ? { position: { x: draft.x, y: draft.y } } : {}),
+        };
+      }),
+    );
+  }
+  const fitMap = useCallback(() => {
+    void flow.fitView({
+      padding: 0.12,
+      minZoom: READABLE_FIT_ZOOM,
+      maxZoom: 1,
+      duration: 0,
+    });
+    setNotice(
+      'Map centered at a readable scale. Pan to reach nodes outside the viewport.',
+    );
+  }, [flow]);
+  const flush = useCallback(async (): Promise<boolean> => {
+    const saved = await session.flush();
+    if (!active.current) return false;
+    if (!saved)
+      setNotice('Save or discard unsaved placements before leaving Canvas.');
+    return saved;
+  }, [session]);
+  useEffect(() => {
+    registerFlush(flush);
+    return () => registerFlush(null);
+  }, [registerFlush, flush]);
+  const beforeNavigation = useCallback(
+    async (action: () => void): Promise<void> => {
+      const request = ++navigationRequest.current;
+      if (
+        (await flush()) &&
+        active.current &&
+        request === navigationRequest.current
+      )
+        action();
+    },
+    [flush],
+  );
+  useEffect(() => {
+    onShellControls?.({
+      view,
+      onViewChange: (nextView) => {
+        void beforeNavigation(() => onViewChange(nextView));
+      },
+      fitMap,
+    });
+    return () => onShellControls?.(null);
+  }, [onShellControls, view, onViewChange, fitMap, beforeNavigation]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]): void => {
+      setNodes((current) => {
+        const updated = applyNodeChanges(changes, current);
+        if (!changes.some((change) => change.type === 'dimensions'))
+          return updated;
+        const fixedIds = new Set(
+          workspace.placements
+            .filter((placement) => placement.view === view)
+            .map((placement) => placement.recordId),
+        );
+        for (const node of updated)
+          if (session.get(view, node.id)) fixedIds.add(node.id);
+        return arrangeMeasuredNodes(updated, fixedIds);
+      });
+      for (const change of changes) {
+        if (change.type !== 'position' || !change.position) continue;
+        const node = flow.getNode(change.id);
+        if (!node?.data.recordId) continue;
+        const movement = {
+          input: {
+            projectId: workspace.project.id,
+            recordId: node.data.recordId,
+            view,
+            ...change.position,
+          },
+          nodeId: change.id,
+          savedPosition:
+            nodes.find((candidate) => candidate.id === change.id)?.position ??
+            node.position,
+        };
+        if (change.dragging) session.stage(movement);
+        else session.move(movement);
+      }
+    },
+    [flow, nodes, session, workspace.project.id, workspace.placements, view],
+  );
+  const actions = useMemo(
+    () => ({
+      onOpenOrigin: (origin: Parameters<typeof onOpenOrigin>[0]) => {
+        void beforeNavigation(() => onOpenOrigin(origin));
+      },
+      onEditEntry: (entry: Parameters<typeof onEditEntry>[0]) => {
+        void beforeNavigation(() => onEditEntry(entry));
+      },
+    }),
+    [beforeNavigation, onOpenOrigin, onEditEntry],
+  );
+  const resetPosition = (failedView: CanvasView, nodeId: string): void => {
+    const position = session.discard(failedView, nodeId);
+    if (position && failedView === view)
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId ? { ...node, position } : node,
+        ),
+      );
+  };
+  return (
+    <CanvasActions.Provider value={actions}>
+      <section
+        className="workspace-canvas"
+        aria-label="Learning canvas"
+        aria-busy={status === 'loading'}
+      >
+        {status !== 'ready' ? (
+          <div
+            className="workspace-canvas-state"
+            role={status === 'error' ? 'alert' : 'status'}
+          >
+            <p>
+              {status === 'loading'
+                ? 'Loading your learning map…'
+                : 'The learning map could not be loaded.'}
+            </p>
+            {status === 'error' && onRetry && (
+              <button onClick={onRetry}>Retry loading</button>
+            )}
+          </div>
+        ) : (
+          <>
+            {nodes.length === 0 && (
+              <div className="workspace-canvas-state" role="status">
+                Your saved notes, questions and insights will appear here.
+              </div>
+            )}
+            <ReactFlow<CanvasNode>
+              nodes={nodes}
+              edges={graph.edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              nodesConnectable={false}
+              edgesReconnectable={false}
+              deleteKeyCode={null}
+              minZoom={0.2}
+              maxZoom={1.5}
+              panOnScroll
+              zoomOnScroll={false}
+              zoomOnPinch
+              zoomActivationKeyCode={['Meta', 'Control']}
+              zoomOnDoubleClick={false}
+              nodesFocusable
+              edgesFocusable
+              ariaLabelConfig={{
+                'node.a11yDescription.default':
+                  'Press Enter or Space to select. Arrow keys move a selected node. Press F2 to edit current human writing, or Escape to deselect.',
+                'node.a11yDescription.keyboardDisabled':
+                  'Press Enter or Space to select. Arrow keys move a selected node. Press F2 to edit current human writing, or Escape to deselect.',
+                'edge.a11yDescription.default':
+                  'Press Enter or Space to select this relationship, or Escape to deselect.',
+              }}
+              onMove={(_, viewport) => setZoom(viewport.zoom)}
+              defaultViewport={{ x: 16, y: 16, zoom: 1 }}
+              onNodeClick={(_, node) =>
+                setNotice(
+                  `${node.data.content.label} selected. Press F2 to edit your current writing.`,
+                )
+              }
+              onKeyDown={(event) => {
+                if (
+                  event.target instanceof HTMLElement &&
+                  event.target.closest('button,input,textarea')
+                )
+                  return;
+                const nodeElement =
+                  event.target instanceof HTMLElement
+                    ? event.target.closest('.react-flow__node')
+                    : null;
+                if (nodeElement) {
+                  if (event.key === 'F2') {
+                    const node = flow.getNode(
+                      nodeElement.getAttribute('data-id') ?? '',
+                    );
+                    const content = node?.data.content;
+                    if (content?.editable && content.entry) {
+                      event.preventDefault();
+                      actions.onEditEntry(content.entry);
+                    }
+                  }
+                  return;
+                }
+                const deltas: Record<string, [number, number]> = {
+                  ArrowLeft: [PAN_STEP, 0],
+                  ArrowRight: [-PAN_STEP, 0],
+                  ArrowUp: [0, PAN_STEP],
+                  ArrowDown: [0, -PAN_STEP],
+                };
+                const delta = deltas[event.key];
+                if (delta) {
+                  event.preventDefault();
+                  const viewport = flow.getViewport();
+                  void flow.setViewport({
+                    ...viewport,
+                    x: viewport.x + delta[0],
+                    y: viewport.y + delta[1],
+                  });
+                }
+                if (event.key === 'Home') {
+                  event.preventDefault();
+                  fitMap();
+                }
+                if (event.key === '+' || event.key === '=') {
+                  event.preventDefault();
+                  void flow.zoomIn();
+                }
+                if (event.key === '-') {
+                  event.preventDefault();
+                  void flow.zoomOut();
+                }
+              }}
+              aria-label="Infinite learning map. Drag background or use arrow keys to pan. Control wheel zooms at the pointer. Tab to a node; arrow keys move it."
+              tabIndex={0}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
+              <Panel
+                position="bottom-left"
+                className="workspace-canvas-controls"
+              >
+                <button
+                  aria-label="Zoom out"
+                  onClick={() => void flow.zoomOut()}
+                >
+                  −
+                </button>
+                <output aria-label="Zoom">{Math.round(zoom * 100)}%</output>
+                <button aria-label="Zoom in" onClick={() => void flow.zoomIn()}>
+                  +
+                </button>
+                <button onClick={fitMap}>Fit map</button>
+              </Panel>
+            </ReactFlow>
+          </>
+        )}
+        <div className="workspace-canvas-feedback" aria-live="polite">
+          {notice}
+        </div>
+        {workspace.unreadableProjects.length > 0 && (
+          <div className="workspace-canvas-errors" role="alert">
+            Some saved work could not be read.{' '}
+            {workspace.unreadableProjects.map((diagnostic) => (
+              <p key={`${diagnostic.projectId}:${diagnostic.code}`}>
+                {diagnostic.code}: {diagnostic.reason}
+              </p>
+            ))}
+          </div>
+        )}
+        {failures.length > 0 && (
+          <div className="workspace-canvas-errors" role="alert">
+            {failures.map((failure) => (
+              <div key={`${failure.input.view}:${failure.nodeId}`}>
+                <p>
+                  Position could not be saved in {failure.input.view}. Your
+                  placement is kept here.
+                </p>
+                <button
+                  onClick={() =>
+                    session.retry(failure.input.view, failure.nodeId)
+                  }
+                >
+                  Retry position
+                </button>
+                <button
+                  onClick={() =>
+                    resetPosition(failure.input.view, failure.nodeId)
+                  }
+                >
+                  Use saved position
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </CanvasActions.Provider>
+  );
+}
