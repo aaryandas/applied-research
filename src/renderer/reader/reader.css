@@ -18,7 +18,8 @@
   background: var(--surface-subtle);
   color: var(--accent);
 }
-.reader-shell button:disabled {
+.reader-shell button:disabled,
+.reader-shell button[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -82,7 +83,7 @@
 .reader-project {
   margin: 28px 8px 20px;
   overflow-wrap: anywhere;
-  font: 400 25px/1.25 var(--font-display);
+  font: 400 20px/1.25 var(--font-display);
   font-variation-settings:
     'opsz' 144,
     'SOFT' 40,
@@ -297,4 +298,39 @@
     animation: none;
     transition: none;
   }
+}
+
+.reader-status:empty {
+  margin: 0;
+}
+.reader-save-status:not(:empty) {
+  color: var(--human-ink);
+  overflow-wrap: anywhere;
+  padding: 12px 0;
+}
+.reader-source-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.reader-source-meta label {
+  flex-direction: row;
+  align-items: center;
+}
+.reader-source-meta select {
+  padding: 6px 8px;
+}
+.reader-selection-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--paper);
+  padding: 8px 0;
+}
+.reader-composer h2 {
+  margin-top: 16px;
+  font: 500 14px/1.5 var(--font-ui);
+  color: var(--muted);
+}
+
+.reader-status {
+  display: block;
 }

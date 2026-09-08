@@ -5,12 +5,14 @@ import type {
   LearningWorkspace,
   RevisionConflict,
   SaveHumanEntryInput,
+  SourceHighlight,
 } from '../../contracts/learning-records';
 
 export interface ReaderDraft {
   kind: 'note' | 'question' | 'insight';
   input: SaveHumanEntryInput;
   supports: EntryRevisionReference[];
+  highlight?: SourceHighlight;
 }
 
 export interface DraftSnapshot {
@@ -20,6 +22,7 @@ export interface DraftSnapshot {
   conflict: RevisionConflict | null;
   conflictLoaded: boolean;
   acknowledgement: CommitAcknowledgement | null;
+  notice: string | null;
 }
 
 /** One project-owned session survives navigation attempts; callers must await flush. */
@@ -31,14 +34,18 @@ export class DraftSession {
     conflict: null,
     conflictLoaded: false,
     acknowledgement: null,
+    notice: null,
   };
-  private listeners = new Set<() => void>();
+  private readonly listeners = new Set<() => void>();
   private pending: Promise<boolean> | null = null;
   private refreshEpoch = 0;
   constructor(
     private readonly bridge: LearningRecordsBridge,
     readonly projectId: string,
-    private readonly onWorkspace: (workspace: LearningWorkspace) => void,
+    private readonly observer: {
+      onWorkspace: (workspace: LearningWorkspace) => void;
+      onCommitted?: (kind: ReaderDraft['kind']) => void;
+    },
   ) {}
 
   getSnapshot = (): DraftSnapshot => this.snapshot;
@@ -58,11 +65,16 @@ export class DraftSession {
     if (draft.input.projectId !== this.projectId)
       throw new Error('This draft belongs to another project.');
     this.publish({
-      draft: structuredClone(draft),
+      draft: structuredClone({
+        ...draft,
+        input: {
+          ...draft.input,
+          entryId: draft.input.entryId ?? crypto.randomUUID(),
+        },
+      }),
       error: null,
       conflict: null,
       conflictLoaded: false,
-      acknowledgement: null,
     });
   }
   edit(update: Pick<SaveHumanEntryInput, 'title' | 'body'>): void {
@@ -72,7 +84,12 @@ export class DraftSession {
   }
   discard(): void {
     if (!this.pending)
-      this.publish({ draft: null, conflict: null, error: null });
+      this.publish({
+        draft: null,
+        conflict: null,
+        error: null,
+        notice: 'Draft discarded.',
+      });
   }
   retryWithCurrentRevision(): Promise<boolean> {
     const { draft, conflict } = this.snapshot;
@@ -121,7 +138,9 @@ export class DraftSession {
         draft: null,
         conflict: null,
         acknowledgement: result.acknowledgement,
+        notice: `Saved revision ${result.acknowledgement.revision} · ${result.acknowledgement.revisionId ?? result.acknowledgement.recordId}`,
       });
+      this.observer.onCommitted?.(draft.kind);
       await this.refresh();
       return true;
     } catch {
@@ -146,7 +165,20 @@ export class DraftSession {
     try {
       const workspace = await this.bridge.getLearningWorkspace(this.projectId);
       if (epoch !== this.refreshEpoch) return false;
-      this.onWorkspace(workspace);
+      if (workspace.project.id !== this.projectId)
+        throw new Error('Wrong project');
+      this.observer.onWorkspace(workspace);
+      const conflict = this.snapshot.conflict;
+      if (conflict) {
+        const entry = workspace.entries.find(
+          (item) => item.id === conflict.recordId,
+        );
+        if (!entry || entry.currentRevision < conflict.currentRevision)
+          throw new Error('Conflicting revision unavailable');
+        this.publish({
+          conflict: { ...conflict, currentRevision: entry.currentRevision },
+        });
+      }
       return true;
     } catch {
       if (epoch !== this.refreshEpoch) return false;

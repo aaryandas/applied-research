@@ -9,11 +9,11 @@ export function EntryOrigin({
   revision,
   workspace,
   onOpen,
-}: {
+}: Readonly<{
   revision: LearningEntryRevision;
   workspace: LearningWorkspace;
   onOpen: (origin: LearningOrigin) => void;
-}): ReactElement {
+}>): ReactElement {
   const origin = revision.origin;
   const highlight = workspace.highlights.find(
     (item) => item.id === origin?.highlightId,
@@ -48,11 +48,11 @@ export function InsightSupports({
   revision,
   workspace,
   onOpen,
-}: {
+}: Readonly<{
   revision: LearningEntryRevision;
   workspace: LearningWorkspace;
   onOpen: (origin: LearningOrigin) => void;
-}): ReactElement {
+}>): ReactElement {
   return (
     <div>
       {revision.supports.map((reference) => {

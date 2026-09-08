@@ -77,7 +77,7 @@ describe('shared project context controls', () => {
     workspace.entries.push(ai, result, insight, aiInsight);
     const props = {
       workspace,
-      session: new DraftSession(bridge, 'project', vi.fn()),
+      session: new DraftSession(bridge, 'project', { onWorkspace: vi.fn() }),
       supports: [note.id, question.id],
       busy: false,
       onSupportsChange: vi.fn(),
@@ -99,7 +99,9 @@ describe('shared project context controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open origin' }));
     expect(props.onOpenOrigin).toHaveBeenCalledWith(note.current.origin);
     fireEvent.click(screen.getByRole('tab', { name: 'Insights' }));
-    expect(screen.getByText('Human insight')).toBeVisible();
+    expect(
+      screen.getByText('Human insight', { selector: '.reader-human' }),
+    ).toBeVisible();
     expect(screen.getByText('AI proposed insight')).toBeVisible();
     expect(screen.getByText('AI proposed insight')).not.toHaveClass(
       'reader-human',

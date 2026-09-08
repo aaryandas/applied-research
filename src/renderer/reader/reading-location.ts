@@ -38,8 +38,7 @@ export function readSelection(
   selection: Selection | null,
 ): TextSpan | null {
   if (
-    !selection ||
-    selection.rangeCount !== 1 ||
+    selection?.rangeCount !== 1 ||
     selection.isCollapsed ||
     root.textContent !== canonicalText
   )
@@ -75,8 +74,7 @@ export function resolveOrigin(
     (item) => item.id === origin.highlightId,
   );
   if (
-    !highlight ||
-    highlight.projectId !== workspace.project.id ||
+    highlight?.projectId !== workspace.project.id ||
     highlight.sourceId !== version.sourceId ||
     highlight.revisionId !== version.revisionId ||
     !isExactSpan(version.canonicalText, highlight)
