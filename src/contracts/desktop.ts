@@ -7,6 +7,7 @@ import type {
   ToolState,
   TutorRequest,
 } from './workspace';
+import type { LearningRecordsBridge } from './learning-records';
 
 export interface DesktopInfo {
   readonly platform: string;
@@ -33,6 +34,6 @@ export interface DesktopBridge {
 
 declare global {
   interface Window {
-    readonly desktop: DesktopBridge;
+    readonly desktop: DesktopBridge & LearningRecordsBridge;
   }
 }

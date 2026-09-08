@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { and, asc, desc, eq, max } from 'drizzle-orm';
-import {
-  drizzle,
-  type BetterSQLite3Database,
-} from 'drizzle-orm/better-sqlite3';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import type {
+  CommitResult,
+  LearningEntryRecord,
+  LearningPathRecord,
+  LearningWorkspace,
+  SourceCitation,
+  SourceHighlight,
+  SourceRecord,
+} from '../contracts/learning-records';
 import type {
   Citation,
   EntryDraft,
@@ -12,6 +18,31 @@ import type {
   EntryPosition,
   Project,
 } from '../contracts/workspace';
+import {
+  writeHumanLearningEntry,
+  type HumanLearningEntryWrite,
+} from './learning-entry-writer';
+import {
+  writePathRevision,
+  type ValidatedPathWrite,
+} from './learning-path-writer';
+import { insertEntry, touchProject } from './learning-record-persistence';
+import { readLearningWorkspace } from './learning-record-reader';
+import {
+  decodeHighlight,
+  decodeHumanEntry,
+  decodeImportTextSource,
+  decodeInsight,
+  decodeLearningRecordPosition,
+  decodePathRevision,
+  decodeProjectId,
+} from './learning-record-validation';
+import {
+  moveLearningRecord,
+  writeSourceHighlight,
+  writeTextSource,
+} from './learning-source-writer';
+import { decodeTrustedLearningPath } from './trusted-learning-records';
 import {
   decodeCanvasCoordinate,
   decodeEntryAuthorKind,
@@ -29,14 +60,11 @@ import {
   entryPlacements,
   entryRevisions,
   projects,
+  recordPlacements,
   workspaceSchema,
+  type WorkspaceDatabase,
+  type WorkspaceTransaction,
 } from './workspace-schema';
-
-const CANVAS_VIEW = 'canvas';
-type WorkspaceDatabase = BetterSQLite3Database<typeof workspaceSchema>;
-type WorkspaceTransaction = Parameters<
-  Parameters<WorkspaceDatabase['transaction']>[0]
->[0];
 
 export interface EntryRevision {
   revision: number;
@@ -238,15 +266,12 @@ export class WorkspaceStore {
           if (expectedRevision !== 0)
             throw new Error('Entry revision conflict.');
           const recordedAt = new Date();
-          const entryId = this.insertEntry(
+          const entryId = insertEntry(
             transaction,
-            {
-              ...validated,
-              authorKind: 'human',
-            },
-            recordedAt,
+            { ...validated, authorKind: 'human' },
+            { recordedAt },
           );
-          this.touchProject(transaction, validated.projectId, recordedAt);
+          touchProject(transaction, validated.projectId, recordedAt);
           return { projectId: validated.projectId, entryId, revision: 1 };
         }
         const current = this.readCurrentRevision(
@@ -308,7 +333,7 @@ export class WorkspaceStore {
           )
           .run();
         if (updated.changes !== 1) throw new Error('Entry revision conflict.');
-        this.touchProject(transaction, validated.projectId, recordedAt);
+        touchProject(transaction, validated.projectId, recordedAt);
         return {
           projectId: validated.projectId,
           entryId: validated.id,
@@ -384,8 +409,163 @@ export class WorkspaceStore {
           )
           .run();
         if (moved.changes !== 1) throw new Error('Entry not found.');
-        this.touchProject(transaction, projectId, new Date());
+        const updatedAt = new Date();
+        transaction
+          .update(recordPlacements)
+          .set({ x, y, updatedAt: updatedAt.toISOString() })
+          .where(
+            and(
+              eq(recordPlacements.recordId, entryId),
+              eq(recordPlacements.projectId, projectId),
+            ),
+          )
+          .run();
+        touchProject(transaction, projectId, updatedAt);
       },
+      { behavior: 'immediate' },
+    );
+  }
+
+  getLearningWorkspace(projectIdValue: unknown): LearningWorkspace {
+    const projectId = decodeProjectId(projectIdValue);
+    const project = this.orm
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get();
+    if (!project) throw new Error('Learning space not found.');
+    try {
+      return readLearningWorkspace({
+        orm: this.orm,
+        project,
+        unreadableProjects: this.learningWorkspaceDiagnostics(),
+      });
+    } catch (error_) {
+      if (error_ instanceof StoredProjectError) throw error_;
+      throw new StoredProjectError(project.id, 'invalid-stored-content', {
+        cause: error_,
+      });
+    }
+  }
+
+  importTextSource(value: unknown): CommitResult<SourceRecord> {
+    const input = decodeImportTextSource(value);
+    const outcome = this.orm.transaction(
+      (transaction) => writeTextSource(transaction, input),
+      { behavior: 'immediate' },
+    );
+    if (outcome.status === 'conflict') return outcome;
+    const record = this.getLearningWorkspace(input.projectId).sources.find(
+      (item) => item.id === outcome.acknowledgement.recordId,
+    );
+    if (!record) throw new Error('Saved source could not be read.');
+    return {
+      status: 'committed',
+      acknowledgement: outcome.acknowledgement,
+      record,
+    };
+  }
+
+  saveHighlight(value: unknown): CommitResult<SourceHighlight> {
+    const input = decodeHighlight(value);
+    const acknowledgement = this.orm.transaction(
+      (transaction) => writeSourceHighlight(transaction, input),
+      { behavior: 'immediate' },
+    );
+    const record = this.getLearningWorkspace(input.projectId).highlights.find(
+      (item) => item.id === acknowledgement.recordId,
+    );
+    if (!record) throw new Error('Saved highlight could not be read.');
+    return { status: 'committed', acknowledgement, record };
+  }
+
+  saveReadingNote(value: unknown): CommitResult<LearningEntryRecord> {
+    return this.saveHumanLearningEntry({
+      input: decodeHumanEntry(value),
+      kind: 'note',
+      supports: [],
+    });
+  }
+
+  saveQuestion(value: unknown): CommitResult<LearningEntryRecord> {
+    return this.saveHumanLearningEntry({
+      input: decodeHumanEntry(value),
+      kind: 'question',
+      supports: [],
+    });
+  }
+
+  saveInsight(value: unknown): CommitResult<LearningEntryRecord> {
+    const input = decodeInsight(value);
+    return this.saveHumanLearningEntry({
+      input,
+      kind: 'insight',
+      supports: input.supports,
+    });
+  }
+
+  savePathRevision(value: unknown): CommitResult<LearningPathRecord> {
+    return this.saveValidatedPath({
+      input: decodePathRevision(value),
+      authorKind: 'human',
+      citationsByLesson: new Map(),
+    });
+  }
+
+  acceptBackendLearningPath(value: unknown): CommitResult<LearningPathRecord> {
+    const accepted = decodeTrustedLearningPath(value);
+    const current = accepted.pathId
+      ? this.getLearningWorkspace(accepted.projectId).paths.find(
+          (item) => item.id === accepted.pathId,
+        )
+      : undefined;
+    const currentRevision = current?.revisions.find(
+      (item) => item.revision === current.currentRevision,
+    );
+    const topicId = currentRevision?.topics[0]?.id ?? randomUUID();
+    const citationsByLesson = new Map<string, SourceCitation[]>();
+    const lessons = accepted.contribution.steps.map((step, index) => {
+      const lessonId =
+        currentRevision?.topics[0]?.lessons[index]?.id ?? randomUUID();
+      citationsByLesson.set(lessonId, step.citations);
+      const firstCitation = step.citations[0];
+      return {
+        id: lessonId,
+        title: step.title,
+        objective: step.objective,
+        activity: step.activity,
+        source: firstCitation
+          ? ({
+              state: 'ready',
+              sourceRevisionId: firstCitation.revisionId,
+            } as const)
+          : ({ state: 'pending' } as const),
+      };
+    });
+    const input = decodePathRevision({
+      projectId: accepted.projectId,
+      ...(accepted.pathId ? { pathId: accepted.pathId } : {}),
+      expectedRevision: accepted.expectedRevision,
+      title: accepted.contribution.title,
+      topics: [
+        {
+          id: topicId,
+          title: accepted.contribution.title,
+          lessons,
+        },
+      ],
+    });
+    return this.saveValidatedPath({
+      input,
+      authorKind: 'assistant',
+      citationsByLesson,
+    });
+  }
+
+  moveLearningRecord(value: unknown): void {
+    const input = decodeLearningRecordPosition(value);
+    this.orm.transaction(
+      (transaction) => moveLearningRecord(transaction, input),
       { behavior: 'immediate' },
     );
   }
@@ -427,6 +607,44 @@ export class WorkspaceStore {
     this.database.close();
   }
 
+  private saveHumanLearningEntry(
+    write: HumanLearningEntryWrite,
+  ): CommitResult<LearningEntryRecord> {
+    const outcome = this.orm.transaction(
+      (transaction) => writeHumanLearningEntry(transaction, write),
+      { behavior: 'immediate' },
+    );
+    if (outcome.status === 'conflict') return outcome;
+    const record = this.getLearningWorkspace(
+      write.input.projectId,
+    ).entries.find((item) => item.id === outcome.acknowledgement.recordId);
+    if (!record) throw new Error('Saved learning record could not be read.');
+    return {
+      status: 'committed',
+      acknowledgement: outcome.acknowledgement,
+      record,
+    };
+  }
+
+  private saveValidatedPath(
+    write: ValidatedPathWrite,
+  ): CommitResult<LearningPathRecord> {
+    const outcome = this.orm.transaction(
+      (transaction) => writePathRevision(transaction, write),
+      { behavior: 'immediate' },
+    );
+    if (outcome.status === 'conflict') return outcome;
+    const record = this.getLearningWorkspace(write.input.projectId).paths.find(
+      (item) => item.id === outcome.acknowledgement.recordId,
+    );
+    if (!record) throw new Error('Saved learning path could not be read.');
+    return {
+      status: 'committed',
+      acknowledgement: outcome.acknowledgement,
+      record,
+    };
+  }
+
   private addEntry(
     content: NewEntryContent,
     authorKind: EntryAuthorKind,
@@ -441,64 +659,13 @@ export class WorkspaceStore {
           .get();
         if (!project) throw new Error('Learning space not found.');
         const recordedAt = new Date();
-        this.insertEntry(transaction, validated, recordedAt);
-        this.touchProject(transaction, validated.projectId, recordedAt);
+        insertEntry(transaction, validated, { recordedAt });
+        touchProject(transaction, validated.projectId, recordedAt);
         return validated.projectId;
       },
       { behavior: 'immediate' },
     );
     return this.get(projectId);
-  }
-
-  private insertEntry(
-    transaction: WorkspaceTransaction,
-    content: ValidatedEntryContent,
-    recordedAt: Date,
-  ): string {
-    const order = transaction
-      .select({ maximum: max(entries.sortOrder) })
-      .from(entries)
-      .where(eq(entries.projectId, content.projectId))
-      .get();
-    const sortOrder = (order?.maximum ?? -1) + 1;
-    const entryId = randomUUID();
-    const createdAt = recordedAt.toISOString();
-    transaction
-      .insert(entries)
-      .values({
-        id: entryId,
-        projectId: content.projectId,
-        createdAt,
-        sortOrder,
-        currentRevision: 1,
-      })
-      .run();
-    transaction
-      .insert(entryRevisions)
-      .values({
-        entryId,
-        projectId: content.projectId,
-        revision: 1,
-        kind: content.kind,
-        title: content.title,
-        body: content.body,
-        url: content.url,
-        citationsJson: JSON.stringify(content.citations),
-        authorKind: content.authorKind,
-        recordedAt: createdAt,
-      })
-      .run();
-    transaction
-      .insert(entryPlacements)
-      .values({
-        entryId,
-        projectId: content.projectId,
-        view: CANVAS_VIEW,
-        x: 48 + (sortOrder % 2) * 424,
-        y: 40 + Math.floor(sortOrder / 2) * 800,
-      })
-      .run();
-    return entryId;
   }
 
   private currentRevision(projectId: string, entryId: string): number {
@@ -571,18 +738,6 @@ export class WorkspaceStore {
     );
   }
 
-  private touchProject(
-    transaction: WorkspaceTransaction,
-    projectId: string,
-    updatedAt: Date,
-  ): void {
-    transaction
-      .update(projects)
-      .set({ updatedAt: updatedAt.toISOString() })
-      .where(eq(projects.id, projectId))
-      .run();
-  }
-
   private readProject(project: typeof projects.$inferSelect): Project {
     try {
       return this.readValidatedProject(project);
@@ -592,6 +747,30 @@ export class WorkspaceStore {
         cause: error_,
       });
     }
+  }
+
+  private learningWorkspaceDiagnostics(): UnreadableProject[] {
+    const storedProjects = this.orm.select().from(projects).all();
+    const diagnostics: UnreadableProject[] = [];
+    for (const project of storedProjects) {
+      try {
+        this.readProject(project);
+        readLearningWorkspace({
+          orm: this.orm,
+          project,
+          unreadableProjects: [],
+        });
+      } catch (error_) {
+        const storedError =
+          error_ instanceof StoredProjectError
+            ? error_
+            : new StoredProjectError(project.id, 'invalid-stored-content', {
+                cause: error_,
+              });
+        diagnostics.push(storedError.diagnostic());
+      }
+    }
+    return diagnostics;
   }
 
   private readValidatedProject(project: typeof projects.$inferSelect): Project {

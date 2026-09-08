@@ -39,6 +39,8 @@ New edits use expectedRevision. A stale write fails with a conflict and keeps th
 
 Preserve listProjects/createProject/saveEntry/moveEntry while migrating their internals. Add focused operations as the learning flow is connected: getLearningWorkspace, importTextSource, saveReadingNote, saveQuestion, saveInsight, savePathRevision and recordPracticalResult. Inputs are bounded, serializable and runtime-validated; child ownership and relation constraints are rechecked inside the transaction. No generic table mutation, raw IPC or arbitrary path input is exposed.
 
+The first connected local-record slice also names saveHighlight and moveLearningRecord. Revision-aware source, human-entry and path writes return a committed acknowledgement or a typed conflict with the current revision. The compatibility saveEntry operation remains for the existing renderer and does not accept a caller expectedRevision; it is not evidence of draft-safety wiring. Backend learning-path contributions enter only through a validated main-internal acceptance method, which allocates stable local topic/lesson identities; no renderer command can fabricate trusted AI attribution.
+
 The source import operation receives user-selected text plus title and an optional validated acquisition URL. Native file selection/extraction remains a separate named operation. Imported HTML is untrusted and must pass a maintained extraction/sanitization pipeline before rendering; raw remote HTML/scripts never become trusted UI. A returned generated lesson is decoded and persisted as AI-authored source material before Reader opens it.
 
 ## Authenticated backend seam

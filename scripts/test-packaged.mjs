@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { _electron as electron } from '@playwright/test';
 
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
+const SYNTHETIC_SOURCE_TEXT = 'Exact packaged source: α 🧭 β\n\tend';
 const SYNTHETIC_PROJECT = {
   id: '10000000-0000-4000-8000-000000000026',
   goal: 'Synthetic packaged migration',
@@ -78,6 +79,7 @@ function createLegacyDatabase(databasePath) {
 
 async function launchAndAssertMigration(directory, legacy) {
   let application;
+  let receipt;
   try {
     application = await electron.launch({
       executablePath: resolve(executable),
@@ -93,10 +95,49 @@ async function launchAndAssertMigration(directory, legacy) {
         'Packaged migration did not preserve the legacy project.',
       );
     }
+    receipt = await page.evaluate(
+      async ({ projectId, sourceText }) => {
+        const sourceResult = await globalThis.desktop.importTextSource({
+          projectId,
+          expectedRevision: 0,
+          title: 'Packaged pasted source',
+          text: sourceText,
+          acquiredAt: '2026-09-08T00:02:00.000Z',
+          locator: 'https://example.com/packaged-source',
+        });
+        if (sourceResult.status !== 'committed') return sourceResult;
+        const source = sourceResult.record;
+        const start = sourceText.indexOf('🧭');
+        const highlightResult = await globalThis.desktop.saveHighlight({
+          projectId,
+          expectedRevision: 0,
+          sourceId: source.id,
+          revisionId: source.currentVersionId,
+          start,
+          end: start + 2,
+          quote: '🧭',
+        });
+        if (highlightResult.status !== 'committed') return highlightResult;
+        const noteResult = await globalThis.desktop.saveReadingNote({
+          projectId,
+          expectedRevision: 0,
+          title: 'Packaged note',
+          body: 'Exact human note',
+          origin: {
+            sourceRevisionId: source.currentVersionId,
+            highlightId: highlightResult.record.id,
+          },
+        });
+        if (noteResult.status !== 'committed') return noteResult;
+        return globalThis.desktop.getLearningWorkspace(projectId);
+      },
+      { projectId: SYNTHETIC_PROJECT.id, sourceText: SYNTHETIC_SOURCE_TEXT },
+    );
   } finally {
     await application?.close();
     legacy.close();
   }
+  return receipt;
 }
 
 function assertRecoveryCopies(databasePath, document) {
@@ -129,7 +170,19 @@ async function verifyPackagedLegacyMigration() {
   const databasePath = join(directory, 'workspace.sqlite');
   try {
     const { legacy, document } = createLegacyDatabase(databasePath);
-    await launchAndAssertMigration(directory, legacy);
+    const receipt = await launchAndAssertMigration(directory, legacy);
+    if (
+      receipt?.sources?.[0]?.currentVersion?.canonicalText !==
+        SYNTHETIC_SOURCE_TEXT ||
+      receipt?.highlights?.[0]?.quote !== '🧭' ||
+      receipt?.entries?.find(
+        (entry) => entry.current?.title === 'Packaged note',
+      )?.current?.body !== 'Exact human note'
+    ) {
+      throw new Error(
+        'Packaged learning-record operations did not preserve synthetic data.',
+      );
+    }
     assertRecoveryCopies(databasePath, document);
   } finally {
     rmSync(directory, { recursive: true, force: true });

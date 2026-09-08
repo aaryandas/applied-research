@@ -149,6 +149,10 @@ function interruptingMigrationFolder(): string {
     join(directory, '0000_normalize_workspace.sql'),
     `${migration}\n--> statement-breakpoint\nSELECT ar_test_interruption();\n`,
   );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0001_learning_records.sql'),
+    join(directory, '0001_learning_records.sql'),
+  );
   return directory;
 }
 
@@ -368,7 +372,7 @@ it('rejects corrupt migration markers and rolls back inconsistent pending work',
   const inconsistent = new Database(inconsistentPath);
   inconsistent
     .prepare('UPDATE __drizzle_migrations SET created_at = ?')
-    .run(LATEST_WORKSPACE_MIGRATION - 1);
+    .run(1_788_847_199_999);
   inconsistent.close();
   expect(() => new WorkspaceStore(inconsistentPath)).toThrow(
     'ALTER TABLE `projects` RENAME',
@@ -383,7 +387,7 @@ it('rejects corrupt migration markers and rolls back inconsistent pending work',
           .pluck()
           .get(),
       ),
-    ).toBe(LATEST_WORKSPACE_MIGRATION - 1);
+    ).toBe(1_788_847_199_999);
   } finally {
     reopened.close();
   }
@@ -410,20 +414,67 @@ it('rolls back an interrupted migration and safely reuses the verified backup', 
   }
 });
 
-it('keeps the reviewed migration SQL independently executable', () => {
+it('upgrades a schema-1 normalized database without changing legacy records', () => {
   const path = temporaryDatabase();
   const legacy = createLegacyDatabase(path);
-  const migration = readFileSync(
+  const normalization = readFileSync(
     join(process.cwd(), 'drizzle/0000_normalize_workspace.sql'),
     'utf8',
   );
-  legacy.database.exec(`BEGIN;\n${migration}\nCOMMIT;`);
+  legacy.database.exec(`
+    BEGIN;
+    ${normalization}
+    CREATE TABLE __drizzle_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash TEXT NOT NULL,
+      created_at NUMERIC
+    );
+    INSERT INTO __drizzle_migrations (hash, created_at)
+      VALUES ('schema-1', 1788847200000);
+    COMMIT;
+  `);
+  legacy.database.close();
+
+  const store = new WorkspaceStore(path);
+  try {
+    expect(store.get(projectId)).toEqual(legacyProjects()[0]);
+    const workspace = store.getLearningWorkspace(projectId);
+    expect(workspace.entries).toHaveLength(3);
+    expect(workspace.sources).toEqual([]);
+    expect(workspace.paths).toEqual([]);
+    expect(workspace.placements).toHaveLength(6);
+  } finally {
+    store.close();
+  }
+  const reopened = new WorkspaceStore(path);
+  expect(reopened.get(projectId)).toEqual(legacyProjects()[0]);
+  reopened.close();
+});
+
+it('keeps the reviewed migration SQL independently executable', () => {
+  const path = temporaryDatabase();
+  const legacy = createLegacyDatabase(path);
+  const normalization = readFileSync(
+    join(process.cwd(), 'drizzle/0000_normalize_workspace.sql'),
+    'utf8',
+  );
+  const records = readFileSync(
+    join(process.cwd(), 'drizzle/0001_learning_records.sql'),
+    'utf8',
+  );
+  legacy.database.exec(`BEGIN;\n${normalization}\n${records}\nCOMMIT;`);
   expect(
     legacy.database
       .prepare('SELECT body FROM entry_revisions WHERE entry_id = ?')
       .pluck()
       .get(entryIds[0]),
   ).toBe('α → β\nemoji: 🧭');
+  expect(
+    legacy.database
+      .prepare('SELECT COUNT(*) FROM workspace_records')
+      .pluck()
+      .get(),
+  ).toBe(3);
   expect(tableNames(legacy.database)).toContain('legacy_projects_v0');
   legacy.database.close();
 });

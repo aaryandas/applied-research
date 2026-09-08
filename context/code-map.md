@@ -29,9 +29,13 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 ## MVP modules
 
-- `src/contracts/workspace.ts`: project/entry/request models and named channels.
+- `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
+- `src/contracts/learning-records.ts`: serializable source, highlight, human-entry, path, placement, acknowledgement and conflict contracts for the durable learning workspace.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.
-- `src/main/workspace-store.ts`: Drizzle/better-sqlite3 project, entry, placement and immutable content-revision persistence; transaction-boundary validation, attribution-preserving mutations and structured unreadable-project diagnostics.
+- `src/main/workspace-store.ts`: sole Drizzle/better-sqlite3 connection and transaction facade; preserves compatibility methods while exposing named learning-record operations and structured unreadable-project diagnostics.
+- `src/main/learning-source-writer.ts`, `learning-entry-writer.ts`, `learning-path-writer.ts`: cohesive transaction-scoped invariants for immutable source/path versions, exact highlights, human revisions/supports and trusted backend path acceptance. They receive the store-owned transaction and never open a database.
+- `src/main/learning-record-persistence.ts`: small shared identity, placement, acknowledgement and compatibility-entry persistence helpers; it is not a generic repository layer.
+- `src/main/learning-record-validation.ts`, `learning-record-reader.ts`: runtime operation decoding and the validated learning-workspace read model.
 - `src/main/workspace-decoder.ts`: shared runtime decoding for legacy migration, stored records and write-boundary invariants.
 - `src/main/workspace-migration.ts`: Drizzle migration orchestration, typed failures, legacy validation, WAL-consistent verified backups and normalized-schema verification.
 - `src/main/workspace-schema.ts`: query-only Drizzle table mapping; checked-in SQL migrations remain authoritative for database constraints.
@@ -46,9 +50,9 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/renderer/explanations/`: lazy Three.js/React Three Fiber selectable assembly and measured two-link arm; maintained OrbitControls, demand rendering, lifecycle/context-loss fallback, draft-preserving numeric controls and accessible scene interaction. `useArmInputs.ts` separates unfinished draft text from committed parameters. Recipe/geometry math, runtime cleanup and real Electron cases have independent review. Captures remain session-only; Reader/Canvas persistence and export are pending. First-load scene chunk is approximately 1.39 MB. `NOTICES.md` records original asset and upstream MIT provenance; consolidated distribution notices remain a release integration requirement.
 - `src/renderer/assets/`: bundled approved artwork and Familjen Grotesk, Fraunces, Martian Mono and Newsreader fonts with their OFL notices, verified against the reference manifest.
 
-Window/guest/credential lifecycle and IPC registration live in `src/main/index.ts`; real Electron tests exercise that wiring. Domain behavior has adjacent unit tests. No application imports the pinned Effect reference. Structured paths, broad ingestion, sync and durable background jobs remain unimplemented.
+Window/guest/credential lifecycle and IPC registration live in `src/main/index.ts`; real Electron tests exercise that wiring. Domain behavior has adjacent unit tests. No application imports the pinned Effect reference. Durable pasted plain-text sources and path records now have local contracts and persistence; visual Reader/Canvas use, broad ingestion, sync and durable background jobs remain unimplemented.
 
-`tests/integration/workspace-migration.test.ts` exercises legacy bytes, WAL-inclusive backups, rollback, stale-backup recovery and migration refusal. `tests/integration/workspace.test.ts` covers concurrent writers, cross-project rejection and revision conflicts. Native-module commands in `package.json` select the Node or Electron ABI before their corresponding test/runtime command; packaged migration coverage lives in `scripts/test-packaged.mjs`.
+`tests/integration/workspace-migration.test.ts` exercises legacy bytes, schema-1 upgrade, WAL-inclusive backups, rollback, stale-backup recovery and migration refusal. `tests/integration/learning-records.test.ts` covers the connected source/highlight/note/question/insight flow, immutable supports and source versions, typed conflicts, cross-project refusal, Unicode locators, stable path identities and independent placements. Native-module commands in `package.json` select the Node or Electron ABI before their corresponding test/runtime command; packaged migration coverage lives in `scripts/test-packaged.mjs`.
 
 ## Portable design review
 
