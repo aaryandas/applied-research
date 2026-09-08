@@ -33,7 +33,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and
 - `Lane guard`.
 - Independent review comment with PASS.
 - Sonar: zero new violations on the diff. Run `npm run sonar:scan:native` from the PR worktree with `SONAR_HOST_URL=http://127.0.0.1:9000` and `SONAR_TOKEN` in the environment; the Docker scanner cannot reach the server from a second worktree. False positives are listed by issue key in the PR for the founder, never suppressed.
-- Playwright records video for every spec (`playwright.config.ts`); CI uploads `test-results/` as the evidence artifact. Link it from the PR and the ticket.
+- Video evidence comes from the cloud verifier's own screen recording of the Electron run, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
 
 ## Traps fixed in tooling
 
@@ -61,9 +61,9 @@ Paste into the Cursor automation. Replace nothing; the ticket supplies the value
 You verify one frozen revision for the Applied Research desktop app.
 Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}. Lane: {{pr.label:lane}}.
 1. Check out exactly that revision. Run `npm ci`, then `npm run check`.
-2. Run the Electron suite: `APPLIED_RESEARCH_SOFTWARE_GL=1 xvfb-run --auto-servernum npm run test:e2e`. The specs record video into test-results/video/.
+2. Run the Electron suite: `APPLIED_RESEARCH_SOFTWARE_GL=1 xvfb-run --auto-servernum npm run test:e2e`. Record the run with your own screen recording; that recording is the evidence.
 3. Run `npm run package` and `xvfb-run --auto-servernum npm run test:packaged`.
-4. Attach the videos for the specs this ticket names, plus the pass/fail list, to the ticket. Name the exact revision in the comment.
+4. Attach your recording of the run and the pass/fail list to the ticket. Name the exact revision in the comment.
 5. If everything named in the ticket's acceptance passes, move the ticket to In Review. Otherwise move it to In Development with the failing spec and the first error line.
 Do not edit source, tests, thresholds, or Sonar configuration. Do not use any provider key; the synthetic backend in the specs is sufficient.
 ```

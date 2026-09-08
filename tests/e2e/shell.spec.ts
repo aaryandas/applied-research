@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   closeTestApplication,
   useElectronCloseHandling,
-  electronLaunchExtras,
+  electronLaunchArgs,
 } from './electron-lifecycle';
 
 test('wires a real saved source through Reader, Canvas, Settings and restart', async () => {
@@ -14,8 +14,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
   const directory = mkdtempSync(join(tmpdir(), 'applied-shell-'));
   const launch = () =>
     electron.launch({
-      args: ['.', ...electronLaunchExtras().args],
-      recordVideo: electronLaunchExtras().recordVideo,
+      args: ['.', ...electronLaunchArgs()],
       env: {
         ...process.env,
         APPLIED_RESEARCH_DATA_DIR: directory,

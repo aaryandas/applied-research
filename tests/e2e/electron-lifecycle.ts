@@ -19,27 +19,17 @@ export async function closeTestApplication(
 }
 
 /**
- * Launch options shared by every Electron spec: video for ticket evidence, and
- * software GL when APPLIED_RESEARCH_SOFTWARE_GL=1 so WebGL scenes run on
- * headless Linux verifiers (xvfb) that have no GPU.
+ * Extra Chromium switches for headless Linux verifiers (xvfb, no GPU):
+ * set APPLIED_RESEARCH_SOFTWARE_GL=1 so WebGL scenes render in software.
+ * Video evidence is recorded by the cloud verifier, not by Playwright.
  */
-export function electronLaunchExtras(): {
-  recordVideo: { dir: string; size: { width: number; height: number } };
-  args: string[];
-} {
-  const softwareGl = process.env.APPLIED_RESEARCH_SOFTWARE_GL === '1';
-  return {
-    recordVideo: {
-      dir: 'test-results/video',
-      size: { width: 1280, height: 800 },
-    },
-    args: softwareGl
-      ? [
-          '--use-gl=angle',
-          '--use-angle=swiftshader',
-          '--enable-unsafe-swiftshader',
-          '--ignore-gpu-blocklist',
-        ]
-      : [],
-  };
+export function electronLaunchArgs(): string[] {
+  return process.env.APPLIED_RESEARCH_SOFTWARE_GL === '1'
+    ? [
+        '--use-gl=angle',
+        '--use-angle=swiftshader',
+        '--enable-unsafe-swiftshader',
+        '--ignore-gpu-blocklist',
+      ]
+    : [];
 }
