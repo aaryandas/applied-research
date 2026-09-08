@@ -4,125 +4,95 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { App } from './App';
 import type { DesktopBridge } from '../contracts/desktop';
 import type {
   DesktopAccountState,
   DesktopSignOutResult,
 } from '../contracts/desktop-auth';
-import type { Entry, Project, ToolState } from '../contracts/workspace';
+import type {
+  LearningRecordsBridge,
+  LearningWorkspace,
+} from '../contracts/learning-records';
+import type { Project } from '../contracts/workspace';
+import { App } from './App';
+import { fixture } from './reader/reader.test.fixtures';
+import { createCanvasFixture } from './canvas/canvas-fixture';
 
-const project: Project = {
-  id: 'space-1',
-  goal: 'Learn robotics',
-  createdAt: '',
-  updatedAt: '',
-  entries: [],
+const signedOut: DesktopAccountState = {
+  session: 'signed-out',
+  account: null,
+  quota: null,
+  message: null,
 };
-const note: Entry = {
-  id: 'note-1',
-  kind: 'note',
-  title: 'Prediction',
-  body: 'My observation',
-  url: '',
-  citations: [],
-  x: 48,
-  y: 40,
-  createdAt: '',
-};
-function setup(initial: Project[] = [project]) {
-  let stateListener: (state: ToolState) => void = () => {};
-  let accountStateListener: (state: DesktopAccountState) => void = () => {};
-  const signedOutState: DesktopAccountState = {
-    session: 'signed-out',
-    account: null,
-    quota: null,
-    message: null,
-  };
-  const bridge: DesktopBridge = {
+function setup(
+  options: { empty?: boolean; workspace?: LearningWorkspace } = {},
+) {
+  const records = fixture();
+  const workspace = options.workspace ?? records.workspace;
+  const project: Project = { ...workspace.project, entries: [] };
+  let accountListener: (state: DesktopAccountState) => void = () => {};
+  const bridge: DesktopBridge & LearningRecordsBridge = {
+    ...records.bridge,
+    ...(options.workspace
+      ? { getLearningWorkspace: vi.fn(async () => workspace) }
+      : {}),
     info: { platform: 'test', electronVersion: 'test' },
-    accountStatus: vi.fn(async () => signedOutState),
-    signIn: vi.fn(async () => signedOutState),
-    cancelSignIn: vi.fn(async () => signedOutState),
+    accountStatus: vi.fn(async () => signedOut),
+    signIn: vi.fn(async (): Promise<DesktopAccountState> => ({
+      ...signedOut,
+      session: 'signing-in',
+    })),
+    cancelSignIn: vi.fn(async () => signedOut),
     signOut: vi.fn(async (): Promise<DesktopSignOutResult> => ({
-      state: signedOutState,
+      state: signedOut,
       remoteRevocation: 'confirmed',
     })),
     onAccountState: vi.fn((listener) => {
-      accountStateListener = listener;
-      return () => {};
+      accountListener = listener;
+      return vi.fn();
     }),
-    listProjects: vi.fn(async () => initial),
-    createProject: vi.fn(async (goal) => ({ ...project, goal })),
-    saveEntry: vi.fn(async (draft) => ({
-      ...project,
-      entries: [{ ...note, ...draft }],
-    })),
+    listProjects: vi.fn(async () => (options.empty ? [] : [project])),
+    createProject: vi.fn(async (goal) => {
+      workspace.project.goal = goal;
+      return { ...project, goal };
+    }),
+    saveEntry: vi.fn(async () => project),
     moveEntry: vi.fn(async () => {}),
-    addExperiment: vi.fn(async (): Promise<Project> => ({
-      ...project,
-      entries: [{ ...note, kind: 'experiment', title: 'Matrix' }],
-    })),
-    askTutor: vi.fn(async (): Promise<Project> => ({
-      ...project,
-      entries: [
-        {
-          ...note,
-          kind: 'assistant',
-          title: 'An activity',
-          body: 'Try a prediction first.',
-          citations: [],
-        },
-      ],
-    })),
+    moveLearningRecord: vi.fn(async () => {}),
+    addExperiment: vi.fn(async () => project),
+    askTutor: vi.fn(async () => project),
     stopTutor: vi.fn(async () => {}),
-    providerStatus: vi.fn(async () => ({
-      connected: false,
-      model: 'openai/gpt-5.4-mini',
-    })),
-    importProviderKey: vi.fn(async () => ({
-      connected: true,
-      model: 'openai/gpt-5.4-mini',
-    })),
-    setModel: vi.fn(async (model) => ({ connected: true, model })),
+    providerStatus: vi.fn(async () => ({ connected: false, model: '' })),
+    importProviderKey: vi.fn(async () => ({ connected: false, model: '' })),
+    setModel: vi.fn(async () => ({ connected: false, model: '' })),
     openTool: vi.fn(async () => {}),
     resizeTool: vi.fn(async () => {}),
     closeTool: vi.fn(async () => {}),
     openExternal: vi.fn(async () => {}),
-    onToolState: vi.fn((listener) => {
-      stateListener = listener;
-      return () => {};
-    }),
+    onToolState: vi.fn(() => vi.fn()),
   };
   return {
     bridge,
-    emitAccountState: (state: DesktopAccountState) =>
-      act(() => accountStateListener(state)),
-    emit: (state: ToolState) => act(() => stateListener(state)),
+    project,
+    emitAccount: (state: DesktopAccountState) =>
+      act(() => accountListener(state)),
   };
 }
+async function reopen(project: Project): Promise<void> {
+  fireEvent.click(
+    await screen.findByRole('button', { name: new RegExp(project.goal) }),
+  );
+  await screen.findByRole('heading', { name: 'Reading' });
+}
 beforeEach(() => {
-  // jsdom has no modal implementation; Electron tests cover focus and Escape.
-  Object.defineProperties(HTMLDialogElement.prototype, {
-    showModal: {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.open = true;
-      },
-    },
-    close: {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.open = false;
-      },
-    },
-  });
   vi.stubGlobal(
     'ResizeObserver',
     class {
       observe() {}
+      unobserve() {}
       disconnect() {}
     },
   );
@@ -134,331 +104,289 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-it('keeps a live Opening draft while switching theme', async () => {
-  const { bridge } = setup([]);
+it('keeps the approved Opening draft across appearance changes and lands a new topic in Reader', async () => {
+  const { bridge } = setup({ empty: true });
   render(<App bridge={bridge} />);
   const input = await screen.findByLabelText(
     'What do you want to learn about?',
   );
-  fireEvent.change(input, { target: { value: 'Build a tiny robot' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Use evening theme' }));
   expect(document.documentElement.dataset.theme).toBe('dark');
-  expect(localStorage.getItem('applied-research-theme')).toBe('dark');
-  expect(input).toHaveValue('Build a tiny robot');
+  fireEvent.change(input, {
+    target: { value: 'Learn perception for my robot' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Use daylight theme' }));
-  expect(document.documentElement.dataset.theme).toBe('light');
+  expect(input).toHaveValue('Learn perception for my robot');
+  expect(localStorage.getItem('applied-research-theme')).toBe('light');
+  fireEvent.click(screen.getByRole('button', { name: 'Use evening theme' }));
+  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
+  await screen.findByRole('heading', { name: 'Reading' });
+  expect(bridge.createProject).toHaveBeenCalledWith(
+    'Learn perception for my robot',
+  );
+  expect(screen.getByText('Learn perception for my robot')).toBeVisible();
+  expect(
+    screen.getByRole('heading', { name: 'Start with a source' }),
+  ).toBeVisible();
+  expect(bridge.importProviderKey).not.toHaveBeenCalled();
 });
 
-it('creates an arbitrary-topic learning space and edits notes without AI', async () => {
-  const { bridge } = setup([]);
+it('shares saved Reader questions with both Canvas modes and restores the outline', async () => {
+  const { bridge, project } = setup();
   render(<App bridge={bridge} />);
-  await screen.findByLabelText('What do you want to learn about?');
-  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
-    target: { value: 'An arbitrary topic: robot perception' },
+  await reopen(project);
+  const sidebar = screen.getByRole('navigation', {
+    name: 'Project navigation',
   });
-  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save a question' }));
+  fireEvent.change(await screen.findByLabelText('In your own words'), {
+    target: { value: 'How can I measure uncertainty?' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Canvas', exact: true }));
+  await screen.findByRole('region', { name: 'Learning canvas' });
+  expect(bridge.saveQuestion).toHaveBeenCalledWith(
+    expect.objectContaining({ body: 'How can I measure uncertainty?' }),
+  );
+  expect(sidebar).toHaveClass('shell-icon-rail');
+  expect(
+    screen.getByRole('button', { name: 'Canvas', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Expanded', exact: true }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expanded' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    ),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Distilled', exact: true }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Distilled' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Return to reading' }));
+  await waitFor(() => expect(sidebar).not.toHaveClass('shell-icon-rail'));
+  expect(screen.getByText('How can I measure uncertainty?')).toBeVisible();
+  expect(screen.getByRole('navigation', { name: 'Project navigation' })).toBe(
+    sidebar,
+  );
+});
+
+it('renders empty Canvas and Practical views and returns to saved projects', async () => {
+  const { bridge, project } = setup();
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  fireEvent.click(screen.getByRole('button', { name: 'Canvas', exact: true }));
+  await screen.findByText(
+    'Your saved notes, questions and insights will appear here.',
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Practical', exact: true }),
+  );
+  await screen.findByText(/Choose a lesson with an activity/);
+  fireEvent.click(screen.getByRole('button', { name: 'Reading', exact: true }));
+  await waitFor(() =>
+    expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  await screen.findByLabelText('What do you want to learn about?');
+  expect(bridge.listProjects).toHaveBeenCalledTimes(2);
+});
+
+it('keeps incomplete Reader drafts mounted when navigation or quit cannot save', async () => {
+  const { bridge, project } = setup();
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  fireEvent.click(screen.getByRole('button', { name: 'Save a question' }));
+  await screen.findByLabelText('In your own words');
+  fireEvent.click(screen.getByRole('button', { name: 'Canvas', exact: true }));
+  await screen.findByText(/Your work is still open/);
+  expect(screen.getByLabelText('In your own words')).toBeVisible();
+  const event = new Event('beforeunload', { cancelable: true });
+  act(() => {
+    window.dispatchEvent(event);
+  });
+  await waitFor(() => expect(event.defaultPrevented).toBe(true));
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+  fireEvent.keyDown(window, { key: 's', metaKey: true });
+  await screen.findByText('Work saved.');
+  act(() => {
+    window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
+  });
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+});
+
+it('opens real lesson content and blocks replacement of an unsaved practical attempt', async () => {
+  const { bridge, project } = setup({ workspace: createCanvasFixture() });
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  fireEvent.click(
+    screen.getByRole('button', { name: /Joint angles and hand position/ }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /Joint angles and hand position/ }),
+    ).toHaveAttribute('aria-current', 'page'),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Practical', exact: true }),
+  );
   await screen.findByRole('heading', {
-    name: 'An arbitrary topic: robot perception',
+    name: 'Joint angles and hand position',
   });
-  expect(bridge.askTutor).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: /Write a prediction/ }));
-  await screen.findByLabelText('note text');
-  fireEvent.change(screen.getByLabelText('note text'), {
-    target: { value: 'My new prediction' },
+  expect(screen.getByText('Compare two configurations.')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'I expect a larger displacement.' },
   });
-  await waitFor(() =>
-    expect(bridge.saveEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ body: 'My new prediction' }),
-    ),
+  fireEvent.click(screen.getByRole('button', { name: 'Profile and settings' }));
+  await screen.findByText(/Your work is still open/);
+  expect(screen.getByLabelText('Expected outcome')).toHaveValue(
+    'I expect a larger displacement.',
   );
-  fireEvent.click(screen.getByRole('button', { name: /New learning space/ }));
+  expect(
+    screen.queryByRole('heading', { name: 'Settings' }),
+  ).not.toBeInTheDocument();
+  expect(bridge.saveEntry).not.toHaveBeenCalled();
+});
+
+it('uses account operations and applies Settings appearance without replacing Reader', async () => {
+  const { bridge, project, emitAccount } = setup();
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  const settings = screen.getByRole('button', { name: 'Profile and settings' });
+  settings.focus();
+  fireEvent.click(settings);
+  await screen.findByRole('heading', { name: 'Settings' });
+  await waitFor(() => expect(bridge.accountStatus).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  await waitFor(() => expect(bridge.cancelSignIn).toHaveBeenCalledOnce());
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
+    await screen.findByRole('button', { name: 'Sign in', exact: true }),
+  );
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  emitAccount({
+    ...signedOut,
+    session: 'signed-in',
+    account: { id: 'synthetic', name: 'Synthetic Learner', image: null },
+  });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Sign out', exact: true }),
+  );
+  await waitFor(() => expect(bridge.signOut).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: 'Light', exact: true }));
+  await waitFor(() =>
+    expect(document.documentElement.dataset.theme).toBe('light'),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Back to work' }));
+  await waitFor(() => expect(settings).toHaveFocus());
+  expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible();
+  expect(bridge.getLearningWorkspace).toHaveBeenCalledOnce();
+});
+
+it('finds local source content and opens the exact retained reading origin', async () => {
+  const workspace = createCanvasFixture();
+  const { bridge, project } = setup({ workspace });
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  const input = await screen.findByRole('searchbox');
+  await waitFor(() => expect(input).toHaveFocus());
+  fireEvent.change(input, { target: { value: 'nonexistent' } });
+  await screen.findByText('No matching sources or entries.');
+  fireEvent.change(input, { target: { value: 'downstream' } });
+  fireEvent.click(screen.getByRole('button', { name: /Planar arm study/ }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toBeVisible(),
+  );
+  expect(screen.getByLabelText('Source text')).toHaveTextContent(
+    workspace.sources[0]!.currentVersion.canonicalText,
+  );
+});
+
+it('makes explanations reachable inline and retains their recipe selection across views', async () => {
+  const { bridge, project } = setup();
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  const explanations = screen.getByRole('region', {
+    name: 'Interactive explanations',
+  });
+  expect(
+    within(explanations).getByRole('button', {
+      name: 'Explore a two-link arm',
+    }),
+  ).toBeVisible();
+  fireEvent.click(
+    within(explanations).getByRole('button', {
+      name: 'Explore a two-link arm',
     }),
   );
-  expect(screen.getByRole('heading', { name: 'Learn robotics' })).toBeVisible();
+  expect(
+    within(explanations).getByRole('button', {
+      name: 'Explore a two-link arm',
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Close explanation' }));
+  expect(
+    screen.queryByRole('button', { name: 'Close explanation' }),
+  ).not.toBeInTheDocument();
 });
-it('starts real-request orchestration when the provider is configured', async () => {
-  const { bridge } = setup([]);
-  vi.mocked(bridge.providerStatus).mockResolvedValue({
-    connected: true,
-    model: 'chosen/model',
+
+it('reports bridge failures, retries saved work, and normalizes creation errors', async () => {
+  const { bridge, project } = setup();
+  vi.mocked(bridge.listProjects).mockRejectedValueOnce(
+    new Error('Cannot read projects'),
+  );
+  render(<App bridge={bridge} />);
+  await screen.findByText('Cannot read projects');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Retry loading projects' }),
+  );
+  await screen.findByRole('button', { name: new RegExp(project.goal) });
+  vi.mocked(bridge.getLearningWorkspace).mockRejectedValueOnce(
+    new Error(
+      "Error invoking remote method 'learning:get-workspace': Error: Unreadable workspace",
+    ),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: new RegExp(project.goal) }),
+  );
+  await screen.findByText('Unreadable workspace');
+  vi.mocked(bridge.createProject).mockRejectedValueOnce(
+    new Error(
+      "Error invoking remote method 'workspace:create-project': Error: Cannot create project",
+    ),
+  );
+  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
+    target: { value: 'Another project' },
   });
+  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
+  await screen.findByText('Cannot create project');
+  expect(screen.getByLabelText('What do you want to learn about?')).toHaveValue(
+    'Another project',
+  );
+});
+
+it('opens account settings from Opening and returns focus to its entry', async () => {
+  const { bridge } = setup({ empty: true });
+  localStorage.setItem('applied-research-theme', 'light');
   render(<App bridge={bridge} />);
   await screen.findByLabelText('What do you want to learn about?');
-  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
-    target: { value: 'Learn robotics' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
-  await screen.findByText('Try a prediction first.');
-  expect(bridge.askTutor).toHaveBeenCalledWith(
-    expect.objectContaining({ projectId: 'space-1', includePage: false }),
-  );
-});
-it('adds authored work and an interactive experiment with a captured result', async () => {
-  const { bridge } = setup();
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  await screen.findByRole('heading', { name: 'Learn robotics' });
-  for (const kind of ['Note', 'Insight', 'Result', 'Source']) {
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: kind === 'Note' ? 'Note' : kind,
-      }),
-    );
-    await waitFor(() =>
-      expect(bridge.saveEntry).toHaveBeenLastCalledWith(
-        expect.objectContaining({ kind: kind.toLowerCase() }),
-      ),
-    );
-  }
-  fireEvent.click(screen.getByRole('button', { name: 'Experiment' }));
-  await screen.findByLabelText('Matrix a');
-  fireEvent.change(screen.getByLabelText('Matrix a'), {
-    target: { value: '2' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: /Capture result/ }));
-  await waitFor(() =>
-    expect(bridge.saveEntry).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        kind: 'result',
-        body: expect.stringContaining('Matrix [[2, 0.5]'),
-      }),
-    ),
-  );
-});
-it('supports questions, hints, worked examples and the keyboard shortcut', async () => {
-  const { bridge } = setup();
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  const input = await screen.findByLabelText('Ask the companion');
-  fireEvent.keyDown(window, { key: 'j', metaKey: true });
-  expect(input).toHaveFocus();
-  fireEvent.keyDown(window, { key: 'x' });
-  fireEvent.change(input, { target: { value: 'Why does this work?' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-  await waitFor(() =>
-    expect(bridge.askTutor).toHaveBeenCalledWith({
-      projectId: project.id,
-      prompt: 'Why does this work?',
-      includePage: false,
-    }),
-  );
-  for (const name of ['Give me a first step', 'A hint', 'Worked example']) {
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name })).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole('button', { name }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name })).toBeEnabled(),
-    );
-  }
-  expect(bridge.askTutor).toHaveBeenCalledTimes(4);
-});
-it('opens tools and scopes ongoing cues to explicitly started guidance', async () => {
-  const { bridge, emit } = setup();
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  await screen.findByRole('heading', { name: project.goal });
-  fireEvent.click(screen.getByRole('button', { name: 'Open tool' }));
-  fireEvent.change(screen.getByLabelText('Source or tool URL'), {
-    target: { value: 'https://example.com/' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Open in workspace' }));
-  await screen.findByRole('complementary', { name: 'Embedded source or tool' });
-  expect(bridge.openTool).toHaveBeenCalledWith('https://example.com/');
-  emit({
-    url: 'https://example.com/',
-    title: 'A source',
-    loading: false,
-    error: '',
-  });
-  expect(bridge.askTutor).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByLabelText('Include page'));
-  fireEvent.click(screen.getByRole('button', { name: 'A hint' }));
-  await waitFor(() =>
-    expect(bridge.askTutor).toHaveBeenCalledWith(
-      expect.objectContaining({ includePage: true }),
-    ),
-  );
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Guide me' })).toBeEnabled(),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Guide me' }));
-  await screen.findByText('Guiding this activity');
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'A hint' })).toBeEnabled(),
-  );
-  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_000);
-  emit({
-    url: 'https://example.com/new',
-    title: 'Next page',
-    loading: false,
-    error: '',
-  });
-  await waitFor(() =>
-    expect(bridge.askTutor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('page has changed'),
-      }),
-    ),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Stop guidance' }));
-  const callCount = vi.mocked(bridge.askTutor).mock.calls.length;
-  emit({
-    url: 'https://example.com/stopped',
-    title: 'Another page',
-    loading: false,
-    error: '',
-  });
-  expect(bridge.askTutor).toHaveBeenCalledTimes(callCount);
-  fireEvent.click(screen.getByRole('button', { name: 'Close tool' }));
-  expect(bridge.closeTool).toHaveBeenCalled();
-});
-it('imports a key through the named native operation and configures OpenRouter', async () => {
-  const { bridge } = setup();
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: /Connect OpenRouter/ }),
-  );
-  await screen.findByRole('dialog');
-  fireEvent.click(screen.getByRole('button', { name: /Import OpenRouter/ }));
-  await screen.findByText('Key loaded · ready to request');
-  fireEvent.change(screen.getByLabelText('OpenRouter model ID'), {
-    target: { value: 'anthropic/example-model' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Save model' }));
-  await waitFor(() =>
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
-  );
-  expect(bridge.setModel).toHaveBeenCalledWith('anthropic/example-model');
-  fireEvent.click(screen.getByRole('button', { name: /OpenRouter connected/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-});
-it('exposes load and provider errors without replacing saved work', async () => {
-  const { bridge } = setup([{ ...project, entries: [note] }]);
-  vi.mocked(bridge.askTutor).mockRejectedValue(
-    new Error(
-      "Error invoking remote method 'tutor:ask': Error: OpenRouter unavailable",
-    ),
-  );
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  await screen.findByLabelText('note text');
-  fireEvent.click(screen.getByRole('button', { name: 'Give me a first step' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'OpenRouter unavailable',
-  );
-  expect(screen.getByLabelText('note text')).toHaveValue('My observation');
-  fireEvent.click(screen.getByRole('button', { name: 'Dismiss message' }));
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Ask the companion'), {
-    target: { value: 'Help me understand my result' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-  await screen.findByRole('alert');
-  expect(screen.getByLabelText('Ask the companion')).toHaveValue(
-    'Help me understand my result',
-  );
-});
-it('reports loading, create, note, and experiment failures', async () => {
-  const { bridge } = setup([]);
-  vi.mocked(bridge.listProjects).mockRejectedValue(
-    new Error('Cannot open saved work'),
-  );
-  render(<App bridge={bridge} />);
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Cannot open saved work',
-  );
-  vi.mocked(bridge.createProject)
-    .mockRejectedValueOnce(
-      new Error(
-        "Error invoking remote method 'workspace:create': Error: Cannot create",
-      ),
-    )
-    .mockRejectedValueOnce('Storage unavailable');
-  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
-    target: { value: 'Goal' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
-  await waitFor(() =>
-    expect(screen.getByRole('alert')).toHaveTextContent('Cannot create'),
-  );
-  expect(screen.getByText('Cannot create', { exact: true })).toBeVisible();
-  expect(screen.getByRole('alert')).not.toHaveTextContent(
-    'Error invoking remote method',
-  );
-  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
-  await screen.findByText('Could not create this project.', { exact: true });
-  vi.mocked(bridge.createProject).mockResolvedValue(project);
-  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
-  await screen.findByRole('heading', { name: project.goal });
-  vi.mocked(bridge.saveEntry).mockRejectedValue(new Error('Disk full'));
-  fireEvent.click(screen.getByRole('button', { name: 'Note' }));
-  await waitFor(() =>
-    expect(screen.getByRole('alert')).toHaveTextContent('Disk full'),
-  );
-  vi.mocked(bridge.addExperiment).mockRejectedValue(
-    new Error('Experiment save failed'),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Experiment' }));
-  await waitFor(() =>
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Experiment save failed',
-    ),
-  );
-});
-it('stops an in-flight request and permits guidance without an embedded page', async () => {
-  const { bridge } = setup();
-  let reject: (error: Error) => void = () => {};
-  vi.mocked(bridge.askTutor).mockImplementation(
-    () =>
-      new Promise((_resolve, fail) => {
-        reject = fail;
-      }),
-  );
-  render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: /Learn robotics/,
-    }),
-  );
-  await screen.findByRole('heading', { name: project.goal });
-  fireEvent.change(screen.getByLabelText('Ask the companion'), {
-    target: { value: 'Help me try a small example' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Guide me' }));
-  expect(bridge.askTutor).toHaveBeenCalledWith(
-    expect.objectContaining({
-      prompt: 'Help me try a small example',
-      includePage: false,
-    }),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Stop answer' }));
-  expect(bridge.stopTutor).toHaveBeenCalled();
-  await act(async () => reject(new Error('Stopped')));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Stopped');
+  const button = screen.getByRole('button', { name: 'Settings', exact: true });
+  fireEvent.click(button);
+  await screen.findByRole('heading', { name: 'Settings' });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to work' }));
+  await waitFor(() => expect(button).toHaveFocus());
+  expect(
+    screen.getByLabelText('What do you want to learn about?'),
+  ).toBeVisible();
 });

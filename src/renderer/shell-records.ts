@@ -1,0 +1,69 @@
+import type {
+  LearningOrigin,
+  LearningWorkspace,
+  PathOrigin,
+} from '../contracts/learning-records';
+import type { PracticalActivity } from '../contracts/practical-work';
+
+export function practicalActivity(
+  workspace: LearningWorkspace,
+  origin: PathOrigin | undefined,
+): PracticalActivity | null {
+  if (!origin?.lessonId) return null;
+  const path = workspace.paths.find((record) => record.id === origin.pathId);
+  const revision =
+    path?.currentRevision === origin.pathRevision
+      ? path.current
+      : path?.revisions.find(
+          (record) => record.revision === origin.pathRevision,
+        );
+  const lesson = revision?.topics
+    .find((topic) => topic.id === origin.topicId)
+    ?.lessons.find((item) => item.id === origin.lessonId);
+  if (!lesson?.activity.trim()) return null;
+  return {
+    projectId: workspace.project.id,
+    origin: {
+      path: { ...origin, lessonId: origin.lessonId },
+      ...(lesson.sourceRevisionId
+        ? { sourceRevisionId: lesson.sourceRevisionId }
+        : {}),
+    },
+    title: lesson.title,
+    instructions: lesson.activity,
+    objective: lesson.objective,
+  };
+}
+
+export interface WorkspaceSearchResult {
+  id: string;
+  label: string;
+  kind: string;
+  origin: LearningOrigin | null;
+}
+
+export function searchWorkspace(
+  workspace: LearningWorkspace,
+  query: string,
+): WorkspaceSearchResult[] {
+  const term = query.trim().toLocaleLowerCase();
+  if (!term) return [];
+  return [
+    ...workspace.sources.map((source) => ({
+      id: source.id,
+      label: source.currentVersion.title,
+      text: source.currentVersion.canonicalText,
+      kind: 'Source',
+      origin: { sourceRevisionId: source.currentVersionId },
+    })),
+    ...workspace.entries.map((entry) => ({
+      id: entry.id,
+      label: entry.current.title || entry.current.body,
+      text: entry.current.body,
+      kind: entry.current.kind,
+      origin: entry.current.origin,
+    })),
+  ].filter((item) =>
+    `${item.label} ${item.text}`.toLocaleLowerCase().includes(term),
+  );
+}

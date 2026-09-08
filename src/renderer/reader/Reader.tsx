@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
   type Ref,
 } from 'react';
 import type {
@@ -36,6 +37,9 @@ export interface ReaderProps {
   onWorkspace: (workspace: LearningWorkspace) => void;
   registerFlush: (flush: (() => Promise<boolean>) | null) => void;
   navigationRef?: Ref<ReaderNavigationControls>;
+  /** Optional shell-owned navigation and inline explanation slots. */
+  sidebar?: ReactNode;
+  explanation?: ReactNode;
 }
 
 export interface ReaderNavigationControls {
@@ -55,6 +59,8 @@ function ProjectReader({
   onWorkspace,
   registerFlush,
   navigationRef,
+  sidebar,
+  explanation,
 }: ReaderProps): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
   const [receivedWorkspace, setReceivedWorkspace] = useState(initial);
@@ -272,14 +278,18 @@ function ProjectReader({
   }
   return (
     <div className="reader-shell">
-      <ReaderSidebar
-        workspace={workspace}
-        selectedLessonId={path?.lessonId}
-        onNavigate={(destination) =>
-          void beforeNavigation(() => onNavigate(destination))
-        }
-        onLesson={(origin) => void openLesson(origin)}
-      />
+      {sidebar === undefined ? (
+        <ReaderSidebar
+          workspace={workspace}
+          selectedLessonId={path?.lessonId}
+          onNavigate={(destination) =>
+            void beforeNavigation(() => onNavigate(destination))
+          }
+          onLesson={(origin) => void openLesson(origin)}
+        />
+      ) : (
+        sidebar
+      )}
       <main className="reader-main">
         <header className="reader-header">
           <h1>Reading</h1>
@@ -436,6 +446,7 @@ function ProjectReader({
                 </button>
               </>
             )}
+            {explanation}
           </article>
           <ReaderContext
             workspace={workspace}
