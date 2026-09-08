@@ -1,5 +1,7 @@
 # Application architecture
 
+September 8 build decisions: stable Drizzle with better-sqlite3 is selected for local records; meaningful immutable content revision history replaces the historical universal event-log/JSONL foundation. PostgreSQL with Drizzle serves backend account/session/usage responsibilities. The [workbench contract](workbench-contract.md) defines the migration and shared record boundaries. These selections are recorded in AR-28; existing code below remains the pre-migration implementation until integrated verification.
+
 See the [decision audit](decision-audit.md) before interpreting open/unimplemented items below: several have prior recorded selections or later revisions that need reconciliation.
 
 The [active presearch](presearch.md) now conditionally reaffirms Electron for a desktop first release, subject to compatibility, targeting, isolation and offline validation. The exact version, supported operating systems and detailed process design remain open. The founder has since authorized the [working MVP](mvp.md). Its implementation does not establish that every earlier product validation target has passed.
@@ -10,7 +12,7 @@ The current MVP adds a local workspace store, named validated commands, a bounde
 
 ## Accepted authority model
 
-The founder subsequently selected [app-managed AI credentials](credentials.md) in AR-12: the company OpenRouter key stays on an authenticated backend, and end users sign in to Applied Research. This supersedes direct user-key import as the production flow. The current desktop implementation below has not yet been migrated; the founder selected Railway and Better Auth with GitHub sign-in on 2026-09-08 UTC. Callback/session details, deployment configuration and usage-budget policy remain open.
+The founder subsequently selected [app-managed AI credentials](credentials.md) in AR-12: the company OpenRouter key stays on an authenticated backend, and end users sign in to Applied Research. This supersedes direct user-key import as the production flow. The current desktop implementation below has not yet been migrated; the founder selected Railway and Better Auth with GitHub sign-in on 2026-09-08 UTC. The founder subsequently approved seven-day rolling sessions renewed after one day and US$20 per user per UTC calendar month with no daily limit. Railway provisioning is authorized; actual deployed authentication remains unverified. The concrete supported Electron flow and remaining external credential setup are tracked in [credentials](credentials.md).
 
 The founder explicitly accepts local control over saved learning work, observation scope and desktop actions, with bounded remote services for AI and compute. The desktop checks returned results before applying them. This is a selected design responsibility, not implemented behavior or permission for unrestricted automation.
 

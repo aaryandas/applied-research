@@ -4,9 +4,9 @@ import { Icon } from './FieldAtlas';
 import openingArtwork from './assets/apple-landscape.webp';
 
 interface OpeningProps {
-  projects: readonly Project[];
-  onCreate: (goal: string) => Promise<void>;
-  onReopen: (id: string) => void;
+  readonly projects: readonly Project[];
+  readonly onCreate: (goal: string) => Promise<void>;
+  readonly onReopen: (id: string) => void;
 }
 
 const MAX_TOPIC_LENGTH = 1000;
@@ -140,12 +140,9 @@ export function Opening({
           <p id="source-unavailable" className="opening-help">
             Source import is not available yet.
           </p>
-          <p
-            className={creating ? 'opening-feedback' : 'sr-only'}
-            role="status"
-          >
+          <output className={creating ? 'opening-feedback' : 'sr-only'}>
             {creating ? 'Creating your project…' : ''}
-          </p>
+          </output>
           {error && (
             <div id="opening-error" className="opening-feedback" role="alert">
               <p>{error}</p>

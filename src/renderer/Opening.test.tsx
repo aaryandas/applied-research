@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { Project } from '../contracts/workspace';
 import { Opening } from './Opening';
@@ -71,8 +77,9 @@ it('submits once while pending and keeps failed creation retryable with focus', 
   ).toBeVisible();
   onCreate.mockResolvedValueOnce();
   fireEvent.change(input, { target: { value: 'A revised goal' } });
-  await act(async () => fireEvent.submit(form));
+  fireEvent.submit(form);
   expect(onCreate).toHaveBeenLastCalledWith('A revised goal');
+  await waitFor(() => expect(input).not.toHaveAttribute('readonly'));
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
@@ -86,9 +93,9 @@ it('handles non-Error failures and preserves multiline and composing input', asy
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
   fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
   expect(onCreate).not.toHaveBeenCalled();
-  await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+  fireEvent.keyDown(input, { key: 'Enter' });
   expect(onCreate).toHaveBeenCalledExactlyOnceWith('Learning\nwith examples');
-  expect(screen.getByRole('alert')).toHaveTextContent(
+  expect(await screen.findByRole('alert')).toHaveTextContent(
     'Could not create this project.',
   );
 });

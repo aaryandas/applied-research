@@ -387,6 +387,7 @@ svg {
   font-size: 12px;
 }
 .opening-feedback {
+  display: block;
   margin-top: 14px;
   padding: 12px;
   background: #0c0f12;

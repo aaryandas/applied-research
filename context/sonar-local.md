@@ -1,8 +1,12 @@
 # Local SonarQube
 
-The founder selected a **local-only** Community Build instance in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Open [Applied Research (local)](http://127.0.0.1:9000/dashboard?id=applied-research-local). Docker Desktop must be running.
+The founder selected a **local-only** Community Build instance in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Open [Applied Research (local)](http://127.0.0.1:9000/dashboard?id=applied-research-local). A Docker-compatible container engine must keep the existing Sonar and PostgreSQL services running. Docker Desktop is the currently provisioned engine; OrbStack is recommended for evaluation, not yet migrated.
 
 ## Verified analysis
+
+September 8 Opening integration repair: analysis `d4ba6ef4-a1a2-4bce-8575-c8983b6b3e22` at `2026-09-08T12:52:40Z` passed with 0 new violations, 98.9% new-code coverage and 0% new duplicated lines. The previous-version baseline remained `2026-09-08T02:56:19Z`. This scanned the dirty integration checkout; its exact source is preserved in the Opening repair handoff rather than attributed to root HEAD. The current native analyzer reports 26 unresolved existing findings, retained for AR-11 or the owning upcoming slice. Independent review remains a separate acceptance requirement.
+
+The initial foundation receipt below predates these changes.
 
 The final scan passed its quality gate after the initial baseline. Reported bugs, vulnerabilities and security hotspots: **0**; coverage **95.4%**; duplicated lines **0%**. Twenty maintainability findings remain, triaged in [AR-11](https://linear.app/aaryan-das/issue/AR-11). The three explicit-submit-type findings were fixed and verified by rescan. The gate evaluated new violations and duplication successfully; this does not certify overall product correctness.
 
@@ -38,3 +42,23 @@ Project key: `applied-research-local`. Local scans analyze the current working t
 5. Run `npm run sonar:scan` and record actual findings and gate status in the work ticket.
 
 Image upgrades are deliberate: review supported versions, back up the database, update digests, then verify startup and a real scan. Do not substitute floating tags in the committed configuration. Official references: [Docker installation](https://docs.sonarsource.com/sonarqube-community-build/server-installation/from-docker-image), [database requirements](https://docs.sonarsource.com/sonarqube-community-build/server-installation/installing-the-database).
+
+## Native scanner recovery — September 8
+
+Docker Desktop has intermittently stopped answering Docker API commands while the Sonar HTTP service remained healthy. The official `@sonar/scan@5.0.0` npm scanner was verified on Node 24/macOS arm64 with its provisioned JRE. It is temporary tooling, not an application dependency. This replaces only the scanner process; it uses the same server, project and gate.
+
+After the required coverage run, supply `SONAR_TOKEN` from ignored local configuration through the process environment, `SONAR_HOST_URL=http://127.0.0.1:9000`, and a temporary `SONAR_USER_HOME`. Invoke:
+
+```sh
+npx --yes @sonar/scan@5.0.0 \
+  -Dsonar.projectKey=applied-research-local \
+  '-Dsonar.projectVersion=not provided' \
+  -Dsonar.working.directory=/private/tmp/ar-sonar-native-analysis \
+  -Dsonar.scm.disabled=true \
+  -Dsonar.qualitygate.wait=true \
+  -Dsonar.typescript.tsconfigPaths=tsconfig.node.json,tsconfig.web.json
+```
+
+The explicit project version preserves the existing baseline; the npm scanner otherwise derives a version from package.json. Do not print credentials or run concurrent scans. Freeze analyzed source until completion and record the API gate/issue/analysis receipt. The committed container scan command remains available when its engine responds. [Official npm scanner documentation](https://docs.sonarsource.com/sonarqube-server/analyzing-source-code/scanners/npm/using).
+
+OrbStack supports the existing Docker CLI and Compose files. Its migration copies containers, images and volumes, so allow temporary disk headroom and verify Sonar history before reclaiming old Docker Desktop data. No migration, volume deletion or OrbStack subscription has been performed. [Migration documentation](https://docs.orbstack.dev/install), [license pricing](https://orbstack.dev/pricing).

@@ -33,10 +33,11 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/main/tutor.ts`: bounded OpenRouter request, response/citation parsing and explicit unsupported/failure outcomes.
 - `src/renderer/EntryCard.tsx`: human drafts/autosave, AI citations and movable entries.
 - `src/renderer/FieldAtlas.tsx`: the reference arch mark and SVG control family, day/evening preference, and native modal focus/Escape behavior.
-- `src/renderer/styles.css`: scoped application layouts and components; imports the reference's `tokens.css` and `fonts.css` directly. The approved `apple-landscape.webp` is bundled by Vite.
+- `src/renderer/Opening.tsx`: approved topic-entry scene, actual saved-project rows, duplicate-submit prevention, retryable failure and keyboard focus. App normalizes bridge failures and owns project creation/navigation.
+- `src/renderer/styles.css`: scoped application layouts and components; imports renderer-owned `tokens.css` and `fonts.css`. The approved `apple-landscape.webp` is bundled by Vite. Opening focus/motion and shared typography follow the accepted portable reference.
 - `src/renderer/ToolPanel.tsx`: native guest layout requests and external fallback controls.
 - `src/renderer/MatrixLab.tsx`, `math.ts`: a reusable deterministic linear transformation and captured results.
-- `src/renderer/assets/`: copies of both font OFL licenses; font binaries come from the shared design-system assets.
+- `src/renderer/assets/`: bundled approved artwork and Familjen Grotesk, Fraunces, Martian Mono and Newsreader fonts with their OFL notices, verified against the reference manifest.
 
 Window/guest/credential lifecycle and IPC registration live in `src/main/index.ts`; real Electron tests exercise that wiring. Domain behavior has adjacent unit tests. No application imports the pinned Effect reference. Structured paths, broad ingestion, sync and durable background jobs remain unimplemented.
 
