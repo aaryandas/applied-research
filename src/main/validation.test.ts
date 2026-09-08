@@ -57,7 +57,11 @@ it('accepts named, bounded workspace commands', () => {
 });
 it('rejects malformed data before it reaches storage or native capabilities', () => {
   for (const value of [null, [], 'a', 4]) expect(() => record(value)).toThrow();
-  for (const value of [4, 'x'.repeat(20001)])
+  for (const value of [
+    4,
+    'x'.repeat(20001),
+    `broken ${String.fromCharCode(0xd800)} text`,
+  ])
     expect(() => text(value)).toThrow();
   for (const value of ['', '../secret', 'a b'])
     expect(() => identifier(value)).toThrow();

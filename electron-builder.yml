@@ -4,11 +4,11 @@ directories:
   output: dist
 files:
   - out/**/*
+  - drizzle/**/*
   - package.json
 extraResources:
   - LICENSE
 asar: true
-npmRebuild: false
 artifactName: '${name}-${version}-${os}-${arch}.${ext}'
 mac:
   category: public.app-category.education

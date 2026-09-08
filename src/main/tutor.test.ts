@@ -149,3 +149,64 @@ it('retains safe URL references when providers omit citation offsets or titles',
     { url: 'https://example.org/', title: 'example.org', start: 0, end: 0 },
   ]);
 });
+it('drops reversed provider annotations and orders the remaining citations', () => {
+  const answer = parseAnswer(
+    response('0123456789', [
+      {
+        type: 'url_citation',
+        url_citation: {
+          url: 'https://reversed.example',
+          title: 'Reversed',
+          start_index: 8,
+          end_index: 3,
+        },
+      },
+      {
+        type: 'url_citation',
+        url_citation: {
+          url: 'https://later.example',
+          title: 'Later',
+          start_index: 5,
+          end_index: 9,
+        },
+      },
+      {
+        type: 'url_citation',
+        url_citation: {
+          url: 'https://earlier.example',
+          title: 'Earlier',
+          start_index: 1,
+          end_index: 2,
+        },
+      },
+    ]),
+  );
+  expect(answer.citations.map((item) => item.title)).toEqual([
+    'Earlier',
+    'Later',
+  ]);
+});
+
+it('rejects non-well-formed provider text', () => {
+  expect(() =>
+    parseAnswer(response(`bad ${String.fromCharCode(0xd800)}`, [citation])),
+  ).toThrow('unreadable answer');
+});
+
+it('truncates generated citation titles without splitting Unicode pairs', () => {
+  const answer = parseAnswer(
+    response('0123456789', [
+      {
+        type: 'url_citation',
+        url_citation: {
+          url: 'https://example.com',
+          title: `${'x'.repeat(199)}🧭tail`,
+          start_index: 1,
+          end_index: 2,
+        },
+      },
+    ]),
+  );
+  expect(answer.citations).toHaveLength(1);
+  expect(answer.citations[0]?.title).toBe('x'.repeat(199));
+});

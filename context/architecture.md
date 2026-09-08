@@ -1,6 +1,6 @@
 # Application architecture
 
-September 8 build decisions: stable Drizzle with better-sqlite3 is selected for local records; meaningful immutable content revision history replaces the historical universal event-log/JSONL foundation. PostgreSQL with Drizzle serves backend account/session/usage responsibilities. The [workbench contract](workbench-contract.md) defines the migration and shared record boundaries. These selections are recorded in AR-28; existing code below remains the pre-migration implementation until integrated verification.
+September 8 build decisions: stable Drizzle with better-sqlite3 is selected and integrated for local project/entry records; meaningful immutable content revision history replaces the historical universal event-log/JSONL foundation. The reviewed storage candidate preserves legacy data through verified backups and transactional migration; combined desktop verification is tracked in AR-26. Source/path records and their UI operations remain pending. PostgreSQL with Drizzle serves backend account/session/usage responsibilities in a separate candidate under review. The [workbench contract](workbench-contract.md) defines the migration and shared record boundaries. These selections are recorded in AR-28.
 
 See the [decision audit](decision-audit.md) before interpreting open/unimplemented items below: several have prior recorded selections or later revisions that need reconciliation.
 

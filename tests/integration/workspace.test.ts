@@ -88,3 +88,84 @@ it('rejects cross-project edits without altering either persisted project', () =
     store.close();
   }
 });
+
+it('keeps meaningful immutable history and rejects stale revisions', () => {
+  const store = new WorkspaceStore(':memory:');
+  try {
+    const project = store.create('Understand immutable state');
+    const created = store.saveEntryRevision(
+      {
+        projectId: project.id,
+        kind: 'note',
+        title: 'First title',
+        body: 'First body',
+        url: '',
+      },
+      0,
+    );
+    const note = created.project.entries[0]!;
+    const edited = store.saveEntryRevision(
+      {
+        projectId: project.id,
+        id: note.id,
+        kind: 'insight',
+        title: 'Reframed title',
+        body: 'Reframed body',
+        url: '',
+      },
+      created.revision,
+    );
+    expect(edited.revision).toBe(2);
+
+    const unchanged = store.saveEntryRevision(
+      {
+        projectId: project.id,
+        id: note.id,
+        kind: 'insight',
+        title: 'Reframed title',
+        body: 'Reframed body',
+        url: '',
+      },
+      edited.revision,
+    );
+    expect(unchanged.revision).toBe(2);
+    store.moveEntry({ projectId: project.id, id: note.id, x: 901, y: 902 });
+
+    const staleDraft = {
+      projectId: project.id,
+      id: note.id,
+      kind: 'note' as const,
+      title: 'Stale title remains with caller',
+      body: 'Stale draft remains with caller',
+      url: '',
+    };
+    expect(() => store.saveEntryRevision(staleDraft, 1)).toThrow(
+      'expected 1, current 2',
+    );
+    expect(staleDraft.body).toBe('Stale draft remains with caller');
+
+    expect(store.getEntryHistory(project.id, note.id)).toMatchObject([
+      {
+        revision: 2,
+        kind: 'insight',
+        title: 'Reframed title',
+        body: 'Reframed body',
+        authorKind: 'human',
+      },
+      {
+        revision: 1,
+        kind: 'note',
+        title: 'First title',
+        body: 'First body',
+        authorKind: 'human',
+      },
+    ]);
+    expect(store.get(project.id).entries[0]).toMatchObject({
+      body: 'Reframed body',
+      x: 901,
+      y: 902,
+    });
+  } finally {
+    store.close();
+  }
+});

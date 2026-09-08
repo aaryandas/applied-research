@@ -1,5 +1,5 @@
 import type { Citation, PageContext, Project } from '../contracts/workspace';
-import { record, webUrl } from './validation';
+import { record, text, webUrl } from './validation';
 
 export const DEFAULT_MODEL = 'openai/gpt-5.4-mini';
 const REQUEST_TIMEOUT_MS = 90_000;
@@ -23,6 +23,14 @@ interface TutorOptions {
 export interface TutorAnswer {
   body: string;
   citations: Citation[];
+}
+
+function truncateGeneratedTitle(value: string): string {
+  const truncated = value.slice(0, 200);
+  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  return finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff
+    ? truncated.slice(0, -1)
+    : truncated;
 }
 
 export async function askTutor(
@@ -116,14 +124,19 @@ export function parseAnswer(value: unknown): TutorAnswer {
   if (choice.finish_reason !== 'stop')
     throw new Error('The answer did not finish. Try a smaller question.');
   const message = record(choice.message);
-  if (
-    typeof message.content !== 'string' ||
-    !message.content.trim() ||
-    message.content.length > 30_000
-  ) {
+  if (typeof message.content !== 'string') {
     throw new Error('OpenRouter returned an unreadable answer.');
   }
-  const body = message.content;
+  let body: string;
+  try {
+    body = text(message.content, 30_000);
+  } catch (error_) {
+    throw new Error('OpenRouter returned an unreadable answer.', {
+      cause: error_,
+    });
+  }
+  if (!body.trim())
+    throw new Error('OpenRouter returned an unreadable answer.');
   const citations: Citation[] = [];
   for (const item of Array.isArray(message.annotations)
     ? message.annotations
@@ -139,19 +152,23 @@ export function parseAnswer(value: unknown): TutorAnswer {
       const end = Number.isInteger(citation.end_index)
         ? Number(citation.end_index)
         : 0;
+      const boundedStart = Math.max(0, Math.min(start, body.length));
+      const boundedEnd = Math.max(0, Math.min(end, body.length));
+      if (boundedEnd < boundedStart) continue;
       citations.push({
         url,
         title:
           typeof citation.title === 'string'
-            ? citation.title.slice(0, 200)
+            ? text(truncateGeneratedTitle(citation.title), 200)
             : new URL(url).hostname,
-        start: Math.max(0, Math.min(start, body.length)),
-        end: Math.max(0, Math.min(end, body.length)),
+        start: boundedStart,
+        end: boundedEnd,
       });
     } catch {
       /* A malformed citation must not become a navigable link. */
     }
   }
+  citations.sort((left, right) => left.start - right.start);
   if (!citations.length) {
     return {
       body: 'I could not attach supporting sources to this answer, so I am leaving that explanation open. Try narrowing the question, or open a trusted source and ask with page context. You can still record what you expect to happen and compare it with a small experiment.',

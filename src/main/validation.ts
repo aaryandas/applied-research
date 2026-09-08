@@ -4,6 +4,7 @@ import type {
   ToolBounds,
   TutorRequest,
 } from '../contracts/workspace';
+import { decodeText } from './workspace-decoder';
 
 export function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -12,9 +13,7 @@ export function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 export function text(value: unknown, max = 20_000): string {
-  if (typeof value !== 'string' || value.length > max)
-    throw new Error('Invalid text.');
-  return value;
+  return decodeText(value, 'text', max);
 }
 export function identifier(value: unknown): string {
   const id = text(value, 100);

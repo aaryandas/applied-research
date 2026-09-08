@@ -5,12 +5,14 @@ This map describes the implemented MVP. See [scope and limitations](mvp.md). Rea
 | Location                       | Responsibility                                                        |
 | ------------------------------ | --------------------------------------------------------------------- |
 | `src/main/index.ts`            | Electron application and window lifecycle, security configuration     |
+| `src/main/startup-error.ts`    | Allow-listed startup messages and privacy-safe typed diagnostics      |
 | `src/main/navigation.ts`       | Renderer navigation policy and adjacent unit tests                    |
 | `src/preload/index.ts`         | Named workspace/tutor/provider/tool bridge and subscriptions          |
 | `src/contracts/desktop.ts`     | Shared serializable desktop contract                                  |
 | `src/renderer/`                | Canvas, companion, tool panel, matrix experiment, styles and UI tests |
 | `tests/e2e/`                   | Real Electron smoke tests                                             |
 | `scripts/test-packaged.mjs`    | Smoke test against the packaged application                           |
+| `drizzle/`                     | Authoritative reviewed SQLite migrations and migration journal        |
 | `scripts/release-assets.mjs`   | Release asset selection                                               |
 | `electron.vite.config.ts`      | Main, preload and renderer builds                                     |
 | `electron-builder.yml`         | Installer configuration and packaged file scope                       |
@@ -29,7 +31,10 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 - `src/contracts/workspace.ts`: project/entry/request models and named channels.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.
-- `src/main/workspace-store.ts`: SQLite project/entry persistence and attribution-preserving mutations.
+- `src/main/workspace-store.ts`: Drizzle/better-sqlite3 project, entry, placement and immutable content-revision persistence; transaction-boundary validation, attribution-preserving mutations and structured unreadable-project diagnostics.
+- `src/main/workspace-decoder.ts`: shared runtime decoding for legacy migration, stored records and write-boundary invariants.
+- `src/main/workspace-migration.ts`: Drizzle migration orchestration, typed failures, legacy validation, WAL-consistent verified backups and normalized-schema verification.
+- `src/main/workspace-schema.ts`: query-only Drizzle table mapping; checked-in SQL migrations remain authoritative for database constraints.
 - `src/main/tutor.ts`: bounded OpenRouter request, response/citation parsing and explicit unsupported/failure outcomes.
 - `src/renderer/EntryCard.tsx`: human drafts/autosave, AI citations and movable entries.
 - `src/renderer/FieldAtlas.tsx`: the reference arch mark and SVG control family, day/evening preference, and native modal focus/Escape behavior.
@@ -42,6 +47,8 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/renderer/assets/`: bundled approved artwork and Familjen Grotesk, Fraunces, Martian Mono and Newsreader fonts with their OFL notices, verified against the reference manifest.
 
 Window/guest/credential lifecycle and IPC registration live in `src/main/index.ts`; real Electron tests exercise that wiring. Domain behavior has adjacent unit tests. No application imports the pinned Effect reference. Structured paths, broad ingestion, sync and durable background jobs remain unimplemented.
+
+`tests/integration/workspace-migration.test.ts` exercises legacy bytes, WAL-inclusive backups, rollback, stale-backup recovery and migration refusal. `tests/integration/workspace.test.ts` covers concurrent writers, cross-project rejection and revision conflicts. Native-module commands in `package.json` select the Node or Electron ABI before their corresponding test/runtime command; packaged migration coverage lives in `scripts/test-packaged.mjs`.
 
 ## Portable design review
 

@@ -15,18 +15,18 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run native:electron && electron-vite dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run",
+    "test": "npm run native:node && vitest run",
     "test:unit": "vitest run --project unit",
     "test:renderer": "vitest run --project renderer",
-    "test:integration": "vitest run --project integration",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:integration": "npm run native:node && vitest run --project integration",
+    "test:watch": "npm run native:node && vitest",
+    "test:coverage": "npm run native:node && vitest run --coverage",
+    "test:e2e": "npm run native:electron && playwright test",
     "build": "electron-vite build",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
     "package": "npm run build && electron-builder --dir --publish never",
@@ -35,13 +35,17 @@
     "sonar:start": "docker compose --env-file .env.sonar -f compose.sonar.yml up -d database sonarqube",
     "sonar:stop": "docker compose --env-file .env.sonar -f compose.sonar.yml stop",
     "sonar:logs": "docker compose --env-file .env.sonar -f compose.sonar.yml logs --tail 100 sonarqube",
-    "sonar:scan": "npm run test:coverage && docker compose --env-file .env.sonar -f compose.sonar.yml run --rm scanner"
+    "sonar:scan": "npm run test:coverage && docker compose --env-file .env.sonar -f compose.sonar.yml run --rm scanner",
+    "native:node": "npm rebuild better-sqlite3",
+    "native:electron": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@react-three/fiber": "9.7.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "three": "0.185.1"
+    "three": "0.185.1",
+    "better-sqlite3": "13.0.3",
+    "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -66,6 +70,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
     "vite": "7.3.6",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@types/better-sqlite3": "9.6.0"
   }
 }

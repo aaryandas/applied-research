@@ -24,6 +24,10 @@ import {
 import { WorkspaceStore } from './workspace-store';
 import { askTutor, DEFAULT_MODEL } from './tutor';
 import {
+  handleWorkspaceStartupFailure,
+  workspaceStartupDiagnostic,
+} from './startup-error';
+import {
   CHANNELS,
   type PageContext,
   type ProviderStatus,
@@ -137,7 +141,13 @@ async function createWindow(): Promise<void> {
       return operation(value);
     });
   }
-  handle(CHANNELS.list, () => store.list());
+  handle(CHANNELS.list, () => {
+    const listing = store.listWithDiagnostics();
+    for (const unreadable of listing.unreadableProjects) {
+      console.error('Unreadable local learning space.', unreadable);
+    }
+    return listing.projects;
+  });
   handle(CHANNELS.create, (value) => store.create(text(value, 1000)));
   handle(CHANNELS.saveEntry, (value) => store.saveEntry(entryDraft(value)));
   handle(CHANNELS.moveEntry, (value) => store.moveEntry(entryPosition(value)));
@@ -208,20 +218,20 @@ async function createWindow(): Promise<void> {
         prompt: request.prompt,
         ...answer,
       });
-    } catch (error) {
+    } catch (error_) {
       if (controller.signal.aborted)
         throw new Error('Stopped. Your saved work is unchanged.', {
-          cause: error,
+          cause: error_,
         });
       if (
-        error instanceof Error &&
-        (error.name === 'TimeoutError' || error.name === 'TypeError')
+        error_ instanceof Error &&
+        (error_.name === 'TimeoutError' || error_.name === 'TypeError')
       )
         throw new Error(
           'The AI connection did not finish. Check your connection and try again.',
-          { cause: error },
+          { cause: error_ },
         );
-      throw error;
+      throw error_;
     } finally {
       if (pending === controller) pending = null;
     }
@@ -315,9 +325,22 @@ app
   .whenReady()
   .then(async () => {
     mkdirSync(app.getPath('userData'), { recursive: true });
-    store = new WorkspaceStore(
-      join(app.getPath('userData'), 'workspace.sqlite'),
-    );
+    try {
+      store = new WorkspaceStore(
+        join(app.getPath('userData'), 'workspace.sqlite'),
+      );
+    } catch (error_) {
+      handleWorkspaceStartupFailure(error_, {
+        log: (message) =>
+          console.error(
+            'Unable to open the Applied Research workspace.',
+            message,
+          ),
+        showErrorBox: (title, message) => dialog.showErrorBox(title, message),
+        exit: (code) => app.exit(code),
+      });
+      return;
+    }
     restoreProvider();
     session.defaultSession.setPermissionRequestHandler(
       (_contents, _permission, callback) => callback(false),
@@ -328,8 +351,11 @@ app
       if (BrowserWindow.getAllWindows().length === 0) void createWindow();
     });
   })
-  .catch((error: unknown) => {
-    console.error('Unable to start Applied Research', error);
+  .catch((error_: unknown) => {
+    console.error(
+      'Unable to start Applied Research.',
+      workspaceStartupDiagnostic(error_),
+    );
     app.exit(1);
   });
 app.on('will-quit', () => store?.close());
