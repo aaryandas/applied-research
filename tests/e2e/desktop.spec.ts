@@ -343,7 +343,12 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-saved-${width}x${height}.png`),
       });
     }
-    await savedRow.focus();
+    await page.getByRole('button', { name: 'Build something' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(savedRow).toBeFocused();
+    await expect(savedRow).toHaveCSS('outline-color', 'rgb(123, 199, 201)');
+    await expect(savedRow).toHaveCSS('outline-width', '2px');
+    await expect(savedRow).toHaveCSS('outline-style', 'solid');
     await page.screenshot({
       path: test.info().outputPath('opening-row-focus.png'),
     });
@@ -354,24 +359,63 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await page.getByRole('button', { name: 'Explore a topic' }).click();
     await expect(input).toBeFocused();
-    const focusColor = await input.evaluate(
-      (field) => getComputedStyle(field).outlineColor,
-    );
-    expect(focusColor).toBe('rgb(123, 199, 201)');
-    expect(
-      await input.evaluate((field) => getComputedStyle(field).outlineWidth),
-    ).toBe('2px');
-    await page.screenshot({
-      path: test.info().outputPath('opening-input-focus-light.png'),
-    });
-    await page.getByRole('button', { name: 'Use evening theme' }).click();
-    await input.focus();
-    expect(
-      await input.evaluate((field) => getComputedStyle(field).outlineColor),
-    ).toBe(focusColor);
-    await page.screenshot({
-      path: test.info().outputPath('opening-input-focus-dark.png'),
-    });
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark')
+        await page.getByRole('button', { name: 'Use evening theme' }).click();
+      await input.focus();
+      await expect(input).toHaveCSS('outline-style', 'none');
+      await expect(page.locator('.learning-input')).toHaveCSS(
+        'transform',
+        'matrix(1, 0, 0, 1, 0, -2)',
+      );
+      expect(
+        await page.locator('.learning-input').evaluate((field) => {
+          const underline = getComputedStyle(field, '::after');
+          return {
+            transform: underline.transform,
+            opacity: underline.opacity,
+            height: underline.height,
+          };
+        }),
+      ).toEqual({
+        transform: 'matrix(1, 0, 0, 1, 0, 0)',
+        opacity: '1',
+        height: '2px',
+      });
+      await page.screenshot({
+        path: test.info().outputPath(`opening-input-focus-${theme}.png`),
+      });
+      await input.press('Tab');
+      const topicButton = page.getByRole('button', { name: 'Explore a topic' });
+      await expect(topicButton).toBeFocused();
+      await expect(topicButton).toHaveCSS(
+        'outline-color',
+        'rgb(123, 199, 201)',
+      );
+      await expect(topicButton).toHaveCSS('outline-width', '2px');
+      await expect(topicButton).toHaveCSS('outline-style', 'solid');
+      await expect(page.locator('.learning-input')).toHaveCSS(
+        'transform',
+        'none',
+      );
+      expect(
+        await page.locator('.learning-input').evaluate((field) => {
+          const underline = getComputedStyle(field, '::after');
+          return {
+            transform: underline.transform,
+            opacity: underline.opacity,
+            height: underline.height,
+          };
+        }),
+      ).toEqual({
+        transform: 'matrix(0.84, 0, 0, 1, 0, 0)',
+        opacity: '0.52',
+        height: '1px',
+      });
+      await page.screenshot({
+        path: test.info().outputPath(`opening-button-focus-${theme}.png`),
+      });
+    }
     await page.getByRole('button', { name: 'Connect OpenRouter' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
@@ -379,6 +423,22 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await expect(
       page.getByRole('button', { name: 'Connect OpenRouter' }),
     ).toBeFocused();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await input.fill('Observe the placeholder exit');
+    await expect(page.locator('.learning-placeholder')).toHaveCSS(
+      'filter',
+      'blur(3px)',
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('.learning-placeholder')).toHaveCSS(
+      'filter',
+      'none',
+    );
+    await expect(page.locator('.learning-placeholder')).toHaveCSS(
+      'transition-duration',
+      '0s',
+    );
+    await expect(input).toHaveCSS('font-size', '32px');
     const longTopic = 'Robot perception, mapping and uncertainty. '
       .repeat(30)
       .slice(0, 1000);
@@ -472,9 +532,35 @@ test('retains the topic and focus after real bridge creation failures and suppre
     ).toBe(1);
     await expect(input).toHaveValue('Learn how robots localize');
     await expect(input).toBeFocused();
-    await page.screenshot({
-      path: test.info().outputPath('opening-creation-failure.png'),
-    });
+    await expect(page.getByRole('alert').locator('p').first()).toHaveText(
+      'Test storage unavailable',
+    );
+    await expect(page.getByRole('alert').locator('p').last()).toHaveText(
+      'Your topic is still here. Try again.',
+    );
+    await expect(input).toHaveCSS('outline-style', 'none');
+    for (const [width, height] of [
+      [1280, 800],
+      [1440, 900],
+      [820, 620],
+    ]) {
+      await application.evaluate(
+        ({ BrowserWindow }, size) => {
+          const window = BrowserWindow.getAllWindows()[0];
+          window?.setMinimumSize(820, 620);
+          window?.setContentSize(size.width, size.height);
+        },
+        { width: width!, height: height! },
+      );
+      await expect
+        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
+        .toEqual([width, height]);
+      await page.screenshot({
+        path: test
+          .info()
+          .outputPath(`opening-creation-failure-${width}x${height}.png`),
+      });
+    }
     await input.fill('Learn how robots map a room');
     await page.getByRole('button', { name: 'Start learning' }).click();
     await expect(page.getByRole('alert')).toContainText(

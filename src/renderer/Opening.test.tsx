@@ -44,6 +44,8 @@ it('submits once while pending and keeps failed creation retryable with focus', 
   fireEvent.change(input, {
     target: { value: '  A robot that maps its surroundings  ' },
   });
+  const status = screen.getByRole('status');
+  expect(status).toBeEmptyDOMElement();
   const form = screen.getByRole('form');
   fireEvent.submit(form);
   fireEvent.submit(form);
@@ -54,20 +56,19 @@ it('submits once while pending and keeps failed creation retryable with focus', 
   expect(
     screen.getByRole('button', { name: 'Creating project' }),
   ).toBeDisabled();
-  expect(screen.getByRole('status')).toHaveTextContent(
-    'Creating your project…',
-  );
-  await act(async () =>
-    fail(
-      new Error(
-        "Error invoking remote method 'workspace:create': Error: Disk full",
-      ),
-    ),
-  );
+  expect(screen.getByRole('status')).toBe(status);
+  expect(status).toHaveTextContent('Creating your project…');
+  await act(async () => fail(new Error('Disk full')));
+  expect(screen.getByRole('status')).toBe(status);
+  expect(status).toBeEmptyDOMElement();
   expect(input).toHaveFocus();
   expect(input).toHaveValue('  A robot that maps its surroundings  ');
   expect(input).not.toHaveAttribute('readonly');
-  expect(screen.getByRole('alert')).toHaveTextContent('Disk full');
+  expect(screen.getByRole('alert').querySelectorAll('p')).toHaveLength(2);
+  expect(screen.getByText('Disk full', { exact: true })).toBeVisible();
+  expect(
+    screen.getByText('Your topic is still here. Try again.'),
+  ).toBeVisible();
   onCreate.mockResolvedValueOnce();
   fireEvent.change(input, { target: { value: 'A revised goal' } });
   await act(async () => fireEvent.submit(form));

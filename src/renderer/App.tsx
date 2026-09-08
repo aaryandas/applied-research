@@ -22,6 +22,13 @@ const EMPTY_TOOL: ToolState = { url: '', title: '', loading: false, error: '' };
 const FIRST_STEP =
   'Give me a useful first step for this goal: something I can try now, the key idea behind it, and a question to check my understanding.';
 
+function normalizeDesktopError(message: string): string {
+  return message.replace(
+    /^Error invoking remote method '[^']+': (?:Error: )?/,
+    '',
+  );
+}
+
 export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState('');
@@ -59,12 +66,7 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
     ]);
   }, []);
   const showError = useCallback((message: string): void => {
-    setError(
-      message.replace(
-        /^Error invoking remote method '[^']+': (?:Error: )?/,
-        '',
-      ),
-    );
+    setError(normalizeDesktopError(message));
   }, []);
   const ask = useCallback(
     async (input: {
@@ -215,11 +217,20 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
   };
   const createProject = async (goal: string): Promise<void> => {
     setError('');
-    const created = await bridge.createProject(goal);
+    const created = await bridge
+      .createProject(goal)
+      .catch((error_: unknown) => {
+        throw new Error(
+          normalizeDesktopError(
+            error_ instanceof Error
+              ? error_.message
+              : 'Could not create this project.',
+          ),
+        );
+      });
     closeTool();
     mergeProject(created);
     setActiveId(created.id);
-    setError('');
     if (provider.connected)
       void ask({
         projectId: created.id,

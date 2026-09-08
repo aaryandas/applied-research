@@ -9,7 +9,7 @@
   font-optical-sizing: auto;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
 }
 body {
@@ -151,7 +151,7 @@ svg {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -320,11 +320,10 @@ svg {
   color: #fff9ed;
   text-shadow: 0 2px 10px #10262a;
   caret-color: #fff9ed;
-  scrollbar-color: #a9a6a0 transparent;
+  scrollbar-color: var(--line) transparent;
 }
 .learning-input textarea:focus-visible {
-  outline: 2px solid #7bc7c9;
-  outline-offset: 4px;
+  outline: none;
 }
 .learning-placeholder {
   pointer-events: none;
@@ -334,11 +333,13 @@ svg {
   text-shadow: 0 2px 10px #12323b;
   transition:
     opacity 220ms var(--ease-out),
-    transform 220ms var(--ease-out);
+    transform 220ms var(--ease-out),
+    filter 220ms var(--ease-out);
 }
 .learning-input.has-text .learning-placeholder {
   opacity: 0;
   transform: translateY(-12px);
+  filter: blur(3px);
 }
 .opening-actions {
   display: flex;
@@ -392,6 +393,9 @@ svg {
   color: #eceae4;
   border-radius: 6px;
   overflow-wrap: anywhere;
+}
+.opening-feedback p + p {
+  margin-top: 6px;
 }
 .opening-projects {
   padding: 8px;
@@ -636,7 +640,7 @@ svg {
   min-height: 0;
   overflow: auto;
   background: var(--surface);
-  scrollbar-color: var(--line-strong) var(--paper);
+  scrollbar-color: var(--line) var(--paper);
 }
 .canvas {
   position: relative;
@@ -677,7 +681,7 @@ svg {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: var(--line) transparent;
   animation: settle var(--duration-reveal) var(--ease-out);
 }
 .card-handle {
@@ -1047,7 +1051,7 @@ svg {
   padding: 40px;
   width: min(580px, calc(100% - 48px));
   max-height: calc(100dvh - 48px);
-  scrollbar-color: var(--line-strong) var(--surface);
+  scrollbar-color: var(--line) var(--surface);
 }
 .atlas-dialog::backdrop {
   background: #0d273bb8;
@@ -1232,7 +1236,16 @@ svg {
     display: none;
   }
 }
+@media (max-width: 820px) {
+  .learning-input textarea,
+  .learning-placeholder {
+    font-size: 32px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  .learning-input.has-text .learning-placeholder {
+    filter: none;
+  }
   *,
   *::before,
   *::after {

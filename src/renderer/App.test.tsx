@@ -369,7 +369,13 @@ it('reports loading, create, note, and experiment failures', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Cannot open saved work',
   );
-  vi.mocked(bridge.createProject).mockRejectedValue(new Error('Cannot create'));
+  vi.mocked(bridge.createProject)
+    .mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'workspace:create': Error: Cannot create",
+      ),
+    )
+    .mockRejectedValueOnce('Storage unavailable');
   fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
     target: { value: 'Goal' },
   });
@@ -377,6 +383,12 @@ it('reports loading, create, note, and experiment failures', async () => {
   await waitFor(() =>
     expect(screen.getByRole('alert')).toHaveTextContent('Cannot create'),
   );
+  expect(screen.getByText('Cannot create', { exact: true })).toBeVisible();
+  expect(screen.getByRole('alert')).not.toHaveTextContent(
+    'Error invoking remote method',
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
+  await screen.findByText('Could not create this project.', { exact: true });
   vi.mocked(bridge.createProject).mockResolvedValue(project);
   fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
   await screen.findByRole('heading', { name: project.goal });

@@ -37,15 +37,12 @@ export function Opening({
     setError('');
     try {
       await onCreate(topic.trim());
-    } catch (failure) {
-      const message =
-        failure instanceof Error
-          ? failure.message.replace(
-              /^Error invoking remote method '[^']+': (?:Error: )?/,
-              '',
-            )
-          : 'Could not create this project.';
-      setError(`${message} Your topic is still here. Try again.`);
+    } catch (error_) {
+      setError(
+        error_ instanceof Error
+          ? error_.message
+          : 'Could not create this project.',
+      );
       input.current?.focus();
     } finally {
       submission.current = false;
@@ -64,7 +61,6 @@ export function Opening({
         <form
           className="opening-form"
           aria-label="New project"
-          aria-busy={creating}
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
@@ -144,15 +140,17 @@ export function Opening({
           <p id="source-unavailable" className="opening-help">
             Source import is not available yet.
           </p>
-          {creating && (
-            <p className="opening-feedback" role="status">
-              Creating your project…
-            </p>
-          )}
+          <p
+            className={creating ? 'opening-feedback' : 'sr-only'}
+            role="status"
+          >
+            {creating ? 'Creating your project…' : ''}
+          </p>
           {error && (
-            <p id="opening-error" className="opening-feedback" role="alert">
-              {error}
-            </p>
+            <div id="opening-error" className="opening-feedback" role="alert">
+              <p>{error}</p>
+              <p>Your topic is still here. Try again.</p>
+            </div>
           )}
         </form>
         <nav
