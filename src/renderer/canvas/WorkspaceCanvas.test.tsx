@@ -233,7 +233,10 @@ describe('Canvas navigation registration', () => {
     await act(async () => controls.onViewChange('distilled'));
     expect(input.onOpenOrigin).not.toHaveBeenCalled();
     expect(input.onViewChange).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Use saved position' }));
+    expect(screen.getByText(/Retry the unsaved positions/)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Restore previous position' }),
+    );
     await act(async () => expect(await flush()).toBe(true));
     await act(async () => controls.onViewChange('distilled'));
     expect(input.onViewChange).toHaveBeenCalledWith('distilled');
@@ -263,7 +266,9 @@ describe('Canvas navigation registration', () => {
     expect(
       container.querySelector<HTMLElement>('[data-id="note"]')?.style.transform,
     ).toBe(movedTransform);
-    fireEvent.click(screen.getByRole('button', { name: 'Use saved position' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Restore previous position' }),
+    );
     await act(async () => expect(await flush()).toBe(true));
   });
 
@@ -288,7 +293,7 @@ describe('Canvas navigation registration', () => {
       await screen.findByRole('button', { name: 'Retry position' }),
     );
     expect(
-      screen.queryByRole('button', { name: 'Use saved position' }),
+      screen.queryByRole('button', { name: 'Restore previous position' }),
     ).not.toBeInTheDocument();
     await waitFor(() => expect(onMove).toHaveBeenCalledTimes(2));
     const flush: () => Promise<boolean> = registerFlush.mock.calls.at(-1)![0];
@@ -389,7 +394,7 @@ describe('Canvas reading and keyboard controls', () => {
     const input = props();
     const { rerender } = render(<WorkspaceCanvas {...input} />);
     const support = screen.getByRole('group', {
-      name: 'Your note, revision 1',
+      name: /^Your note, revision 1:/,
     });
     fireEvent.keyDown(support, { key: 'F2' });
     await waitFor(() =>
@@ -408,15 +413,104 @@ describe('Canvas reading and keyboard controls', () => {
     note.revisions.push(note.current);
     rerender(<WorkspaceCanvas {...input} workspace={workspace} />);
     fireEvent.keyDown(
-      screen.getByRole('group', { name: 'Your note, revision 1' }),
+      screen.getByRole('group', { name: /^Your note, revision 1:/ }),
       { key: 'F2' },
     );
     fireEvent.doubleClick(
-      screen.getByRole('group', { name: 'Your note, revision 1' }),
+      screen.getByRole('group', { name: /^Your note, revision 1:/ }),
     );
     await act(async () => {
       await Promise.resolve();
     });
     expect(input.onEditEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe('Canvas review regressions', () => {
+  it('retains each view camera while the project stays mounted', async () => {
+    const input = props();
+    const { container, rerender } = render(<WorkspaceCanvas {...input} />);
+    const camera = () =>
+      container.querySelector<HTMLElement>('.react-flow__viewport')!.style
+        .transform;
+    const initial = camera();
+    fireEvent.keyDown(screen.getByLabelText(/^Infinite learning map/), {
+      key: 'ArrowLeft',
+    });
+    await waitFor(() => expect(camera()).not.toBe(initial));
+    const distilled = camera();
+    rerender(<WorkspaceCanvas {...input} view="expanded" />);
+    await waitFor(() => expect(camera()).toBe(initial));
+    fireEvent.keyDown(screen.getByLabelText(/^Infinite learning map/), {
+      key: 'ArrowUp',
+    });
+    await waitFor(() => expect(camera()).not.toBe(initial));
+    const expanded = camera();
+    rerender(<WorkspaceCanvas {...input} view="distilled" />);
+    await waitFor(() => expect(camera()).toBe(distilled));
+    rerender(<WorkspaceCanvas {...input} view="expanded" />);
+    await waitFor(() => expect(camera()).toBe(expanded));
+  });
+
+  it('does not move highlights and keeps readonly selection notices honest', async () => {
+    const input = props({ view: 'expanded' });
+    const { container } = render(<WorkspaceCanvas {...input} />);
+    const highlight = container.querySelector('[data-id="highlight"]')!;
+    fireEvent.keyDown(highlight, { key: 'Enter' });
+    fireEvent.keyDown(highlight, { key: 'ArrowRight' });
+    fireEvent.click(highlight);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(input.onMove).not.toHaveBeenCalled();
+    expect(screen.getByText('Source highlight selected.')).toBeVisible();
+    expect(
+      screen.queryByText(/Press F2 to edit your current writing/),
+    ).not.toBeInTheDocument();
+    expect(container.querySelector('.react-flow__attribution')).toBeNull();
+    const origin = screen
+      .getAllByRole('button', { name: /Open exact highlight/ })
+      .find((button) => button.hasAttribute('aria-description'))!;
+    expect(origin).toHaveTextContent(
+      'Planar arm study — synthetic source · revision 1',
+    );
+    expect(origin).not.toHaveTextContent('0–39');
+    expect(origin).toHaveAttribute(
+      'aria-description',
+      expect.stringContaining('UTF-16 offsets'),
+    );
+  });
+
+  it('accepts subsequent authoritative placement changes after an acknowledged refresh', async () => {
+    const input = props({ view: 'expanded' });
+    const { container, rerender } = render(<WorkspaceCanvas {...input} />);
+    const node = container.querySelector('[data-id="note"]')!;
+    fireEvent.keyDown(node, { key: 'Enter' });
+    fireEvent.keyDown(node, { key: 'ArrowRight' });
+    await waitFor(() => expect(input.onMove).toHaveBeenCalled());
+    const move = vi.mocked(input.onMove).mock.calls[0]![0];
+    const acknowledged = {
+      ...input.workspace,
+      placements: [{ ...move, updatedAt: '2026-09-08' }],
+    };
+    rerender(<WorkspaceCanvas {...input} workspace={acknowledged} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender(
+      <WorkspaceCanvas
+        {...input}
+        workspace={{
+          ...acknowledged,
+          placements: [{ ...acknowledged.placements[0]!, x: 987, y: 654 }],
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLElement>('[data-id="note"]')!.style
+          .transform,
+      ).toContain('987px,654px'),
+    );
   });
 });

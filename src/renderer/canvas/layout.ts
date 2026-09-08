@@ -1,7 +1,6 @@
 import type { CanvasNode } from './graph';
 
-const NODE_GAP = 48;
-const INITIAL_TOP = 60;
+import { INITIAL_TOP, NODE_GAP } from './layout-metrics';
 
 /** Only arrange unplaced nodes; saved coordinates and user drafts are authoritative. */
 export function arrangeMeasuredNodes(

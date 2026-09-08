@@ -1,8 +1,21 @@
 import { useContext } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { CanvasContent, CanvasNode } from './graph';
+import {
+  contentAccessibleName,
+  type CanvasContent,
+  type CanvasNode,
+} from './graph';
+import { isInteractiveTarget } from './interaction';
 import { CanvasActions } from './actions';
 import { CanvasGlyph } from './CanvasGlyph';
+
+function originAction(content: CanvasContent): string {
+  if (content.kind === 'topic' || content.kind === 'lesson')
+    return 'Open in Reader';
+  if (content.origin?.highlightId) return 'Open exact highlight';
+  if (content.origin?.sourceRevisionId) return 'Open source revision';
+  return 'Open learning origin';
+}
 
 function Content({ content }: { content: CanvasContent }): React.JSX.Element {
   const actions = useContext(CanvasActions);
@@ -25,19 +38,12 @@ function Content({ content }: { content: CanvasContent }): React.JSX.Element {
       {content.origin && content.diagnostics.length === 0 && (
         <button
           className="nodrag nopan workspace-canvas-origin"
+          aria-label={`${originAction(content)}${content.originLabel ? `: ${content.originLabel}` : ''}`}
+          aria-description={content.originDetail}
+          title={content.originDetail}
           onClick={() => content.origin && actions.onOpenOrigin(content.origin)}
         >
-          Open{' '}
-          {content.origin.highlightId
-            ? 'exact highlight'
-            : content.origin.sourceRevisionId
-              ? 'source revision'
-              : 'learning origin'}
-          {content.originLabel && (
-            <span className="workspace-canvas-locator">
-              {content.originLabel}
-            </span>
-          )}
+          {content.originLabel || originAction(content)}
         </button>
       )}
       {content.supports.map((support) => (
@@ -46,19 +52,15 @@ function Content({ content }: { content: CanvasContent }): React.JSX.Element {
           key={`${support.identity}:${support.entry?.revision}`}
           tabIndex={0}
           role="group"
-          aria-label={`${support.label}, revision ${support.entry?.revision}`}
+          aria-label={contentAccessibleName(support)}
           onDoubleClick={(event) => {
             event.stopPropagation();
-            if (
-              event.target instanceof HTMLElement &&
-              event.target.closest('button')
-            )
-              return;
+            if (isInteractiveTarget(event)) return;
             if (support.editable && support.entry)
               actions.onEditEntry(support.entry);
           }}
           onKeyDown={(event) => {
-            if (event.key !== 'F2') return;
+            if (event.key !== 'F2' || isInteractiveTarget(event)) return;
             event.stopPropagation();
             if (support.editable && support.entry) {
               event.preventDefault();
@@ -86,11 +88,7 @@ export function LearningNode({
       data-author={content.authorKind}
       data-record-id={content.identity}
       onDoubleClick={(event) => {
-        if (
-          event.target instanceof HTMLElement &&
-          event.target.closest('button')
-        )
-          return;
+        if (isInteractiveTarget(event)) return;
         if (content.editable && content.entry)
           actions.onEditEntry(content.entry);
       }}

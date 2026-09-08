@@ -262,3 +262,29 @@ describe('exact origin graph', () => {
     ).toBe('Joint angles and hand position');
   });
 });
+
+it('names each node with its wording, labels historical paths and excludes highlights from movement', async () => {
+  const { createCanvasFixture } = await import('./canvas-fixture');
+  const records = createCanvasFixture();
+  const path = records.paths[0]!;
+  path.currentRevision = 2;
+  path.current = { ...path.current, revision: 2 };
+  path.revisions.push(path.current);
+  const graph = deriveCanvasGraph(records, 'expanded');
+  const highlight = graph.nodes.find((node) => node.id === 'highlight')!;
+  expect(highlight.draggable).toBe(false);
+  expect(highlight.data.recordId).toBeNull();
+  expect(
+    graph.nodes.find((node) => node.id === 'path:path:1:topic')?.data.content
+      .label,
+  ).toBe('Topic · path revision 1');
+  expect(
+    graph.nodes.find((node) => node.id === 'path:path:1:lesson')?.data.content
+      .label,
+  ).toBe('Chapter / concept · path revision 1');
+  const note = graph.nodes.find((node) => node.id === 'note')!;
+  expect(note.ariaLabel).toContain(records.entries[0]!.current.body);
+  expect(note.ariaLabel).not.toBe(
+    graph.nodes.find((node) => node.id === 'question')!.ariaLabel,
+  );
+});

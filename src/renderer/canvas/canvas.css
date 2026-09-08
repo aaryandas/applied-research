@@ -17,7 +17,8 @@
     sans-serif;
   --xy-background-color: var(--ground, #0c0f12);
   --xy-background-pattern-dots-color: var(--line, #22272c);
-  --xy-edge-stroke: var(--cold, #7bc7c9);
+  --xy-edge-stroke: color-mix(in srgb, var(--cold) 45%, var(--line));
+  --xy-edge-stroke-selected: var(--cold);
   --xy-edge-stroke-width: 1.5;
 }
 .workspace-canvas button {
@@ -33,7 +34,8 @@
   color: var(--cold, #7bc7c9);
   background: var(--surface-hover, #1d2328);
 }
-.workspace-canvas :focus-visible {
+.workspace-canvas :focus-visible,
+.workspace-canvas .react-flow__node:focus-visible {
   outline: 2px solid var(--cold, #7bc7c9);
   outline-offset: 3px;
 }
@@ -53,7 +55,9 @@
   outline-offset: 3px;
 }
 .workspace-canvas-kind {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 18px;
   color: var(--muted, #a9a6a0);
   font:
@@ -85,37 +89,22 @@
     var(--line, #22272c)
   );
 }
-.workspace-canvas-question {
+.workspace-canvas-node.workspace-canvas-question {
   border-style: dashed;
-  border-radius: 12px;
 }
 .workspace-canvas-highlight {
   background: var(--ground, #0c0f12);
-  border-radius: 12px;
 }
 .workspace-canvas-highlight .workspace-canvas-body {
   font-size: 20px;
   color: var(--ink, #eceae4);
 }
 .workspace-canvas-topic {
-  border-radius: 12px;
   background: var(--ground, #0c0f12);
   border-color: color-mix(in srgb, var(--cold) 45%, var(--line));
 }
-.workspace-canvas-lesson {
-  border-radius: 12px;
-}
-.workspace-canvas-source {
-  border-radius: 12px;
-}
 .workspace-canvas-assistant {
   border-color: var(--cold, #7bc7c9);
-}
-.workspace-canvas-assistant .workspace-canvas-body {
-  font:
-    14px/1.5 'Familjen Grotesk',
-    sans-serif;
-  color: var(--ink, #eceae4);
 }
 .workspace-canvas-result,
 .workspace-canvas-experiment {
@@ -126,6 +115,7 @@
 .workspace-canvas-support {
   margin-top: 14px;
   padding: 14px;
+  border: 0;
   border-radius: 8px;
   background: var(--ground, #0c0f12);
 }
@@ -156,6 +146,7 @@
   pointer-events: none;
 }
 .workspace-canvas-controls {
+  box-shadow: var(--shadow, 0 12px 40px #0003);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -178,19 +169,21 @@
   max-width: 36ch;
   text-align: center;
 }
-.workspace-canvas-feedback {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.workspace-canvas-errors {
+.workspace-canvas-notices {
   position: absolute;
   z-index: 5;
   top: 16px;
   right: 16px;
-  max-width: min(360px, calc(100% - 32px));
+  width: min(360px, calc(100% - 32px));
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  pointer-events: none;
+}
+.workspace-canvas-errors,
+.workspace-canvas-feedback:not(:empty) {
+  pointer-events: auto;
   padding: 16px;
   background: var(--surface, #14181c);
   border-radius: 12px;
@@ -228,16 +221,15 @@
   height: 17px;
   flex-shrink: 0;
 }
-.workspace-canvas-kind {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .workspace-canvas-insight > .workspace-canvas-kind svg {
   color: var(--warm);
 }
-.workspace-canvas-locator {
-  display: block;
-  margin-top: 4px;
-  overflow-wrap: anywhere;
+
+.workspace-canvas-topic > .workspace-canvas-kind,
+.workspace-canvas-lesson > .workspace-canvas-kind {
+  justify-content: space-between;
+}
+.workspace-canvas-topic > .workspace-canvas-kind svg,
+.workspace-canvas-lesson > .workspace-canvas-kind svg {
+  order: 1;
 }
