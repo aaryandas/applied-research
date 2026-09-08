@@ -48,13 +48,18 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - `npm run native:electron` now forces `@electron/rebuild`; `electron-builder install-app-deps` silently no-ops after `npm run check` flips SQLite to the Node ABI. Symptom was every Electron spec failing with "browser has been closed".
 - `scripts/test-packaged.mjs` lists the asar with a 64 MB buffer; the bundle is ~21k files.
 - `npm run sonar:scan:native` uses the official npm scanner against the local server.
+- Cursor Linear automations do **not** interpolate `{{ticket.identifier}}`, `{{pr.branch}}`, or `{{pr.head_sha}}`. Those tokens arrive in the prompt as literal text. The triggering issue is on the run as `sourceDetails.linearIssueId`; the frozen revision is on the ticket (attachments, comments, linked PR). The prompt below does not use mustache placeholders.
+- `main` is LICENSE-only until the integration PR merges. A Linear-triggered agent that starts on `main` has no app. Set the automation's starting branch to the current integration branch (`codex/integration-20260908`).
+- Do not bulk-move many tickets into In Testing while a verifier is already running. On 2026-09-08, `scripts/linear-move.mjs` flipped several tickets at once: two AR-21 runs ERROR'd after the first assistant sentence (no tool calls, no dashboard events), and the other In Testing tickets never spawned a verifier. Serialise those transitions; wait for the previous walk-through to finish.
+- After `npm ci` on the cloud desktop, Electron's download script is sometimes skipped. If `node_modules/electron/dist` is missing, run `node node_modules/electron/install.js` (and rebuild native modules if needed) **without** editing project files.
+- `scripts/linear-gate.mjs` takes the ticket from the branch (`…/ar-NN-…`) or a `Linear: AR-NN` line in the PR body. Other mentions of tickets in the body are ignored so a write-up cannot attach the PR to the wrong card. The lane-guard workflow also needs `npm ci` (it imports `minimatch`); without a `lane:<name>` label it fails before the path check.
 
 ## Day zero checklist
 
 Run these before any lane starts. Tickets are in `.github/next-run-tickets.json`; seed them with `LINEAR_API_KEY=... node scripts/linear-seed.mjs`.
 
 1. Merge the workflow branch. Store two repository secrets: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (the review action runs on the Claude subscription, not the API) and `LINEAR_API_KEY` (a Linear personal key) for the Linear gate. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate`, `Lane guard` and `Linear gate`. Enable the merge queue.
-2. Linear, team AR settings: enable the GitHub integration and set its status automation to PR opened → In Development, PR ready for review → In Testing, PR merged → Done. Add the automation `status = In Testing → run Cursor cloud agent` with the verification prompt below.
+2. Linear, team AR settings: enable the GitHub integration and set its status automation to PR opened → In Development, PR ready for review → In Testing, PR merged → Done. Add the Cursor automation `status = In Testing → run Cursor cloud agent` with the verification prompt below. Configure that automation as: repository `aaryandas/applied-research`, **starting branch = current integration branch** (not `main`), Linear MCP connected, computer use left on. Paste the prompt verbatim — Cursor will not fill `{{…}}` tokens. One In Testing transition at a time.
 3. Cursor: enable Bugbot on the repository; restrict autofix to formatting and lint (no test, threshold, or Sonar config edits).
 4. SonarQube: settle the quality-profile decisions listed in the day-zero Sonar ticket.
 5. Build the walking skeleton on the integration branch and merge it. Only then dispatch lanes.
@@ -65,16 +70,22 @@ Local concurrency: at most three implementers on the laptop. Close a Superset te
 
 The cloud verifier does not run Playwright. CI on macOS owns the automated suite. The verifier launches the real app on its cloud desktop, walks the ticket's acceptance journey by hand, and its built-in screen recording is the evidence attached to the ticket.
 
-Paste into the Cursor automation; the ticket supplies the values.
+Paste into the Cursor automation exactly as written. Linear already attaches the issue to the run; do not wrap identifiers in mustache braces.
 
 ```text
 You verify one frozen revision of the Applied Research desktop app by using it, not by running its test suite.
-Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}.
-1. Check out exactly that revision. `npm ci`, then `npm run dev` to launch the app on this desktop.
-2. Start screen recording. Walk every acceptance criterion listed on the ticket as a user would: enter a topic on Opening, use the sidebar, read, save notes, open Canvas, change a setting, quit and relaunch to confirm what persisted. Try the empty, error and cancel cases the ticket names.
-3. Stop recording. Attach the recording and a short pass/fail list per criterion to the ticket, naming the exact revision.
-4. If every criterion passes, move the ticket to In Review. Otherwise move it to In Development with the failing criterion and what you saw.
-Do not edit source, tests, or configuration. Do not use any provider key; sign-in flows that need a real account stop at the browser handoff and are reported as such.
+
+Resolve the ticket and revision first:
+1. Read this run's identity. Use sourceDetails.linearIssueId with Linear get_issue. If that id is missing or a placeholder such as "test-issue-id", take the AR-NN from the run name or branch and load that issue. Ignore any {{…}} tokens if they appear in this prompt; they are not substituted.
+2. Frozen revision, in order: GitHub attachment on the ticket; a comment that names a commit SHA and branch; else the integration branch (codex/integration-20260908, PR #3) when the ticket says it was integrated there. Check out that exact SHA. Never verify main — it is LICENSE-only. If you cannot resolve a revision, comment that on the ticket, leave the status unchanged, and stop.
+
+Then walk the app:
+3. npm ci, then npm run dev. If Electron's binary is missing after ci, run node node_modules/electron/install.js without editing project files. Rebuild native modules the same way if the window fails to start.
+4. Start the built-in screen recording before you interact. Walk every acceptance criterion on the ticket as a user would: enter a topic on Opening, use the sidebar, read, save a note, open Canvas, change a setting, quit and relaunch to confirm what persisted. Try the empty, error and cancel cases the ticket names. Sign-in that needs a real account stops at the browser handoff.
+5. Stop recording. Attach the recording and a short pass/fail list per criterion to the Linear issue, naming the exact revision.
+6. If every criterion passes, move the issue to In Review. Otherwise move it to In Development with the failing criterion and what you saw.
+
+Do not edit source, tests, or configuration. Do not push to any branch. Do not use any provider key. Never move an issue to Done; the coordinator owns that.
 ```
 
 ## Worker prompt shape

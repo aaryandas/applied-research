@@ -1,5 +1,6 @@
 // Required PR check: the PR's Linear ticket must be In Review before the PR can merge.
-// Ticket id comes from the head branch (…/ar-17-…) or the PR body (AR-17). Also links the PR on the ticket.
+// Ticket id comes from the head branch (…/ar-17-…) or a `Linear: AR-17` line in the PR body.
+// Also links the PR on the ticket.
 // Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE.
 const key = process.env.LINEAR_API_KEY;
 const ALLOWED = new Set(['In Review']);
@@ -14,10 +15,11 @@ if (lane && EXEMPT_LANES.has(lane)) {
   process.exit(0);
 }
 
-const match = branch.match(/\bar-(\d+)\b/i) ?? body.match(/\bAR-(\d+)\b/);
+const match =
+  branch.match(/\bar-(\d+)\b/i) ?? body.match(/Linear:\s*AR-(\d+)/i);
 if (!match) {
   console.error(
-    'No Linear ticket found. Name the branch after the ticket (…/ar-17-…) or put AR-17 in the PR body.',
+    'No Linear ticket found. Name the branch after the ticket (…/ar-17-…) or put `Linear: AR-17` in the PR body. Other mentions of tickets in the body are ignored.',
   );
   process.exit(1);
 }
