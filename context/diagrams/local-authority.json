@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Local authority and remote work \u2014 agreed",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [
+      1140,
+      660
+    ]
+  },
+  "components": [
+    {
+      "id": "learning-ui",
+      "type": "frontend",
+      "label": "Learning interface",
+      "sublabel": "Canvas, companion, visuals",
+      "pos": [
+        60,
+        280
+      ],
+      "size": [
+        220,
+        80
+      ]
+    },
+    {
+      "id": "local-coordinator",
+      "type": "security",
+      "label": "Local coordinator",
+      "sublabel": "Session scope and authority",
+      "pos": [
+        440,
+        280
+      ],
+      "size": [
+        220,
+        80
+      ]
+    },
+    {
+      "id": "remote-work",
+      "type": "cloud",
+      "label": "Remote work",
+      "sublabel": "Bounded model / compute jobs",
+      "pos": [
+        850,
+        280
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "embedded-tool",
+      "type": "external",
+      "label": "Embedded tool",
+      "sublabel": "Untrusted third-party content",
+      "pos": [
+        440,
+        65
+      ],
+      "size": [
+        220,
+        80
+      ]
+    },
+    {
+      "id": "local-learning-store",
+      "type": "database",
+      "label": "Local learning store",
+      "sublabel": "Saved work and offline edits",
+      "pos": [
+        440,
+        500
+      ],
+      "size": [
+        220,
+        80
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Trusted local modules \u2014 agreed authority",
+      "wraps": [
+        "learning-ui",
+        "local-coordinator",
+        "local-learning-store"
+      ],
+      "pad": 26
+    },
+    {
+      "kind": "security-group",
+      "label": "Network boundary",
+      "wraps": [
+        "remote-work"
+      ],
+      "pad": 26
+    }
+  ],
+  "connections": [
+    {
+      "id": "interface-command",
+      "from": "learning-ui",
+      "to": "local-coordinator",
+      "label": "Named requests",
+      "variant": "emphasis"
+    },
+    {
+      "id": "remote-request",
+      "from": "local-coordinator",
+      "to": "remote-work",
+      "label": "Bounded context + task",
+      "variant": "dashed"
+    },
+    {
+      "id": "scoped-observation",
+      "from": "local-coordinator",
+      "to": "embedded-tool",
+      "label": "Scoped observation",
+      "variant": "security"
+    },
+    {
+      "id": "durable-local-write",
+      "from": "local-coordinator",
+      "to": "local-learning-store",
+      "label": "Validated reads / writes",
+      "labelDy": 80
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Accepted foundation",
+      "items": [
+        "Electron desktop, subject to checks",
+        "Offline editing and guided activities"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Accepted authority",
+      "items": [
+        "Local app controls state and actions",
+        "Remote results return for validation"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Decisions still open",
+      "items": [
+        "Process placement and task recovery",
+        "Providers, backup and action permissions"
+      ]
+    }
+  ]
+}

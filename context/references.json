@@ -1,0 +1,13 @@
+{
+  "references": [
+    {
+      "path": "context/repos/effect",
+      "repository": "https://github.com/Effect-TS/effect.git",
+      "tag": "effect@3.22.1",
+      "commit": "417e0faa80e471d77fc4a67452e68b09ae0ee861",
+      "license": "MIT",
+      "readOnly": true,
+      "purpose": "Agent source reference; not an application dependency"
+    }
+  ]
+}

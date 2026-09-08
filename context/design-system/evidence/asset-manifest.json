@@ -1,0 +1,70 @@
+{
+  "assets/fonts/hanken-grotesk-400-normal.ttf": {
+    "bytes": 57248,
+    "sha256": "451376abefae9121f5dd0372d26865e7654b1041b9fdacdf57c6bd5cbf691da0"
+  },
+  "assets/fonts/hanken-grotesk-500-normal.ttf": {
+    "bytes": 57240,
+    "sha256": "366c9f60de8654362826a500399e568e6198696b8fbd999ba7d0c03c9ba742b6"
+  },
+  "assets/fonts/hanken-grotesk-600-normal.ttf": {
+    "bytes": 57212,
+    "sha256": "b7a672834374ef3a96e81abd2fd9bb61b282d3e75711fd4d9097e7e2e8c3b823"
+  },
+  "assets/fonts/hankengrotesk-OFL.txt": {
+    "bytes": 4402,
+    "sha256": "e02ccb89a86839b22feff7872ff5cc355cc0f58318d29eee20e2cf83a612f16d"
+  },
+  "assets/fonts/source-serif-4-300-normal.ttf": {
+    "bytes": 194508,
+    "sha256": "dc3578eeb6b3ed110b67cb53f5da645dbd03c79bed7912a5f686606e1f09133c"
+  },
+  "assets/fonts/source-serif-4-400-italic.ttf": {
+    "bytes": 183552,
+    "sha256": "5000784a4f4136c7ac78631d5d7d3b56cdbd17541adf6ff304280027464044ef"
+  },
+  "assets/fonts/source-serif-4-400-normal.ttf": {
+    "bytes": 194464,
+    "sha256": "8ca4d603b02214e2723f2bdf6c83632551942c9b06702e2bdbcf07f0d8714809"
+  },
+  "assets/fonts/source-serif-4-600-normal.ttf": {
+    "bytes": 194800,
+    "sha256": "3f471d65b233b067f5d7bfebb9b598994dd513a41f9fb4d900c20ae9d30f242c"
+  },
+  "assets/fonts/sourceserif4-OFL.txt": {
+    "bytes": 4400,
+    "sha256": "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"
+  },
+  "assets/knowledge-arch-portrait.png": {
+    "bytes": 2598889,
+    "sha256": "53ea8e09bdfc695873fe3cad76b73cdac920c32217124aad7d1b0e03701ae977"
+  },
+  "assets/knowledge-arch-portrait.webp": {
+    "bytes": 209824,
+    "sha256": "c3adc165fad3bbab37de3cb04e6fb82098813e806e34751faad8941e0d363bec"
+  },
+  "assets/knowledge-arch.png": {
+    "bytes": 3427548,
+    "sha256": "0d0f71a07503b0f99c8632033f9e4d572baa4d9b09b4939913d3e45325f480d9"
+  },
+  "assets/knowledge-arch.webp": {
+    "bytes": 457386,
+    "sha256": "1fc0f7dd9a3f7ec64c8f0a30cd49927306d40e587c36d5de7325a9d1341f4b08"
+  },
+  "assets/knowledge-tree-portrait.png": {
+    "bytes": 2623775,
+    "sha256": "21e95f79b10a48235403d03a3159315068ebdefd32bfb0ce3df6d7a2ade6be03"
+  },
+  "assets/knowledge-tree-portrait.webp": {
+    "bytes": 226234,
+    "sha256": "7ae97d2c70e4c649adecb5ff373184567d1ad1d6bb337b9c8eb516575b2644f8"
+  },
+  "assets/knowledge-tree.png": {
+    "bytes": 3207284,
+    "sha256": "25284cfd2c93a3b795d8c392a4c8d5145ee96714b4b5de1cb475180541a03422"
+  },
+  "assets/knowledge-tree.webp": {
+    "bytes": 421042,
+    "sha256": "b0ee89c577b06c8cb9f19784544f32b4c409390fa86cafee242b6cc8c93f6071"
+  }
+}

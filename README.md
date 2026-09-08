@@ -1,0 +1,50 @@
+# Applied Research
+
+A learning workbench for builders: learn enough to try, work in your own tools, bring back results, and understand what to do next.
+
+This repository currently contains a **development scaffold**, not a working learning product. The Electron shell, isolated preload bridge, React renderer, checks, and installer workflows are implemented. Learning paths, source ingestion, experiments, persistence, and AI are still to be built.
+
+## Develop
+
+Install **Node.js 24 LTS** (the version family in `.node-version`) and npm. Then:
+
+```sh
+npm ci
+npm run dev
+```
+
+No account, API key, database, or cloud service is required to run the scaffold. If npm reports `EBADENGINE`, switch to Node 24; do not disable the engine check.
+
+```sh
+npm run check        # format, lint, types, unit tests with coverage, production build
+npm run test:e2e     # launch and verify the built Electron application
+npm run package     # unpacked application for the current platform
+npm run test:packaged
+npm run dist        # unsigned installers for the current platform
+```
+
+Linux desktop tests need a display; on CI use `xvfb-run --auto-servernum npm run test:e2e` (and the same wrapper for `test:packaged`). See [development](context/development.md) for prerequisites and troubleshooting.
+
+## Project context
+
+Start with [AGENTS.md](AGENTS.md) for task routing and the [context index](context/README.md) for current product, domain, architecture, design, and engineering guides. Load the pages relevant to the task.
+
+Historical plans, research, and design evidence are in the [Obsidian knowledge base](context/knowledge-base.md). The repo retains only the context needed to build the current product.
+
+## Repository layout
+
+| Location                 | Purpose                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| `src/main/`              | Electron lifecycle, privileged operations, navigation policy                    |
+| `src/preload/`           | Small typed bridge exposed through contextBridge                                |
+| `src/renderer/`          | React renderer and styles; no Node or Electron imports                          |
+| `src/contracts/`         | Serializable types shared across process seams                                  |
+| `tests/`                 | Test setup and real Electron smoke tests; unit tests live beside source         |
+| `scripts/`               | Packaging verification and release tooling                                      |
+| `.github/`               | CI, release, Sonar, and dependency updates                                      |
+| `context/`               | Architecture, development, release instructions, and the knowledge-base pointer |
+| `context/design-system/` | Visual reference and owned assets, excluded from application packaging          |
+
+GitHub: [aaryandas/applied-research](https://github.com/aaryandas/applied-research). Planning: [Linear](https://linear.app/aaryan-das/project/applied-research-64943086779b).
+
+The existing repository [license](LICENSE) is GPL version 3. The scaffold preserves it; the old Apache-2.0 statement is superseded by the repository license.

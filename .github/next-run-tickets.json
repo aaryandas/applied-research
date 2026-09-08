@@ -1,0 +1,51 @@
+{
+  "teamId": "b9f474b3-6722-45fd-ab47-c3a1123c9925",
+  "projectId": "ef2d7ec5-3650-4ad8-a8cc-f04cd447a996",
+  "issues": [
+    {
+      "title": "Day zero: walking skeleton on the integration branch",
+      "priority": 1,
+      "description": "## Outcome\nThe app exists before any lane starts: Opening -> persistent sidebar -> Reader -> Canvas -> Practical Work -> Settings render as real routes with stub content, bound to the real bridge contracts, and `tests/e2e/shell.spec.ts` walks the whole path.\n\n## Scope\nRoutes, sidebar, empty states, one end-to-end spec. No feature behavior. Every later ticket replaces a stub inside this shell and extends the spec.\n\n## Acceptance\n- `npm run check` and `npm run test:e2e` green on macOS.\n- Video of the walk-through attached.\n\n## Why\nOn 2026-09-08 ten components matured for thirteen hours with no shell; assembly happened in the last 35 minutes."
+    },
+    {
+      "title": "Day zero: adopt the next-run workflow (lane guard, macOS gate, Claude review, recorded walk-throughs)",
+      "priority": 1,
+      "description": "Already done on 2026-09-08: the workflow branch is merged into `main`, the `CLAUDE_CODE_OAUTH_TOKEN` and `LINEAR_API_KEY` secrets exist, and every `lane:<name>` label from `.github/lanes.json` exists.\n\nRemaining: decide which branch is the integration branch for the second run (recommendation: `main` itself, now that it carries the whole app), set its required checks to `checks / CI gate`, `Lane guard` and `Linear gate`, and enable the merge queue. See `context/next-run.md`."
+    },
+    {
+      "title": "Day zero: Linear automations and Cursor cloud verification",
+      "priority": 1,
+      "description": "In Linear: enable the GitHub integration (PR opened -> In Development, PR ready for review -> In Testing, PR merged -> Done). Add the Cursor automation: status In Testing -> cloud agent, using the prompt in `context/next-run.md` pasted verbatim (Cursor does not interpolate {{ticket}} / {{pr}} tokens). Starting branch is `main` (the integration branch since the 2026-09-08 consolidation). Linear MCP on; computer use on. Serialise In Testing transitions — do not bulk-move tickets while a verifier is running. The agent launches the frozen revision on its cloud desktop, walks the ticket's acceptance journey by hand with its built-in screen recording on, attaches the recording and a pass/fail list to the ticket, and moves it to In Review. One owner per transition; the coordinator alone moves In Review -> Done."
+    },
+    {
+      "title": "Day zero: Sonar quality profile decisions",
+      "priority": 2,
+      "description": "Decide once, in the SonarQube profile, the rules that generated repeat dispositions on 2026-09-08: S6747 for react-three-fiber element props, S3358 nested ternaries in JSX, S3776 cognitive-complexity threshold for renderer components, S5443 temp-dir usage in the render worker. Record the decision and rationale in this ticket. Zero new violations per PR stays the gate."
+    },
+    {
+      "title": "Packaged build: tutor spec expectation for production mode",
+      "priority": 3,
+      "description": "`desktop.spec.ts` 'connects the real bridge, an isolated guest and recorded OpenRouter responses' fails only in the packaged build because the direct OpenRouter path is correctly disabled there. Make the packaged expectation explicit instead of skipping. Lane: delivery."
+    },
+    {
+      "title": "Sonar: repair the 32 remaining new-code findings on integration",
+      "priority": 2,
+      "description": "Findings on revision cd090d8, by lane: renderer shell 12, main 9, backend sourcing 3, reader 3, render-worker harness 2, backend 1, canvas 1, practical 1. Each lane fixes its own in a lane PR; no suppressions. Export lives in the coordinator's scratch as `sonar-new-issues-cd090d8.md`; regenerate from the dashboard if needed."
+    },
+    {
+      "title": "Practical Work: explicit observation start/stop controls and validated commit path",
+      "priority": 2,
+      "description": "Required by the independent review of c02a370 before acceptance: explicit start/stop for observation per `context/full-app.md`, and a validated main-side commit for recorded results through a named bridge operation the practical-work contract declares. Lane: practical, with a contracts PR first if the bridge changes."
+    },
+    {
+      "title": "Backend: redeploy Railway from the integrated revision",
+      "priority": 2,
+      "description": "Deploy the backend from the current integration head using the allowlisted-archive method in `context/releases.md`, verify /health, /ready and unauthenticated /v1/account, and record the deployment id. Add a preview environment for PRs that touch `src/backend`."
+    },
+    {
+      "title": "Bundle: drop unused react-aria and add a bundle-size check",
+      "priority": 3,
+      "description": "The packaged app.asar contains ~7,000 react-aria files with no imports (flagged in the AR-18 review). Remove the unused dependency, add a size check to CI, and enable Snyk on PRs."
+    }
+  ]
+}

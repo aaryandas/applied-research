@@ -1,0 +1,1102 @@
+Applied Research · Design system · v0.3 · dark default · revision 1c · Lamp and Margin
+Reference sheet
+01 Posture
+02 Type
+03 Color
+04 Provenance
+05 Components
+05b Primitives
+06 Motion
+07 Glossary
+01 · Principles and posture
+One page · read before anything else
+An instrument, not a coach, in a reading room.
+Applied Research finds papers, maps a domain by prerequisite depth, and puts the paper on the whole screen. The AI builds scaffolding — sources, explanations, argument maps. The interface exists to provoke and capture the user's reactions. The AI may author facts. Only the human authors insights and theses, and the design must show that without a single label.
+Never speaks first
+No nudges. No "you haven't reacted in a while." One exemption: acknowledgement. Save settles (220ms) and offers Undo for 5s as a text button; no toast.
+Renders state, continuously
+How much you've reacted to, how deep you are, what you know versus don't. The seeing is the provocation.
+The paper is the screen
+When reading, chrome recedes. Column max 68ch, centered.
+Affordance at point of contact
+A text selection, a dark region on the map — and nowhere else. Shortcut hints appear inside the toolbar on hover ("Explain ⌘K"), not only in tooltips.
+Provenance is structural, not a badge
+Why divide by √d
+k
+?
+AI-authored text sits on a
+surface
+: inset container one tonal step above the ground, hairline left rule, neutral ink, interface face. Surface holds what the AI asserts; ground holds what the human asserts; a question belongs to whichever it heads — so the human's question sits inside the card, in the reading face, italic.
+Human-authored text sits on the
+ground
+, outdented 28px into the left margin behind a 3px human-rule. Reading face, human-ink. Reads as margin handwriting.
+The paper is the paper: the reading face on the ground, no wash until the user reacts to a passage.
+If a component needs a "YOU" or "AI" label to be understood, it is wrong.
+Two hues, two meanings, never on the same pixel
+Warm
+means what the human made: the reacted passage, the human margin rule, the lamp on the map, the Brief's wash.
+Cold
+means what the interface offers: hover, active, the citation under the cursor, the frontier line on the map, Add and Cite while touched. Rest states are achromatic. Pen and wash: on light, pastel is an area, never a line or a letter — a line that must carry hue uses the loaded form of the same pigment (sepia). On dark, warm appears only as light; no yellow ink on basalt. Chromatic ink on dark is the cold.
+Reject on sight
+provenance badges or avatars
+violet · indigo · blue · orange
+gradients under 200px or inside the paper
+springs · bounces · loops
+anything that moves unprompted
+a Highlight action
+yellow ink on basalt
+pastel text or pastel lines on paper
+toasts
+DOK numbers
+draggable canvas
+file-tree affordances
+illustrated empty states
+Inter · Geist · system type
+pure black · pure white
+Changed · provenance rule restated (a question belongs to whichever it heads); human text now outdented behind a 3px human-rule; two-hue rule rewritten as warm = human, cold = interface; shortcut hints in the toolbar on hover; Save acknowledges with Undo; “rose and cream never touch basalt” withdrawn as a rule.
+04 · Provenance · paper in the column, AI inset on the surface, human outdented behind the rule · acceptance test
+No label anywhere
+Attention is all you need · §3.2.1
+dark
+We call our particular attention "Scaled Dot-Product Attention". The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function
+to obtain the weights on the values.
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+, so its standard deviation is √d
+k
+. Dividing by √d
+k
+restores unit variance; dividing by d
+k
+would collapse the logits toward zero and flatten the softmax.
+§3.2.1
+Ask follow-up
+Note in my words
+So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.
+The two most commonly used attention functions are additive attention, and dot-product (multiplicative) attention.
+Attention is all you need · §3.2.1
+light · A · sepia
+We call our particular attention "Scaled Dot-Product Attention". The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function
+to obtain the weights on the values.
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+, so its standard deviation is √d
+k
+. Dividing by √d
+k
+restores unit variance; dividing by d
+k
+would collapse the logits toward zero and flatten the softmax.
+§3.2.1
+Ask follow-up
+Note in my words
+So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.
+The two most commonly used attention functions are additive attention, and dot-product (multiplicative) attention.
+Attention is all you need · §3.2.1
+light · B · fails 3:1
+We call our particular attention "Scaled Dot-Product Attention". The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function
+to obtain the weights on the values.
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+, so its standard deviation is √d
+k
+. Dividing by √d
+k
+restores unit variance; dividing by d
+k
+would collapse the logits toward zero and flatten the softmax.
+§3.2.1
+Ask follow-up
+Note in my words
+So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.
+The two most commonly used attention functions are additive attention, and dot-product (multiplicative) attention.
+Paper · in the column
+Reading face, ink-1, on the ground. The reacted passage carries the passage tint (dark: amber 13%; light: straw 32%). Nothing else in the column is touched.
+AI · inset on the surface
+Surface one step up, 2px hairline left rule, interface face, answer in ink-2. The question that heads the card is the human's, so it is set in the reading face, italic, human-ink — inside the card. The citation sits unboxed at sentence end, ink-2, and goes cold under the cursor.
+Human · outdented behind the rule
+Reading face, human-ink, 28px into the left margin behind a 3px human-rule: amber light on dark, sepia on light. Three positions — column, inset, outdent — and a viewer separates the three voices without a label. A (sepia #A8742A, 3.9:1) is recommended: the pastel straw rule in B (#E9CF6A) is a line, which pastel may not be on paper, and it fails 3:1 at 1.5:1 on ground — shown for comparison.
+Changed · human paragraph outdents 28px behind a 3px human-rule (no wash, no ink-only); Explain question set in reading face italic human-ink inside the card; passage tint is amber 13% on dark; light shown twice — A sepia rule (recommended), B pastel straw rule (fails 3:1); citation rest ink-2 12px.
+02 · Type specimen · both themes
+Newsreader · Familjen Grotesk · Martian Mono · Fraunces
+Reading
+Newsreader
+Paper body, paper headings, all human writing — including the question atop an Explain card, set italic. Variable, optical sizes on.
+Interface · AI voice
+Familjen Grotesk
+All chrome, all AI-authored text, forms, buttons, sidebars.
+Coordinates
+Martian Mono
+Coordinates and navigation only: the locator atop the reader, sidebar tab labels, layer names on the map, the path bar. Uppercase, tracked 0.08em. Citations are mono too, but lowercase and untracked. Nowhere else.
+Display · two moments
+Fraunces
+Project title and the Brief sentence. Wonk axis on. Nowhere else.
+Dark · basalt
+Attention is all you need · §3.2
+I'm building a retrieval layer for long documents and need to understand attention.
+3.2 Attention
+An attention function can be described as mapping a query and a set of key-value pairs to an output, where the query, keys, values, and output are all vectors. The output is computed as a weighted sum of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key.
+We call our particular attention
+"Scaled Dot-Product Attention"
+. The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+. We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function to obtain the weights on the values.
+Explain
+Note
+Counter
+Idea
+Find papers for this
+I was missing something · The paper has a problem · Still open
+The paper scales dot products by 1/√d
+k
+because for large d
+k
+the products grow in magnitude and push softmax into regions with very small gradients.
+Arguments · Questions · Annotations
+§3.2.1
+2 deep
+Light · warm paper
+Attention is all you need · §3.2
+I'm building a retrieval layer for long documents and need to understand attention.
+3.2 Attention
+An attention function can be described as mapping a query and a set of key-value pairs to an output, where the query, keys, values, and output are all vectors. The output is computed as a weighted sum of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key.
+We call our particular attention
+"Scaled Dot-Product Attention"
+. The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+. We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function to obtain the weights on the values.
+Explain
+Note
+Counter
+Idea
+Find papers for this
+I was missing something · The paper has a problem · Still open
+The paper scales dot products by 1/√d
+k
+because for large d
+k
+the products grow in magnitude and push softmax into regions with very small gradients.
+Arguments · Questions · Annotations
+§3.2.1
+2 deep
+Scale
+Size / leading
+Face
+Measure / tracking
+Token
+Brief
+40–56 / 1.1
+Fraunces 400, opsz 144, WONK 1
+−0.01em
+type.display
+Paper heading
+22 / 1.3
+Newsreader 500
+68ch
+type.read-h
+Paper body · human writing
+18 / 1.55
+Newsreader 400, italic for emphasis
+68ch
+type.read
+UI · AI voice
+13–14 / 1.5
+Familjen Grotesk 400 · 600 for emphasis
+0
+type.ui
+Mono coordinates
+12 min / 1.4
+Martian Mono 400, uppercase · citations lowercase
+0.08em · citations 0.02em
+type.mono
+03 · Color and material · lamp and margin
+Never pure black · never pure white · two hues, never on the same pixel
+Dark · basalt · warm is light, cold is ink
+ground
+#0C0F12
+surface
+#14181C
+hairline
+#22272C
+ink-1
+#ECEAE4
+ink-2
+#A9A6A0
+ink-3
+#6F6D68
+human-ink
+#EFE6CF
+human-rule
+#FBD094
+passage
+amber 13%
+lamp
+70° · screen
+cold
+#7BC7C9 · ink
+cold-fill
+#56B6B9 · text ground
+Warm appears on dark only as light: the reacted passage is amber at 13%, the human rule is amber, the lamp is amber composited in screen. No yellow ink on basalt. Chromatic ink on dark is the cold — every hover and active state — and rest states are achromatic. Basalt stays cool (248°) on purpose: cool shadow under warm light is the depth cue.
+Light · warm white · pen and wash
+ground
+#FBFAF7
+surface
+#F3F1EC
+hairline
+#E6E2DA
+ink-1
+#1C1B18
+ink-2
+#5A574F
+ink-3
+#8E8A80
+human-rule
+#A8742A · sepia
+passage
+straw 32%
+straw
+#F5E5A8
+cream
+#FFDEA9
+rose
+#FFD5DB
+cold · fill · deep
+#2B9094 · #C7EDEE · #005A5D
+Pastel is an area, never a line or a letter. Ink text always sits on top of a wash. Where a line must carry the warm hue — the human rule, the edge-strip mark — it uses the loaded form of the pigment, sepia. Cold on light is a line (hover border, frontier, underline) or a fill (hover wash); it is never text. The one exception is the primary button’s hover: the loaded cold, cold-deep #005A5D, under paper-white text (7.7:1), so the primary keeps its weight.
+Warm run · light wash only · OKLCH L .92 C .08
+#F5E5A8
+#FFDEA9
+#FFD5DB
+Cite
+The run appears only blended, as wash, on light. The lamp is one amber. The human rule is the loaded straw; the cold is a hairline or an underline.
+Hard exclusions
+violet
+indigo · blue
+orange · coral
+yellow ink on basalt
+pastel text
+pastel as line or letter on paper
+any hue for status
+Open versus resolved is outline versus fill of the same ink-2 glyph. Ladder levels are carried by typeface, never by color. Warm and cold never share a pixel: a hovered human paragraph shows no cold; a cold hover carries no warm.
+Known territory · lamp at three peaks (dark) · wash at three densities (light)
+One per screen · ≥ 200px · never inside the paper
+lamp · L .62 · #AD7B3D · edge of known
+lamp · L .72 · #CD995C · known territory · cover
+lamp · L .80 · #E7B375 · Brief header
+wash · faint · edge of known
+wash · mid · project cover
+wash · dense · known territory
+Lamp recipe · dark
+Hue 70°, never straw. One radial field under the whole map — never one per band — from the peak (L .72 known and cover · .80 Brief · .62 edge; C .10 · 70°) to #3E2A12 at 45% to black at 72%, composited with mix-blend-mode: screen. The dot grid sits under the lamp; band hairlines and labels on top — light adds, paint mixes; alpha amber over basalt is mud, screen amber never is. Blur ~30px, grain 50% soft-light. Dark ground stays #0C0F12: do not warm it.
+Wash recipe · light
+Three soft radial fields from the rebuilt run (straw, then cream, then rose, each fainter), blurred ~30px, densest at straw and thinning to nothing; fractal grain at ~20% in multiply. Knowledge fades at its edge — the wash never stops at a line.
+Contrast audit · twelve pairs · WCAG 2.2
+text ≥ 4.5 · non-text ≥ 3.0
+pair
+dark
+light
+role
+ink-1 on ground
+16.0:1
+16.5:1
+text
+ink-2 on ground
+7.9:1
+6.9:1
+text · citation rest
+ink-3 on ground
+3.7:1
+3.3:1
+non-text · field rule, secondary border
+ink-2 on surface
+7.3:1
+6.4:1
+text · card answer
+human-ink on ground
+15.5:1
+16.5:1
+text · human writing
+human-rule on ground
+13.3:1
+3.9:1
+non-text · 3px rule, mark
+cold on ground
+9.9:1
+3.6:1
+dark: text · light: line only
+text on cold-fill
+8.0:1
+13.8:1
+text · primary hover
+ink-1 on passage
+12.2:1
+15.5:1
+text · reacted paragraph
+ink-1 on cit-hover-bg
+—
+13.8:1
+text · citation hover (light)
+cold on surface
+9.2:1
+3.4:1
+dark: peek locator · light: line
+ground on ink-1
+16.0:1
+16.5:1
+text · primary rest
+Changed (1d) · rose softened to #FFD5DB and the light densities re-rendered; lamp peaks assigned by use; cold-deep #005A5D added for the light primary hover · (1c) tokens replaced per the memo (human-rule, passage, cold, cold-fill, rebuilt run; edge/edge-line/edge-wash/mark-ring deleted); lamp is amber 70° in screen blend at three OKLCH peaks — the .72 and .62 peaks were converted from OKLCH here, not tuned by eye; contrast audit added, ratios computed from the token hexes (the passage rows composite the tint over ground).
+05 · Component sheet · states
+19 components · current theme · rest achromatic, hover cold
+01 · Selection toolbar
+idle · hover with shortcut · explain typing
+Explain ⌘K
+Note
+Counter
+Idea
+…of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function to obtain the weights on the values.
+Explain
+Why √d
+k
+and not d
+k
+?
+Explain
+Appears within 150ms of any selection, anchored above it. Hover: cold-fill at 18% with a 1.5px cold rule beneath, and the key appears beside the verb ("Explain ⌘K") — hints live in the toolbar, not only in tooltips. No Highlight. Typing turns Explain into the human’s question, so the field is already the reading face, italic.
+02 · Inline card
+open · collapsed
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+. Dividing by √d
+k
+restores unit variance so the softmax keeps usable gradients.
+§3.2.1
+Ask follow-up
+Note in my words
+Why divide by √d
+k
+and not d
+k
+?
+Question and answer stay together on the surface: the question is the human’s (reading face, italic, human-ink), the answer the AI’s (UI face, ink-2). Rendered directly under the passage. Never exceeds the viewport; anything longer becomes a layer. Collapses to the question alone.
+03 · Rabbit-hole layer
+pushed · 2 deep
+We call our particular attention "Scaled Dot-Product Attention". The input consists of queries and keys of dimension d
+k
+, and values of dimension d
+v
+. We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function to obtain the weights on the values.
+Attention is all you need
+›
+…
+›
+√dk scaling
+2 deep
+Esc
+"…divide each by √d
+k
+, and apply a softmax function…"
+Variance of a dot product
+For independent components with mean 0 and variance 1, the sum of d
+k
+products has variance d
+k
+; the standard deviation therefore grows as √d
+k
+…
+Full reader pushed over the paper (220ms). Path bar atop; origin passage pinned with the tint; explainer below in full reading typography with the same toolbar. Paper beneath dims ~40% and recedes 4px. Esc returns to the exact line.
+04 · 05 · Path bar · Edge strip
+navigation · one dot per layer
+Attention is all you need
+§3.2
+√dk scaling
+2 deep
+Esc
+Attention is all you need
+…
+Variance of a sum
+4 deep
+Esc
+Path bar: breadcrumb atop a layer, mono uppercase 12px, never wraps — at any depth it keeps the first and last crumb and collapses the middle to …; depth as a count in ink-2; Esc in its own slot at the far right, never touching a crumb. Separator is Phosphor CaretRight, Light. Edge strip: one dot per layer stacked from the bottom, no empty slots — there is no maximum depth. The current layer is the mark (human-ink on dark, sepia on light); a hovered dot goes cold; click to pop to that layer. Each dot is drawn at 6px and hits at 24px.
+Navigation is where the mono uppercase register lives; nothing here is colored at rest except the mark.
+06 · Spine
+sidebar row · reader edge · workbench
+Attention Is All You Need
+read · only asked
+5 asked · 0 said
+Efficient Attention
+read · argued
+2 asked · 3 said
+Neural Machine Translation by Jointly Learning…
+unread
+Workbench · one spine per paper, stacked by map layer
+edge
+One component, three sizes. A 1px line the length of the paper with 7px ticks: left = questions the AI answered (ink-2), right = things the human said (human-ink on dark, sepia on light). Unread = hairline, no ticks. On the reader edge the spine is the scroll track; ticks sit at the paragraph’s position and click to jump (24px hit). Hover reads "5 asked · 0 said". No fraction, no maximum.
+07 · Map layer (band)
+known · edge · dark · paper labels · hover
+Efficient attention
+linformer
+efficient attention
+Your edge
+Scaled dot-product attention
+attention is all you need
+Attention Is All You Need · Vaswani et al. 2017
+bahdanau 2014
+luong 2015
+Softmax · variance
+bridle 1990
+goodfellow ch.6
+Linear algebra · dot products
+strang ch.1
+Foundations
+Efficient attention · dark
+0 sources read
+Linear and sparse approximations that trade exactness for sequence length. Sits one layer above what you've read.
+Find papers for this
+Strata by prerequisite depth, foundations at the bottom. Concept labels mono uppercase (navigation); papers as short titles in mono lowercase at their depth — read in ink-2, unread in ink-3, hover lifts to ink-1 with a cold underline and the full title on a surface. One lamp under the whole map (L .72), bands transparent over it, dot grid beneath it; it falls off toward the dark bands, and the frontier is a 1px cold line between the last lit band and the first dark one. Hover on a band: the lamp brightens one peak (dark) or the wash densifies one step (light). Dark-band detail exposes exactly one primary action.
+Dot-grid texture allowed here and on home only. The lamp is one amber in screen blend over cool basalt.
+08 · Source row
+active · rest · unread · spine replaces the meter
+Efficient Attention: Attention with Linear Complexities
+Efficient attention
+Attention Is All You Need
+Scaled dot-product attention
+Neural Machine Translation by Jointly Learning to Align and Translate
+Softmax · variance
+240px sidebar. The 22px spine sits left of the title; beneath the title, the map layer the paper belongs to, in mono. Ordered by depth. No folders, no drag, no grouping. Active row is surface; hover is cold-fill at 18%. arXiv ids live in this row’s metadata only.
+09 · 10 · Type label · Margin marker
+uncolored · four pen marks · counter open/resolved
+Type label · Reactions and Annotations · carries no state
+note
+counter
+idea
+question
+Margin marker · reading column, left gutter · 12px drawn, 24px hit
+note
+counter · open
+counter · resolved
+idea
+question
+Dot-product attention is identical to our algorithm, except for the scaling factor. Additive attention computes the compatibility function using a feed-forward network with a single hidden layer.
+A stroke, a ring, a star, a hook — marks a pen makes, 1.3px, ink-2, cold on hover, distinguishable at 10px. One per reaction type beside the paragraph, stacked when several. Only counter has states (open outline, resolved fill).
+11 · Citation
+rest · hover (peek) · active · evidence object
+In-paper
+§3.2.1
+Cross-paper
+Vaswani 2017 · §3.2.1
+Hover
+§3.2.1
+Active
+§3.2.1
+§3.2.1
+We compute the dot products of the query with all keys, divide each by √dk, and apply a softmax…
+…of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax function
+to obtain the weights on the values.
+§3.2.1
+×
+Vaswani 2017 · §3.2.1
+×
++ Cite
+Rest: unboxed, mono lowercase 12px, .02em, ink-2, at the end of the sentence it supports. Hover: dark, text goes cold; light, text stays ink-1 with a cold-fill wash behind it (1px 5px) — cold is never text on paper. The peek pill carries the same rule on its locator. Active: hover plus a 1px inset of ground; the passage takes the tint for two seconds. No pages, no arXiv ids, no circled numerals. In evidence fields only it is a removable object: ink-3 box, × on hover. Hit 24px.
+12 · Counter resolution
+three plain choices
+Additive attention isn't obviously slower in practice — this claim needs a benchmark, not an assertion.
+I was missing something
+The paper has a problem
+→ Critique
+Still open
+The second choice spawns a Critique thesis with the passage pre-cited. Resolving fills the margin marker. No menu, no icons, no hue at rest.
+13 · Thesis card
+Critique · spine incomplete → save disabled
+Kind
+Critique
+Gap
+The claim
+The paper's speed argument for dot-product attention rests on kernel efficiency, not on the attention function itself.
+Evidence
+§3.2.1
+×
++ Cite
+What the paper claims and what's wrong with it
+It claims dot-product is "much faster and more space-efficient in practice" — but the comparison assumes optimized matmul kernels…
+What would prove me wrong
+A benchmark on equal, unoptimized hardware…
+Why this hasn't been noticed (optional)
+Spine incomplete: what would prove me wrong
+Save
+Two kinds share a spine: claim · evidence (≥1 citation) · what would prove me wrong. Kind is the calibration control — two segments, chosen once; it is not a view. Field prompts are sentence-case UI sans, 13px, ink-2. Human fields carry the 3px human-rule at their left edge while they contain text; empty fields show an ink-3 bottom rule. Save is the one primary; it settles in 220ms and offers Undo for 5s.
+14 · 15 · Suggestions tray · Stress-test result
+Critique only · citations at sentence end
+Evidence
++ Cite
+Nothing in the tray moves into the field by itself. The human cites it (220ms landing).
+From your papers · 2
+"…dot-product attention is much faster and more space-efficient in practice, since it can be implemented using highly optimized matrix multiplication code."
+§3.2.1
+×
+Cite
+"…additive attention outperforms dot product attention without scaling for larger values of d
+k
+."
+§3.2.1 · note 4
+×
+Cite
+Strongest case against · from 3 papers you've read
+2 of 3
+The paper does not claim the function itself is faster; it claims the implementation is, and names the kernel dependency explicitly.
+§3.2.1
+Footnote 4 concedes the regime where additive wins, which is the concession your critique treats as hidden.
+§3.2.1 · note 4
+Table 3 reports wall-clock on identical hardware for both…
+Tray: the citation is a removable evidence object; Cite is a text button. Stress-test: on a Critique, passages that defend the claim; on a Gap, passages that complicate the research half only. Citations land one by one, 220ms at 60ms stagger (06 · 04).
+16 · 17 · Ladder readout · Empty-state block
+reader sidebar · type carries provenance · honest counts
+Facts
+38
+Notes
+21
+Insights
+6
+Theses
+2
+Theses held: 0 · Counters unresolved: 14.
+Nothing to compile yet.
+The ladder stays in the reader sidebar: Facts in the UI face (the AI’s facts live in the paper), the other three in the reading face — provenance through type alone; no row sits on a surface. Counts mono 12px. Never show DOK numbers. Empty states: no illustration, no exhortation.
+18 · Workbench
+tabs are the ladder · Reactions rung shown
+Reactions
+41
+Insights
+6
+Theses
+2
+Playbook
+Softmax · variance
+9 asked · 0 said
+question
+Why is the softmax gradient small when logits are large?
+§3.2.1
+question
+Does the variance argument assume independence?
+§3.2.1 · note 4
+Scaled dot-product attention
+2 asked · 3 said
+Additive attention isn't obviously slower in practice — this needs a benchmark.
+The scale is a variance fix, not a magic constant.
+An insight from these
+Every "efficiency" claim in this literature is a claim about kernels, not about attention. The benchmark that would settle it has never been run on equal hardware.
+Cites
+§3.2.1
+×
+Shen 2018 · §4
+×
++ Cite
+Save insight
+Inbox and Thinking are gone. Tabs are the ladder with counts: Reactions · Insights · Theses · Playbook. Every rung shows the rung below as material on the left and a place to write on the right. Reactions group by map layer; each header carries its asked/said composition as a two-segment bar (ink-2 / human-ink); human reactions in the reading face behind the rule, with their margin marker in the gutter left of the rule instead of a type label; AI-answered questions keep the mono label and no rule. Right: "An insight from these", a Cites row, one primary "Save insight".
+19 · Brief header
+the one place Fraunces appears in a project · wash beneath the text, one per screen
+Brief · 4 sources · 2 theses
+I'm building a retrieval layer for long documents and need to understand attention.
+Measure 34ch at 40px. Lit from above and left of the first line (about 20% x / 10% y of the block, peak L .80), falling off down and right — a desk lamp on a page, never from below. A header, not a poster.
+Changed (1d) · one lamp under the whole map; Brief lit from above-left; path bar collapses the middle at depth ≥ 3 with Esc in its own slot; thesis kind is a segmented control; Workbench human rows carry the pen mark, not the label · (1c) every hover and active state is cold, rest achromatic; toolbar shows "Explain ⌘K" on hover; Explain question in reading face italic human-ink; human text outdented behind the 3px rule (thesis, counter, workbench); reaction meter deleted, spine added in three sizes; source row carries the spine; map edge line is cold; Inbox and Thinking replaced by the ladder tabs and the Reactions rung; citation rest ink-2 12px; mono 12px minimum; 24px hits.
+05b · Primitives · both themes · rest · hover · focus · active · disabled
+Rest achromatic · hover cold · focus ink-1
+Dark · basalt
+Buttons · one primary per screen · radius 2px · hover cold, active = hover + 1px inset ground
+rest
+hover
+focus
+active
+disabled
+Primary
+Save
+Save
+Save
+Save
+Save
+Secondary
+Find papers for this
+Find papers for this
+Find papers for this
+Find papers for this
+Find papers for this
+Text
+Note in my words
+Note in my words
+Note in my words
+Note in my words
+Note in my words
+Text field · ink-3 rule at rest, cold on hover, ink-1 on focus · human fields in the reading face, ruled while they hold text
+rest
+hover
+focus
+active
+disabled
+UI · Explain
+Ask about this passage
+Ask about this passage
+Ask about this passage
+Why √d
+k
+and not
+Ask about this passage
+Human · thesis
+What would prove me wrong
+What would prove me wrong
+What would prove me wrong
+A benchmark on equal
+What would prove me wrong
+Focus ring · keyboard only · hit areas
+Stress-test
+§3.2.1
+Cite
+24px hit
+2px ink-1, offset 2px, on any focusable, both themes — so focus and hover are never the same state. Hidden for pointer focus. Dots, markers, ticks and citations are drawn small and hit at 24px (dashed overlay shown once here).
+Citation peek popover · hover state of a citation
+§3.2.1
+We compute the dot products of the query with all keys, divide each by √dk…
+Vaswani 2017 · §3.2.1
+We compute the dot products of the query with all keys…
+Expands in place (220ms). Surface fill, hairline border, no shadow. The locator carries the hover rule (cold text on dark; ink-1 on a cold-fill wash on light); one line of the passage in the reading face. Click jumps; Esc or mouse-out collapses.
+Search result row · Find papers for this · rest · hover
+Efficient Attention: Attention with Linear Complexities
+shen, zhang, zhao, yi, li · 2018
+Dot-product attention has quadratic memory and computational costs in input size; we propose an equivalent with linear complexities.
+Add
+Linformer: Self-Attention with Linear Complexity
+wang, li, khabsa, fang, ma · 2020
+We demonstrate that the self-attention mechanism can be approximated by a low-rank matrix.
+Add
+Title in UI face, authors and year mono lowercase 12px, one-line abstract in ink-2, an Add text button (hover as text button). Added papers land on the map at the band's depth.
+Calibration control · three plain choices · hover as secondary
+What do you already know about attention?
+Know it
+Heard of it
+No idea
+It weights other tokens by similarity to
+Segmented, ink-3 border; selected is ink-1 fill; hover (shown on "No idea") is the secondary hover. "Heard of it" reveals a reading-face field beneath: "Explain it in a sentence." No scale, no numbers.
+Icons · Phosphor Light 16px · chrome only · rest · hover
+Close
+X
+Add
+Plus
+Undo
+ArrowCounterClockwise
+Collapse sidebar
+SidebarSimple
+View original PDF
+ArrowSquareOut
+Find
+MagnifyingGlass
+Back a layer
+CaretLeft
+path separator
+CaretRight
+Close
+X
+Add
+Plus
+Undo
+ArrowCounterClockwise
+Collapse sidebar
+SidebarSimple
+View original PDF
+ArrowSquareOut
+Find
+MagnifyingGlass
+Back a layer
+CaretLeft
+path separator
+CaretRight
+Phosphor Light at 16px in chrome, Regular at 20px and above; never Fill (mass) or Duotone (a second color). Chrome only — never inside the reading column, never in place of Explain · Note · Counter · Idea. Paired with its word on first appearance per screen; X and Plus exempt. ink-2 at rest, ink-1 on hover, cold only when the icon is the hovered control; never warm. Margin markers stay bespoke and sit beside these at the same 1.3px stroke. Glyphs here are drawn to Phosphor’s geometry; production uses the library files.
+Streaming state · inline card while the answer arrives
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+, so its standard devi
+Text appears as generated; a 1px ink-2 caret at the end. No spinner, no skeleton, no shimmer. Actions and citation appear only once the answer settles.
+Error state · parse failure
+…where the projections are parameter matrices
+pdf crop · equations 2–3
+This region didn't parse.
+View original PDF
+Multi-head attention allows the model to jointly attend to information…
+The failed region is shown as a crop of the original PDF at reading width, on a surface. One text button. No red, no icon, no apology.
+Light · warm white
+Buttons · one primary per screen · radius 2px · hover cold, active = hover + 1px inset ground
+rest
+hover
+focus
+active
+disabled
+Primary
+Save
+Save
+Save
+Save
+Save
+Secondary
+Find papers for this
+Find papers for this
+Find papers for this
+Find papers for this
+Find papers for this
+Text
+Note in my words
+Note in my words
+Note in my words
+Note in my words
+Note in my words
+Text field · ink-3 rule at rest, cold on hover, ink-1 on focus · human fields in the reading face, ruled while they hold text
+rest
+hover
+focus
+active
+disabled
+UI · Explain
+Ask about this passage
+Ask about this passage
+Ask about this passage
+Why √d
+k
+and not
+Ask about this passage
+Human · thesis
+What would prove me wrong
+What would prove me wrong
+What would prove me wrong
+A benchmark on equal
+What would prove me wrong
+Focus ring · keyboard only · hit areas
+Stress-test
+§3.2.1
+Cite
+24px hit
+2px ink-1, offset 2px, on any focusable, both themes — so focus and hover are never the same state. Hidden for pointer focus. Dots, markers, ticks and citations are drawn small and hit at 24px (dashed overlay shown once here).
+Citation peek popover · hover state of a citation
+§3.2.1
+We compute the dot products of the query with all keys, divide each by √dk…
+Vaswani 2017 · §3.2.1
+We compute the dot products of the query with all keys…
+Expands in place (220ms). Surface fill, hairline border, no shadow. The locator carries the hover rule (cold text on dark; ink-1 on a cold-fill wash on light); one line of the passage in the reading face. Click jumps; Esc or mouse-out collapses.
+Search result row · Find papers for this · rest · hover
+Efficient Attention: Attention with Linear Complexities
+shen, zhang, zhao, yi, li · 2018
+Dot-product attention has quadratic memory and computational costs in input size; we propose an equivalent with linear complexities.
+Add
+Linformer: Self-Attention with Linear Complexity
+wang, li, khabsa, fang, ma · 2020
+We demonstrate that the self-attention mechanism can be approximated by a low-rank matrix.
+Add
+Title in UI face, authors and year mono lowercase 12px, one-line abstract in ink-2, an Add text button (hover as text button). Added papers land on the map at the band's depth.
+Calibration control · three plain choices · hover as secondary
+What do you already know about attention?
+Know it
+Heard of it
+No idea
+It weights other tokens by similarity to
+Segmented, ink-3 border; selected is ink-1 fill; hover (shown on "No idea") is the secondary hover. "Heard of it" reveals a reading-face field beneath: "Explain it in a sentence." No scale, no numbers.
+Icons · Phosphor Light 16px · chrome only · rest · hover
+Close
+X
+Add
+Plus
+Undo
+ArrowCounterClockwise
+Collapse sidebar
+SidebarSimple
+View original PDF
+ArrowSquareOut
+Find
+MagnifyingGlass
+Back a layer
+CaretLeft
+path separator
+CaretRight
+Close
+X
+Add
+Plus
+Undo
+ArrowCounterClockwise
+Collapse sidebar
+SidebarSimple
+View original PDF
+ArrowSquareOut
+Find
+MagnifyingGlass
+Back a layer
+CaretLeft
+path separator
+CaretRight
+Phosphor Light at 16px in chrome, Regular at 20px and above; never Fill (mass) or Duotone (a second color). Chrome only — never inside the reading column, never in place of Explain · Note · Counter · Idea. Paired with its word on first appearance per screen; X and Plus exempt. ink-2 at rest, ink-1 on hover, cold only when the icon is the hovered control; never warm. Margin markers stay bespoke and sit beside these at the same 1.3px stroke. Glyphs here are drawn to Phosphor’s geometry; production uses the library files.
+Streaming state · inline card while the answer arrives
+Why divide by √d
+k
+and not d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+, so its standard devi
+Text appears as generated; a 1px ink-2 caret at the end. No spinner, no skeleton, no shimmer. Actions and citation appear only once the answer settles.
+Error state · parse failure
+…where the projections are parameter matrices
+pdf crop · equations 2–3
+This region didn't parse.
+View original PDF
+Multi-head attention allows the model to jointly attend to information…
+The failed region is shown as a crop of the original PDF at reading width, on a surface. One text button. No red, no icon, no apology.
+Changed (1d) · light primary hover is cold-deep #005A5D under paper text (dark unchanged); Phosphor icon row added · (1c) all hover states cold per the memo table (primary fill cold-fill on dark, secondary cold border + 18% fill, text underline cold 1.5px/4px, citation cold text on dark / cold-fill wash on light); active = hover + 1px inset ground; field rest rule ink-3; human field ruled while it holds text; 24px hit-area overlay added; mono 12px minimum.
+06 · Motion · five signatures, three durations
+Nothing here moves. Nothing in the product moves on its own.
+Cause
+Motion is a consequence of something the user did. No loops, no ambient, no attention-seeking.
+Curve
+Reveals, not bounces. cubic-bezier(0.2, 0, 0, 1), interruptible. Three durations only: 150 touch (hover fill, toolbar, tab underline, citation lift) · 220 reveal (card open, layer push, peek, citation landing) · 900 reward (wash spread, Playbook compile).
+Eye line
+The paper never reflows above the reader's eye. Cards move only what is below; layers land on the exact line.
+Reduced motion
+Cuts all five to the end state. Not shorter durations — no motion.
+01 · Card open
+Content below the passage moves down; the answer streams onto its surface.
+220 reveal for the push. Text arrives as it's generated. The promise of a living document.
+…of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax.
+The two most commonly used attention functions are additive attention and dot-product attention. Dot-product attention is identical to our algorithm, except for the scaling factor.
+0ms · Explain sent
+…of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax.
+Why √d
+k
+?
+If q and k have unit-variance comp
+The two most commonly used attention functions are additive attention and dot-product attention.
+~120ms · below moves down · streaming
+…of dimension d
+v
+.
+We compute the dot products of the query with all keys, divide each by √d
+k
+, and apply a softmax.
+Why √d
+k
+?
+If q and k have unit-variance components, their dot product has variance d
+k
+; dividing by √d
+k
+restores unit variance.
+§3.2.1
+220ms · settled · passage never moved
+02 · Layer push
+Paper dims and recedes; the layer enters from the right; the edge strip gains a dot.
+220 reveal. Opacity to 60%, translate 4px, scale 0.985. Depth is felt, not announced. Esc reverses to the exact line.
+We compute the dot products of the query with all keys, divide each by
+√d
+k
+, and apply a softmax function to obtain the weights on the values. The two most commonly used attention functions are additive attention…
+0ms · rabbit hole opened · 1 deep
+We compute the dot products of the query with all keys, divide each by
+√d
+k
+, and apply a softmax function to obtain the weights on the values. The two most commonly used attention functions are additive attention…
+§3.2 › √dk scaling
+~140ms · dimming · entering
+We compute the dot products of the query with all keys, divide each by
+√d
+k
+, and apply a softmax function to obtain the weights on the values.
+§3.2 › √dk scaling · 2 deep
+"…divide each by √d
+k
+…"
+For independent components of mean 0 and variance 1, the sum of d
+k
+products has variance d
+k
+…
+280ms · landed · strip reads 2 deep
+03 · Wash spread
+Back on the map, the known wash bleeds outward over what you just reacted to.
+900 reward, one of two slow animations in the product. A reward, not a transition. The edge softens as it grows; it never snaps to a line.
+Efficient attention
+Scaled dot-product
+Softmax · variance
+Dot products
+0ms · returned from reader
+Efficient attention
+Scaled dot-product
+Softmax · variance
+Dot products
+~500ms · bleeding outward
+Efficient attention
+Scaled dot-product
+Softmax · variance
+Dot products
+~1100ms · your edge has moved
+04 · Stress-test landing
+The case against arrives one citation at a time.
+220 reveal per sentence, 60ms stagger. Each citation lands at its sentence end; nothing above it moves. The surface is there from 0ms.
+Strongest case against
+2 of 3
+The paper does not claim the function itself is faster; it claims the implementation is.
+§3.2.1
+0ms · surface opens · first sentence entering
+Strongest case against
+2 of 3
+The paper does not claim the function itself is faster; it claims the implementation is.
+§3.2.1
+Footnote 4 concedes the regime where additive wins.
+~280ms · second sentence, citation not yet landed
+Strongest case against
+2 of 3
+The paper does not claim the function itself is faster; it claims the implementation is.
+§3.2.1
+Footnote 4 concedes the regime where additive wins.
+§3.2.1 · note 4
+Table 3 reports wall-clock on identical hardware…
+~500ms · settled · third still arriving
+05 · Playbook compile
+The document assembles rung by rung: theses, then the insights under them, then the facts they rest on.
+900 reward, the second slow animation. Top-down, so the human's claims are the first thing on the page and the AI's facts the last. Nothing bounces; each rung fades and settles 4px.
+Playbook · attention for retrieval
+Efficiency claims here are claims about kernels, not attention.
+Scaling is a variance fix; normalize before ranking.
+0ms · theses land
+Playbook · attention for retrieval
+Efficiency claims here are claims about kernels, not attention.
+The benchmark that would settle it has never been run on equal hardware.
+Scaling is a variance fix; normalize before ranking.
+Dot products of unit-variance vectors have variance dk. §3.2.1
+~450ms · insights, then facts entering
+Playbook · attention for retrieval
+Efficiency claims here are claims about kernels, not attention.
+The benchmark that would settle it has never been run on equal hardware.
+"much faster and more space-efficient in practice" §3.2.1
+Scaling is a variance fix; normalize before ranking.
+Dot products of unit-variance vectors have variance dk. §3.2.1
+900ms · compiled · human first, facts last
+Changed (1d) · wash-spread frames use one lamp field (L .72) under the whole map, dot grid beneath it · (1c) three durations only (150 / 220 / 900) and every signature named to one; two storyboards added — stress-test landing (220, 60ms stagger) and Playbook compile (900); lamp frames in screen blend; Explain question in the card-open frames set italic human-ink.
+07 · Glossary · exact UI strings
+Use verbatim in every specimen and screen
+Brief
+The project's opening sentence: "I'm building X and need to understand Y." Fraunces, wash backdrop.
+Map
+Project home. Concepts as horizontal layers by prerequisite depth, foundations at the bottom.
+Known · your edge
+The lit (dark) or washed (light) region · the 1px cold line where it ends. Warm = what the human made; cold = what the interface offers.
+"What do you already know about [domain]?"
+Calibration screen title.
+Sources
+Papers only in v1.
+Explain ⌘K · Note · Counter · Idea
+The four toolbar actions; the Explain submit is “Explain”. Card actions: Ask follow-up · Note in my words. There is no Highlight.
+I was missing something · The paper has a problem · Still open
+Counter resolutions. The second spawns a Critique.
+Rabbit hole · "3 deep"
+A pushed layer and its depth.
+Path bar · Edge strip
+Breadcrumb atop a layer with the depth count · one dot per layer on the reader's edge, current dot is the mark, click to pop.
+Spine · "5 asked · 0 said"
+A 1px line the length of the paper; left ticks = questions the AI answered, right ticks = things the human said. Sidebar row, reader edge, Workbench.
+Citation
+§3.2.1 · Vaswani 2017 · §3.2.1. Mono lowercase 12px ink-2, unboxed, sentence end. Hover goes cold and peeks, click jumps. Boxed only as an evidence object. No pages, no arXiv ids, no circled numerals.
+Type label · Margin marker
+note · counter · idea · question, mono, uncolored, stateless · the pen mark in the gutter beside a reacted paragraph; only counter has open/resolved. Hit 24px.
+Arguments · Questions · Annotations
+Right sidebar tabs. Always about the thing in front of you.
+Workbench: Reactions · Insights · Theses · Playbook
+Tabs are the ladder, each with its count. Every rung shows the rung below on the left and a place to write on the right. "An insight from these" · "Save insight".
+Thesis · Critique · Gap
+A defended, falsifiable claim, in two kinds.
+Stress-test
+The AI's cited case against a thesis, from the user's own papers only.
+Facts · Notes · Insights · Theses
+The ladder. AI may author Facts only. Never show DOK numbers.
+Context pack
+The Playbook's second document, for coding agents.
+Find papers for this
+The only discovery entry point, on a dark map band.
+⌘K · ⌘\ · Esc
+Explain on a selection · toggle left sidebar (remembers state; collapses by default at 2 deep) · pop a layer to the exact line. Keys appear inside the toolbar on hover ("Explain ⌘K") and in tooltips; never as standing badges.
+Icons · Phosphor
+Light at 16px in chrome, Regular at 20px+. Never Fill or Duotone. Chrome only: X · Plus · ArrowCounterClockwise · SidebarSimple · ArrowSquareOut · MagnifyingGlass · CaretLeft · CaretRight. Paired with a word on first appearance (X, Plus exempt). Margin markers stay bespoke.
+Shell
+Left 240 (where) · center map or reader, 68ch · right 320 (what). Minimum 1280. Mobile: read-only paper only.
+Tokens
+--ground --surface --hairline --ink-1 --ink-2 --ink-3 --human-ink --human-rule --mark --passage --cold --cold-fill --cold-deep --straw --cream --rose --known --dim --grain --dots
+Changed (1d) · Phosphor entry; cold-deep token · (1c) added citation, path bar, edge strip, reaction meter, type label, margin marker; Workbench tabs are the ladder; spine replaces the reaction meter; token list per the memo (edge, edge-line, edge-wash, mark-ring, straw-ink deleted).

@@ -1,0 +1,63 @@
+/* Applied Research · Field Atlas · semantic tokens, edition 02 */
+:root {
+  color-scheme: light;
+  --field: #285f8c;
+  --field-ink: #fff9ed;
+  --paper: #f7f4ed;
+  --surface: #fffdf8;
+  --surface-subtle: #ece9e0;
+  --ink: #232c32;
+  --muted: #606765;
+  --line: #d4d5cc;
+  --line-strong: #949b96;
+  --accent: #285f8c;
+  --accent-soft: #e6edf0;
+  --human: #8b4c2d;
+  --human-soft: #f3e6d3;
+  --success: #42624d;
+  --danger: #a03932;
+  --focus: #285f8c;
+  --font-ui: 'Hanken Grotesk', Arial, sans-serif;
+  --font-reading: 'Source Serif 4', Georgia, serif;
+  --text-xs: .75rem;
+  --text-sm: .875rem;
+  --text-base: 1rem;
+  --text-reading: 1.125rem;
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+  --radius-control: 6px;
+  --radius-panel: 12px;
+  --radius-pill: 100px;
+  --duration-press: 150ms;
+  --duration-reveal: 220ms;
+  --duration-arrive: 700ms;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --reading-measure: 64ch;
+}
+[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #172a35;
+  --surface: #203642;
+  --surface-subtle: #293f4b;
+  --ink: #f3efe4;
+  --muted: #b4c2c7;
+  --line: #405661;
+  --line-strong: #7f969f;
+  --accent: #b9d8ed;
+  --accent-soft: #2b485b;
+  --human: #e4b78b;
+  --human-soft: #473d33;
+  --success: #b6d3b8;
+  --danger: #f4aaa3;
+  --focus: #b9d8ed;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-press: 0ms; --duration-reveal: 0ms; --duration-arrive: 0ms; }
+}

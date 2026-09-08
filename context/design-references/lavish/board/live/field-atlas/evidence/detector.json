@@ -1,0 +1,42 @@
+[
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/design-system/styles.css",
+    "line": 105,
+    "snippet": "border-left: 3px solid var(--human)"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/design-system/styles.css",
+    "line": 123,
+    "snippet": "border-left: 2px solid var(--human)"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/design-system/styles.css",
+    "line": 139,
+    "snippet": "border-left: 3px solid var(--human)"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/design-system/styles.css",
+    "line": 189,
+    "snippet": "border-left: 3px solid var(--human)"
+  }
+]

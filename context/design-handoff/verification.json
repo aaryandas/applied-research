@@ -1,0 +1,15 @@
+{
+  "checks": [
+    "Nine portable screens render in JSDOM",
+    "Synthetic Reader insight appears on Canvas",
+    "Portable copy contains no live review connection, fetch/storage calls or original user-note strings",
+    "All local Markdown links and prototype asset references resolve",
+    "Source-derived prototype files recorded with SHA256 manifest",
+    "Node24 npmcheck passes:40tests,format,lint,types,build"
+  ],
+  "limits": [
+    "No new visual redesign; layout/styles/assets exported from the reviewed source",
+    "Portable interactions are examples, not real persistence or AI",
+    "Scope and architecture decisions remain pending; no MVP implementation started"
+  ]
+}

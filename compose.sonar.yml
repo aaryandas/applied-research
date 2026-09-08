@@ -1,0 +1,66 @@
+name: applied-research-sonar
+
+services:
+  database:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_DB: sonar
+      POSTGRES_PASSWORD: ${SONAR_DATABASE_PASSWORD:?Configure .env.sonar first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sonar -d sonar']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sonarqube:
+    image: sonarqube:community@sha256:62930c7f510534bb2bf551ca69ad3ee6f8e12b4116d394597c64cefccbb3313b
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:9000:9000'
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://database:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SONAR_DATABASE_PASSWORD:?Configure .env.sonar first}
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+      nproc: 8192
+    volumes:
+      - data:/opt/sonarqube/data
+      - extensions:/opt/sonarqube/extensions
+      - logs:/opt/sonarqube/logs
+
+  scanner:
+    image: sonarsource/sonar-scanner-cli@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9
+    platform: linux/amd64
+    profiles: ['scan']
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - ./src:/usr/src/src:ro
+      - ./tests:/usr/src/tests:ro
+      - ./coverage:/usr/src/coverage:ro
+      - ./sonar-project.properties:/usr/src/sonar-project.properties:ro
+      - ./tsconfig.json:/usr/src/tsconfig.json:ro
+      - ./tsconfig.node.json:/usr/src/tsconfig.node.json:ro
+      - ./tsconfig.web.json:/usr/src/tsconfig.web.json:ro
+      - ./node_modules:/usr/src/node_modules:ro
+    command:
+      - -Dsonar.projectKey=applied-research-local
+      - -Dsonar.working.directory=/tmp/analysis
+      - -Dsonar.typescript.tsconfigPaths=tsconfig.node.json,tsconfig.web.json
+      - -Dsonar.scm.disabled=true
+      - -Dsonar.qualitygate.wait=true
+
+volumes:
+  database:
+  data:
+  extensions:
+  logs:

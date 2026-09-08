@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "lib": ["ES2024", "DOM"],
+    "rootDir": ".."
+  },
+  "include": [
+    "*.ts",
+    "../contracts/animation-recipes.ts",
+    "../contracts/explanations.ts"
+  ],
+  "exclude": ["*.test.ts", "test-support.ts"]
+}

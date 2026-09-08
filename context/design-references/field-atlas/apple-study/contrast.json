@@ -1,0 +1,24 @@
+[
+  {
+    "image": "apple-without-figure.webp",
+    "regionNormalized": [
+      0.33,
+      0.449,
+      0.67,
+      0.548
+    ],
+    "minimumContrastAgainstCream": 7.342,
+    "method": "Brightest underlying pixel in entire heading rectangle; source WebP, no screenshot color transform."
+  },
+  {
+    "image": "apple-with-figure.webp",
+    "regionNormalized": [
+      0.33,
+      0.449,
+      0.67,
+      0.548
+    ],
+    "minimumContrastAgainstCream": 8.063,
+    "method": "Brightest underlying pixel in entire heading rectangle; source WebP, no screenshot color transform."
+  }
+]

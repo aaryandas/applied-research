@@ -1,0 +1,82 @@
+name: Reusable verification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # macOS is the shipping platform; Linux and Windows report but do not block the gate.
+    continue-on-error: ${{ matrix.os != 'macos-latest' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint (zero warnings)
+        run: npm run lint
+      - name: Type check main, preload, renderer and tests
+        run: npm run typecheck
+      - name: Unit, renderer and integration tests with coverage
+        run: npm run test:coverage
+      - name: Build Electron application
+        run: npm run build
+      - name: Desktop smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:e2e
+      - name: Desktop smoke test (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: npm run test:e2e
+      - name: Package verified build
+        run: npx --no-install electron-builder --dir --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Packaged smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:packaged
+      - name: Packaged smoke test (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: npm run test:packaged
+      - name: Save coverage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-tests-${{ matrix.os }}
+          path: |
+            coverage/tests.xml
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  gate:
+    name: CI gate
+    if: always()
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the shipping platform to pass
+        env:
+          RESULT: ${{ needs.verify.result }}
+        run: test "$RESULT" = success

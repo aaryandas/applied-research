@@ -1,0 +1,109 @@
+# Current design contract
+
+## Latest founder delegation · September 8
+
+The founder authorizes agents to determine and implement Settings/sign-in, Practical Work, Manim/Three.js and companion designs from the established design system, patterns and discussions, without another per-screen reference approval. Clicky is the companion usefulness/behavior standard; [3b1b/videos](https://github.com/3b1b/videos) and 3Blue1Brown videos are the Manim quality standard. Agents must derive concrete criteria, implement real behavior and obtain independent review. This supersedes earlier missing-reference/visual-approval gates for those surfaces, not safety, spending, disputed foundations or final product acceptance. Playbook remains deferred until the rest is built out; the teammate argument graph remains roadmap work. See [the updated gauntlet](GAUNTLET-PROMPT.md) for the authoritative execution instructions and quality criteria.
+
+The founder can refresh reviewer login and expects it to work now; the next session must test access rather than assuming either the prior failure or recovery. The founder increased the concurrency cap to seven active workers, including reviewers, during the September 8 build-speed audit; see [the current orchestration policy](SUPERSET-ORCHESTRATION.md#throughput-policy--september-8-audit). Keep the existing cumulative $2/10-request authorization.
+
+This is the latest recorded direction, not an assertion that all product behavior is finalized. [AR-5](https://linear.app/aaryan-das/issue/AR-5/decision-confirm-the-next-mvp-boundary-and-current-design-baseline) owns the implementation-baseline decision. The founder decides unresolved behavior; agents may not treat this prototype’s convenient defaults as requirements.
+
+## Confirmed visual direction
+
+On 2026-09-08 UTC, the founder selected **assembled screen-by-screen approval before implementation** in [AR-5](https://linear.app/aaryan-das/issue/AR-5). The portable specimen remains a review candidate; its complete assembly is not a globally approved baseline. Record each screen's acceptance and any corrections in AR-5 and the owning implementation ticket before porting its visual design. Earlier specific visual decisions below remain authoritative.
+
+| Area            | Apply                                                                                                                                                                                                                                                                                        | Evidence                                                                                          |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Shared identity | Claude/Lamp & Margin typography and palette; Field Atlas rounded controls and SVG icons.                                                                                                                                                                                                     | [56 confirmed Round 1 choices](../design-references/decisions/2026-09-07-round-1.json)            |
+| Opening         | Approved apple landscape; actual input says “I want to learn about…”; options below; compact underline spacing; focus transition; returning work must be easy to find beside the primary flow (September 8 correction supersedes lower-right placement); the whole project row is clickable. | [Seven annotations](../design-references/decisions/2026-09-07-round-2-annotations.txt)            |
+| Reader          | Continuous dark ground, compact editorial type and inline explanations; record insights in context; no spine or path bar.                                                                                                                                                                    | [Pinned type/reference direction](../design-references/decisions/2026-09-07-reader-typography.md) |
+| Canvas          | Actual node content dominates; remove “What I learned”, filler, redundant actions and slogans. Distinct node types; exact human wording immediately legible; horizontal progression and curved edges.                                                                                        | [Canvas correction](../design-references/decisions/2026-09-07-canvas-content.md)                  |
+| Structure       | Remove structural separators around navigation, headers, rails and sections; group with spacing. Retain necessary input/control affordances and meaningful graph/node distinctions.                                                                                                          | [Divider annotation](../design-references/decisions/2026-09-07-divider-annotation.json)           |
+| Playbook        | Builder-oriented insights, theses, practical evidence and concrete next steps.                                                                                                                                                                                                               | Round 1 decisions and current product loop                                                        |
+| Language        | Direct action copy; “Note” for highlight capture and “Create insight” for connecting saved notes; avoid repetitive explanations of what the interface is doing. Human, AI and result provenance remain distinct.                                                                             | Annotation and product records                                                                    |
+
+Latest divider removal supersedes the earlier Reader rail-divider specification. Content-first Canvas supersedes the older generic cards and right-angle connector examples. Old Workbench/Writing screens, paper-only product assumptions, path bars and reading-completion-as-mastery must not return.
+
+Opening review correction, 2026-09-08 UTC: the founder found “Your projects” too far out of the way and requested better design principles. Assemble new-topic entry and returning work on one central axis with clear grouping and hierarchy. The founder subsequently approved this revised assembled Opening with “Yes” in response to the explicit screen-approval question. The accepted layout includes the central project group, plain heading, clickable project row, source-field focus and theme-independent focus ring. Approval is scoped to Opening; other screens and unresolved source/import behavior remain separate gates.
+
+Approval receipt, 2026-09-08 UTC ([AR-5](https://linear.app/aaryan-das/issue/AR-5), [AR-15](https://linear.app/aaryan-das/issue/AR-15)): `app.js` SHA256 `c3ea5885aa06ab10b36945312ae8861a3d102abb7be1486ca5fab81402e626c5`; `styles.css` SHA256 `d32f00126af0bd0da39ae56ac8ff0ae5cbe0965bc9d2fa698dbcf9e91e7c414a`. The hashes identify the assembled specimen at Opening approval, not acceptance of its other screens.
+
+## Learning Path navigation correction · September 8
+
+The founder rejected the separate Learning Path screen and selected an expandable topic/concept outline in the left sidebar, using the supplied topic-grouped paper and Heptabase concept sidebars as structural references. Learning items open their content in the main workspace while the outline remains available. Preserve the approved Applied Research typography/palette and distinguish selected content through hierarchy and focus. This supersedes the standalone overview and its navigation entry; it does not remove learning-path progression or require a paper-only curriculum.
+
+The founder’s subsequent placement correction moves Canvas, Practical and Playbook to the top of the sidebar beneath project identity, above the topic outline. The next founder refinement uses vertically stacked icon-and-label workspace rows, following the supplied Codex sidebar reference. A bottom profile control contains Settings; Find remains available separately. Preserve Applied Research identity rather than copying the reference theme or real account details. These requested refinements do not constitute approval of the assembled sidebar.
+
+Assemble the sidebar with Reader/practical content for review under AR-16 and AR-17. The new assembly awaits founder approval. Opening visual approval remains valid; its project-entry destination should lead into the content workspace. Durable path generation, revision, completion and source contracts remain separate gates.
+
+## Notes-first insight correction · September 8
+
+The founder clarified the sequence: highlight text while reading, click Note and summarize in their own words; later select two or more previously saved notes to create an insight. This supersedes the prototype’s direct passage-to-insight picker. Reading actions create notes. The insight composer selects saved human notes, never raw source passages or practical observations. Each linked note retains its wording and source highlight, establishing insight → notes → source text. Notes may originate in one or multiple generated lessons, imported sources or sources discovered via OpenAlex/Semantic Scholar. Source examples remain explicitly synthetic; real retrieval and durable records remain implementation work. This clarification does not authorize attributing AI-generated summaries to the learner.
+
+Founder approval, 2026-09-08 UTC: “LGTM” in response to the revised notes-first prototype. This approves the reviewed Reader note/insight interaction: highlight → own-word note → link 2+ saved notes into an insight, with source provenance retained. The sidebar direction remains the previously accepted preference. This receipt does not approve unreviewed screens, live retrieval, production persistence or replace the pending independent code review.
+
+Approved specimen SHA256: `app.js` `0f8d36f2b77fae6e448f3977ce7f0e6dfde59ab7d3a18afbada3497931886789`; `index.html` `1b921abdd332e10c97354832a3e266ce5f4a4de6f0c0dd64e0bea92e29684e03`; `styles.css` `fb9cd95ea86d6b497e69f2454fd0534fd4d37915275144a7ecc31241dac5801a`. Recorded under AR-5 and AR-17. Next visual review: Canvas (AR-18).
+
+## Unified workspace and Canvas correction · September 8
+
+The founder’s Heptabase reference and accompanying request establish notes nested inside insights in a **Distilled** view and the complete source-highlight → note → insight map in an **Expanded** view. Selecting source context should open the exact location in Reader. Learning, importing sources and following questions belong in one project with contextual navigation; Home is an entry point, not a required restart between activities.
+
+The assembled prototype adds both Canvas views, source links, back/forward navigation, Explore and Add source. Pasted text is readable and annotatable for this page session; exploration saves a question and its origin, with no connected AI response. The example map is explicitly illustrative and separate from the learner’s saved records. These revisions await Canvas visual approval; the earlier Reader approval receipt remains unchanged.
+
+The teammate’s paper argument graph stays on the roadmap until its code/interface is available. The founder expects to provide it later; no graph schema, engine or automatic integration is assumed. Track this in AR-18 and the AR-13 delivery ledger.
+
+## Infinite canvas and learning origins · September 8
+
+The latest founder correction requires an **infinite dotted canvas**, navigated through pan/zoom rather than a bounded scrolling document. The learning path must be visible as a graph: use the same topic/chapter identities as the sidebar, connect notes and questions to their originating topic/chapter, and connect insights to supporting notes/questions. Preserve exact source locators beneath this hierarchy. An imported source can retain the chapter from which it was added; an unknown origin must not be invented.
+
+This extends the earlier notes-only insight picker to saved questions. The existing requirement for at least two distinct authored supporting entries remains; a question does not become verified evidence by being linked. The previous Reader approval receipt is historical and unchanged. The revised composer and Canvas assembly remain review candidates.
+
+The portable specimen demonstrates a transform camera with no canvas scrollbars, world-aligned dots, unrestricted positive/negative panning and card placement, keyboard panning, pointer-centered zoom, and Fit map. The production implementation must use the agreed supported graph foundation after its decision gate; this prototype does not select a library or validate production scale.
+
+Latest Canvas-focus correction (September 8): entering Canvas automatically collapses the sidebar to an icon rail; leaving Canvas restores the full topic outline. Keep reading, Canvas, Practical, Playbook, Find and profile/Settings reachable with accessible icon labels. Distilled/Expanded belong in a single thin top bar, giving the infinite canvas the remaining space. The portable proposal uses a 64px rail and 48px bar; those dimensions are review values, not an approved production constraint.
+
+## Canvas approval receipt · September 8
+
+The founder responded **“This works”** to the assembled Canvas with the automatic icon rail and thin top bar. This accepts the current Canvas visual assembly: infinite dotted plane, learning-origin graph, Distilled/Expanded placement, automatic sidebar collapse on Canvas and restoration when returning to reading. Earlier Canvas review-candidate statements above describe the preceding review stages and are superseded by this receipt for visual assembly.
+
+Approved specimen SHA256: `app.js` `1aad30da1cfb3e9c707434e454e6adb91c99d7a7af20d5b5ddb925a3f1ff9a3b`; `workspace.js` `bedf8a069b3762bf2074635994beb9639d2c4892a54c64abd5f2c2b6a65618cd`; `styles.css` `c6805fb437e878122f1e2e59b7754c1f25d538dae8aa4d7beb27e3b906b80da7`; `index.html` `857ecf8190c9b4f0a2e0e14b318c521fbe720279c79168d35bd069010cf83952`. All 14 manifest entries were verified at acceptance. Record in AR-5 and AR-18.
+
+Approval establishes a visual baseline for Canvas; it does not mark the production ticket Done, validate production graph scale/persistence, approve other screens, or replace pending independent standards review. Practical Work (AR-19) is the next assembled screen to review.
+
+## Playbook deferral · September 8
+
+The founder does not approve the current Playbook and has put it on hold until the rest is built out. Stop iterating or porting this assembly for now; retain AR-20 as deferred work and preserve the underlying authored records/provenance. Further visual reviews are scoped to their dependent screens and do not block backend specification or independent ready slices. Practical Work was advanced past with “next”; this is not an explicit acceptance receipt.
+
+## Type and surfaces
+
+- Reader heading: Newsreader **22px / 1.3, 500**. Reading and human writing: **18px / 1.55, 400**, optical sizing enabled; 68ch maximum measure where width permits.
+- Interface and AI prose: Familjen Grotesk **13–14px / 1.5**, regular with intentional emphasis.
+- Workspace navigation rows follow the latest stacked reference with Familjen Grotesk at 14px in sentence case; topic group labels and coordinates retain the mono treatment below.
+- Navigation/coordinates: Martian Mono **12px / 1.4**, uppercase tracking **.08em**. Citations retain readable source casing; do not uppercase citation prose.
+- Project title/brief: Fraunces, optical size 144, SOFT 40, WONK 1; 40px in the assembled specimen. Reserve this display voice for those roles.
+- Canvas content: latest specimen **24px / 1.4 Newsreader**, nested notes **17px / 1.45**, high contrast, full text without truncation; one compact type/attribution marker. This is the current implementation of the founder’s legibility requirement, not a mandate to duplicate its handwritten graph engine.
+- Dark ground **#0c0f12**, selective surface **#14181c**, ink **#eceae4**, human writing **#efe6cf**, warm accent **#fbd094**, cool accent **#7bc7c9**. Use the complete dark/light tokens in [the specimen CSS](prototype/styles.css), not sampled display-profile screenshot pixels.
+- Rounded controls 6px; grouped controls 8px; panel corners generally 12px. Current node variants use distinct glyphs, outlines, subtle surface tints and silhouette differences. Preserve the semantic distinction while evaluating a production graph library.
+- Use [local font definitions](prototype/fonts.css), optical axes and required real weights. Do not substitute the older Hanken Grotesk/Source Serif 4 app fonts as if they were the latest decision.
+
+## Screen and component map
+
+| Surface             | Reference and required outcome                                                                                                        | Remaining specification gate                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Opening             | Portable reference → Opening. Arbitrary topic, project/source entry and returning work.                                               | Which input/source modes ship in the approved milestone; validation and import states.                                                                                                     |
+| Learning Path       | Persistent left-sidebar topic/concept outline beside content; no separate screen. Preserve branches and existing work.                | Durable path model, revision rules and sourcing quality policy.                                                                                                                            |
+| Reader              | Reader plus components states. Reading, inline explanation, follow-up, selected-passage recording, source preview and deeper context. | Supported source formats, stable locators, exact Notes/Insights/Sources placement, long-source behavior and AI adoption policy.                                                            |
+| Canvas              | Canvas. All human insights individually visible; distinct types, readable content, curved connections, pan/zoom/movement.             | Graph/library selection, persistence, selection/edit/link semantics, keyboard support and large-graph behavior. Current 20–150% zoom, Fit map and per-view positions are review proposals. |
+| Practical work      | Practical work. Explicit start/stop guidance, compatible embedded tools, external fallback, returned result with provenance.          | Observation triggers/limits, target integrations, result-return formats and supported reusable capabilities. Matrix exists in Electron; wheel geometry is a prototype example.             |
+| Playbook            | Playbook. Exact human wording, sources, evidence and next steps; preview/export.                                                      | Compilation, file formats, destination and adoption/export rules. Prototype Markdown download is not a complete backup.                                                                    |
+| Settings            | Settings. Appearance, secure provider configuration, clear local-work boundaries.                                                     | Account/sync/telemetry/distribution require decisions; placeholder rows are not implemented features.                                                                                      |
+| Reusable components | Reusable components. Type, palette, controls, attribution, source preview, loading/error/retry/unsupported/offline examples.          | Build shared accessible components; cover focus, overflow, empty and failure states in real flows.                                                                                         |
+| Screen coverage     | Screen coverage is planning material.                                                                                                 | Do not implement the design-review shell or coverage table as product UI.                                                                                                                  |
+
+The portable reference’s synthetic examples replace real review notes. Its interaction code exists to communicate intent, not as a production architecture recommendation. Preserve approved copy and user writing; do not invent a marketing voice or product capability.
+
+## Evidence and limits
+
+[Review history](../design-session.md) records the received decisions. Source-specific screenshots and originals are indexed in [design references](../design-references/README.md). Private latest screenshots are in the ignored `.impeccable/review/` directory and may include human notes; reviewers should capture fresh, matched synthetic content from the portable reference and Electron instead of uploading personal notes.
+
+Prior visual checks covered selected desktop widths and states, not all screens at every size, complete accessibility, live AI quality, restart persistence or production scale. The implementation gauntlet must verify those against the approved ticket criteria. No previous “pass” exempts the real Electron product from that work.

@@ -1,0 +1,17 @@
+{
+  "search.exclude": {
+    "**/context/repos/**": true
+  },
+  "files.watcherExclude": {
+    "**/context/repos/**": true
+  },
+  "typescript.preferences.autoImportFileExcludePatterns": [
+    "**/context/repos/**"
+  ],
+  "javascript.preferences.autoImportFileExcludePatterns": [
+    "**/context/repos/**"
+  ],
+  "eslint.options": {
+    "overrideConfigFile": "eslint.config.js"
+  }
+}

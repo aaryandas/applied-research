@@ -1,0 +1,8 @@
+{
+  "project": "https://linear.app/aaryan-das/project/applied-research-64943086779b",
+  "handoffDocument": "https://linear.app/aaryan-das/document/applied-research-current-design-and-mvp-build-handoff-109074ac77fc",
+  "promptDocument": "https://linear.app/aaryan-das/document/applied-research-mvp-gauntlet-implementation-prompt-1e6b5b25dc55",
+  "handoffIssue": "AR-4",
+  "decisionIssues": ["AR-5", "AR-6"],
+  "preflightIssue": "AR-7"
+}

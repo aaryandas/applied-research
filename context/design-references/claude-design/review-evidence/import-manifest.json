@@ -1,0 +1,227 @@
+{
+  "import_date": "2026-09-05",
+  "source": "/Users/aaryan/Downloads/Design System Canvas Setup",
+  "destination": "docs/designs/Design System Canvas Setup",
+  "method": "Finder copy; macOS denied command-line Downloads access",
+  "files": [
+    {
+      "path": ".DS_Store",
+      "bytes": 6148,
+      "sha256": "ee32bdfae83d5598e5ba7906d22ce9f05465c58874ffa91bd6826ceade72e5f6"
+    },
+    {
+      "path": ".thumbnail",
+      "bytes": 22052,
+      "sha256": "7f1698e1c4d9e21e247d17da3782992fb30909064a0aa6b66bc800359923e54c"
+    },
+    {
+      "path": "Applied Research - Design System.dc.html",
+      "bytes": 261005,
+      "sha256": "3b99244222923af87d5847f5ed5cdcf8136c66ae8054312b73d318b198dccd32",
+      "artboards": [
+        {
+          "id": "ab1",
+          "label": "01 Posture",
+          "line": 37
+        },
+        {
+          "id": "ab4",
+          "label": "04 Provenance",
+          "line": 74
+        },
+        {
+          "id": "ab2",
+          "label": "02 Type",
+          "line": 122
+        },
+        {
+          "id": "ab3",
+          "label": "03 Color",
+          "line": 181
+        },
+        {
+          "id": "ab5",
+          "label": "05 Components",
+          "line": 261
+        },
+        {
+          "id": "ab5b",
+          "label": "05b Primitives",
+          "line": 511
+        },
+        {
+          "id": "ab6",
+          "label": "06 Motion",
+          "line": 667
+        },
+        {
+          "id": "ab7",
+          "label": "07 Glossary",
+          "line": 717
+        }
+      ]
+    },
+    {
+      "path": "Applied Research - Screens.dc.html",
+      "bytes": 494738,
+      "sha256": "eaff7c41c9b9ae40e9a55a8a96a7b8cd0c767105d71dd22fb82a9a6a706adb33",
+      "artboards": [
+        {
+          "id": "s1",
+          "label": "New project \u00b7 dark",
+          "line": 26
+        },
+        {
+          "id": "s2",
+          "label": "New project \u00b7 dark",
+          "line": 38
+        },
+        {
+          "id": "s3",
+          "label": "What do you already know about attention? \u00b7 dark",
+          "line": 50
+        },
+        {
+          "id": "s4",
+          "label": "Project home \u00b7 Map \u00b7 dark",
+          "line": 83
+        },
+        {
+          "id": "s5",
+          "label": "Project home \u00b7 Map \u00b7 dark",
+          "line": 139
+        },
+        {
+          "id": "s6",
+          "label": "Project home \u00b7 Map \u00b7 light",
+          "line": 195
+        },
+        {
+          "id": "s7",
+          "label": "Reader \u00b7 dark",
+          "line": 251
+        },
+        {
+          "id": "s8",
+          "label": "Card open \u00b7 storyboard",
+          "line": 282
+        },
+        {
+          "id": "s9",
+          "label": "Reader \u00b7 light",
+          "line": 287
+        },
+        {
+          "id": "s10",
+          "label": "Reader \u00b7 2 deep \u00b7 dark",
+          "line": 318
+        },
+        {
+          "id": "s11",
+          "label": "Reader \u00b7 4 deep \u00b7 path bar collapsed \u00b7 dark",
+          "line": 361
+        },
+        {
+          "id": "s12",
+          "label": "Layer push \u00b7 storyboard",
+          "line": 404
+        },
+        {
+          "id": "s13",
+          "label": "Workbench \u00b7 Reactions \u00b7 dark",
+          "line": 409
+        },
+        {
+          "id": "s14",
+          "label": "Workbench \u00b7 Reactions \u00b7 Save acknowledged \u00b7 dark",
+          "line": 441
+        },
+        {
+          "id": "s15",
+          "label": "Workbench \u00b7 Insights \u00b7 dark",
+          "line": 473
+        },
+        {
+          "id": "s16",
+          "label": "Workbench \u00b7 Theses \u00b7 dark",
+          "line": 497
+        },
+        {
+          "id": "s17",
+          "label": "Stress-test landing \u00b7 storyboard",
+          "line": 543
+        },
+        {
+          "id": "s18",
+          "label": "Workbench \u00b7 Theses \u00b7 light",
+          "line": 548
+        },
+        {
+          "id": "s19",
+          "label": "Workbench \u00b7 Playbook \u00b7 dark",
+          "line": 594
+        },
+        {
+          "id": "s20",
+          "label": "Playbook compile \u00b7 storyboard",
+          "line": 625
+        },
+        {
+          "id": "s21",
+          "label": "\u2318K finder \u00b7 dark",
+          "line": 630
+        },
+        {
+          "id": "s22",
+          "label": "\u2318K finder \u00b7 light",
+          "line": 672
+        },
+        {
+          "id": "s23",
+          "label": "State \u00b7 Paper ingest \u00b7 dark",
+          "line": 714
+        },
+        {
+          "id": "s24",
+          "label": "State \u00b7 Parse failure \u00b7 dark",
+          "line": 735
+        },
+        {
+          "id": "s25",
+          "label": "State \u00b7 Equation rendered inline \u00b7 dark",
+          "line": 758
+        },
+        {
+          "id": "s26",
+          "label": "State \u00b7 Collapsed inline card on re-read \u00b7 dark",
+          "line": 781
+        },
+        {
+          "id": "s27",
+          "label": "State \u00b7 Calibration skipped (no seam) \u00b7 dark",
+          "line": 808
+        },
+        {
+          "id": "s28",
+          "label": "State \u00b7 Empty Workbench \u00b7 dark",
+          "line": 864
+        }
+      ]
+    },
+    {
+      "path": "github.md",
+      "bytes": 352,
+      "sha256": "e0e1eff9300aac5823996230733b1695fc0ca1caf5d3cab31779b06de1db9aa4"
+    },
+    {
+      "path": "support.js",
+      "bytes": 69150,
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe"
+    },
+    {
+      "path": "uploads/draw-d7efac5a-e3ce-4bec-938a-479e7d67e61b.png",
+      "bytes": 87018,
+      "sha256": "14d5573261f43d16294986c2971dace044e3b8c25241a8023d3b770be21c056c"
+    }
+  ]
+}

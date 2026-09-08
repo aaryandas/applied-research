@@ -1,0 +1,46 @@
+body {
+  margin: 24px;
+  background: #0c0f12;
+  color: #eceae4;
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+}
+h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+}
+p,
+output {
+  display: block;
+  color: #a9b1b8;
+  margin: 8px 0 12px;
+}
+video {
+  display: block;
+  width: min(100%, 1280px);
+  max-height: 720px;
+  background: #0c0f12;
+}
+nav {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+button {
+  padding: 8px 12px;
+  color: #eceae4;
+  background: #14181c;
+  border: 1px solid #52616c;
+  border-radius: 4px;
+  font: inherit;
+}
+button:focus-visible {
+  outline: 2px solid #7bc7c9;
+  outline-offset: 3px;
+}
+#identity {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,252 @@
+[
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 54,
+    "snippet": "border-left:3px solid var(--human-rule)\">Human-authored text sits on the <em>ground</em>, outdented 28px into the left margin behind a 3px human-rule. Reading face, human-ink. Reads as margin handwriting.</div></div>"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 85,
+    "snippet": "border-left:3px solid var(--human-rule)\">So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.</div>"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 96,
+    "snippet": "border-left:3px solid var(--human-rule)\">So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.</div>"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 109,
+    "snippet": "border-left:3px solid #E9CF6A\">So the scale is a variance fix, not a magic constant. For my retrieval layer the analogue is normalizing embedding dot products before ranking — I've been skipping this.</div>"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 404,
+    "snippet": "border-left:3px solid var(--human-rule)\">Additive attention isn't obviously slower in practice — this claim needs a benchmark, not an assertion.</div>"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 484,
+    "snippet": "border-left:3px solid var(--human-rule)\">Every \"efficiency\" claim in this literature is a claim about kernels, not about attention. The benchmark that would settle it has never been run on equal hardware.</div>"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 128,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 135,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 150,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 501,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 709,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 14,
+    "snippet": "Google Fonts: fraunces"
+  },
+  {
+    "antipattern": "aphoristic-cadence",
+    "name": "Aphoristic-cadence copy",
+    "description": "Three or more sections landing on a short rebuttal sentence (\"X. No Y.\" / \"X. Just Y.\") or a manufactured-contrast aphorism (\"Not a feature. A platform.\") reads as AI cadence, not voice. Once is fine; the pattern is the tell.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 0,
+    "snippet": "9 aphoristic constructions: \"Hover reads \"5 asked · 0 said\". No fraction, no maximum.\""
+  },
+  {
+    "antipattern": "radial-halo",
+    "name": "Radial-gradient background halo",
+    "description": "A chromatic radial-gradient wash — saturated at the center, fading to transparent — used as a decorative background glow on a dark page. Same tell as glowing shadows, drawn with a gradient instead of a shadow. Ground the surface with a solid or subtly shifted background instead.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Design System.dc.html",
+    "line": 242,
+    "snippet": "radial-gradient halo (#f5e5a8 → transparent) on dark page"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 466,
+    "snippet": "border-left:3px solid var(--human-rule)"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 31,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 43,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 96,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 152,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 208,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 606,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 627,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 821,
+    "snippet": "font-family:'Fraunces"
+  },
+  {
+    "antipattern": "overused-font",
+    "name": "Overused font",
+    "description": "Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 14,
+    "snippet": "Google Fonts: fraunces"
+  },
+  {
+    "antipattern": "aphoristic-cadence",
+    "name": "Aphoristic-cadence copy",
+    "description": "Three or more sections landing on a short rebuttal sentence (\"X. No Y.\" / \"X. Just Y.\") or a manufactured-contrast aphorism (\"Not a feature. A platform.\") reads as AI cadence, not voice. Once is fine; the pattern is the tell.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/Users/aaryan/.superset/projects/capstone/docs/designs/Design System Canvas Setup/Applied Research - Screens.dc.html",
+    "line": 0,
+    "snippet": "4 aphoristic constructions: \"Undo stands for 5s as a text button beside the count. No toast.\""
+  }
+]

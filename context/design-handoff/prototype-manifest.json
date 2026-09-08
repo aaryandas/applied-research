@@ -1,0 +1,79 @@
+{
+  "source": ".lavish/design-session/round-2",
+  "snapshot": "2026-09-08",
+  "transformations": [
+    "Removed review service, local capability, feedback submission and review storage code",
+    "Removed review form; portable screen selector retained",
+    "Removed all real user insights; original labeled synthetic fallback retained",
+    "Retained selected fonts, artwork, visual rules and product demonstration interactions",
+    "September 8 founder correction: grouped returning work directly below central topic entry; removed corner project navigation; original source review snapshot remains intact",
+    "Independent review corrections: plain project heading, source-field focus on source selection, theme-independent focus ring on the illustrated Opening",
+    "September 8 founder correction: replaced separate Learning Path screen with persistent expandable topic/concept sidebar beside Reader/practical content; Opening appearance preserved with Reader destination; removed stale path routes and overview styles",
+    "Sidebar review corrections: reveal selected item group on navigation, explicit Reader-layer routing prevents stale previews, distinguish unbuilt outline previews from AI explanation surfaces, keep workspace labels unbroken",
+    "September 8 founder placement correction: moved Canvas, Practical and Playbook beneath project identity above the scrolling topic outline; Settings and Find remain below",
+    "September 8 founder Codex-sidebar refinement: vertically stacked workspace rows and generic bottom profile popover containing Settings; Find separate; native dismissal and navigation focus",
+    "September 8 founder insight correction: 2+ distinct source-text anchors, synthetic cross-source passage picker, quote/context navigation, separate observation labels and preserved links in Canvas/Playbook/export",
+    "September 8 founder clarification: highlight -> human note -> insight linking 2+ saved notes; separate typed entries and drafts, note picker, contextual Note action, source lineage and note-to-insight Canvas edges",
+    "September 8 unified-workspace correction: Distilled insights with nested notes; Expanded highlight-to-note-to-insight connections; exact reading navigation; contextual back/forward; temporary pasted-source Reader and exploration questions; teammate argument graph deferred pending interface",
+    "September 8 infinite-canvas correction: unbounded pan/zoom camera and world-aligned dots; shared sidebar topic/chapter graph; explicit note/question origins; saved questions eligible as insight support with retained provenance",
+    "September 8 Canvas focus correction: automatic 64px icon rail on Canvas, full sidebar restored elsewhere, Return to reading action, single 48px bar combining detail modes and actions"
+  ],
+  "files": [
+    {
+      "path": "app.js",
+      "sha256": "1aad30da1cfb3e9c707434e454e6adb91c99d7a7af20d5b5ddb925a3f1ff9a3b"
+    },
+    {
+      "path": "assets/apple-landscape.webp",
+      "sha256": "8f0db00ce329daa66b15fd0f96c741609f57101333847faeb26e1fd5feb52aba"
+    },
+    {
+      "path": "assets/font-0.ttf",
+      "sha256": "6b0a2f6eeacc577d5c370b7884997cd4abc133b61a8d024a668214b89d71b6fa"
+    },
+    {
+      "path": "assets/font-1.ttf",
+      "sha256": "914b718abea6d1606ac2340c509fd96e1d5e204c220baf670f226363be13a767"
+    },
+    {
+      "path": "assets/font-2.ttf",
+      "sha256": "457dcae83d47907c29376aee2480531b3f33c0a3ec97f17a1983a1e8be3bcc94"
+    },
+    {
+      "path": "assets/font-provenance.json",
+      "sha256": "430c5086bdeca7b9bd46e7c8a8501a65fcc1fa95e28ed89b4d07119759d07691"
+    },
+    {
+      "path": "assets/fraunces-normal-latin.woff2",
+      "sha256": "94bb7e04bb1a32237a67935c72526e42a3e52ee4aebd50299802b18a93114251"
+    },
+    {
+      "path": "assets/martian-mono-normal-latin.woff2",
+      "sha256": "29bf2691317290c0693d305d51abd52ddc027c93207f528f7efa8cf0f8b504ca"
+    },
+    {
+      "path": "assets/newsreader-italic-latin.woff2",
+      "sha256": "a99fb127682b9af538780d21420037452197b0d37dfd273eb108f8a3665d5501"
+    },
+    {
+      "path": "assets/newsreader-normal-latin.woff2",
+      "sha256": "01817351be3edfc1714fe6d60ddea6a22a169a5ebd033b50c7f9495e5d9c386a"
+    },
+    {
+      "path": "fonts.css",
+      "sha256": "adf3f2b9c18d6f226c2cb3c655d1d429b5e534ef3d2fa49258899cd6a14a1002"
+    },
+    {
+      "path": "index.html",
+      "sha256": "857ecf8190c9b4f0a2e0e14b318c521fbe720279c79168d35bd069010cf83952"
+    },
+    {
+      "path": "styles.css",
+      "sha256": "c6805fb437e878122f1e2e59b7754c1f25d538dae8aa4d7beb27e3b906b80da7"
+    },
+    {
+      "path": "workspace.js",
+      "sha256": "bedf8a069b3762bf2074635994beb9639d2c4892a54c64abd5f2c2b6a65618cd"
+    }
+  ]
+}
