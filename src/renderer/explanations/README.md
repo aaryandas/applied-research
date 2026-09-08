@@ -7,10 +7,11 @@ references in `origin`; never infer them from the current selection. `null` mean
 no attached origin. UUID shape validation here does not replace project ownership
 checks at the future storage boundary.
 
-The current ToolPanel launches two session-local instances through `LocalExplanations`.
-Use **Open tool → a source/tool URL → Open in workspace**, then **Launch assembly** or
-**Launch arm**. This bounded change does not alter App's entry flow. Returning to Browser
-restores the existing native guest. The independent matrix experiment remains in Canvas.
+The assembled shell mounts two session-local instances through `LocalExplanations` in
+Reader. Enter a topic, then choose **Explore an assembly** or **Explore a two-link arm**
+under **Interactive explanations**. **Close explanation** unmounts graphics while retaining
+parameters and captures for this workspace session. The reusable historical ToolPanel
+launcher and matrix component remain separately tested; they are not shell destinations.
 
 Recipes are fixed, versioned code with original bundled geometry:
 
@@ -24,8 +25,8 @@ Capturing snaps an assembly transition to the requested configuration before mea
 Every capture contains an immutable copy of the explanation identity, recipe and asset
 versions, input parameters, exact origin, timestamp, world measurement and camera position/
 target. Captures are app-measured and explicitly session-only. Reset and retry preserve the
-prior capture. Closing the tool discards it. There is no database write, saved attachment,
-export, remote generation, Reader action or Canvas placement in this slice.
+prior capture. Leaving the workspace discards it. There is no database write, saved attachment,
+export, remote generation or Canvas placement in this slice.
 
 `SceneCanvas` uses React Three Fiber's `createRoot` and frame hooks. It owns synchronous
 WebGL initialization and catches asynchronous configuration failures. Initialization does
@@ -41,7 +42,8 @@ measurements until an explicit retry succeeds.
 The numerical tests cover exact zero/right-angle cases and 225 combinations of lengths and
 angles. Renderer tests cover invalid specs, session capture, bounds, lifecycle and fallback.
 `tests/e2e/explanations.spec.ts` drives actual Electron/Three rendering, mesh picking, orbit,
-parameter capture, context loss, resize/idle draw counts and browser restoration. Set
+parameter capture, context loss, resize/idle draw counts and Reader close/reopen behavior. Guest hide/restore and isolation
+remain exercised through the real named desktop bridge in `tests/e2e/desktop.spec.ts`. Set
 `AR24_EVIDENCE_DIR` to retain screenshots, measurement records and machine/timing metadata.
 WebGL-unavailable coverage injects a null browser context at creation; context-loss coverage
 uses the actual GPU's `WEBGL_lose_context` extension. The measurements are machine-specific,

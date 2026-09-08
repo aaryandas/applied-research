@@ -8,6 +8,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  closeTestApplication,
+  useElectronCloseHandling,
+} from './electron-lifecycle';
+
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
   return electron.launch({
@@ -27,6 +32,7 @@ test('saves an offline learning space, edits and layout across a real Electron r
   let application = await launch(directory);
   try {
     const page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -45,59 +51,121 @@ test('saves an offline learning space, edits and layout across a real Electron r
       .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Understand linear transformations');
     await page.getByRole('button', { name: 'Start learning' }).click();
+    await page.getByRole('button', { name: 'Add source', exact: true }).click();
+    await page.getByLabel('Source title').fill('Synthetic shear source');
+    await page
+      .getByLabel('Exact source text')
+      .fill('A shear preserves area while changing angles.');
+    await page
+      .getByRole('button', { name: 'Import source', exact: true })
+      .click();
+    const prose = page.getByLabel('Source text', { exact: true });
+    await expect(prose).toHaveText(
+      'A shear preserves area while changing angles.',
+    );
+    await prose.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
     await page.getByRole('button', { name: 'Note', exact: true }).click();
-    await page.getByLabel('note title').fill('My first prediction');
+    await page.getByLabel('Title', { exact: true }).fill('My first prediction');
     await page
-      .getByLabel('note text')
+      .getByLabel('In your own words')
+      .fill('A shear changes the square.');
+    await page.getByRole('button', { name: 'Save note', exact: true }).click();
+    await expect(
+      page.getByText('A shear changes the square.', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page
+      .getByLabel('In your own words')
       .fill('A shear preserves the area of the square.');
-    await expect(page.getByText('Saved', { exact: true })).toBeVisible();
-    await page
-      .getByRole('button', { name: 'Move My first prediction' })
-      .press('ArrowRight');
+    await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+    await page.getByRole('button', { name: 'Expanded', exact: true }).click();
+    const note = page
+      .locator('.react-flow__node')
+      .filter({ hasText: 'My first prediction' });
+    await expect(note).toBeVisible();
+    await note.focus();
+    await note.press('Enter');
+    await note.press('ArrowRight');
     await expect
-      .poll(
-        async () =>
-          (await page.evaluate(() => window.desktop.listProjects()))[0]
-            ?.entries[0]?.x,
+      .poll(async () =>
+        page.evaluate(async () => {
+          const [project] = await window.desktop.listProjects();
+          const workspace = await window.desktop.getLearningWorkspace(
+            project!.id,
+          );
+          const entry = workspace.entries.find(
+            (item) => item.current.title === 'My first prediction',
+          )!;
+          return workspace.placements.find(
+            (item) => item.recordId === entry.id && item.view === 'expanded',
+          )?.x;
+        }),
       )
-      .toBe(72);
-    await page.getByRole('button', { name: 'Experiment', exact: true }).click();
-    await page.getByLabel('Matrix a').fill('1.5');
-    await page.getByRole('button', { name: 'Capture result' }).click();
-    await expect
-      .poll(
-        async () =>
-          (await page.evaluate(() => window.desktop.listProjects()))[0]?.entries
-            .length,
-      )
-      .toBe(3);
-    await expect(page.locator('.entry-count')).toContainText('3');
-    await page
-      .locator('.canvas-scroll')
-      .evaluate((element) => element.scrollTo(0, 0));
+      .toBe(53);
+    const beforeRestart = await page.evaluate(async () => {
+      const [project] = await window.desktop.listProjects();
+      // The standalone MVP experiment UI is retired; retain its real named
+      // producer and result-storage checks alongside the current Reader UI.
+      await window.desktop.addExperiment(project!.id);
+      await window.desktop.saveEntry({
+        projectId: project!.id,
+        kind: 'result',
+        title: 'Synthetic matrix capture',
+        body: 'Matrix [[1.5, 0.5], [0, 1]]. The vector (1, 1) maps to (2, 1). Determinant: 1.50.',
+        url: '',
+      });
+      return window.desktop.getLearningWorkspace(project!.id);
+    });
+    expect(beforeRestart.entries).toHaveLength(3);
+    expect(
+      beforeRestart.entries.find(
+        (entry) => entry.current.title === 'My first prediction',
+      )?.revisions,
+    ).toHaveLength(2);
     await page.screenshot({ path: test.info().outputPath('workspace.png') });
     expect(errors).toEqual([]);
-    await application.close();
+    await closeTestApplication(application);
     application = await launch(directory);
     const reopened = await application.firstWindow();
+    useElectronCloseHandling(reopened);
     await reopened
       .getByRole('button', { name: /Understand linear transformations/ })
       .click();
-    await expect(reopened.getByRole('heading', { level: 1 })).toHaveText(
+    await expect(reopened.locator('.reader-project')).toHaveText(
       'Understand linear transformations',
     );
-    await expect(reopened.getByLabel('note text')).toHaveValue(
-      'A shear preserves the area of the square.',
-    );
-    await expect(reopened.getByLabel('result text')).toHaveValue(/Matrix/);
-    const projects = await reopened.evaluate(() =>
-      window.desktop.listProjects(),
-    );
-    expect(
-      projects[0]?.entries.find((entry) => entry.kind === 'result')?.body,
-    ).toContain('Matrix [[1.5, 0.5]');
+    await expect(
+      reopened.getByText('A shear preserves the area of the square.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    const afterRestart = await reopened.evaluate(async () => {
+      const [project] = await window.desktop.listProjects();
+      return window.desktop.getLearningWorkspace(project!.id);
+    });
+    expect(afterRestart.entries).toEqual(beforeRestart.entries);
+    expect(afterRestart.placements).toEqual(beforeRestart.placements);
+    expect(afterRestart.sources).toEqual(beforeRestart.sources);
+    expect(afterRestart.highlights).toEqual(beforeRestart.highlights);
+    await reopened.getByRole('button', { name: 'Canvas', exact: true }).click();
+    await reopened
+      .getByRole('button', { name: 'Expanded', exact: true })
+      .click();
+    await expect(
+      reopened
+        .locator('.react-flow__node')
+        .filter({ hasText: 'My first prediction' }),
+    ).toHaveAttribute('style', /translate\(53px, 40px\)/);
+    await expect(reopened.getByText(/Matrix \[\[1.5, 0.5/)).toBeVisible();
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -150,27 +218,61 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
       };
     });
     const page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page
       .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Build an intuition for linear algebra');
     await page.getByRole('button', { name: 'Start learning' }).click();
-    await expect(page.getByText('AI · source-led guidance')).toBeVisible();
-    await page.getByRole('button', { name: 'Note', exact: true }).click();
-    await page.getByLabel('note title').fill('My prediction');
-    await page
-      .getByLabel('note text')
-      .fill(
-        'A shear will change the angles but preserve the area. I want to check why.',
+    // Guest and development tutor controls are no longer shell destinations.
+    // Exercise their supported named preload operations against real main and SQLite.
+    const initialAnswer = await page.evaluate(async () => {
+      const [project] = await window.desktop.listProjects();
+      await window.desktop.saveEntry({
+        projectId: project!.id,
+        kind: 'note',
+        title: 'My prediction',
+        body: 'A shear will change the angles but preserve the area. I want to check why.',
+        url: '',
+      });
+      return window.desktop.askTutor({
+        projectId: project!.id,
+        prompt: 'Suggest a practical first step.',
+        includePage: false,
+      });
+    });
+    const assistant = initialAnswer.entries.find(
+      (entry) => entry.kind === 'assistant',
+    );
+    expect(assistant?.body).toContain(
+      'Predict how a shear changes the square [1].',
+    );
+    expect(assistant?.citations).toEqual([
+      {
+        title: 'Matrix Lab',
+        url: 'https://learning.test/',
+        start: 38,
+        end: 41,
+      },
+    ]);
+    await page.evaluate(async () => {
+      Reflect.set(window, 'toolStates', []);
+      window.desktop.onToolState((state) =>
+        Reflect.get(window, 'toolStates').push(state),
       );
-    await expect(page.getByText('Saved', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: /Matrix Lab/ }).click();
-    await expect(
-      page.getByRole('complementary', { name: 'Embedded source or tool' }),
-    ).toBeVisible();
-    await expect(
-      page.getByText('Matrix Lab', { exact: true }).last(),
-    ).toBeVisible();
+      await window.desktop.openTool('https://learning.test/');
+      await window.desktop.resizeTool({
+        x: 320,
+        y: 80,
+        width: 480,
+        height: 500,
+      });
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => JSON.stringify(Reflect.get(window, 'toolStates'))),
+      )
+      .toContain('Matrix Lab');
     const isolation = await application.evaluate(async ({ webContents }) => {
       const guest = webContents
         .getAllWebContents()
@@ -190,8 +292,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
           )
           ?.getBounds(),
     );
-    expect(guestBounds?.width).toBeGreaterThan(300);
-    expect(guestBounds?.height).toBeGreaterThan(400);
+    expect(guestBounds).toEqual({ x: 320, y: 80, width: 480, height: 500 });
     const guestImage = await application.evaluate(async ({ webContents }) => {
       const guest = webContents
         .getAllWebContents()
@@ -203,38 +304,105 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
       test.info().outputPath('embedded-page.png'),
       Buffer.from(guestImage ?? '', 'base64'),
     );
-    await page.getByRole('button', { name: 'Guide me' }).click();
-    await expect(page.getByText('Guiding this activity')).toBeVisible();
-    await expect
-      .poll(async () =>
-        application.evaluate(() =>
-          JSON.stringify(Reflect.get(globalThis, 'lastTutorRequest')),
-        ),
-      )
-      .toContain('Change a matrix coefficient');
-    await page.getByRole('button', { name: 'Stop guidance' }).click();
-    await page
-      .locator('.canvas-scroll')
-      .evaluate((element) => element.scrollTo(0, 0));
+    const guided = await page.evaluate(async () => {
+      const [project] = await window.desktop.listProjects();
+      return window.desktop.askTutor({
+        projectId: project!.id,
+        prompt: 'Guide this activity using the open page.',
+        includePage: true,
+      });
+    });
+    expect(
+      guided.entries.filter((entry) => entry.kind === 'assistant'),
+    ).toHaveLength(2);
+    const request = await application.evaluate(() =>
+      JSON.stringify(Reflect.get(globalThis, 'lastTutorRequest')),
+    );
+    expect(request).toContain('Change a matrix coefficient');
+    expect(request).toContain(
+      'A shear will change the angles but preserve the area.',
+    );
+    await page.evaluate(() => window.desktop.stopTutor());
     await page.screenshot({
       path: test.info().outputPath('guided-workspace.png'),
     });
-    await page.getByRole('button', { name: 'Close tool' }).click();
-    await expect(
-      page.getByRole('complementary', { name: 'Embedded source or tool' }),
-    ).toHaveCount(0);
+    // Keep the previous guest hide/restore assertions now that explanations live in Reader.
+    await page.evaluate(() =>
+      window.desktop.resizeTool({ x: 0, y: 0, width: 0, height: 0 }),
+    );
+    expect(
+      await application.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.contentView.children.some(
+          (view) =>
+            view.getBounds().width === 0 && view.getBounds().height === 0,
+        ),
+      ),
+    ).toBe(true);
+    await page.evaluate(() =>
+      window.desktop.resizeTool({ x: 320, y: 80, width: 480, height: 500 }),
+    );
+    expect(
+      await application.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.contentView.children.some(
+          (view) =>
+            view.getBounds().width === 480 && view.getBounds().height === 500,
+        ),
+      ),
+    ).toBe(true);
+    await page.evaluate(() => window.desktop.closeTool());
+    expect(
+      await application.evaluate(
+        ({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.contentView.children.length,
+      ),
+    ).toBe(0);
+    await page.getByRole('button', { name: 'Applied Research home' }).click();
     await page
-      .locator('.canvas-scroll')
-      .evaluate((element) => element.scrollTo(0, 0));
+      .getByRole('button', { name: /Build an intuition for linear algebra/ })
+      .click();
+    await expect(
+      page.getByText(
+        'A shear will change the angles but preserve the area. I want to check why.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+    await page.getByRole('button', { name: 'Expanded', exact: true }).click();
+    const aiRecords = page.locator(
+      '.workspace-canvas-node[data-author="assistant"]',
+    );
+    await expect(aiRecords).toHaveCount(2);
+    await expect(aiRecords.first()).toContainText(
+      'Predict how a shear changes the square',
+    );
+    const aiNode = page
+      .locator('.react-flow__node')
+      .filter({ has: aiRecords })
+      .first();
+    await aiNode.focus();
+    await aiNode.press('F2');
+    await expect(
+      page.getByRole('region', { name: 'Learning canvas', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel('In your own words')).toHaveCount(0);
+    await page
+      .getByRole('button', { name: 'Profile and settings', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Light', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to work' }).click();
     await page.screenshot({
       path: test.info().outputPath('voices-daylight.png'),
     });
-    await page.getByRole('button', { name: 'Use evening theme' }).click();
+    await page
+      .getByRole('button', { name: 'Profile and settings', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Dark', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to work' }).click();
     await page.screenshot({
       path: test.info().outputPath('voices-evening.png'),
     });
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -244,6 +412,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
   const application = await launch(directory);
   try {
     const page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const input = page.getByLabel('What do you want to learn about?', {
       exact: true,
@@ -311,7 +480,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await expect(input).toBeFocused();
     await input.fill('A robot that can find its way');
     await input.press('Enter');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    await expect(page.locator('.reader-project')).toHaveText(
       'A robot that can find its way',
     );
     await page.getByRole('button', { name: 'Applied Research home' }).click();
@@ -354,15 +523,19 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       path: test.info().outputPath('opening-row-focus.png'),
     });
     await savedRow.press('Enter');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    await expect(page.locator('.reader-project')).toHaveText(
       'A robot that can find its way',
     );
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await page.getByRole('button', { name: 'Explore a topic' }).click();
     await expect(input).toBeFocused();
     for (const theme of ['light', 'dark']) {
-      if (theme === 'dark')
-        await page.getByRole('button', { name: 'Use evening theme' }).click();
+      await page
+        .getByRole('button', {
+          name: theme === 'light' ? 'Use daylight theme' : 'Use evening theme',
+        })
+        .click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await input.focus();
       await expect(input).toHaveCSS('outline-style', 'none');
       await expect(page.locator('.learning-input')).toHaveCSS(
@@ -417,12 +590,20 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-button-focus-${theme}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Connect OpenRouter' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(
-      page.getByRole('button', { name: 'Connect OpenRouter' }),
+      page.getByRole('heading', { name: 'Settings', exact: true }),
+    ).toBeVisible();
+    await expect(input).toBeHidden();
+    await page
+      .getByRole('button', { name: 'Back to work', exact: true })
+      .focus();
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('heading', { name: 'Settings', exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Settings', exact: true }),
     ).toBeFocused();
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await input.fill('Observe the placeholder exit');
@@ -458,9 +639,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       path: test.info().outputPath('opening-long-input-820x620.png'),
     });
     await page.getByRole('button', { name: 'Start learning' }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      longTopic.trim(),
-    );
+    await expect(page.locator('.reader-project')).toHaveText(longTopic.trim());
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await expect(
       page
@@ -476,7 +655,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await page
       .getByRole('button', { name: /A robot that can find its way/ })
       .click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    await expect(page.locator('.reader-project')).toHaveText(
       'A robot that can find its way',
     );
     const projects = await page.evaluate(() => window.desktop.listProjects());
@@ -487,7 +666,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       ]),
     );
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -497,6 +676,7 @@ test('retains the topic and focus after real bridge creation failures and suppre
   const application = await launch(directory);
   try {
     const page = await application.firstWindow();
+    useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const input = page.getByLabel('What do you want to learn about?', {
       exact: true,
@@ -577,7 +757,7 @@ test('retains the topic and focus after real bridge creation failures and suppre
       [],
     );
   } finally {
-    await application.close();
+    await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
   }
 });
