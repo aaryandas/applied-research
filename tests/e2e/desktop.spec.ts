@@ -27,6 +27,9 @@ function launch(directory: string, key = ''): Promise<ElectronApplication> {
   });
 }
 
+// scripts/test-packaged.mjs sets this to run the suite against the built app.
+const PACKAGED = Boolean(process.env.ELECTRON_EXECUTABLE_PATH);
+
 const OPENING_VIEWPORTS: ReadonlyArray<readonly [number, number]> = [
   [1280, 800],
   [1440, 900],
@@ -272,7 +275,9 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
     await page.getByRole('button', { name: 'Start learning' }).click();
     // Guest and development tutor controls are no longer shell destinations.
     // Exercise their supported named preload operations against real main and SQLite.
-    const initialAnswer = await page.evaluate(async () => {
+    // The direct OpenRouter path exists only in development; the packaged app
+    // must refuse it (production AI is app-managed through the backend).
+    const askFirstStep = async () => {
       const [project] = await window.desktop.listProjects();
       await window.desktop.saveEntry({
         projectId: project!.id,
@@ -286,21 +291,28 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
         prompt: 'Suggest a practical first step.',
         includePage: false,
       });
-    });
-    const assistant = initialAnswer.entries.find(
-      (entry) => entry.kind === 'assistant',
-    );
-    expect(assistant?.body).toContain(
-      'Predict how a shear changes the square [1].',
-    );
-    expect(assistant?.citations).toEqual([
-      {
-        title: 'Matrix Lab',
-        url: 'https://learning.test/',
-        start: 38,
-        end: 41,
-      },
-    ]);
+    };
+    if (PACKAGED) {
+      await expect(page.evaluate(askFirstStep)).rejects.toThrow(
+        'The development tutor is disabled.',
+      );
+    } else {
+      const initialAnswer = await page.evaluate(askFirstStep);
+      const assistant = initialAnswer.entries.find(
+        (entry) => entry.kind === 'assistant',
+      );
+      expect(assistant?.body).toContain(
+        'Predict how a shear changes the square [1].',
+      );
+      expect(assistant?.citations).toEqual([
+        {
+          title: 'Matrix Lab',
+          url: 'https://learning.test/',
+          start: 38,
+          end: 41,
+        },
+      ]);
+    }
     await page.evaluate(async () => {
       Reflect.set(window, 'toolStates', []);
       window.desktop.onToolState((state) =>
@@ -350,24 +362,36 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
       test.info().outputPath('embedded-page.png'),
       Buffer.from(guestImage ?? '', 'base64'),
     );
-    const guided = await page.evaluate(async () => {
+    const askGuided = async () => {
       const [project] = await window.desktop.listProjects();
       return window.desktop.askTutor({
         projectId: project!.id,
         prompt: 'Guide this activity using the open page.',
         includePage: true,
       });
-    });
-    expect(
-      guided.entries.filter((entry) => entry.kind === 'assistant'),
-    ).toHaveLength(2);
-    const request = await application.evaluate(() =>
-      JSON.stringify(Reflect.get(globalThis, 'lastTutorRequest')),
-    );
-    expect(request).toContain('Change a matrix coefficient');
-    expect(request).toContain(
-      'A shear will change the angles but preserve the area.',
-    );
+    };
+    if (PACKAGED) {
+      await expect(page.evaluate(askGuided)).rejects.toThrow(
+        'The development tutor is disabled.',
+      );
+      expect(
+        await application.evaluate(() =>
+          Reflect.has(globalThis, 'lastTutorRequest'),
+        ),
+      ).toBe(false);
+    } else {
+      const guided = await page.evaluate(askGuided);
+      expect(
+        guided.entries.filter((entry) => entry.kind === 'assistant'),
+      ).toHaveLength(2);
+      const request = await application.evaluate(() =>
+        JSON.stringify(Reflect.get(globalThis, 'lastTutorRequest')),
+      );
+      expect(request).toContain('Change a matrix coefficient');
+      expect(request).toContain(
+        'A shear will change the angles but preserve the area.',
+      );
+    }
     await page.evaluate(() => window.desktop.stopTutor());
     await page.screenshot({
       path: test.info().outputPath('guided-workspace.png'),
