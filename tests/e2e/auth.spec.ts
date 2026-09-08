@@ -33,6 +33,7 @@ function launch(directory: string): Promise<ElectronApplication> {
 }
 
 async function installSyntheticAuth(application: ElectronApplication) {
+  await application.firstWindow();
   await application.evaluate(async ({ BrowserWindow, session, shell }) => {
     Reflect.set(globalThis, 'ar12OpenedAuthUrls', []);
     Reflect.set(globalThis, 'ar12AuthRequestPaths', []);
