@@ -1,11 +1,11 @@
 import type {
   MetadataOnlySource,
   OpenAlexWorkId,
-  PermissionDecision,
   SourceUsePolicy,
 } from '../../../contracts/sourcing.js';
 import { SOURCING_LIMITS } from '../../../contracts/sourcing.js';
-import { isRemoteText } from '../../text.js';
+import { isRemoteText, isUnicodeScalarBoundary } from '../../text.js';
+import { isDenseArray } from '../../validation-primitives.js';
 
 const MAX_OPENALEX_ID_CHARACTERS = 128;
 const MAX_DOI_CHARACTERS = 512;
@@ -16,7 +16,7 @@ const MAX_ABSTRACT_TOKEN_CHARACTERS = 200;
 const MAX_ABSTRACT_TOKENS = 4_000;
 const OPENALEX_ORIGIN = 'https://openalex.org';
 const DOI_PREFIX = 'https://doi.org/';
-const OPENALEX_PAPER_TYPES = new Set([
+export const OPENALEX_PAPER_TYPES = [
   'article',
   'conference-paper',
   'data-paper',
@@ -25,7 +25,8 @@ const OPENALEX_PAPER_TYPES = new Set([
   'report',
   'review',
   'software-paper',
-]);
+] as const;
+const OPENALEX_PAPER_TYPE_SET = new Set<string>(OPENALEX_PAPER_TYPES);
 
 interface Decoded<T> {
   readonly value: T;
@@ -39,28 +40,10 @@ interface NormalizedLocation {
   readonly licenseEvidenceUrl: string | null;
 }
 
-export interface OpenAlexPermissionEvidence {
-  readonly providerWorkId: string;
-  readonly canonicalOpenAlexUrl: string;
-  readonly landingPageUrl: string;
-  readonly acquisitionPdfUrl: string | null;
-  readonly isOpenAccess: boolean | null;
-  readonly licenseName: string | null;
-  readonly licenseEvidenceUrl: string | null;
-}
-
-export interface OpenAlexPermissionPolicy {
-  readonly decide: (evidence: OpenAlexPermissionEvidence) => {
-    readonly acquisition: PermissionDecision;
-    readonly indexing: PermissionDecision;
-  };
-}
-
 export interface NormalizedOpenAlexWork {
   readonly candidate: MetadataOnlySource;
   readonly landingPageLocation: string;
   readonly acquisitionPdfLocation: string | null;
-  readonly relatedWorkIds: string[];
 }
 
 export type OpenAlexWorkNormalization =
@@ -69,6 +52,7 @@ export type OpenAlexWorkNormalization =
       readonly work: NormalizedOpenAlexWork;
       readonly hadIssue: boolean;
     }
+  | { readonly kind: 'filtered' }
   | { readonly kind: 'rejected' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,7 +126,7 @@ export function normalizeOpenAlexDoi(value: unknown): string | null {
   const bare = lower.startsWith(DOI_PREFIX)
     ? lower.slice(DOI_PREFIX.length)
     : lower;
-  return /^10\.\d{4,9}\/[-._;()/:a-z0-9]+$/.test(bare) ? bare : null;
+  return /^10\.\d{4,9}\/[^\s]+$/.test(bare) ? bare : null;
 }
 
 function normalizeArxivId(value: unknown): string | null {
@@ -222,13 +206,6 @@ function normalizedCreators(value: unknown): Decoded<string[]> {
   return { value: creators, hadIssue };
 }
 
-function isDenseArray(value: readonly unknown[]): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.hasOwn(value, index)) return false;
-  }
-  return true;
-}
-
 function normalizedAbstract(value: unknown): Decoded<string | null> {
   if (value === null || value === undefined) {
     return { value: null, hadIssue: false };
@@ -254,9 +231,6 @@ function normalizedAbstract(value: unknown): Decoded<string | null> {
         return { value: null, hadIssue: true };
       }
       positionedTokens.set(position, token);
-      if (positionedTokens.size > MAX_ABSTRACT_TOKENS) {
-        return { value: null, hadIssue: true };
-      }
     }
   }
   if (positionedTokens.size === 0) return { value: null, hadIssue: false };
@@ -267,10 +241,11 @@ function normalizedAbstract(value: unknown): Decoded<string | null> {
     tokens.push(token);
   }
   const abstract = tokens.join(' ');
-  if (!isSafeText(abstract, 4_000)) {
-    return { value: null, hadIssue: false };
-  }
-  return { value: abstract, hadIssue: false };
+  if (!isRemoteText(abstract)) return { value: null, hadIssue: true };
+  if (abstract.length <= 4_000) return { value: abstract, hadIssue: false };
+  // This is untrusted provider metadata, never human-authored application text.
+  const boundary = isUnicodeScalarBoundary(abstract, 4_000) ? 4_000 : 3_999;
+  return { value: abstract.slice(0, boundary), hadIssue: false };
 }
 
 function normalizedLocation(
@@ -311,26 +286,6 @@ function normalizedLocation(
   };
 }
 
-function normalizedRelatedWorkIds(value: unknown): Decoded<string[]> {
-  if (value === null || value === undefined) {
-    return { value: [], hadIssue: false };
-  }
-  if (
-    !Array.isArray(value) ||
-    value.length > SOURCING_LIMITS.relationships ||
-    !isDenseArray(value)
-  ) {
-    return { value: [], hadIssue: true };
-  }
-  const ids: string[] = [];
-  for (const related of value) {
-    const id = normalizeOpenAlexWorkId(related);
-    if (id === null) return { value: [], hadIssue: true };
-    ids.push(id);
-  }
-  return { value: ids, hadIssue: false };
-}
-
 function normalizedOpenAccess(value: unknown): Decoded<boolean | null> {
   if (value === null || value === undefined) {
     return { value: null, hadIssue: false };
@@ -354,61 +309,45 @@ function normalizedArxivFromIds(value: unknown): Decoded<string | null> {
   };
 }
 
-function defaultPermissionDecision(reason: string): PermissionDecision {
-  return { status: 'unknown', reason };
-}
-
 function usePolicy(
-  evidence: OpenAlexPermissionEvidence,
-  policy: OpenAlexPermissionPolicy | undefined,
-): Decoded<SourceUsePolicy> {
-  const defaults: SourceUsePolicy = {
-    access: evidence.isOpenAccess === true ? 'public' : 'unknown',
-    accessEvidenceUrl:
-      evidence.isOpenAccess === true ? evidence.canonicalOpenAlexUrl : null,
+  canonicalOpenAlexUrl: string,
+  isOpenAccess: boolean | null,
+  pdfLocation: NormalizedLocation | null,
+): SourceUsePolicy {
+  return {
+    access: isOpenAccess === true ? 'public' : 'unknown',
+    accessEvidenceUrl: isOpenAccess === true ? canonicalOpenAlexUrl : null,
     license:
-      evidence.licenseName === null
+      pdfLocation?.licenseName === null ||
+      pdfLocation?.licenseName === undefined
         ? { status: 'unknown' }
         : {
             status: 'known',
-            name: evidence.licenseName,
+            name: pdfLocation.licenseName,
             spdxId: null,
-            url: evidence.licenseEvidenceUrl,
+            url: pdfLocation.licenseEvidenceUrl,
           },
-    acquisition: defaultPermissionDecision(
-      'OpenAlex metadata does not establish acquisition permission.',
-    ),
-    indexing: defaultPermissionDecision(
-      'OpenAlex metadata does not establish indexing permission.',
-    ),
+    acquisition: {
+      status: 'unknown',
+      reason: 'OpenAlex metadata does not establish acquisition permission.',
+    },
+    indexing: {
+      status: 'unknown',
+      reason: 'OpenAlex metadata does not establish indexing permission.',
+    },
   };
-  if (policy === undefined) return { value: defaults, hadIssue: false };
-  try {
-    const decision = policy.decide(evidence);
-    return {
-      value: {
-        ...defaults,
-        acquisition: decision.acquisition,
-        indexing: decision.indexing,
-      },
-      hadIssue: false,
-    };
-  } catch {
-    return { value: defaults, hadIssue: true };
-  }
 }
 
 export function normalizeOpenAlexWork(
   value: unknown,
   discoveredAt: string,
-  permissionPolicy?: OpenAlexPermissionPolicy,
 ): OpenAlexWorkNormalization {
   if (!isRecord(value)) return { kind: 'rejected' };
   const providerWorkId = normalizeOpenAlexWorkId(value.id);
   if (providerWorkId === null) return { kind: 'rejected' };
-  if (typeof value.type !== 'string' || !OPENALEX_PAPER_TYPES.has(value.type)) {
+  if (typeof value.type !== 'string' || !isSafeText(value.type, 100))
     return { kind: 'rejected' };
-  }
+  if (!OPENALEX_PAPER_TYPE_SET.has(value.type)) return { kind: 'filtered' };
   if (
     typeof value.display_name !== 'string' ||
     !isSafeText(value.display_name.trim(), MAX_TITLE_CHARACTERS)
@@ -423,30 +362,28 @@ export function normalizeOpenAlexWork(
     primaryLocation.value?.landingPageUrl ??
     bestOpenAccessLocation.value?.landingPageUrl ??
     canonicalOpenAlexUrl;
-  const acquisitionPdfLocation =
-    bestOpenAccessLocation.value?.pdfUrl ??
-    primaryLocation.value?.pdfUrl ??
-    null;
-  const licenseLocation = bestOpenAccessLocation.value ?? primaryLocation.value;
+  const acquisitionLocation =
+    bestOpenAccessLocation.value?.pdfUrl !== null &&
+    bestOpenAccessLocation.value?.pdfUrl !== undefined
+      ? bestOpenAccessLocation.value
+      : primaryLocation.value?.pdfUrl !== null &&
+          primaryLocation.value?.pdfUrl !== undefined
+        ? primaryLocation.value
+        : null;
+  const acquisitionPdfLocation = acquisitionLocation?.pdfUrl ?? null;
   const creators = normalizedCreators(value.authorships);
   const publicationDate = normalizedDate(value.publication_date);
   const abstract = normalizedAbstract(value.abstract_inverted_index);
-  const relatedWorkIds = normalizedRelatedWorkIds(value.related_works);
   const openAccess = normalizedOpenAccess(value.open_access);
   const arxivId = normalizedArxivFromIds(value.ids);
   const doi = normalizeOpenAlexDoi(value.doi);
   const malformedDoi =
     value.doi !== null && value.doi !== undefined && doi === null;
-  const permissionEvidence: OpenAlexPermissionEvidence = {
-    providerWorkId,
+  const normalizedUsePolicy = usePolicy(
     canonicalOpenAlexUrl,
-    landingPageUrl: landingPageLocation,
-    acquisitionPdfUrl: acquisitionPdfLocation,
-    isOpenAccess: openAccess.value,
-    licenseName: licenseLocation?.licenseName ?? null,
-    licenseEvidenceUrl: licenseLocation?.licenseEvidenceUrl ?? null,
-  };
-  const normalizedUsePolicy = usePolicy(permissionEvidence, permissionPolicy);
+    openAccess.value,
+    acquisitionLocation,
+  );
 
   return {
     kind: 'accepted',
@@ -473,12 +410,11 @@ export function normalizeOpenAlexWork(
         discoveredAt,
         metadataSummary: abstract.value,
         relationships: [],
-        usePolicy: normalizedUsePolicy.value,
+        usePolicy: normalizedUsePolicy,
         content: { state: 'metadata-only' },
       },
       landingPageLocation,
       acquisitionPdfLocation,
-      relatedWorkIds: relatedWorkIds.value,
     },
     hadIssue:
       primaryLocation.hadIssue ||
@@ -486,10 +422,8 @@ export function normalizeOpenAlexWork(
       creators.hadIssue ||
       publicationDate.hadIssue ||
       abstract.hadIssue ||
-      relatedWorkIds.hadIssue ||
       openAccess.hadIssue ||
       arxivId.hadIssue ||
-      malformedDoi ||
-      normalizedUsePolicy.hadIssue,
+      malformedDoi,
   };
 }

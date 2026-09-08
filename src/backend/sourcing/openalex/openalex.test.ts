@@ -14,6 +14,7 @@ import {
 import type {
   OpenAlexBudgetDecision,
   OpenAlexBudgetRequest,
+  OpenAlexBudgetReservation,
   OpenAlexBudgetService,
 } from './budget.js';
 import { OpenAlexBudgetFailure } from './budget.js';
@@ -92,12 +93,16 @@ function jsonResponse(results: unknown[], init: ResponseInit = {}): Response {
 
 function reservedBudget(
   onReserve?: (input: OpenAlexBudgetRequest) => void,
+  reservation: OpenAlexBudgetReservation = {
+    release: () => Effect.void,
+    settle: () => Effect.void,
+  },
 ): OpenAlexBudgetService {
   return {
     refreshAndReserve(input) {
       return Effect.sync(() => {
         onReserve?.(input);
-        return { kind: 'reserved' };
+        return { kind: 'reserved', reservation };
       });
     },
   };
@@ -111,6 +116,8 @@ function adapterOptions(
     apiKey: SYNTHETIC_API_KEY_FIXTURE,
     maximumSearchCostMicrousd: 1_000,
     budget: reservedBudget(),
+    runEffect: (effect, signal) =>
+      Effect.runPromise(effect, signal === undefined ? undefined : { signal }),
     request: performRequest,
     now: () => new Date(DISCOVERED_AT),
     timeoutMilliseconds: 1_000,
@@ -133,7 +140,6 @@ describe('OpenAlex normalization', () => {
     expect(normalized.work).toMatchObject({
       landingPageLocation: 'https://publisher.example/paper',
       acquisitionPdfLocation: 'https://repository.example/paper.pdf',
-      relatedWorkIds: ['W123'],
       candidate: {
         sourceId: 'openalex_W2741809807',
         providerIds: [{ provider: 'openalex', id: 'W2741809807' }],
@@ -222,6 +228,30 @@ describe('OpenAlex normalization', () => {
     expect(validArxiv.work.candidate.scholarlyIdentity.arxivId).toBe(
       'cond-mat.ME/0601001v2',
     );
+  });
+
+  it('accepts validator-conformant DOI punctuation from external metadata', () => {
+    expect(normalizeOpenAlexDoi('10.1002/(SICI)1099-0844<199912>17:4')).toBe(
+      '10.1002/(sici)1099-0844<199912>17:4',
+    );
+  });
+
+  it('truncates external abstract metadata only at a Unicode scalar boundary', () => {
+    const normalized = normalizeOpenAlexWork(
+      work({
+        abstract_inverted_index: {
+          '😀': Array.from({ length: 2_000 }, (_, index) => index),
+        },
+      }),
+      DISCOVERED_AT,
+    );
+    if (normalized.kind !== 'accepted')
+      throw new Error('Fixture was rejected.');
+    const summary = normalized.work.candidate.metadataSummary;
+    expect(summary).not.toBeNull();
+    expect(summary?.length).toBeLessThanOrEqual(4_000);
+    expect(summary?.isWellFormed()).toBe(true);
+    expect(normalized.hadIssue).toBe(false);
   });
 
   it('rejects impossible full publication dates instead of coercing them', () => {
@@ -354,6 +384,7 @@ describe('OpenAlex discovery adapter', () => {
     expect(serializedUrl).toContain('search=bounded+paper+discovery');
     expect(serializedUrl).toContain('per_page=5');
     expect(serializedUrl).toContain('filter=type%3Aarticle');
+    expect(serializedUrl).not.toContain('related_works');
     expect(new URL(serializedUrl).searchParams.has('cursor')).toBe(false);
     expect(new URL(serializedUrl).searchParams.has('page')).toBe(false);
     expect(serializedUrl).not.toContain(SYNTHETIC_API_KEY_FIXTURE);
@@ -377,6 +408,34 @@ describe('OpenAlex discovery adapter', () => {
       message: SOURCING_PUBLIC_MESSAGES.noResults,
     });
     expect(performRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the parent abort listener after every completed invocation', async () => {
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse([]));
+    const adapter = makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    );
+
+    for (let index = 0; index < 10; index += 1) {
+      await adapter.discoverCandidates(
+        { ...request, requestId: `request_${index + 20}` },
+        invocation(controller.signal),
+      );
+    }
+
+    const addedAbortListeners = add.mock.calls.filter(
+      ([event]) => event === 'abort',
+    );
+    const removedAbortListeners = remove.mock.calls.filter(
+      ([event]) => event === 'abort',
+    );
+    expect(addedAbortListeners).toHaveLength(10);
+    expect(removedAbortListeners).toHaveLength(10);
   });
 
   it('returns partial metadata when malformed records or optional fields are skipped', async () => {
@@ -423,6 +482,10 @@ describe('OpenAlex discovery adapter', () => {
         work({
           id: 'https://openalex.org/W1',
           publication_date: '2026',
+          related_works: Array.from(
+            { length: 100 },
+            () => 'provider-private-related-metadata',
+          ),
         }),
         work({ id: 'https://openalex.org/W2', authorships }),
         work({
@@ -455,9 +518,82 @@ describe('OpenAlex discovery adapter', () => {
     expect(result.candidates[1]?.authorship).toMatchObject({
       creators: expect.not.arrayContaining(['Creator 100']),
     });
-    expect(result.candidates[2]?.metadataSummary).toBeNull();
+    expect(result.candidates[2]?.metadataSummary).toHaveLength(4_000);
     expect(result.candidates[3]?.usePolicy.license).toEqual({
       status: 'unknown',
+    });
+  });
+
+  it('uses license evidence only from the location that supplied the selected PDF', async () => {
+    const performRequest = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse([
+        work({
+          primary_location: {
+            landing_page_url: 'https://publisher.example/record',
+            pdf_url: 'https://publisher.example/paper.pdf',
+            license: 'publisher-specific-oa',
+            license_id: 'https://publisher.example/license',
+          },
+          best_oa_location: {
+            landing_page_url: 'https://repository.example/record',
+            pdf_url: null,
+            license: 'cc-by',
+            license_id: 'https://openalex.org/licenses/cc-by',
+          },
+        }),
+      ]),
+    );
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      candidates: [
+        {
+          acquisitionLocation: {
+            url: 'https://publisher.example/paper.pdf',
+          },
+          usePolicy: {
+            license: {
+              status: 'known',
+              name: 'publisher-specific-oa',
+              url: 'https://publisher.example/license',
+            },
+            acquisition: { status: 'unknown' },
+            indexing: { status: 'unknown' },
+          },
+        },
+      ],
+    });
+  });
+
+  it('returns no results for an otherwise valid page containing only non-paper works', async () => {
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse([work({ type: 'book' })]));
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toEqual({
+      outcome: 'no-results',
+      requestId: request.requestId,
+      message: SOURCING_PUBLIC_MESSAGES.noResults,
+    });
+  });
+
+  it('keeps a fully malformed non-empty page unavailable', async () => {
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse([{ type: 7 }]));
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toMatchObject({
+      outcome: 'unavailable',
+      retryable: false,
     });
   });
 
@@ -680,13 +816,76 @@ describe('OpenAlex discovery adapter', () => {
     });
   });
 
-  it('rejects oversized response bytes and too many result objects', async () => {
-    const oversizedBody = JSON.stringify({
-      results: [],
-      padding: 'x'.repeat(512 * 1_024),
+  it('accepts a realistic maximum page with twelve full authors per work', async () => {
+    const affiliation =
+      'Department of Synthetic Research, College of Applied Systems, Example University, Chicago, Illinois, United States';
+    const authorships = Array.from({ length: 12 }, (_, authorIndex) => ({
+      author_position: authorIndex === 0 ? 'first' : 'middle',
+      author: {
+        id: `https://openalex.org/A${authorIndex + 1}`,
+        display_name: `Synthetic Researcher ${authorIndex + 1}`,
+        orcid: `https://orcid.org/0000-0000-0000-${String(authorIndex).padStart(4, '0')}`,
+      },
+      institutions: [
+        {
+          id: 'https://openalex.org/I1',
+          display_name: 'Example University for Applied Synthetic Research',
+          country_code: 'US',
+          type: 'education',
+          lineage: ['https://openalex.org/I1'],
+        },
+      ],
+      countries: ['US'],
+      is_corresponding: authorIndex === 0,
+      raw_author_name: `Synthetic Researcher ${authorIndex + 1}`,
+      raw_affiliation_strings: [affiliation, affiliation],
+      affiliations: [
+        {
+          raw_affiliation_string: affiliation,
+          institution_ids: ['https://openalex.org/I1'],
+        },
+      ],
+    }));
+    const results = Array.from({ length: 50 }, (_, index) =>
+      work({
+        id: `https://openalex.org/W${index + 1}`,
+        authorships,
+        related_works: undefined,
+      }),
+    );
+    const body = JSON.stringify({ meta: { cost_usd: 0.001 }, results });
+    expect(Buffer.byteLength(body)).toBeGreaterThan(512 * 1_024);
+    expect(Buffer.byteLength(body)).toBeLessThan(4 * 1_024 * 1_024);
+    const performRequest = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(body, {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest),
+    ).discoverCandidates({ ...request, limit: 50 }, invocation());
+
+    expect(result).toMatchObject({ outcome: 'success' });
+    if (result.outcome !== 'success')
+      throw new Error('Realistic maximum page was rejected.');
+    expect(result.candidates).toHaveLength(50);
+  });
+
+  it('cancels an oversized response stream and rejects excess result objects', async () => {
+    let cancelled = false;
+    let emittedChunks = 0;
+    const chunk = new Uint8Array(1_024 * 1_024);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        emittedChunks += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
     });
     const oversizedRequest = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(oversizedBody, {
+      new Response(stream, {
         headers: { 'content-type': 'application/json' },
       }),
     );
@@ -694,6 +893,9 @@ describe('OpenAlex discovery adapter', () => {
       adapterOptions(oversizedRequest),
     ).discoverCandidates(request, invocation());
     expect(oversizedResult).toMatchObject({ outcome: 'unavailable' });
+    expect(emittedChunks).toBeGreaterThanOrEqual(5);
+    expect(emittedChunks).toBeLessThanOrEqual(6);
+    expect(cancelled).toBe(true);
 
     const tooManyRequest = vi
       .fn<typeof fetch>()
@@ -814,6 +1016,119 @@ describe('OpenAlex discovery adapter', () => {
     expect(performRequest).toHaveBeenCalledTimes(1);
   });
 
+  it('enforces its deadline when an injected fetch ignores abort', async () => {
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => new Promise<Response>(() => undefined));
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest, { timeoutMilliseconds: 5 }),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toMatchObject({ outcome: 'timed-out', retryable: true });
+    expect(performRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases an idempotent reservation when cancellation wins before dispatch', async () => {
+    const controller = new AbortController();
+    let accountingState: 'reserved' | 'released' = 'reserved';
+    const release = vi.fn(() =>
+      Effect.sync(() => {
+        accountingState = 'released';
+      }),
+    );
+    const settle = vi.fn(() => Effect.void);
+    const reservation: OpenAlexBudgetReservation = { release, settle };
+    const budget: OpenAlexBudgetService = {
+      refreshAndReserve: () =>
+        Effect.sync(() => {
+          controller.abort();
+          return { kind: 'reserved', reservation };
+        }),
+    };
+    const performRequest = vi.fn<typeof fetch>();
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest, { budget }),
+    ).discoverCandidates(request, invocation(controller.signal));
+
+    expect(result).toMatchObject({ outcome: 'cancelled' });
+    expect(accountingState).toBe('released');
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(settle).not.toHaveBeenCalled();
+    expect(performRequest).not.toHaveBeenCalled();
+  });
+
+  it('settles only a validated provider-reported actual charge after dispatch', async () => {
+    const settle = vi.fn(() => Effect.void);
+    const release = vi.fn(() => Effect.void);
+    const reservation: OpenAlexBudgetReservation = { release, settle };
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse([], { status: 200 }));
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest, {
+        budget: reservedBudget(undefined, reservation),
+      }),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toMatchObject({ outcome: 'no-results' });
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledWith(1_000);
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {},
+    { meta: {} },
+    { meta: { cost_usd: 'free' } },
+    { meta: { cost_usd: 0.002 } },
+  ])(
+    'retains the reserved ceiling for an unverified charge %#',
+    async (envelope) => {
+      const settle = vi.fn(() => Effect.void);
+      const release = vi.fn(() => Effect.void);
+      const reservation: OpenAlexBudgetReservation = { release, settle };
+      const performRequest = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ ...envelope, results: [] }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      const result = await makeOpenAlexDiscoveryAdapter(
+        adapterOptions(performRequest, {
+          budget: reservedBudget(undefined, reservation),
+        }),
+      ).discoverCandidates(request, invocation());
+
+      expect(result).toMatchObject({ outcome: 'no-results' });
+      expect(settle).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+    },
+  );
+
+  it('uses the injected managed Effect runner at reservation and settlement boundaries', async () => {
+    const receivedSignals: Array<AbortSignal | undefined> = [];
+    const runEffect = <A, E>(
+      effect: Effect.Effect<A, E>,
+      signal?: AbortSignal,
+    ): Promise<A> => {
+      receivedSignals.push(signal);
+      return Effect.runPromise(
+        effect,
+        signal === undefined ? undefined : { signal },
+      );
+    };
+    const performRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse([]));
+    const result = await makeOpenAlexDiscoveryAdapter(
+      adapterOptions(performRequest, { runEffect }),
+    ).discoverCandidates(request, invocation());
+
+    expect(result).toMatchObject({ outcome: 'no-results' });
+    expect(receivedSignals).toHaveLength(2);
+    expect(receivedSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(receivedSignals[1]).toBeUndefined();
+  });
+
   it('fails closed before dispatch when pricing or budget authority is unavailable', async () => {
     const performRequest = vi.fn<typeof fetch>();
     const noPrice = await makeOpenAlexDiscoveryAdapter(
@@ -862,7 +1177,13 @@ describe('OpenAlex discovery adapter', () => {
             return { kind: 'budget-exhausted' };
           }
           remainingMicrousd -= input.maximumChargeMicrousd;
-          return { kind: 'reserved' };
+          return {
+            kind: 'reserved',
+            reservation: {
+              release: () => Effect.void,
+              settle: () => Effect.void,
+            },
+          };
         });
       },
     };
