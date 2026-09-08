@@ -11,12 +11,17 @@ import { join } from 'node:path';
 import {
   closeTestApplication,
   useElectronCloseHandling,
+  electronLaunchExtras,
 } from './electron-lifecycle';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
+  const extras = electronLaunchExtras();
   return electron.launch({
-    ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }),
+    ...(executablePath
+      ? { executablePath, args: extras.args }
+      : { args: ['.', ...extras.args] }),
+    recordVideo: extras.recordVideo,
     env: {
       ...process.env,
       APPLIED_RESEARCH_DATA_DIR: directory,

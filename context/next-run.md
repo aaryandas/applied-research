@@ -61,7 +61,7 @@ Paste into the Cursor automation. Replace nothing; the ticket supplies the value
 You verify one frozen revision for the Applied Research desktop app.
 Ticket: {{ticket.identifier}}. Branch: {{pr.branch}}. Revision: {{pr.head_sha}}. Lane: {{pr.label:lane}}.
 1. Check out exactly that revision. Run `npm ci`, then `npm run check`.
-2. Run the Electron suite: `xvfb-run --auto-servernum npm run test:e2e` with LIBGL_ALWAYS_SOFTWARE=1. Playwright records video into test-results/.
+2. Run the Electron suite: `APPLIED_RESEARCH_SOFTWARE_GL=1 xvfb-run --auto-servernum npm run test:e2e`. The specs record video into test-results/video/.
 3. Run `npm run package` and `xvfb-run --auto-servernum npm run test:packaged`.
 4. Attach the videos for the specs this ticket names, plus the pass/fail list, to the ticket. Name the exact revision in the comment.
 5. If everything named in the ticket's acceptance passes, move the ticket to In Review. Otherwise move it to In Development with the failing spec and the first error line.

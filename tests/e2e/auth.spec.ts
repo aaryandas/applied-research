@@ -19,11 +19,16 @@ import { join } from 'node:path';
 import type { DesktopAccountState } from '../../src/contracts/desktop-auth';
 
 const CALLBACK = 'com.aaryandas.appliedresearch://auth/callback';
+import { electronLaunchExtras } from './electron-lifecycle';
 
 function launch(directory: string): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
+  const extras = electronLaunchExtras();
   return electron.launch({
-    ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }),
+    ...(executablePath
+      ? { executablePath, args: extras.args }
+      : { args: ['.', ...extras.args] }),
+    recordVideo: extras.recordVideo,
     env: {
       ...process.env,
       APPLIED_RESEARCH_DATA_DIR: directory,
