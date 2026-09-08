@@ -110,35 +110,17 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-it('keeps the opening prompt and returns to a draft after dismissing its dialog', async () => {
+it('keeps a live Opening draft while switching theme', async () => {
   const { bridge } = setup([]);
   render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Explore an example' }),
+  const input = await screen.findByLabelText(
+    'What do you want to learn about?',
   );
-  expect(screen.getByLabelText('Learning goal')).toHaveValue(
-    'Build an intuition for linear algebra',
-  );
-  fireEvent.change(screen.getByLabelText('Learning goal'), {
-    target: { value: 'Build a tiny robot' },
-  });
-  fireEvent(
-    screen.getByRole('dialog'),
-    new Event('cancel', { bubbles: true, cancelable: true }),
-  );
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Start from a question' }),
-  );
-  expect(screen.getByLabelText('Learning goal')).toHaveValue(
-    'Build a tiny robot',
-  );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Close learning space form' }),
-  );
+  fireEvent.change(input, { target: { value: 'Build a tiny robot' } });
   fireEvent.click(screen.getByRole('button', { name: 'Use evening theme' }));
   expect(document.documentElement.dataset.theme).toBe('dark');
   expect(localStorage.getItem('applied-research-theme')).toBe('dark');
+  expect(input).toHaveValue('Build a tiny robot');
   fireEvent.click(screen.getByRole('button', { name: 'Use daylight theme' }));
   expect(document.documentElement.dataset.theme).toBe('light');
 });
@@ -146,17 +128,8 @@ it('keeps the opening prompt and returns to a draft after dismissing its dialog'
 it('creates an arbitrary-topic learning space and edits notes without AI', async () => {
   const { bridge } = setup([]);
   render(<App bridge={bridge} />);
-  expect(
-    await screen.findByRole('heading', { name: /I'm building/ }),
-  ).toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Start from a question' }),
-  );
-  fireEvent.click(screen.getByRole('button', { name: /Build an intuition/ }));
-  expect(screen.getByLabelText('Learning goal')).toHaveValue(
-    'Build an intuition for linear algebra',
-  );
-  fireEvent.change(screen.getByLabelText('Learning goal'), {
+  await screen.findByLabelText('What do you want to learn about?');
+  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
     target: { value: 'An arbitrary topic: robot perception' },
   });
   fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
@@ -175,8 +148,11 @@ it('creates an arbitrary-topic learning space and edits notes without AI', async
     ),
   );
   fireEvent.click(screen.getByRole('button', { name: /New learning space/ }));
-  await screen.findByRole('heading', { name: /I'm building/ });
-  fireEvent.click(screen.getByRole('button', { name: 'Return to your work' }));
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   expect(screen.getByRole('heading', { name: 'Learn robotics' })).toBeVisible();
 });
 it('starts real-request orchestration when the provider is configured', async () => {
@@ -186,11 +162,8 @@ it('starts real-request orchestration when the provider is configured', async ()
     model: 'chosen/model',
   });
   render(<App bridge={bridge} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Start from a question' }),
-  );
-  await screen.findByLabelText('Learning goal');
-  fireEvent.change(screen.getByLabelText('Learning goal'), {
+  await screen.findByLabelText('What do you want to learn about?');
+  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
     target: { value: 'Learn robotics' },
   });
   fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
@@ -202,6 +175,11 @@ it('starts real-request orchestration when the provider is configured', async ()
 it('adds authored work and an interactive experiment with a captured result', async () => {
   const { bridge } = setup();
   render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   await screen.findByRole('heading', { name: 'Learn robotics' });
   for (const kind of ['Note', 'Insight', 'Result', 'Source']) {
     fireEvent.click(
@@ -233,6 +211,11 @@ it('adds authored work and an interactive experiment with a captured result', as
 it('supports questions, hints, worked examples and the keyboard shortcut', async () => {
   const { bridge } = setup();
   render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   const input = await screen.findByLabelText('Ask the companion');
   fireEvent.keyDown(window, { key: 'j', metaKey: true });
   expect(input).toHaveFocus();
@@ -260,6 +243,11 @@ it('supports questions, hints, worked examples and the keyboard shortcut', async
 it('opens tools and scopes ongoing cues to explicitly started guidance', async () => {
   const { bridge, emit } = setup();
   render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   await screen.findByRole('heading', { name: project.goal });
   fireEvent.click(screen.getByRole('button', { name: 'Open tool' }));
   fireEvent.change(screen.getByLabelText('Source or tool URL'), {
@@ -320,6 +308,11 @@ it('imports a key through the named native operation and configures OpenRouter',
   const { bridge } = setup();
   render(<App bridge={bridge} />);
   fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
+  fireEvent.click(
     await screen.findByRole('button', { name: /Connect OpenRouter/ }),
   );
   await screen.findByRole('dialog');
@@ -345,6 +338,11 @@ it('exposes load and provider errors without replacing saved work', async () => 
     ),
   );
   render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   await screen.findByLabelText('note text');
   fireEvent.click(screen.getByRole('button', { name: 'Give me a first step' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -372,10 +370,7 @@ it('reports loading, create, note, and experiment failures', async () => {
     'Cannot open saved work',
   );
   vi.mocked(bridge.createProject).mockRejectedValue(new Error('Cannot create'));
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Start from a question' }),
-  );
-  fireEvent.change(screen.getByLabelText('Learning goal'), {
+  fireEvent.change(screen.getByLabelText('What do you want to learn about?'), {
     target: { value: 'Goal' },
   });
   fireEvent.click(screen.getByRole('button', { name: /Start learning/ }));
@@ -410,6 +405,11 @@ it('stops an in-flight request and permits guidance without an embedded page', a
       }),
   );
   render(<App bridge={bridge} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Learn robotics/,
+    }),
+  );
   await screen.findByRole('heading', { name: project.goal });
   fireEvent.change(screen.getByLabelText('Ask the companion'), {
     target: { value: 'Help me try a small example' },

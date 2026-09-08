@@ -16,7 +16,7 @@ import type {
 import { EntryCard } from './EntryCard';
 import { ToolPanel } from './ToolPanel';
 import { BrandMark, Dialog, Icon, ThemeButton } from './FieldAtlas';
-import openingArtwork from '../../context/design-system/apple-landscape/apple-landscape.webp';
+import { Opening } from './Opening';
 
 const EMPTY_TOOL: ToolState = { url: '', title: '', loading: false, error: '' };
 const FIRST_STEP =
@@ -26,8 +26,6 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [goal, setGoal] = useState('');
-  const [goalForm, setGoalForm] = useState(false);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -101,7 +99,6 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
       .then(([saved, status]) => {
         if (!alive) return;
         setProjects(saved);
-        setActiveId(saved[0]?.id ?? '');
         setProvider(status);
         setModel(status.model);
         setLoading(false);
@@ -216,28 +213,19 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
       url: '',
     }).catch(() => {});
   };
-  const createProject = async (): Promise<void> => {
-    if (!goal.trim()) return;
-    try {
-      const created = await bridge.createProject(goal);
-      closeTool();
-      mergeProject(created);
-      setActiveId(created.id);
-      setGoal('');
-      setGoalForm(false);
-      if (provider.connected)
-        void ask({
-          projectId: created.id,
-          prompt: FIRST_STEP,
-          includePage: false,
-        });
-    } catch (failure) {
-      showError(
-        failure instanceof Error
-          ? failure.message
-          : 'Could not create this learning space.',
-      );
-    }
+  const createProject = async (goal: string): Promise<void> => {
+    setError('');
+    const created = await bridge.createProject(goal);
+    closeTool();
+    mergeProject(created);
+    setActiveId(created.id);
+    setError('');
+    if (provider.connected)
+      void ask({
+        projectId: created.id,
+        prompt: FIRST_STEP,
+        includePage: false,
+      });
   };
   const startGuidance = (): void => {
     if (!project) return;
@@ -332,7 +320,7 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
           </aside>
         )}
         <main className="workbench">
-          {error && !goalForm && !settings && (
+          {error && !settings && (
             <div className="notice" role="alert">
               <span>{error}</span>
               <button aria-label="Dismiss message" onClick={() => setError('')}>
@@ -345,50 +333,11 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
               <p>Opening your work…</p>
             </div>
           ) : !project ? (
-            <section
-              className="opening-screen"
-              aria-label="Desktop app opening screen"
-            >
-              <img
-                className="world-art"
-                src={openingArtwork}
-                alt="A monumental apple tree frames a mountain valley, with luminous clouds and a crimson apple falling through open sky."
-              />
-              <div className="opening-interface">
-                <h1>
-                  I'm building … and need to
-                  <br />
-                  understand …
-                </h1>
-                <div className="brief-rule" aria-hidden="true" />
-                <div className="opening-actions">
-                  <button
-                    className="primary button-cream"
-                    onClick={() => setGoalForm(true)}
-                  >
-                    Start from a question <Icon name="arrow" />
-                  </button>
-                  {projects[0] ? (
-                    <button
-                      className="primary"
-                      onClick={() => selectProject(projects[0]!.id)}
-                    >
-                      Return to your work
-                    </button>
-                  ) : (
-                    <button
-                      className="primary"
-                      onClick={() => {
-                        setGoal('Build an intuition for linear algebra');
-                        setGoalForm(true);
-                      }}
-                    >
-                      Explore an example
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
+            <Opening
+              projects={projects}
+              onCreate={createProject}
+              onReopen={selectProject}
+            />
           ) : (
             <>
               <div className="space-heading">
@@ -633,65 +582,6 @@ export function App({ bridge }: { bridge: DesktopBridge }): ReactElement {
       >
         <Icon name="companion" />
       </div>
-      {goalForm && (
-        <Dialog
-          titleId="goal-title"
-          closeLabel="Close learning space form"
-          onDismiss={() => setGoalForm(false)}
-        >
-          <h2 id="goal-title">Start a learning space.</h2>
-          <p>Bring a topic, a question, or something you want to build.</p>
-          <form
-            className="goal-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void createProject();
-            }}
-          >
-            <label htmlFor="learning-goal">Your starting point</label>
-            <textarea
-              id="learning-goal"
-              autoFocus
-              data-dialog-autofocus
-              aria-label="Learning goal"
-              value={goal}
-              maxLength={1000}
-              placeholder="I want to understand how to fine-tune a language model…"
-              onChange={(event) => setGoal(event.target.value)}
-            />
-            <button type="submit" className="primary" disabled={!goal.trim()}>
-              Start learning <Icon name="arrow" />
-            </button>
-          </form>
-          <div className="suggestions" aria-label="Example learning goals">
-            {[
-              'Fine-tune a language model',
-              'Build an intuition for linear algebra',
-              'Learning science for better products',
-            ].map((suggestion) => (
-              <button
-                key={suggestion}
-                className="text-button"
-                onClick={() => setGoal(suggestion)}
-              >
-                {suggestion}
-                <Icon name="arrow" />
-              </button>
-            ))}
-          </div>
-          {!provider.connected && (
-            <p className="settings-help">
-              Your canvas works offline. Connect OpenRouter from preferences for
-              guided learning.
-            </p>
-          )}
-          {error && (
-            <p className="dialog-error" role="alert">
-              {error}
-            </p>
-          )}
-        </Dialog>
-      )}
       {settings && (
         <Dialog
           titleId="settings-title"

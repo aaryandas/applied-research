@@ -29,9 +29,9 @@ test('saves an offline learning space, edits and layout across a real Electron r
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      /I'm building/,
-    );
+    await expect(
+      page.getByLabel('What do you want to learn about?', { exact: true }),
+    ).toBeVisible();
     expect(
       await page.evaluate(() => typeof Reflect.get(globalThis, 'require')),
     ).toBe('undefined');
@@ -40,9 +40,8 @@ test('saves an offline learning space, edits and layout across a real Electron r
     ).toBe('undefined');
     await page.evaluate(() => window.open('https://example.com'));
     expect(application.windows()).toHaveLength(1);
-    await page.getByRole('button', { name: 'Start from a question' }).click();
     await page
-      .getByLabel('Learning goal', { exact: true })
+      .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Understand linear transformations');
     await page.getByRole('button', { name: 'Start learning' }).click();
     await page.getByRole('button', { name: 'Note', exact: true }).click();
@@ -80,6 +79,9 @@ test('saves an offline learning space, edits and layout across a real Electron r
     await application.close();
     application = await launch(directory);
     const reopened = await application.firstWindow();
+    await reopened
+      .getByRole('button', { name: /Understand linear transformations/ })
+      .click();
     await expect(reopened.getByRole('heading', { level: 1 })).toHaveText(
       'Understand linear transformations',
     );
@@ -148,9 +150,8 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
     });
     const page = await application.firstWindow();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.getByRole('button', { name: 'Start from a question' }).click();
     await page
-      .getByLabel('Learning goal', { exact: true })
+      .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Build an intuition for linear algebra');
     await page.getByRole('button', { name: 'Start learning' }).click();
     await expect(page.getByText('AI · source-led guidance')).toBeVisible();
@@ -237,15 +238,16 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
   }
 });
 
-test('ports the approved opening and native dialog behavior at desktop sizes', async () => {
+test('ports the accepted Opening with live entry, saved rows, fonts and keyboard focus', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'applied-electron-design-'));
   const application = await launch(directory);
   try {
     const page = await application.firstWindow();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      /I'm building/,
-    );
+    const input = page.getByLabel('What do you want to learn about?', {
+      exact: true,
+    });
+    await expect(input).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
@@ -261,9 +263,70 @@ test('ports the approved opening and native dialog behavior at desktop sizes', a
           ),
       )
       .toBe(true);
+    await expect(
+      page.getByRole('button', { name: 'Start from a source' }),
+    ).toBeDisabled();
+    await expect(
+      page.getByText('Source import is not available yet.'),
+    ).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const fonts = await page.evaluate(async () => {
+      const families = [
+        'Newsreader',
+        'Familjen Grotesk',
+        'Martian Mono',
+        'Fraunces',
+      ];
+      return Promise.all(
+        families.map(async (family) => ({
+          family,
+          loaded:
+            (await document.fonts.load(`400 18px "${family}"`)).length > 0,
+        })),
+      );
+    });
+    expect(fonts.every((font) => font.loaded)).toBe(true);
     for (const [width, height] of [
+      [1280, 800],
       [1440, 900],
-      [1000, 680],
+      [820, 620],
+    ]) {
+      await application.evaluate(
+        ({ BrowserWindow }, size) => {
+          const window = BrowserWindow.getAllWindows()[0];
+          window?.setMinimumSize(820, 620);
+          window?.setContentSize(size.width, size.height);
+        },
+        { width: width!, height: height! },
+      );
+      await expect
+        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
+        .toEqual([width, height]);
+      await page.screenshot({
+        path: test.info().outputPath(`opening-empty-${width}x${height}.png`),
+      });
+    }
+    await page.getByRole('button', { name: 'Build something' }).click();
+    await expect(input).toBeFocused();
+    await input.fill('A robot that can find its way');
+    await input.press('Enter');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'A robot that can find its way',
+    );
+    await page.getByRole('button', { name: 'Applied Research home' }).click();
+    const savedRow = page.getByRole('button', {
+      name: /A robot that can find its way/,
+    });
+    await expect(savedRow).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('button'),
+    ).toHaveCount(1);
+    for (const [width, height] of [
+      [1280, 800],
+      [1440, 900],
+      [820, 620],
     ]) {
       await application.evaluate(
         ({ BrowserWindow }, size) =>
@@ -273,48 +336,159 @@ test('ports the approved opening and native dialog behavior at desktop sizes', a
           ),
         { width: width!, height: height! },
       );
+      await expect
+        .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
+        .toEqual([width, height]);
       await page.screenshot({
-        path: test.info().outputPath(`opening-${width}.png`),
+        path: test.info().outputPath(`opening-saved-${width}x${height}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Start from a question' }).click();
-    await expect(
-      page.getByLabel('Learning goal', { exact: true }),
-    ).toBeFocused();
-    await page
-      .getByLabel('Learning goal', { exact: true })
-      .fill('Learn how a robot estimates its position');
-    await page.screenshot({ path: test.info().outputPath('goal-dialog.png') });
+    await savedRow.focus();
+    await page.screenshot({
+      path: test.info().outputPath('opening-row-focus.png'),
+    });
+    await savedRow.press('Enter');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'A robot that can find its way',
+    );
+    await page.getByRole('button', { name: 'Applied Research home' }).click();
+    await page.getByRole('button', { name: 'Explore a topic' }).click();
+    await expect(input).toBeFocused();
+    const focusColor = await input.evaluate(
+      (field) => getComputedStyle(field).outlineColor,
+    );
+    expect(focusColor).toBe('rgb(123, 199, 201)');
+    expect(
+      await input.evaluate((field) => getComputedStyle(field).outlineWidth),
+    ).toBe('2px');
+    await page.screenshot({
+      path: test.info().outputPath('opening-input-focus-light.png'),
+    });
+    await page.getByRole('button', { name: 'Use evening theme' }).click();
+    await input.focus();
+    expect(
+      await input.evaluate((field) => getComputedStyle(field).outlineColor),
+    ).toBe(focusColor);
+    await page.screenshot({
+      path: test.info().outputPath('opening-input-focus-dark.png'),
+    });
+    await page.getByRole('button', { name: 'Connect OpenRouter' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(
-      page.getByRole('button', { name: 'Start from a question' }),
-    ).toBeFocused();
-    await page.getByRole('button', { name: 'Connect OpenRouter' }).click();
-    await page.screenshot({
-      path: test.info().outputPath('settings-daylight.png'),
-    });
-    await page.keyboard.press('Escape');
-    await expect(
       page.getByRole('button', { name: 'Connect OpenRouter' }),
     ).toBeFocused();
-    await page.getByRole('button', { name: 'Use evening theme' }).click();
-    await page.getByRole('button', { name: 'Connect OpenRouter' }).click();
+    const longTopic = 'Robot perception, mapping and uncertainty. '
+      .repeat(30)
+      .slice(0, 1000);
+    await input.fill(longTopic);
+    await input.press('End');
+    await input.press('x');
+    await expect(input).toHaveValue(longTopic);
+    const bounds = await input.boundingBox();
+    expect(bounds?.height).toBeLessThanOrEqual(240);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
     await page.screenshot({
-      path: test.info().outputPath('settings-evening.png'),
+      path: test.info().outputPath('opening-long-input-820x620.png'),
     });
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Start from a question' }).click();
-    await expect(page.getByLabel('Learning goal', { exact: true })).toHaveValue(
-      'Learn how a robot estimates its position',
-    );
     await page.getByRole('button', { name: 'Start learning' }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      'Learn how a robot estimates its position',
+      longTopic.trim(),
     );
+    await page.getByRole('button', { name: 'Applied Research home' }).click();
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('button'),
+    ).toHaveCount(2);
+    await page
+      .getByRole('button', { name: /A robot that can find its way/ })
+      .scrollIntoViewIfNeeded();
     await page.screenshot({
-      path: test.info().outputPath('workspace-narrow-evening.png'),
+      path: test.info().outputPath('opening-long-saved-820x620.png'),
     });
+    await page
+      .getByRole('button', { name: /A robot that can find its way/ })
+      .click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'A robot that can find its way',
+    );
+    const projects = await page.evaluate(() => window.desktop.listProjects());
+    expect(projects.map((project) => project.goal)).toEqual(
+      expect.arrayContaining([
+        'A robot that can find its way',
+        longTopic.trim(),
+      ]),
+    );
+  } finally {
+    await application.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('retains the topic and focus after real bridge creation failures and suppresses duplicate submits', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'applied-electron-failure-'));
+  const application = await launch(directory);
+  try {
+    const page = await application.firstWindow();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const input = page.getByLabel('What do you want to learn about?', {
+      exact: true,
+    });
+    await expect(input).toBeVisible();
+    // The isolated main-process handler is a fault injection; success/persistence use the real store above.
+    await application.evaluate(({ ipcMain }) => {
+      Reflect.set(globalThis, 'creationAttempts', 0);
+      ipcMain.removeHandler('workspace:create');
+      ipcMain.handle('workspace:create', async () => {
+        Reflect.set(
+          globalThis,
+          'creationAttempts',
+          Number(Reflect.get(globalThis, 'creationAttempts')) + 1,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        throw new Error('Test storage unavailable');
+      });
+    });
+    await input.fill('Learn how robots localize');
+    await page.getByRole('form', { name: 'New project' }).evaluate((form) => {
+      if (form instanceof HTMLFormElement) {
+        form.requestSubmit();
+        form.requestSubmit();
+      }
+    });
+    await expect(page.getByRole('alert')).toContainText(
+      'Test storage unavailable',
+    );
+    expect(
+      await application.evaluate(() =>
+        Reflect.get(globalThis, 'creationAttempts'),
+      ),
+    ).toBe(1);
+    await expect(input).toHaveValue('Learn how robots localize');
+    await expect(input).toBeFocused();
+    await page.screenshot({
+      path: test.info().outputPath('opening-creation-failure.png'),
+    });
+    await input.fill('Learn how robots map a room');
+    await page.getByRole('button', { name: 'Start learning' }).click();
+    await expect(page.getByRole('alert')).toContainText(
+      'Your topic is still here. Try again.',
+    );
+    expect(
+      await application.evaluate(() =>
+        Reflect.get(globalThis, 'creationAttempts'),
+      ),
+    ).toBe(2);
+    await expect(input).toHaveValue('Learn how robots map a room');
+    expect(await page.evaluate(() => window.desktop.listProjects())).toEqual(
+      [],
+    );
   } finally {
     await application.close();
     rmSync(directory, { recursive: true, force: true });
