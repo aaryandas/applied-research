@@ -4,6 +4,7 @@ import {
   AUTH_CHANNELS,
   type DesktopAccountState,
 } from '../contracts/desktop-auth';
+import {
   LEARNING_CHANNELS,
   type LearningRecordsBridge,
 } from '../contracts/learning-records';
