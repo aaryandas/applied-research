@@ -16,12 +16,19 @@ No terminal-screen coordination. Nothing is dispatched by typing into another ag
 
 ## Lifecycle of a ticket
 
-1. **Todo → In Development** when the implementer opens a draft PR labeled `lane:<name>` (Linear GitHub integration flips it).
-2. **In Development → In Testing** when the implementer marks the PR ready. The PR body carries the frozen revision, the local check and e2e results, and the Sonar delta.
-3. **In Testing → In Review** by the cloud verifier after it attaches its screen recording and pass/fail list. Failures go back to In Development with the failing criterion named.
-4. **In Review → Done** by the coordinator after the independent critic's PASS and a green merge-queue run.
+Every transition has a trigger. Nobody moves a ticket by hand except the founder, and only to cancel or reprioritize.
 
-Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and a line in the decisions issue if the founder must answer.
+| From → To                   | Trigger                                              | Fired by                                                                                  |
+| --------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Todo → In Development       | Draft PR opened on a branch named `…/ar-NN-…`        | Linear GitHub integration (team setting "PR opened")                                      |
+| In Development → In Testing | PR marked ready for review                           | Linear GitHub integration (team setting "PR ready for review")                            |
+| In Testing → In Review      | Cloud verifier's walk-through passes                 | Cursor automation on In Testing (moves back to In Development with the failing criterion) |
+| In Review → Done            | PR merged                                            | Linear GitHub integration (team setting "PR merged")                                      |
+| Merge                       | Ticket In Review + CI gate + Lane guard + Fable PASS | `Linear gate` required check reads the ticket state; the merge queue does the rest        |
+
+Branch names come from Linear's "Copy git branch name" so the ticket id is in the branch (`aaryanmakesstuff/ar-17-reader-…`). The `Linear gate` check also links the PR on the ticket, so evidence never has to be attached by hand. After the verifier moves a ticket to In Review, re-run `Linear gate` from the PR's Checks tab (or push an empty commit); it re-evaluates on every PR event.
+
+Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in the decisions issue if the founder must answer.
 
 ## Lanes
 
@@ -31,6 +38,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and
 
 - `checks / CI gate`: `verify.yml` on macOS is blocking; Linux and Windows report only until they are in scope.
 - `Lane guard`.
+- `Linear gate`: the ticket is In Review. Needs the `LINEAR_API_KEY` repository secret (read plus attachment write).
 - Independent review comment with PASS.
 - Sonar: zero new violations on the diff. Run `npm run sonar:scan:native` from the PR worktree with `SONAR_HOST_URL=http://127.0.0.1:9000` and `SONAR_TOKEN` in the environment; the Docker scanner cannot reach the server from a second worktree. False positives are listed by issue key in the PR for the founder, never suppressed.
 - Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
@@ -45,8 +53,8 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, as before, and
 
 Run these before any lane starts. Tickets are in `.github/next-run-tickets.json`; seed them with `LINEAR_API_KEY=... node scripts/linear-seed.mjs`.
 
-1. Merge the workflow branch. Run `claude setup-token` locally and store the result as the `CLAUDE_CODE_OAUTH_TOKEN` repository secret; the review action runs on the Claude subscription, not the API. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate` and `Lane guard`. Enable the merge queue.
-2. Linear: enable the GitHub integration; add the automation `status = In Testing → run Cursor cloud agent` with the verification prompt below.
+1. Merge the workflow branch. Store two repository secrets: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (the review action runs on the Claude subscription, not the API) and `LINEAR_API_KEY` (a Linear personal key) for the Linear gate. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate`, `Lane guard` and `Linear gate`. Enable the merge queue.
+2. Linear, team AR settings: enable the GitHub integration and set its status automation to PR opened → In Development, PR ready for review → In Testing, PR merged → Done. Add the automation `status = In Testing → run Cursor cloud agent` with the verification prompt below.
 3. Cursor: enable Bugbot on the repository; restrict autofix to formatting and lint (no test, threshold, or Sonar config edits).
 4. SonarQube: settle the quality-profile decisions listed in the day-zero Sonar ticket.
 5. Build the walking skeleton on the integration branch and merge it. Only then dispatch lanes.
