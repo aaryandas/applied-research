@@ -42,8 +42,21 @@ from publication date. Catalog records have no acquired version or note action.
 
 ## Delivery and acceptance boundary
 
-Initial callback checkpoint only. TDD component adapters are synthetic and do
-not establish connected sourcing. AR-37 producer/Shell wiring, the real Electron
+The component is implemented with renderer tests and an isolated Electron
+contract fixture. It preserves the query and results while mounted, aborts
+search/acquisition on project replacement, suppresses late/cancelled and
+mismatched responses, and serializes Reader navigation while the shell flushes.
+A completed save ends the cancellable acquisition phase before Reader opens.
+Saved-reference UI is session state; the trusted adapter owns actual durability
+and the shell owns reopening retained source records after restart.
+
+The provider/query match is presented as unverified relevance. OpenAlex abstracts
+remain provider metadata with no full-paper summary or note action. Catalog-only
+and permission-denied material retain original-link actions. Related material
+uses provider/source identities through the same trusted link callback. Partial
+provider and extraction coverage remain visible.
+
+TDD component adapters are synthetic and do not establish connected sourcing. AR-37 producer/Shell wiring, the real Electron
 query → acquire/save → exact Reader → highlight/human note journey, Cursor
 recording, independent Fable 5.1 review and coordinator-owned serialized Sonar
 analysis are required before full acceptance. The local Sonar endpoint was
@@ -53,3 +66,38 @@ The dispatch explicitly permits `src/renderer/research/**`, context and E2E
 changes. The older lane catalog in base `9434020` has no research lane. AR-41
 owns its update; AR-38 must inspect that prerequisite before marking ready and
 must not edit `.github/lanes.json` itself.
+
+## Local verification
+
+Node 24.19.0; exact seeded lockfile unchanged. No `npm ci` or shared mutable
+`node_modules` symlink was used. Native SQLite rebuilds happen in this worktree.
+
+- `npm run check`: 796 tests in 71 files; statements 94.70%, branches 90.80%,
+  functions 96.82%, lines 96.28%. All formatting, lint, types, coverage and builds
+  passed. Research UI: 32 focused tests, 98.69% lines, 86.80% branches; the existing
+  combined coverage gate passed without changes.
+- `tests/e2e/research.spec.ts`: isolated Electron contract test passed. It checks
+  keyboard focus, long titles, 1100px and 520px widths, light/dark captures,
+  partial results, cancellation, provider unavailable/no results, and exact
+  original question/topic/local version callback data. Its visible disclosure
+  states that no provider, persistence or Reader integration is exercised.
+- Mechanical UI detector: no findings. Captures visually inspected against the
+  existing fonts, semantic tokens and Reader reading plane; independent Fable
+  review is still required.
+- `npm run test:e2e`: exit 0, 11 expected outcomes in 48.1 seconds. Ten tests
+  passed normally, including research and the real pasted-source → Reader →
+  human note → Canvas → restart journey. The existing auth test retains its
+  pre-existing `test.fail` for AR-40 (Electron transport hides Set-Cookie); the
+  failure was observed, not fixed or newly waived by AR-38. This is not evidence
+  of successful production sign-in.
+
+Red/green receipts, full check logs and screenshots are retained at
+`/private/tmp/ar-38-evidence`. CI uploads `desktop-tests-macos-latest` with the
+Playwright report and screenshots. Fixture screenshots are evidence of component
+layout/interaction only, not the required connected journey or Cursor recording.
+
+AR-41 PR #21 (`69d02ee354567a01bbc14b5d0e9d56e779ca671b` when inspected)
+publishes the expanded lane catalog and remains open. AR-38 does not replace the
+catalog locally. The PR must remain draft while its connected local acceptance
+or required prerequisite evidence is incomplete; the dispatcher owns Linear
+transitions.
