@@ -1,10 +1,15 @@
 import type { CanonicalSection } from '../sourcing/acquisition/canonicalize.js';
 import type { SourceFormat } from '../../contracts/learning-api.js';
-import type { SourceKind } from '../../contracts/sourcing.js';
+import type {
+  SourceKind,
+  SourceLicense,
+  SourceRelationship,
+} from '../../contracts/sourcing.js';
 
 export const UNIVERSITY_CANONICALIZATION_VERSION = 'univ-canon-v1';
 export const PLUTO_EXTRACTION_METHOD = 'pluto-static-v1';
 export const MYST_EXTRACTION_METHOD = 'myst-static-v1';
+export const HTML_EXTRACTION_METHOD = 'structured-html-v1 (parse5 8.0.1)';
 
 export const UNIVERSITY_PUBLIC_MESSAGES = {
   cancelled: 'The university source acquisition was cancelled.',
@@ -22,7 +27,7 @@ export const UNIVERSITY_PUBLIC_MESSAGES = {
 } as const;
 
 export type UniversityContentFormat =
-  'pluto-static' | 'myst-markdown' | 'html-pending' | 'external-reading';
+  'pluto-static' | 'myst-markdown' | 'html' | 'external-reading';
 
 export type ReachabilityState =
   'reachable-pinned' | 'unavailable' | 'challenge-blocked' | 'unchecked';
@@ -96,16 +101,19 @@ export interface UniversityCandidate {
   kind: SourceKind;
   institution: string;
   courseCode: string | null;
+  authors: readonly string[];
   originalUrl: string;
   acquisitionUrl: string | null;
   licenseEvidenceUrl: string | null;
   format: UniversityContentFormat;
   topicTags: readonly string[];
+  metadataSummary: string;
+  relationships: readonly SourceRelationship[];
+  license: SourceLicense;
   reachability: ReachabilityState;
   permission: PermissionEvidenceState;
   extraction: ExtractionState;
   indexing: IndexingState;
-  publicNotes: readonly string[];
 }
 
 export interface PinnedByteEvidence {
@@ -117,7 +125,10 @@ export interface PinnedByteEvidence {
 export interface PinnedUniversitySource {
   candidateId: string;
   sourceId: string;
-  format: Extract<UniversityContentFormat, 'pluto-static' | 'myst-markdown'>;
+  format: Extract<
+    UniversityContentFormat,
+    'pluto-static' | 'myst-markdown' | 'html'
+  >;
   source: PinnedByteEvidence;
   license: PinnedByteEvidence;
   extraEvidence: readonly PinnedByteEvidence[];
@@ -131,8 +142,8 @@ export interface PinnedUniversitySource {
 
 export interface UniversityCanonicalDocument {
   text: string;
-  format: Extract<SourceFormat, 'markdown'>;
-  canonicalizationVersion: typeof UNIVERSITY_CANONICALIZATION_VERSION;
+  format: Extract<SourceFormat, 'markdown' | 'html'>;
+  canonicalizationVersion: string;
   extraction: {
     method: string;
     coverage: 'complete' | 'partial';

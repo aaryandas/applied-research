@@ -109,27 +109,52 @@ export const DELFT_QUANTUM_ATTRIBUTION: AttributionRecord = {
   ],
 };
 
-export const BCCAMPUS_SQL_ATTRIBUTION: AttributionRecord = {
-  authors: ['Adrienne Watt', 'Nelson Eng'],
-  copyrightHolders: ['Adrienne Watt', 'Nelson Eng'],
-  title: 'SQL Structured Query Language — Database Design, 2nd edition',
-  edition:
-    'Version history latest listed 1.4 (2022-01-27); original bytes not acquired',
+const MIT_DOC_LICENSE: LicenseComponent = {
+  appliesTo: 'text',
+  name: 'MIT License',
+  spdxId: 'MIT',
+  url: 'https://opensource.org/licenses/MIT',
+  shareAlike: false,
+  additionalRestrictions: ['Retain the MIT copyright and permission notice.'],
+};
+
+export const CS231N_CASE_STUDY_SHA256 =
+  'fe03b0231a9dd7a70ab6fcf1f00d0e1035d8996b12e2bb341c3c9e2901b4820c';
+export const CS231N_CASE_STUDY_BYTES = 56_638;
+export const CS231N_LICENSE_SHA256 =
+  '85b365f07b4cfc5d678c548bc41965bc3bc782106b8903bd3b876d9d49a4270d';
+export const CS231N_LICENSE_BYTES = 1_082;
+export const CS231N_HTML_ACQUIRED_AT = '2026-09-09T10:11:57.000Z';
+export const CS231N_CASE_STUDY_URL =
+  'https://cs231n.github.io/neural-networks-case-study/';
+export const CS231N_LICENSE_URL =
+  'https://raw.githubusercontent.com/cs231n/cs231n.github.io/master/LICENSE';
+
+export const CS231N_CASE_STUDY_ATTRIBUTION: AttributionRecord = {
+  authors: ['Andrej Karpathy'],
+  copyrightHolders: ['Andrej Karpathy'],
+  title:
+    'Linear classifier and two-layer neural network — CS231n Deep Learning for Computer Vision',
+  edition: 'Publisher HTML snapshot 2026-09-09; not an immutable git commit',
   sourceCommit: null,
-  originalUrl:
-    'https://opentextbc.ca/dbdesign01/chapter/sql-structured-query-language/',
-  acquisitionUrl:
-    'https://opentextbc.ca/dbdesign01/chapter/sql-structured-query-language/',
-  licenseComponents: [CC_BY_4],
-  licenseEvidenceUrl: 'https://opentextbc.ca/dbdesign01/',
-  licenseEvidenceSha256: null,
+  originalUrl: CS231N_CASE_STUDY_URL,
+  acquisitionUrl: CS231N_CASE_STUDY_URL,
+  licenseComponents: [MIT_DOC_LICENSE],
+  licenseEvidenceUrl: CS231N_LICENSE_URL,
+  licenseEvidenceSha256: CS231N_LICENSE_SHA256,
   exceptions: [
-    'Noted book assets remain excepted until original bytes and attribution are verified.',
-    'Images are excluded.',
-    'Web-tool readable copies are not original bytes and must not become canonical hashes.',
+    'Embedded figures and other visual media are omitted from canonical text.',
+    'Python/NumPy listings are source text, not evidence of executed output.',
+    'This MIT notes grant does not license Stanford 2026 on-campus recordings.',
   ],
-  transformationSummary: [],
+  transformationSummary: [
+    'Fetched the public publisher HTML and MIT license bytes on 2026-09-09.',
+    'Parsed HTML with the existing Parse5 structured extractor without executing scripts.',
+    'Preserved the linear-classifier and two-layer network lesson text, including Python/NumPy and math as rendered text.',
+    'Did not claim a git commit for mutable GitHub Pages HTML.',
+  ],
   compatibleExportObligations: [
-    'If original bytes are later acquired, retain author, copyright, license, and free-source link before activation.',
+    'Retain the MIT copyright notice and permission text for Andrej Karpathy, 2015.',
+    'Do not describe omitted figures as present, or source listings as executed results.',
   ],
 };

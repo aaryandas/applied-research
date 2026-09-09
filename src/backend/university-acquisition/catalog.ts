@@ -1,5 +1,9 @@
 import {
-  BCCAMPUS_SQL_ATTRIBUTION,
+  CS231N_CASE_STUDY_ATTRIBUTION,
+  CS231N_CASE_STUDY_BYTES,
+  CS231N_CASE_STUDY_SHA256,
+  CS231N_LICENSE_BYTES,
+  CS231N_LICENSE_SHA256,
   DELFT_CONFIG_BYTES,
   DELFT_CONFIG_SHA256,
   DELFT_CREDITS_BYTES,
@@ -15,6 +19,7 @@ import {
   MIT_LICENSE_SHA256,
 } from './attribution.js';
 import {
+  HTML_EXTRACTION_METHOD,
   MYST_EXTRACTION_METHOD,
   PLUTO_EXTRACTION_METHOD,
   freezeUniversityValue,
@@ -25,7 +30,7 @@ import {
 export const UNIVERSITY_CANDIDATE_IDS = {
   mitAbstraction: 'univ_mit_ct_abstr',
   delftQuantization: 'univ_tudelft_qm_em',
-  bccampusSql: 'univ_bccampus_sql',
+  stanfordCs231nCaseStudy: 'univ_stan_cs231n_nncs',
 } as const;
 
 export const UNIVERSITY_CANDIDATES: readonly UniversityCandidate[] =
@@ -37,19 +42,25 @@ export const UNIVERSITY_CANDIDATES: readonly UniversityCandidate[] =
       kind: 'lecture',
       institution: 'Massachusetts Institute of Technology',
       courseCode: 'Introduction to Computational Thinking',
+      authors: MIT_ABSTRACTION_ATTRIBUTION.authors,
       originalUrl: MIT_ABSTRACTION_ATTRIBUTION.originalUrl,
       acquisitionUrl: MIT_ABSTRACTION_ATTRIBUTION.acquisitionUrl,
       licenseEvidenceUrl: MIT_ABSTRACTION_ATTRIBUTION.licenseEvidenceUrl,
       format: 'pluto-static',
       topicTags: ['computational-thinking', 'julia', 'abstraction'],
+      metadataSummary:
+        'Learn how images become abstractions in MIT Introduction to Computational Thinking, with static Julia and Markdown from the official Fall 2024 Abstraction lesson.',
+      relationships: [],
+      license: {
+        status: 'known',
+        name: 'Creative Commons Attribution-ShareAlike 4.0 International',
+        spdxId: 'CC-BY-SA-4.0',
+        url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+      },
       reachability: 'reachable-pinned',
       permission: 'hash-verified',
       extraction: 'pending',
       indexing: 'not-indexed',
-      publicNotes: [
-        'Independently licensed repository text (CC BY-SA 4.0) and code (MIT), not MIT OCW NC.',
-        'Extraction-ready after hash admission; not production indexed.',
-      ],
     },
     {
       id: UNIVERSITY_CANDIDATE_IDS.delftQuantization,
@@ -58,40 +69,66 @@ export const UNIVERSITY_CANDIDATES: readonly UniversityCandidate[] =
       kind: 'chapter',
       institution: 'Delft University of Technology',
       courseCode: 'Introduction to Quantum Mechanics',
+      authors: DELFT_QUANTUM_ATTRIBUTION.authors,
       originalUrl: DELFT_QUANTUM_ATTRIBUTION.originalUrl,
       acquisitionUrl: DELFT_QUANTUM_ATTRIBUTION.acquisitionUrl,
       licenseEvidenceUrl: DELFT_QUANTUM_ATTRIBUTION.licenseEvidenceUrl,
       format: 'myst-markdown',
-      topicTags: ['quantum-mechanics', 'physics', 'nanobiology'],
+      topicTags: ['quantum-mechanics', 'physics', 'quantization'],
+      metadataSummary:
+        'Study quantization of angular momentum, including TeX and the photon-momentum footnote, from TU Delft Introduction to Quantum Mechanics.',
+      relationships: [],
+      license: {
+        status: 'known',
+        name: 'Creative Commons Attribution 4.0 International',
+        spdxId: 'CC-BY-4.0',
+        url: 'https://creativecommons.org/licenses/by/4.0/',
+      },
       reachability: 'reachable-pinned',
       permission: 'hash-verified',
       extraction: 'pending',
       indexing: 'not-indexed',
-      publicNotes: [
-        'Pinned GitLab Markdown snapshot; not claimed identical to later published revision 1.4.1.',
-        'Selected Matter quantization slice is extraction-ready after hash admission; not production indexed.',
-      ],
     },
     {
-      id: UNIVERSITY_CANDIDATE_IDS.bccampusSql,
-      sourceId: UNIVERSITY_CANDIDATE_IDS.bccampusSql,
-      title: BCCAMPUS_SQL_ATTRIBUTION.title,
+      id: UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+      sourceId: UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+      title: CS231N_CASE_STUDY_ATTRIBUTION.title,
       kind: 'chapter',
-      institution: 'BCcampus',
-      courseCode: 'Database Design, 2nd edition',
-      originalUrl: BCCAMPUS_SQL_ATTRIBUTION.originalUrl,
-      acquisitionUrl: BCCAMPUS_SQL_ATTRIBUTION.acquisitionUrl,
-      licenseEvidenceUrl: BCCAMPUS_SQL_ATTRIBUTION.licenseEvidenceUrl,
-      format: 'html-pending',
-      topicTags: ['databases', 'sql'],
-      reachability: 'challenge-blocked',
-      permission: 'pending-evidence',
-      extraction: 'none',
-      indexing: 'not-indexed',
-      publicNotes: [
-        'Operator-reviewed CC BY 4.0 claim is not byte evidence.',
-        'Cloud acquisition of the original public URL returned HTTP 403 Cloudflare challenge; no canonical hash is recorded.',
+      institution: 'Stanford University',
+      courseCode: 'CS231n',
+      authors: CS231N_CASE_STUDY_ATTRIBUTION.authors,
+      originalUrl: CS231N_CASE_STUDY_ATTRIBUTION.originalUrl,
+      acquisitionUrl: CS231N_CASE_STUDY_ATTRIBUTION.acquisitionUrl,
+      licenseEvidenceUrl: CS231N_CASE_STUDY_ATTRIBUTION.licenseEvidenceUrl,
+      format: 'html',
+      topicTags: [
+        'neural-networks',
+        'computer-vision',
+        'linear-classifier',
+        'backpropagation',
+        'numpy',
       ],
+      metadataSummary:
+        'Walk through a linear softmax classifier and then a two-layer neural network in Python/NumPy, with the math used to train both on a toy spiral dataset.',
+      relationships: [
+        {
+          kind: 'chapter-of-course',
+          parentSourceId: 'univ_stan_cs231n',
+          parentProviderIds: [
+            { provider: 'curated-catalog', id: 'univ_stan_cs231n' },
+          ],
+        },
+      ],
+      license: {
+        status: 'known',
+        name: 'MIT License',
+        spdxId: 'MIT',
+        url: 'https://opensource.org/licenses/MIT',
+      },
+      reachability: 'reachable-pinned',
+      permission: 'hash-verified',
+      extraction: 'pending',
+      indexing: 'not-indexed',
     },
   ]);
 
@@ -145,6 +182,28 @@ export const PINNED_UNIVERSITY_SOURCES: readonly PinnedUniversitySource[] =
         method: MYST_EXTRACTION_METHOD,
         slice: { startLine: 52, endLine: 128 },
         includeFootnotes: ['6'],
+      },
+    },
+    {
+      candidateId: UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+      sourceId: UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+      format: 'html',
+      source: {
+        url: CS231N_CASE_STUDY_ATTRIBUTION.acquisitionUrl ?? '',
+        bytes: CS231N_CASE_STUDY_BYTES,
+        sha256: CS231N_CASE_STUDY_SHA256,
+      },
+      license: {
+        url: CS231N_CASE_STUDY_ATTRIBUTION.licenseEvidenceUrl ?? '',
+        bytes: CS231N_LICENSE_BYTES,
+        sha256: CS231N_LICENSE_SHA256,
+      },
+      extraEvidence: [],
+      attribution: CS231N_CASE_STUDY_ATTRIBUTION,
+      extraction: {
+        method: HTML_EXTRACTION_METHOD,
+        slice: null,
+        includeFootnotes: [],
       },
     },
   ]);

@@ -10,4 +10,12 @@ export const FIXTURE_URLS = {
   ),
   delftCredits: new URL('./fixtures/delft-credits.md.fixture', import.meta.url),
   delftConfig: new URL('./fixtures/delft-config.yml.fixture', import.meta.url),
+  cs231nCaseStudy: new URL(
+    './fixtures/cs231n-neural-networks-case-study.html.fixture',
+    import.meta.url,
+  ),
+  cs231nLicense: new URL(
+    './fixtures/cs231n-license.txt.fixture',
+    import.meta.url,
+  ),
 } as const;

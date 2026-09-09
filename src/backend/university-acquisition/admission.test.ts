@@ -108,21 +108,6 @@ describe('university byte admission', () => {
     expect(cancelled.outcome).toBe('cancelled');
   });
 
-  it('does not mint a canonical hash for the BCcampus challenge-blocked chapter', async () => {
-    const result = await admitUniversityBytes({
-      candidateId: UNIVERSITY_CANDIDATE_IDS.bccampusSql,
-      transport: {
-        fetch: async () => ({ outcome: 'unavailable' }),
-      },
-      signal: new AbortController().signal,
-    });
-    expect(result.outcome).toBe('unavailable');
-    expect(result).not.toHaveProperty('sourceBytesSha256');
-    expect(
-      pinnedUniversitySource(UNIVERSITY_CANDIDATE_IDS.bccampusSql),
-    ).toBeNull();
-  });
-
   it('keeps directory entries from becoming admitted bytes', async () => {
     const result = await admitUniversityBytes({
       candidateId: 'univ_mit_6100l',
@@ -174,19 +159,6 @@ describe('university byte admission', () => {
       signal: new AbortController().signal,
     });
     expect(cancelledLicense.outcome).toBe('cancelled');
-  });
-
-  it('records BCcampus success without minting a canonical hash', async () => {
-    const result = await admitUniversityBytes({
-      candidateId: UNIVERSITY_CANDIDATE_IDS.bccampusSql,
-      transport: {
-        fetch: async (url) =>
-          success(url, new TextEncoder().encode('<html>not original</html>')),
-      },
-      signal: new AbortController().signal,
-    });
-    expect(result.outcome).toBe('acquisition-pending');
-    expect(result).not.toHaveProperty('sourceBytesSha256');
   });
 
   it('cancels when the signal is aborted after the source fetch', async () => {

@@ -21,7 +21,8 @@ export async function acquireUniversitySource(options: {
 }): Promise<UniversityExtractionResult> {
   const admitted = await admitUniversityBytes(options);
   if (admitted.outcome !== 'admitted') return admitted;
-  if (admitted.sourceMediaType === 'text/html') {
+  const pinned = pinnedUniversitySource(options.candidateId);
+  if (admitted.sourceMediaType === 'text/html' && pinned?.format !== 'html') {
     return freezeUniversityValue({
       outcome: 'unsupported',
       candidateId: options.candidateId,
@@ -43,7 +44,6 @@ export async function acquireUniversitySource(options: {
           : UNIVERSITY_PUBLIC_MESSAGES.unsupported,
     });
   }
-  const pinned = pinnedUniversitySource(options.candidateId);
   if (pinned === null) {
     return freezeUniversityValue({
       outcome: 'invalid-source',

@@ -5,6 +5,8 @@ import { publicLicenseDescriptor, toAcquiredSource } from './adapter.js';
 import { extractAdmittedUniversitySource } from './extract.js';
 import { UNIVERSITY_CANONICALIZATION_VERSION } from './types.js';
 import {
+  CS231N_CASE_STUDY_SHA256,
+  CS231N_LICENSE_SHA256,
   DELFT_CREDITS_SHA256,
   DELFT_INTRODUCTION_SHA256,
   MIT_ABSTRACTION_SOURCE_SHA256,
@@ -30,12 +32,16 @@ async function pinnedBytes(): Promise<{
   mitLicense: Uint8Array;
   delftSource: Uint8Array;
   delftLicense: Uint8Array;
+  cs231nSource: Uint8Array;
+  cs231nLicense: Uint8Array;
 }> {
   return {
     mitSource: await readFile(FIXTURE_URLS.mitAbstraction),
     mitLicense: await readFile(FIXTURE_URLS.mitLicense),
     delftSource: await readFile(FIXTURE_URLS.delftIntroduction),
     delftLicense: await readFile(FIXTURE_URLS.delftCredits),
+    cs231nSource: await readFile(FIXTURE_URLS.cs231nCaseStudy),
+    cs231nLicense: await readFile(FIXTURE_URLS.cs231nLicense),
   };
 }
 
@@ -51,7 +57,9 @@ function transportFor(
         outcome: 'success',
         requestedUrl: url,
         acquiredUrl: url,
-        mediaType: 'text/plain',
+        mediaType: url.includes('neural-networks-case-study')
+          ? 'text/html'
+          : 'text/plain',
         bytes,
         redirectCount: 0,
       };
@@ -65,13 +73,20 @@ async function pinnedTransport(): Promise<UniversityByteTransport> {
   const delft = pinnedUniversitySource(
     UNIVERSITY_CANDIDATE_IDS.delftQuantization,
   );
-  if (mit === null || delft === null) throw new Error('Missing pins.');
+  const cs231n = pinnedUniversitySource(
+    UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+  );
+  if (mit === null || delft === null || cs231n === null) {
+    throw new Error('Missing pins.');
+  }
   return transportFor(
     new Map([
       [mit.source.url, files.mitSource],
       [mit.license.url, files.mitLicense],
       [delft.source.url, files.delftSource],
       [delft.license.url, files.delftLicense],
+      [cs231n.source.url, files.cs231nSource],
+      [cs231n.license.url, files.cs231nLicense],
     ]),
   );
 }
@@ -246,9 +261,60 @@ describe('pinned university acquisition', () => {
     }
   });
 
+  it('canonicalizes the pinned Stanford CS231n HTML lesson into exact passages', async () => {
+    const files = await pinnedBytes();
+    expect(files.cs231nSource.byteLength).toBe(56_638);
+    expect(files.cs231nLicense.byteLength).toBe(1_082);
+    const acquired = await acquireUniversitySource({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.stanfordCs231nCaseStudy,
+      transport: await pinnedTransport(),
+      signal: new AbortController().signal,
+      clock,
+    });
+    expect(acquired.outcome).toBe('extraction-ready');
+    if (acquired.outcome !== 'extraction-ready') return;
+    expect(acquired.sourceBytesSha256).toBe(CS231N_CASE_STUDY_SHA256);
+    expect(acquired.licenseBytesSha256).toBe(CS231N_LICENSE_SHA256);
+    expect(acquired.document.format).toBe('html');
+    expect(acquired.document.text).toContain(
+      'Training a Softmax Linear Classifier',
+    );
+    expect(acquired.document.text).toContain('Training a Neural Network');
+    expect(acquired.document.text).toContain('X = np.zeros((N*K,D))');
+    expect(acquired.document.text.length).toBeLessThanOrEqual(48_000);
+    expect(acquired.document.extraction.coverage).toBe('partial');
+    const revision = canonicalRevisionFromExtraction(acquired);
+    expect(revision.sha256).toBe(sha256Utf8(revision.canonicalText));
+    const passages = sourcePassagesFromExtraction(acquired);
+    expect(passages.length).toBeGreaterThan(0);
+    expect(
+      passages.some((passage) =>
+        passage.locator.quote.includes('linear classifier'),
+      ),
+    ).toBe(true);
+    for (const passage of passages) {
+      expect(
+        revision.canonicalText.slice(
+          passage.locator.start,
+          passage.locator.end,
+        ),
+      ).toBe(passage.locator.quote);
+    }
+    const source = toAcquiredSource(acquired, {
+      status: 'unknown',
+      reason: 'This source is extraction-ready and is not production indexed.',
+    });
+    expect(source.kind).toBe('chapter');
+    expect(source.relationships[0]?.kind).toBe('chapter-of-course');
+    expect(source.usePolicy.license).toMatchObject({
+      status: 'known',
+      spdxId: 'MIT',
+    });
+  });
+
   it('does not turn directory metadata into extraction-ready passages', async () => {
     const result = await acquireUniversitySource({
-      candidateId: 'univ_yale_phys200',
+      candidateId: 'univ_stan_cs229',
       transport: await pinnedTransport(),
       signal: new AbortController().signal,
       clock,

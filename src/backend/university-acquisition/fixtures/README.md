@@ -2,7 +2,7 @@
 
 These are exact public snapshots re-fetched in Cursor Cloud on 9 September 2026
 UTC. They are not learner data. Parsers treat them as inert bytes; Julia,
-MyST, YAML, and notebooks are never executed.
+MyST, YAML, HTML, and notebooks are never executed.
 
 ## MIT Introduction to Computational Thinking, Fall 2024 — Abstraction
 
@@ -31,8 +31,16 @@ MyST, YAML, and notebooks are never executed.
 - T. Idema, TU Delft Open, 2025; copyright Delft University of Technology;
   text CC BY 4.0. This snapshot is not the later published revision 1.4.1.
 
-## BCcampus SQL chapter
+## Stanford CS231n neural-networks case study (HTML)
 
-No fixture. A single Cloud GET of the original public chapter URL returned
-HTTP 403 Cloudflare challenge. Challenge HTML is not original source and is
-not stored or hashed as a canonical edition.
+- Publisher lesson:
+  https://cs231n.github.io/neural-networks-case-study/
+- License:
+  https://raw.githubusercontent.com/cs231n/cs231n.github.io/master/LICENSE
+- `cs231n-neural-networks-case-study.html.fixture`: 56638 bytes, SHA-256
+  `fe03b0231a9dd7a70ab6fcf1f00d0e1035d8996b12e2bb341c3c9e2901b4820c`.
+- `cs231n-license.txt.fixture`: 1082 bytes, SHA-256
+  `85b365f07b4cfc5d678c548bc41965bc3bc782106b8903bd3b876d9d49a4270d`.
+- Fetched 2026-09-09T10:11:57.000Z. Mutable GitHub Pages HTML; not a git commit.
+- Copyright 2015 Andrej Karpathy; MIT License. Figures omitted as partial
+  extraction. Python listings are source text, not executed output.

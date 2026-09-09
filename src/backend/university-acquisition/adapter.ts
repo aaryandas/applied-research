@@ -41,8 +41,8 @@ export function toAcquiredSource(
     },
     publicationDate: null,
     discoveredAt: result.acquiredAt,
-    metadataSummary: null,
-    relationships: [],
+    metadataSummary: candidate?.metadataSummary ?? null,
+    relationships: [...(candidate?.relationships ?? [])],
     usePolicy: {
       access: 'public',
       accessEvidenceUrl: result.attribution.licenseEvidenceUrl,

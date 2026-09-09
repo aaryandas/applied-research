@@ -6,66 +6,54 @@ desktop processes, schema, lockfile, CI, and other context pages were not
 edited.
 
 This checkpoint is **extraction-ready**, not production indexed. No embeddings,
-provider calls, crawls, retrieval queries, or desktop wiring were performed.
+provider calls, crawls, retrieval queries, video downloads, or desktop wiring
+were performed. BCcampus is out of this delivery.
 
 ## What a learner can do after later composition
 
-Discover the reviewed MIT Computational Thinking abstraction lesson and the TU
-Delft quantization slice, inspect original URLs/commits, and later retrieve
-canonical passages that preserve Markdown, TeX, code whitespace, and tables.
-BCcampus SQL remains an honest acquisition-pending directory row. MIT 6.100L,
-Yale PHYS 200, and CMU OLI psychology are factual external-reading links, not
-passage evidence. The independently licensed MIT computational-thinking
-repository is a positive full-text route; general OCW is not blanket-blocked
-and is not blanket-indexed.
+Discover Stanford CS229/CS231n, Berkeley CS61A, Harvard CS50x/AI/P, plus MIT
+and TU Delft extraction-ready lessons. Open official course, notes, and YouTube
+lecture pages immediately. Retrieve canonical passages later from pinned MIT
+Pluto, Delft MyST, and the Stanford CS231n HTML case study.
 
 ## Implemented module
+
+`universityCatalogSources()` returns `MetadataOnlySource[]` for root’s trusted
+catalog composition. Course and lecture rows use `curated-catalog` identities,
+learner-facing `metadataSummary` topic text, and `lecture-of-course` /
+`chapter-of-course` relationships. Directory rows are reading/playback only:
+indexing stays unknown and `acquisitionLocation` is null.
 
 `acquireUniversitySource` admits pinned bytes through an injected
 `UniversityByteTransport`, then runs network-free parsers:
 
-- Candidate metadata, source-owned rights, acquired bytes, extraction-ready
-  canonical text, and `not-indexed` stay separate fields.
-- Exact source and license SHA-256 values must match a pinned reviewed entry
-  before extraction. Renderer/client identity cannot mint permission or hashes.
-- Transport wraps existing `GuardedHttpsClient`. Parsers never fetch.
-- Pluto selection follows the terminal Cell-order list. Static Markdown and
-  literal code are kept with UUID/line/byte locators. Widgets, interpolation,
-  macros, TOML, downloads, YouTube, and images are gaps. Cells are not
-  evaluated.
-- MyST selection for Delft is original lines 52–128 plus footnote 6. TeX,
-  labels, code, and tables are preserved. Unknown directives, interpolation,
-  and media are gaps.
-- Attribution retains dual MIT text/code licenses, ShareAlike export
-  obligations, authors, commit, URLs, license evidence hashes, exceptions, and
-  the transformation summary. A public single-license descriptor is a lossy
-  mapping only; keep `AttributionRecord` downstream.
-- Handoff into existing indexing/retrieval is `toAcquiredSource`,
-  `canonicalRevisionFromExtraction`, and `sourcePassagesFromExtraction`. This
-  lane does not mint `RetrieveEvidenceResponse`, stamp `provider: turbopuffer`,
-  or overwrite `request.sourceRevisions`. Actual retrieval is owned by the
-  primary integration coordinator.
+- MIT Abstraction: Pluto static cells, dual CC BY-SA / MIT attribution.
+- TU Delft quantization slice: MyST lines 52–128 plus footnote 6.
+- Stanford CS231n neural-networks case study: existing
+  `canonicalizeSourceBytes` + `createParse5TreeAdapter({ parse })`. Publisher
+  HTML snapshot 2026-09-09 (56638 bytes); MIT license from the notes repo.
+  Complete canonical text is 17405 characters, under the 48000-character
+  learning bound, so no section split. Coverage is partial (figures omitted).
+  Python/NumPy is source text, not executed output. Not a git commit.
 
-Pinned Cloud re-fetch (9 September 2026 UTC):
+Pinned Cloud re-fetch:
 
-| Asset                                                                | Bytes  | SHA-256                                                            |
-| -------------------------------------------------------------------- | ------ | ------------------------------------------------------------------ |
-| MIT `abstraction.jl` @ `78f1369deaa1994515e88bb164cc07a94d12f7bd`    | 24463  | `de5547cb64a7bb0e7e860189d9116f4e036bba9816a727c91be28e820f84c1e4` |
-| MIT `LICENSE.md`                                                     | 308    | `a4576a2e28d3c1db63c68c8d1878f073e725b8607a2dfb2aae4b37abf37a5b29` |
-| Delft `introduction.md` @ `f7170416f82825c81bd482820f9f5530ab6f3930` | 120676 | `0554cb267322bfb6034bcbad4c1993d8a6df1502eb05bd794bc915891d1b71da` |
-| Delft `credits.md`                                                   | 3790   | `82409edafc57a671a893f440b1058fc6f1a97e0d72e943952a64cb63c8d5c802` |
-| Delft `_config.yml` (copyright evidence only)                        | 4853   | `16c9f07d98b93cf49c7bdc45aec049608ef6c2bc8c2f04a7fb40808208ff1c66` |
+| Asset                                                             | Bytes  | SHA-256                                                            | Fetched              |
+| ----------------------------------------------------------------- | ------ | ------------------------------------------------------------------ | -------------------- |
+| MIT `abstraction.jl` @ `78f1369deaa1994515e88bb164cc07a94d12f7bd` | 24463  | `de5547cb64a7bb0e7e860189d9116f4e036bba9816a727c91be28e820f84c1e4` | 2026-09-09           |
+| MIT `LICENSE.md`                                                  | 308    | `a4576a2e28d3c1db63c68c8d1878f073e725b8607a2dfb2aae4b37abf37a5b29` | 2026-09-09           |
+| Delft `introduction.md` @ `f7170416…`                             | 120676 | `0554cb267322bfb6034bcbad4c1993d8a6df1502eb05bd794bc915891d1b71da` | 2026-09-09           |
+| Delft `credits.md`                                                | 3790   | `82409edafc57a671a893f440b1058fc6f1a97e0d72e943952a64cb63c8d5c802` | 2026-09-09           |
+| CS231n HTML `neural-networks-case-study/`                         | 56638  | `fe03b0231a9dd7a70ab6fcf1f00d0e1035d8996b12e2bb341c3c9e2901b4820c` | 2026-09-09T10:11:57Z |
+| CS231n `LICENSE` (Andrej Karpathy, 2015, MIT)                     | 1082   | `85b365f07b4cfc5d678c548bc41965bc3bc782106b8903bd3b876d9d49a4270d` | 2026-09-09T10:11:57Z |
 
-BCcampus original URL returned HTTP 403 Cloudflare (`cf-mitigated: challenge`).
-Challenge HTML was not stored or hashed. No canonical edition exists.
+Stanford candidate id: `univ_stan_cs231n_nncs`.
 
 ## Callable composition signatures
 
-Route these sources through existing source composition with these exports
-from `src/backend/university-acquisition/index.ts`. Do not add a university
-retrieval producer.
-
 ```ts
+universityCatalogSources(): readonly MetadataOnlySource[]
+
 createGuardedUniversityTransport(
   http: GuardedHttpsClient,
 ): UniversityByteTransport
@@ -93,54 +81,29 @@ sourcePassagesFromExtraction(
 ): readonly SourcePassage[]
 ```
 
-Happy-path candidate ids: `univ_mit_ct_abstr`, `univ_tudelft_qm_em`.
-Canonicalization version: `univ-canon-v1`. Indexing remains `not-indexed`
-until the coordinator sets a producer grant and runs existing retrieval.
+Happy-path acquire ids: `univ_mit_ct_abstr`, `univ_tudelft_qm_em`,
+`univ_stan_cs231n_nncs`. Catalog includes those plus Stanford/Berkeley/Harvard
+course and lecture rows. Indexing remains unknown/`not-indexed` until root
+sets a producer grant.
 
 ## Minimal shared integration request (coordinator lease)
 
-Do not merge these here. Exact patches for later shared owners:
-
-1. **Guarded MIME union** (`src/backend/sourcing/acquisition/guarded-http.ts`
-   `supportedMediaType` / `GuardedFetchResult.mediaType` and
-   `AcquisitionReceipt.mediaType`): allow reviewed `text/markdown` and
-   `text/x-julia` in addition to `text/plain` and `text/html`, still after
-   charset UTF-8 checks. GitHub/GitLab currently serve these snapshots as
-   `text/plain`, which this lane accepts as **bytes only**. Do not run
-   `canonicalizeSourceBytes` on a Pluto notebook as a complete `text/plain`
-   lesson.
-
-2. **HTML extractor repair** (`canonicalize.ts`, do not treat as done): `tr`
-   cells concatenate column text without separators; `math`/`MathML` are
-   dropped. Required repair is cell delimiters for `th`/`td` and TeX/MathML
-   annotation extraction instead of omitting `math`. AR-57 did not edit that
-   file.
-
-3. **Attribution handoff**: `SourceUsePolicy.license` is one SPDX row. Map
-   `AttributionRecord.licenseComponents[]` through composition so CC BY-SA text
-   and MIT code, exceptions, and export obligations survive Reader/export.
-   This lane does not integrate Reader or export.
-
-4. **Indexing grant**: composition may set indexing `permitted` only after
-   this extraction-ready result, current rights, and the remaining 249996
-   microUSD embedding gate. Do not append MIT/Delft/BCcampus rows to the PSF
-   `CURATED_SOURCE_MANIFEST`. Do not treat local university passages as
-   retrieval hits.
-
-5. **Locator position**: optional `PassageLocator.position` cell/line/byte
-   variant. Sidecar `SourceLocator` already stores those fields.
-
-6. **Lane guard / code map**: add `src/backend/university-acquisition/**` if
-   a future lane split requires it. `lane:backend` already covers
-   `src/backend/**`.
+1. Concatenate `universityCatalogSources()` into trusted `catalogSources`.
+   Do not append these rows to the PSF `CURATED_SOURCE_MANIFEST`.
+2. Guarded MIME union still needed for Markdown/Julia bytes; GitHub Pages
+   CS231n HTML is already `text/html`.
+3. HTML extractor table/MathML repair remains a shared `canonicalize.ts`
+   issue; AR-57 reuses it as-is.
+4. Dual-license MIT Computational Thinking attribution still needs a
+   downstream mapping; CS231n notes are a single MIT grant.
+5. Harvard CS50 rows are CC BY-NC-SA 4.0: reading/playback only, not corpus
+   indexing. Composing Programs HTML can be a later acquire; not in this PR.
+6. Remaining embedding budget 249996 microUSD is coordinator-owned.
 
 ## Known gaps
 
-- BCcampus original bytes are unavailable in Cloud; SQL whitespace acceptance
-  waits on a real 200 of the public chapter.
-- Pluto/MyST parsers are bounded scanners, not a universal Markdown engine.
-- Production HTTP composition, persistence, turbopuffer upload, Qwen
-  embeddings, Reader, and course generation are out of this PR.
-- Delft published HTML may still contain TeX as ordinary text; this snapshot
-  is GitLab Markdown, not those HTML bytes.
-- No Fable, local Mac QA, local Sonar, or paid corpus spend.
+- Directory YouTube/course pages are not downloaded or transcribed.
+- 2026 CS231n on-campus recordings are restricted; catalog uses the public
+  2025 Stanford Online lecture.
+- Production HTTP composition, persistence, turbopuffer, Qwen, Reader, and
+  course generation are out of this PR.
