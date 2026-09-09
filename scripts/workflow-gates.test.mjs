@@ -177,6 +177,7 @@ test('video N/A requires Cursor identity and exclusively delivery workflow files
     'scripts/dispatch-plan.mjs',
     '.gitignore',
     'scripts/delivery-merge.mjs',
+    'scripts/fable-review.test.mjs',
     'scripts/lane-guard.mjs',
     'scripts/lane-guard-rules.mjs',
     'scripts/lane-guard.test.mjs',
