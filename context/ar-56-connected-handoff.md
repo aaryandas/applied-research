@@ -9,7 +9,7 @@ No competing AR56 PR. Do not push `codex/ar-walkthrough-integration`. Root alone
 | Input                                                             | SHA                                                                      |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | First published assembly                                          | `66f74f4f9700ae3f67f59558b23b4bbc0234fa42`                               |
-| Candidate (merged for coverage + Practical disposal tests)        | `6d71d13e4f1015679932526583fe4fe73f4d653a`                               |
+| Candidate same-id guest + main 388 (merged here)                  | `38237efc9950c084623c9851e180b15c59a26f77`                               |
 | AR47 independently reviewed (merged; not the old `7fd` tip alone) | `fe8bbefc1f9e80fce3d930315ecb1fa927a7effa`                               |
 | AR49 Canvas/sidebar (already in 66f)                              | `55b7ec4e46f271e885672b8c6c923fbf9af67c02`                               |
 | AR51 fetched (availability, **not** acceptance)                   | `f7f733f647954d6bd89858591306abf58c6a0b3d`                               |
@@ -43,20 +43,22 @@ No new architecture. These stay on the existing flush / Reader / context surface
 2. **Exact generated-lesson citation navigation.** `SourcePane` lists retained generated citations with separate AI-generated attribution. `ReaderContext` Sources no longer opens `source.currentVersion`. Citation buttons resolve `sourceId` + `revisionId` + exact span on the retained original; a later current edition is not substituted. Missing cited revisions are an honest unavailable alert.
 3. **Ask panel visibility.** The contextual slot is still after the source document. After Ask/Visual, Reader scrolls and focuses the `Contextual explanation response` region without remounting `ContextualHelpPanel`, so the human draft stays.
 
-Not in this lease: AR47 `ensureLesson` stale-after-profile-revision and profile/paste; AR51 `selectionIdentity` including `selection.kind` (Ask↔Visual hides a saved retained result); clip request→render→retain; companion mount; `src/main/index.ts` activate guest-guard (AR50).
+Not in this lease: AR47 `ensureLesson` stale-after-profile-revision and profile/paste; AR51 `selectionIdentity` including `selection.kind` (Ask↔Visual hides a saved retained result); clip request→render→retain; companion mount; durable Canvas explanations; W42.
+
+`ensurePendingLesson` is an AR-56 Shell/App lease: completion is bound to mounted Shell, `requestId`/selection epoch, and project id. Stale results (Home, project B, ready lesson B while A is in flight) are rejected before `onWorkspace` / `openOrigin`. The generated origin is queued until the returned workspace is installed.
 
 ## Mounted seams
 
 - **Database:** AR47 six onboarding tables + accessor `store.onboardingRecords()`; AR51 five explanation tables + `store.explanations`; AR56 origin columns on `entryRevisionContext`.
-- **Contracts / preload / main:** ten onboarding channels, five resume channels (pure `contracts/learning-onboarding.ts`), eight contextual channels including `loadTrustedSceneCapture`. `window.desktop` is the exposed bridge. `activateSourceWorkspace` returns `{projectGeneration, requestGeneration}` from `ContextualHelpOperations.activate` after Practical replace, tool close, and source activate.
-- **App:** Opening gets the real onboarding bridge and `createDraftProject`. Transition only from `onAccepted(workspace, firstLesson)`. Unaccepted interview/proposal reopens via `resumeDraft`. Continue learning card from `getContinueLearning`.
+- **Contracts / preload / main:** ten onboarding channels, five resume channels (pure `contracts/learning-onboarding.ts`), eight contextual channels including `loadTrustedSceneCapture`. `window.desktop` is the exposed bridge. `activateSourceWorkspace` uses `planWorkspaceActivate`: true workspace change revokes in-flight onboarding, replaces Practical, and closes the guest; same-id returns existing contextual generation counters and does not kill guest. `DesktopInfo.testEnvironment` is the opt-in `desktop-e2e` seam.
+- **App:** Opening gets the real onboarding bridge and `createDraftProject` in production. Transition only from `onAccepted(workspace, firstLesson)`. Unaccepted interview/proposal reopens via `resumeDraft`. Continue learning card from `getContinueLearning`. `APPLIED_RESEARCH_TEST_ENVIRONMENT=desktop-e2e` uses `createProject` for Start learning so desktop e2e can set up a fresh project without claiming a real user completed propose/accept.
 - **Settings:** `LearnerProfile` after Appearance, separate from Account.
-- **Shell / Reader:** first-lesson/resume payload; `restoreReading` + `readingLocation`; resume in the workspace/view flush barrier; generated citation retained-revision navigation; Ask region reveal/focus; `ensureLesson` on pending accepted lessons with `acquire-learning-evidence`. Canvas: `records={bridge}`, `onWorkspace`, `registerBoundCanvasFlush`, `collapsed={isCanvas}`. Contextual: `useContextualSelection` + `ContextualHelpPanel` with activation counters, `active={destination === 'reader'}`. `SourceLearningEntry` is not mounted next to onboarding.
+- **Shell / Reader:** first-lesson/resume payload; `restoreReading` + `readingLocation`; resume in the workspace/view flush barrier; generated citation retained-revision navigation; Ask region reveal/focus; `ensureLesson` on pending accepted lessons with `acquire-learning-evidence`, request/selection/project lifetime, queued open after the returned workspace is installed, and honest retry on rejection. Canvas: `records={bridge}`, `onWorkspace`, `registerBoundCanvasFlush`, `collapsed={isCanvas}`. Contextual: `useContextualSelection` + `ContextualHelpPanel` with activation counters, `active={destination === 'reader'}`. `SourceLearningEntry` is not mounted next to onboarding.
 - **Retained media:** combined `registerSchemesAsPrivileged` (auth + `ar-media`) **before** `app.whenReady`. CSP `media-src 'self' ar-media:`. Protocol/CSP is not playback acceptance.
 
-## Activate revoke patch (do not edit `src/main/index.ts` here)
+## Activate revoke (landed)
 
-AR50 currently patches same-workspace guest guard on candidate `6d71d13e`. After that lands, apply: a true workspace **change** must `onboardingOperations.revoke()` (and existing source/contextual/Practical) while **same workspace preserves embedded guest**. Do not treat Shell tests as main-authority proof.
+Candidate `38237efc` same-id guest guard is merged. True workspace **change** calls `onboardingOperations.revoke()` plus Practical replace and `closeTool`. Same-id activate preserves the embedded guest and returns existing contextual generation counters. Named `assertTrustedRendererEvent` frame guards stay. Do not treat Shell tests as main-authority proof of guest lifetime.
 
 ## Producer findings (handoff only)
 
@@ -80,9 +82,9 @@ Node 24. Format/lint/types pass on this revision. Shared Reader/Shell tests cove
 
 `npm run check` fails the branch gate. Thresholds were not lowered. Producer internals remain in the corpus. The 66f **89.11%** figure was against a narrowed exclude list and is not comparable. Root’s native correction remains **29 patterns / 31 lines**. Do not re-introduce coverage exclusions for producer-owned files. Covering AR47/AR51 owned feature tests stays on those producers.
 
-Not run here (root-owned): hosted macOS CI, packaged smoke, live auth/provider, Sonar, desktop recording, connected Cloud acceptance. Do not self-PASS or mark Done.
+**Root retarget:** `tests/e2e/explanations.spec.ts` now drives the mounted contextual help / `RetainedScene` path. Production Opening still requires propose/accept. Automated desktop setup uses the explicit `desktop-e2e` test environment seam. Cloud may run these tests; it does not claim MP4 acceptance. Isolated SceneCanvas tests stay.
 
-**Root must retarget** `tests/e2e/explanations.spec.ts`: production Opening now starts onboarding, so “Start learning” no longer lands on Reader with `Interactive explanations` / two-link-arm demo. Isolated SceneCanvas tests may stay. Do not skip or fixture-fake AI success.
+Not run here (root-owned): hosted macOS CI, packaged smoke, live auth/provider, Sonar, desktop recording, connected Cloud acceptance. Do not self-PASS or mark Done.
 
 ## Unconnected producers (exact adapter requests)
 
