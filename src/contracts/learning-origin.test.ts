@@ -116,15 +116,15 @@ describe('LearningOrigin.entry additive origin', () => {
     expect(failureReason(decodeLearningOrigin(null))).toBe('shape');
   });
 
-  it('allows optional entry on a Practical path origin without dropping path rules', () => {
+  it('rejects optional entry on a live Practical path origin until storage roundtrips it', () => {
     const id = 'a1234567-1234-1234-1234-123456789012';
+    const pathOrigin = {
+      path: { pathId: id, pathRevision: 1, topicId: id, lessonId: id },
+    };
     const input = {
       activity: {
         projectId: id,
-        origin: {
-          path: { pathId: id, pathRevision: 1, topicId: id, lessonId: id },
-          entry: { entryId: id, revision: 2 },
-        },
+        origin: pathOrigin,
         title: 'Synthetic title',
         instructions: 'Synthetic instructions',
         objective: 'Synthetic objective',
@@ -146,11 +146,17 @@ describe('LearningOrigin.entry additive origin', () => {
         activity: {
           ...input.activity,
           origin: {
-            ...input.activity.origin,
-            entry: { entryId: id, revision: 0 },
+            ...pathOrigin,
+            entry: { entryId: id, revision: 2 },
           },
         },
       }),
     ).toBe(false);
+    expect(
+      decodeLearningOrigin({
+        ...pathOrigin,
+        entry: { entryId: id, revision: 2 },
+      }).ok,
+    ).toBe(true);
   });
 });

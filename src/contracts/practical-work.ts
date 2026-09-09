@@ -1,15 +1,16 @@
-import {
-  isEntryRevisionReference,
-  type CommitAcknowledgement,
-  type LearningOrigin,
-  type LearningWorkspace,
-  type PathOrigin,
+import type {
+  CommitAcknowledgement,
+  LearningOrigin,
+  LearningWorkspace,
+  PathOrigin,
 } from './learning-records';
 
 /** Producer checkpoint for AR-19; not a persistence schema or IPC registration. */
 export interface PracticalActivity {
   projectId: LearningWorkspace['project']['id'];
-  origin: LearningOrigin & { path: PathOrigin & { lessonId: string } };
+  origin: Omit<LearningOrigin, 'entry'> & {
+    path: PathOrigin & { lessonId: string };
+  };
   title: string;
   instructions: string;
   objective: string;
@@ -139,22 +140,15 @@ function practicalRevision(value: unknown): boolean {
 function practicalOrigin(value: unknown): boolean {
   if (
     !isPracticalObject(value) ||
-    !practicalKeys(
-      value,
-      ['path'],
-      ['sourceRevisionId', 'highlightId', 'entry'],
-    )
+    !practicalKeys(value, ['path'], ['sourceRevisionId', 'highlightId'])
   )
     return false;
   const path = value.path;
   const optionalIdsValid = ['sourceRevisionId', 'highlightId'].every(
     (key) => !Object.hasOwn(value, key) || practicalUuid(value[key]),
   );
-  const entryValid =
-    !Object.hasOwn(value, 'entry') || isEntryRevisionReference(value.entry);
   return (
     optionalIdsValid &&
-    entryValid &&
     isPracticalObject(path) &&
     practicalKeys(path, ['pathId', 'pathRevision', 'topicId', 'lessonId']) &&
     ['pathId', 'topicId', 'lessonId'].every((key) =>
