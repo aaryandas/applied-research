@@ -387,7 +387,7 @@ async function startOnboarding(options?: {
       proposals: makeMemoryOnboardingStore(),
       selectEvidence: async (query) =>
         (options?.evidence ?? admittedEvidence)(query.requestId),
-      sourcing: options?.sourcing,
+      ...(options?.sourcing ? { sourcing: options.sourcing } : {}),
       runEffect: (effect, signal) =>
         Effect.runPromise(effect, signal ? { signal } : undefined),
       clock: () => new Date(AT),

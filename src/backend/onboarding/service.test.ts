@@ -237,7 +237,6 @@ function reviseRequest(
         syllabus: {
           title: 'Cited floating-point syllabus',
           topics: [],
-          capstone: null,
         },
         personalization: null,
       },
@@ -308,9 +307,9 @@ describe('onboarding service lifecycle accounting', () => {
               ),
             );
           }, 5_000);
-          return () => {
+          return Effect.sync(() => {
             clearTimeout(timer);
-          };
+          });
         });
       },
     });

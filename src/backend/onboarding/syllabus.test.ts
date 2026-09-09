@@ -146,21 +146,17 @@ describe('onboarding syllabus projection', () => {
         'Plot a softmax curve in numpy',
       ).kind,
     ).toBe('learner-external');
-    expect(
-      practiceToolFor(
-        'history of the printing press',
-        'Compare two cited editions',
-      ),
-    ).toMatchObject({
+    const genericTool = practiceToolFor(
+      'history of the printing press',
+      'Compare two cited editions',
+    );
+    expect(genericTool).toMatchObject({
       kind: 'learner-external',
       toolName: 'Local tools required by Compare two cited editions',
     });
-    expect(
-      practiceToolFor(
-        'history of the printing press',
-        'Compare two cited editions',
-      ).toolName,
-    ).not.toBe('Python and a local editor');
+    if (genericTool.kind === 'learner-external') {
+      expect(genericTool.toolName).not.toBe('Python and a local editor');
+    }
   });
 
   it('attaches citations only when the quote appears in the paragraph', () => {
