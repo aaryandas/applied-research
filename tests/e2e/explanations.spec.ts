@@ -79,6 +79,10 @@ async function captureRecord(page: Page): Promise<Record<string, unknown>> {
 }
 
 test('manipulates actual local scenes, measures endpoints, pauses, and recovers context loss', async () => {
+  test.skip(
+    process.platform !== 'darwin',
+    'Capture stays disabled without a real GPU (xvfb / Windows CI).',
+  );
   test.setTimeout(90_000);
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-scenes-'));
@@ -417,6 +421,10 @@ test('offers usable text and parameters when WebGL context creation is unavailab
 });
 
 test('preserves typed arm drafts and exact camera pose across blur and focus', async () => {
+  test.skip(
+    process.platform !== 'darwin',
+    'Capture stays disabled without a real GPU (xvfb / Windows CI).',
+  );
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-repair-'));
   const application = await launchExplanationApplication(directory);
