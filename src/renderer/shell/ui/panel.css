@@ -59,11 +59,10 @@
 }
 
 /* Edge-to-edge body: media, tables, embedded views. Direct child only, so a
-   nested panel keeps its own padding. The panel's own clip is held off by
-   overflow-clip-margin so focus rings survive, which would let edge-to-edge content spill
-   past the rounded corner — so the body does the corner clipping instead. */
+   nested panel keeps its own padding. Corner clipping stays on the panel so a
+   focused flush row can still paint its ring through overflow-clip-margin, a
+   .ui-scroll body keeps overflow: auto, and a header or footer is not joined
+   by an inherited radius on the body's inner corners. */
 .ui-panel--flush > .ui-panel__body {
   padding: 0;
-  overflow: clip;
-  border-radius: inherit;
 }
