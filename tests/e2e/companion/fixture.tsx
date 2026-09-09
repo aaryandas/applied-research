@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { CompanionState } from '../../../src/contracts/companion';
 import type { PracticalGuidanceRequest } from '../../../src/contracts/practical-work';
 import { Companion } from '../../../src/renderer/companion/Companion';
+import { answeredGuidance } from '../../../src/renderer/companion/guidance-test-answer';
 import { createCompanionRequester } from '../../../src/renderer/companion/requester';
 import { ThemeButton } from '../../../src/renderer/FieldAtlas';
 import '../../../src/renderer/styles.css';
@@ -68,10 +69,9 @@ function Fixture(): ReactElement {
           };
         if (replyMode.current === 'error')
           throw new Error('Synthetic transport failure');
-        return {
-          status: 'answered',
-          text: `Which rotation changed the final direction? Compare that with your prediction.\n\nSelected human writing:\n${input.context.target === 'reflection' ? input.context.text : ''}`,
-        };
+        return answeredGuidance(
+          `Which rotation changed the final direction? Compare that with your prediction.\n\nSelected human writing:\n${input.context.target === 'reflection' ? input.context.text : ''}`,
+        );
       },
     }),
   );
