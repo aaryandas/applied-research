@@ -984,8 +984,13 @@ it('does not resume another attempt when a dirty draft cannot flush', async () =
 it('previews retained text and exports the exact selected file without calling it a measurement', async () => {
   const preview = vi.fn(async () => ({
     status: 'ready' as const,
-    text: 'observed,12',
+    selectionId: 'synthetic-selection',
+    displayName: 'trial.txt',
+    mediaType: 'text/plain' as const,
+    byteLength: 12,
+    provenanceId: 'synthetic-provenance',
     completeness: 'complete' as const,
+    text: 'observed,12',
   }));
   const exported = vi.fn(async () => {});
   render(

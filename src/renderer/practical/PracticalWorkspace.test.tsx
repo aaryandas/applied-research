@@ -277,8 +277,13 @@ it('saves a human plan, records a checkpoint, and previews retained text without
     })),
     previewPracticalFile: vi.fn(async () => ({
       status: 'ready' as const,
-      text: 'observed,12',
+      selectionId: 'selected-return',
+      displayName: 'trial.txt',
+      mediaType: 'text/plain' as const,
+      byteLength: 12,
+      provenanceId: 'synthetic-provenance',
       completeness: 'complete' as const,
+      text: 'observed,12',
     })),
     exportPracticalFile: vi.fn(async () => ({
       status: 'exported' as const,
