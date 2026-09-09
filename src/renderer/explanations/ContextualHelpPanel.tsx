@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import {
   CONTEXTUAL_HELP_CONTRACT_VERSION,
   CONTEXTUAL_HELP_QUESTION_LIMIT,
@@ -14,6 +21,13 @@ import type {
   SceneLocalState,
 } from '../../contracts/explanation-artifacts';
 import type { ContextualHelpBridge } from './contextual-help-bridge';
+import {
+  originIdentity,
+  recordMatchesRequestedIntent,
+} from './contextual-help-selection';
+import { projectRetainedClipView } from './explanation-clip-projection';
+import { RetainedClipPlayer } from './RetainedClipPlayer';
+import type { RetainedClipMediaAccess } from './retained-clip';
 import { RetainedScene } from './RetainedScene';
 import './explanations.css';
 
@@ -25,42 +39,13 @@ export interface ContextualSelection {
 
 type PanelStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
-function selectionIdentity(
-  projectId: string,
-  selection: ContextualSelection | null,
-): string {
-  if (!selection) return `${projectId}:none`;
-  if (selection.origin.highlightId) {
-    return `${projectId}:${selection.kind}:h:${selection.origin.highlightId}`;
-  }
-  if (selection.origin.entry) {
-    return `${projectId}:${selection.kind}:q:${selection.origin.entry.entryId}:${selection.origin.entry.revision}`;
-  }
-  return `${projectId}:${selection.kind}:empty`;
-}
-
-function selectionMatches(
-  record: RetainedExplanation,
-  selection: ContextualSelection,
-): boolean {
-  if (record.intent !== selection.kind) return false;
-  if (selection.origin.highlightId) {
-    return record.origin.highlightId === selection.origin.highlightId;
-  }
-  const entry = selection.origin.entry;
-  return (
-    entry !== undefined &&
-    record.origin.entry?.entryId === entry.entryId &&
-    record.origin.entry.revision === entry.revision
-  );
-}
-
 export function ContextualHelpPanel({
   projectId,
   projectGeneration,
   requestGeneration,
   bridge,
   selection,
+  openExplanationId = null,
   active,
   onReturnToOrigin,
 }: {
@@ -69,12 +54,18 @@ export function ContextualHelpPanel({
   readonly requestGeneration: number;
   readonly bridge: ContextualHelpBridge;
   readonly selection: ContextualSelection | null;
+  readonly openExplanationId?: string | null;
   readonly active: boolean;
   readonly onReturnToOrigin?: (origin: LearningOrigin) => void;
 }): ReactElement {
   const questionId = useId();
-  const identity = selectionIdentity(projectId, selection);
+  const originKey = originIdentity(projectId, selection?.origin ?? null);
+  const sessionKey = `${originKey}|${projectGeneration}|${requestGeneration}`;
   const [draft, setDraft] = useState('');
+  const [intentOverride, setIntentOverride] = useState<{
+    originKey: string;
+    intent: ContextualHelpIntent;
+  } | null>(null);
   const [request, setRequest] = useState<{
     identity: string;
     status: PanelStatus;
@@ -86,44 +77,126 @@ export function ContextualHelpPanel({
   );
   const [scene, setScene] = useState<SceneLocalState | null>(null);
   const inFlight = useRef<string | null>(null);
+  const lastSubmittedIntent = useRef<{
+    originKey: string;
+    intent: ContextualHelpIntent;
+  } | null>(null);
+  const cancelOwned = useRef(Promise.resolve());
   const quote = selection?.quote ?? '';
   const origin = selection?.origin ?? null;
-  const status = request.identity === identity ? request.status : 'idle';
-  const message = request.identity === identity ? request.message : null;
-  const retryable = request.identity === identity ? request.retryable : false;
+  const activeIntent =
+    intentOverride?.originKey === originKey
+      ? intentOverride.intent
+      : (selection?.kind ?? 'text');
+  const status = request.identity === originKey ? request.status : 'idle';
+  const message = request.identity === originKey ? request.message : null;
+  const retryable = request.identity === originKey ? request.retryable : false;
   const retained =
-    explanation && selection && selectionMatches(explanation, selection)
+    explanation &&
+    origin &&
+    (openExplanationId
+      ? explanation.explanationId === openExplanationId
+      : recordMatchesRequestedIntent(explanation, origin, activeIntent))
       ? explanation
       : null;
   const visibleScene =
     retained && scene?.explanationId === retained.explanationId ? scene : null;
+  const clipView = retained ? projectRetainedClipView(retained) : null;
+  const clipAccess = useMemo<RetainedClipMediaAccess>(
+    () => ({
+      open: async (mediaId) => {
+        const opened = await bridge.openRetainedClipMedia({
+          projectId,
+          artifactId: mediaId,
+        });
+        if (opened.status === 'ready') {
+          return { status: 'ready', objectUrl: opened.objectUrl };
+        }
+        return { status: opened.status };
+      },
+      revoke: (objectUrl) => {
+        if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+      },
+    }),
+    [bridge, projectId],
+  );
 
   useEffect(() => {
-    inFlight.current = null;
+    return () => {
+      const requestId = inFlight.current;
+      if (!requestId) return;
+      inFlight.current = null;
+      if (lastSubmittedIntent.current?.originKey === originKey) {
+        lastSubmittedIntent.current = null;
+      }
+      setIntentOverride((current) =>
+        current?.originKey === originKey ? null : current,
+      );
+      setRequest((current) =>
+        current.identity === originKey && current.status === 'loading'
+          ? {
+              identity: originKey,
+              status: 'idle',
+              message: null,
+              retryable: false,
+            }
+          : current,
+      );
+      cancelOwned.current = Promise.resolve(
+        bridge.cancelContextualHelp({
+          requestId,
+          expectedProjectGeneration: projectGeneration,
+          expectedRequestGeneration: requestGeneration,
+        }),
+      ).then(
+        () => undefined,
+        () => undefined,
+      );
+    };
+  }, [sessionKey, bridge, projectGeneration, requestGeneration, originKey]);
+
+  useEffect(() => {
     if (!selection) return;
     let cancelled = false;
     void bridge
       .listRetainedExplanations({ projectId })
       .then(async (listed) => {
         if (cancelled || inFlight.current) return;
-        const match = listed.find((item) => selectionMatches(item, selection));
+        const match = openExplanationId
+          ? listed.find((item) => item.explanationId === openExplanationId)
+          : listed.find((item) =>
+              recordMatchesRequestedIntent(
+                item,
+                selection.origin,
+                activeIntent,
+              ),
+            );
         if (!match) return;
-        const sceneState =
-          match.intent === 'visual'
-            ? await bridge.loadExplanationSceneState({
+        const loaded =
+          openExplanationId && match.explanationId === openExplanationId
+            ? await bridge.loadRetainedExplanation({
                 projectId,
                 explanationId: match.explanationId,
               })
+            : match;
+        if (!loaded || cancelled || inFlight.current) return;
+        const sceneState =
+          loaded.intent === 'visual'
+            ? await bridge.loadExplanationSceneState({
+                projectId,
+                explanationId: loaded.explanationId,
+              })
             : null;
         if (cancelled || inFlight.current) return;
-        setExplanation(match);
+        setIntentOverride({ originKey, intent: loaded.intent });
+        setExplanation(loaded);
         setScene(sceneState);
         setRequest((current) =>
-          current.identity === identity &&
+          current.identity === originKey &&
           (current.status === 'loading' || current.status === 'failed')
             ? current
             : {
-                identity,
+                identity: originKey,
                 status: 'ready',
                 message: null,
                 retryable: false,
@@ -134,33 +207,35 @@ export function ContextualHelpPanel({
     return () => {
       cancelled = true;
     };
-  }, [projectId, selection, bridge, identity]);
+  }, [
+    projectId,
+    selection,
+    bridge,
+    originKey,
+    activeIntent,
+    openExplanationId,
+  ]);
 
   async function submit(
     intent: ContextualHelpIntent,
     human: boolean,
   ): Promise<void> {
     if (!selection || !origin) return;
+    await cancelOwned.current;
+    lastSubmittedIntent.current = { originKey, intent };
+    setIntentOverride({ originKey, intent });
     if (
       human &&
       (draft.trim().length < 1 || draft.length > CONTEXTUAL_HELP_QUESTION_LIMIT)
     ) {
       setRequest({
-        identity,
+        identity: originKey,
         status: 'failed',
         message: 'Enter a question of at most 2,000 characters.',
         retryable: false,
       });
       return;
     }
-    const requestId = crypto.randomUUID();
-    inFlight.current = requestId;
-    setRequest({
-      identity,
-      status: 'loading',
-      message: null,
-      retryable: false,
-    });
     const locator =
       origin.highlightId && origin.sourceRevisionId
         ? {
@@ -173,13 +248,21 @@ export function ContextualHelpPanel({
           : null;
     if (!locator) {
       setRequest({
-        identity,
+        identity: originKey,
         status: 'failed',
         message: 'This selection has no retained highlight or saved question.',
         retryable: false,
       });
       return;
     }
+    const requestId = crypto.randomUUID();
+    inFlight.current = requestId;
+    setRequest({
+      identity: originKey,
+      status: 'loading',
+      message: null,
+      retryable: false,
+    });
     const envelope: ContextualHelpRequest = {
       contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
       projectId,
@@ -208,7 +291,7 @@ export function ContextualHelpPanel({
       const decoded = decodeContextualHelpResponse(raw);
       if (!decoded.ok) {
         setRequest({
-          identity,
+          identity: originKey,
           status: 'failed',
           message:
             'The explanation response was invalid. Your draft is unchanged.',
@@ -229,10 +312,12 @@ export function ContextualHelpPanel({
               })
             : null;
         if (inFlight.current !== requestId) return;
+        inFlight.current = null;
+        if (loaded) setIntentOverride({ originKey, intent: loaded.intent });
         setExplanation(loaded);
         setScene(sceneState);
         setRequest({
-          identity,
+          identity: originKey,
           status: 'ready',
           message: null,
           retryable: false,
@@ -240,16 +325,20 @@ export function ContextualHelpPanel({
         return;
       }
       if (decoded.value.outcome === 'cancelled') {
+        if (inFlight.current !== requestId) return;
+        inFlight.current = null;
         setRequest({
-          identity,
+          identity: originKey,
           status: 'idle',
           message: 'Cancelled. Your selection and draft are unchanged.',
           retryable: true,
         });
         return;
       }
+      if (inFlight.current !== requestId) return;
+      inFlight.current = null;
       setRequest({
-        identity,
+        identity: originKey,
         status: 'failed',
         retryable:
           decoded.value.outcome === 'unavailable' && decoded.value.retryable,
@@ -261,14 +350,15 @@ export function ContextualHelpPanel({
       if (decoded.value.outcome === 'unsupported') {
         const listed = await bridge.listRetainedExplanations({ projectId });
         const match = listed.find((item) =>
-          selectionMatches(item, { ...selection, kind: intent }),
+          recordMatchesRequestedIntent(item, selection.origin, intent),
         );
         if (match) setExplanation(match);
       }
     } catch {
       if (inFlight.current !== requestId) return;
+      inFlight.current = null;
       setRequest({
-        identity,
+        identity: originKey,
         status: 'failed',
         retryable: true,
         message: 'Could not reach remote learning. Your draft is unchanged.',
@@ -329,7 +419,12 @@ export function ContextualHelpPanel({
         {status === 'failed' && retryable && (
           <button
             onClick={() =>
-              void submit(selection?.kind ?? 'text', draft.trim().length > 0)
+              void submit(
+                lastSubmittedIntent.current?.originKey === originKey
+                  ? lastSubmittedIntent.current.intent
+                  : activeIntent,
+                draft.trim().length > 0,
+              )
             }
           >
             Retry
@@ -375,6 +470,13 @@ export function ContextualHelpPanel({
             </p>
           </article>
         )}
+      {clipView && useful?.result?.kind === 'clip' && (
+        <RetainedClipPlayer
+          clip={clipView}
+          status="ready"
+          access={clipAccess}
+        />
+      )}
       {retained && useful?.result?.kind === 'scene' && (
         <RetainedScene
           explanation={retained}
@@ -387,8 +489,11 @@ export function ContextualHelpPanel({
               state: next,
             });
           }}
-          onCaptureRequest={(request: SceneCaptureRequest) => {
-            void bridge.acceptSceneCapture({ projectId, request });
+          onCaptureRequest={(captureRequest: SceneCaptureRequest) => {
+            void bridge.acceptSceneCapture({
+              projectId,
+              request: captureRequest,
+            });
           }}
         />
       )}

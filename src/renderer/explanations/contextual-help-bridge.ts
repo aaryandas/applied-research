@@ -8,6 +8,10 @@ import type {
   TrustedSceneCapture,
 } from '../../contracts/explanation-artifacts';
 
+export type OpenRetainedClipResult =
+  | { readonly status: 'ready'; readonly objectUrl: string }
+  | { readonly status: 'missing' | 'corrupt' | 'unauthorized' };
+
 export interface ContextualHelpBridge {
   requestContextualHelp(input: ContextualHelpRequest): Promise<unknown>;
   cancelContextualHelp(input: {
@@ -34,6 +38,34 @@ export interface ContextualHelpBridge {
     projectId: string;
     request: unknown;
   }): Promise<TrustedSceneCapture>;
+  openRetainedClipMedia(input: {
+    projectId: string;
+    artifactId: string;
+  }): Promise<OpenRetainedClipResult>;
+  placeRetainedExplanation?(input: {
+    projectId: string;
+    explanationId: string;
+    view: 'distilled' | 'expanded';
+    x: number;
+    y: number;
+  }): Promise<{
+    kind: 'retained-explanation-placement';
+    explanationId: string;
+    projectId: string;
+    view: 'distilled' | 'expanded';
+    x: number;
+    y: number;
+  }>;
+  listExplanationPlacements?(input: { projectId: string }): Promise<
+    ReadonlyArray<{
+      kind: 'retained-explanation-placement';
+      explanationId: string;
+      projectId: string;
+      view: 'distilled' | 'expanded';
+      x: number;
+      y: number;
+    }>
+  >;
 }
 
 export type { ContextualHelpResponse };

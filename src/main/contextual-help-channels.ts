@@ -13,4 +13,7 @@ export const CONTEXTUAL_HELP_CHANNELS = {
   loadScene: 'learning:load-explanation-scene-state',
   capture: 'learning:accept-scene-capture',
   loadCapture: 'learning:load-trusted-scene-capture',
+  openClip: 'learning:open-retained-clip-media',
+  place: 'learning:place-retained-explanation',
+  listPlacements: 'learning:list-explanation-placements',
 } as const;
