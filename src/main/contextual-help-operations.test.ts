@@ -3,6 +3,12 @@ import { CONTEXTUAL_HELP_CONTRACT_VERSION } from '../contracts/contextual-help';
 import { LEARNING_API_VERSION } from '../contracts/learning-api';
 import { DEFAULT_ARM } from '../contracts/explanations';
 import { ContextualHelpOperations } from './contextual-help-operations';
+import { CONTEXTUAL_HELP_CHANNELS } from './contextual-help-channels';
+import { unavailableClipPlayback } from './contextual-help-clip';
+import {
+  CONTEXTUAL_HELP_CANCEL_CHANNEL,
+  CONTEXTUAL_HELP_REQUEST_CHANNEL,
+} from '../contracts/contextual-help';
 import { makeContextualHelpTransport } from './contextual-help-transport';
 import { openExplanationHarness } from './explanation-test-harness';
 import { sha256Utf8 } from './contextual-help-grounding';
@@ -403,6 +409,12 @@ describe('contextual help operations', () => {
     expect(loaded?.attempts[0]?.result).not.toMatchObject({
       initialParameters: DEFAULT_ARM,
     });
+    const scene = operations.loadScene({
+      projectId: harness.projectId,
+      explanationId: loaded?.explanationId,
+    });
+    expect(scene?.parameterRevision).toBe(1);
+    expect(scene?.parameters).toEqual(planned);
   });
 
   it('cancels an in-flight request and ignores untrusted selection copy', async () => {
@@ -454,5 +466,103 @@ describe('contextual help operations', () => {
     });
     release();
     await expect(pending).resolves.toMatchObject({ outcome: 'cancelled' });
+  });
+
+  it('keeps a supported weighted-combination plan without forging clip media', async () => {
+    const harness = openExplanationHarness();
+    cleanups.push(() => harness.close());
+    const requestId = '11000000-0000-4000-8000-000000000007';
+    const fetchImpl = vi.fn<
+      (input: string, init: RequestInit) => Promise<Response>
+    >(async () => {
+      return new Response(
+        JSON.stringify({
+          outcome: 'success',
+          requestId,
+          plan: {
+            status: 'supported',
+            family: 'weighted-combination',
+            parameters: {
+              vectors: [
+                [2, 1],
+                [-1, 2],
+              ],
+              weights: [3, 1],
+              labels: ['First vector', 'Second vector'],
+            },
+            stages: [{ name: 'Combine', seconds: 2 }],
+            caption: 'Weighted sum of two vectors',
+            copy: {
+              role: 'untrusted-display-copy',
+              title: 'Weights',
+              quote: null,
+            },
+            sourceSupport: {
+              kind: 'illustrative-assumption',
+              note: 'The geometry is original, not a photograph of the source.',
+            },
+            rationale: {
+              role: 'untrusted-display-copy',
+              text: 'This shows a weighted-sum sub-concept, not a transformer.',
+            },
+          },
+          provenance: {
+            ...provenance(harness.sourceId, harness.revisionId, harness.text),
+            promptVersion: 'explanation-planner-v1-2026-09-09',
+          },
+          quota,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const operations = new ContextualHelpOperations({
+      records: harness.records,
+      authenticated: () => true,
+      transport: makeContextualHelpTransport({
+        request: fetchImpl,
+        sessionCookie: () => 'session=test',
+      }),
+      now: () => new Date(createdAt),
+      randomUUID: () => '22000000-0000-4000-8000-000000000007',
+    });
+    operations.activate(harness.projectId);
+    const response = await operations.request({
+      contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
+      projectId: harness.projectId,
+      requestId,
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+      origin: {
+        kind: 'source-highlight',
+        sourceRevisionId: harness.revisionId,
+        highlightId: harness.highlightId,
+      },
+      intent: 'visual',
+      question: { kind: 'app-authored', intent: 'explain-this-visually' },
+    });
+    expect(response.outcome).toBe('unsupported');
+    const listed = operations.list({ projectId: harness.projectId });
+    expect(listed[0]?.attempts[0]?.plan).toMatchObject({
+      status: 'supported',
+      family: 'weighted-combination',
+    });
+    expect(listed[0]?.attempts[0]?.result).toBeNull();
+    expect(listed[0]?.attempts[0]).not.toHaveProperty('clip');
+    expect(listed[0]?.attempts[0]).not.toHaveProperty('media');
+    expect(unavailableClipPlayback().kind).toBe('unavailable');
+  });
+});
+
+describe('contextual help named channels', () => {
+  it('reuses the frozen request/cancel names and keeps extra names explicit', () => {
+    expect(CONTEXTUAL_HELP_CHANNELS.request).toBe(
+      CONTEXTUAL_HELP_REQUEST_CHANNEL,
+    );
+    expect(CONTEXTUAL_HELP_CHANNELS.cancel).toBe(
+      CONTEXTUAL_HELP_CANCEL_CHANNEL,
+    );
+    expect(CONTEXTUAL_HELP_CHANNELS.loadScene).toBe(
+      'learning:load-explanation-scene-state',
+    );
   });
 });
