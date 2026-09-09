@@ -1083,20 +1083,24 @@ it('keeps the first human milestone exact while editing the second', async () =>
   );
   fireEvent.click(screen.getByRole('button', { name: 'Save human plan' }));
   await waitFor(() => expect(savePlan).toHaveBeenCalledTimes(1));
-  expect(savePlan.mock.calls[0]?.[0].milestones).toEqual([
-    {
-      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      title: 'First milestone',
-      description: 'Do not change this description',
-      expectedResult: 'Exact first result',
-    },
-    {
-      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      title: 'Updated second title',
-      description: 'Updated second description',
-      expectedResult: 'Updated second result',
-    },
-  ]);
+  expect(savePlan).toHaveBeenCalledWith(
+    expect.objectContaining({
+      milestones: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          title: 'First milestone',
+          description: 'Do not change this description',
+          expectedResult: 'Exact first result',
+        },
+        {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          title: 'Updated second title',
+          description: 'Updated second description',
+          expectedResult: 'Updated second result',
+        },
+      ],
+    }),
+  );
 });
 
 it('restores only the matching checkpoint, source kind, and revision', () => {

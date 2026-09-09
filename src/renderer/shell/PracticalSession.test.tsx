@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi, type Mock } from 'vitest';
 import type {
   LoadPracticalJourneyResult,
   PracticalAttemptJourney,
@@ -159,7 +159,7 @@ function renderSession(
     onResumeAttempt?: (attemptId: string) => void;
     onStartNewAttempt?: () => void;
     onReturnToLearning?: (next: PracticalActivity) => void;
-    requestGuidance?: CompanionSessionOptions['requestGuidance'];
+    requestGuidance?: Mock<CompanionSessionOptions['requestGuidance']>;
     omitGuidance?: boolean;
     strict?: boolean;
   } = {},
@@ -717,23 +717,14 @@ it('shows authenticated guidance as unavailable when the transport is omitted', 
 });
 
 it('shows a loaded supported tool without launching a native guest', async () => {
-  const bridge = sessionBridge({
-    loadPracticalJourney: vi.fn(async () =>
-      loadedJourney({
-        ...savedAttempt(),
-        workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
-      }),
-    ),
-  });
-  const loaded = loadedJourney({
-    ...savedAttempt(),
-    workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
-  });
+  const loaded = loadedJourney(savedAttempt());
   loaded.journey = {
     ...loaded.journey,
     workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
   };
-  vi.mocked(bridge.loadPracticalJourney).mockResolvedValue(loaded);
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(async () => loaded),
+  });
   const { view, tools } = renderSession({ bridge });
   await waitFor(() =>
     expect(
@@ -1125,5 +1116,60 @@ it('opens the catalog URL externally after a ready flush', async () => {
       'https://www.desmos.com/calculator',
     ),
   );
+  view.unmount();
+});
+
+it('shows the default external-work copy when retained instructions are empty', async () => {
+  const loaded = loadedJourney(savedAttempt());
+  loaded.journey = {
+    ...loaded.journey,
+    workChoice: {
+      kind: 'external-work',
+      label: 'Lab notes',
+      instructions: '',
+    },
+  };
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(async () => loaded),
+  });
+  const { view, tools } = renderSession({ bridge });
+  await waitFor(() =>
+    expect(
+      screen.getByText(/External work does not auto-launch/),
+    ).toHaveTextContent(
+      /Use your own tools, then bring a selected result back\./,
+    ),
+  );
+  expect(tools.openTool).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it('clears an unknown catalog tool value without persisting a work choice', async () => {
+  const loaded = loadedJourney(savedAttempt());
+  loaded.journey = {
+    ...loaded.journey,
+    workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
+  };
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(async () => loaded),
+  });
+  const { view } = renderSession({ bridge });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    ).toHaveValue('tool:desmos-graphing'),
+  );
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'tool:not-a-catalog-tool' },
+    },
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    ).toHaveValue(''),
+  );
+  expect(bridge.recordPracticalWorkChoice).not.toHaveBeenCalled();
   view.unmount();
 });

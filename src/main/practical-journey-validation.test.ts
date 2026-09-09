@@ -11,6 +11,8 @@ import {
   isPracticalHumanPlan,
   isPracticalProgressSource,
   isPracticalWorkChoice,
+  practicalHumanPlanJson,
+  practicalWorkChoiceJson,
 } from './practical-journey-validation';
 
 const id = 'a1234567-1234-4234-8234-123456789012';
@@ -277,5 +279,92 @@ it('compares full activity identity including source and highlight origins', () 
   expect(activityMatches(activity, withSource)).toBe(false);
   expect(activityMatches(withSource, { ...withSource, title: 'Other' })).toBe(
     false,
+  );
+  expect(
+    activityMatches(activity, { ...activity, instructions: 'Other step.' }),
+  ).toBe(false);
+  expect(
+    activityMatches(activity, { ...activity, objective: 'Other outcome.' }),
+  ).toBe(false);
+  expect(
+    activityMatches(activity, {
+      ...activity,
+      origin: {
+        path: { ...activity.origin.path, pathRevision: 2 },
+      },
+    }),
+  ).toBe(false);
+});
+
+it('canonicalizes work-choice and human-plan JSON and refuses remaining malformed progress', () => {
+  expect(
+    practicalWorkChoiceJson({
+      kind: 'supported-tool',
+      toolId: 'desmos-graphing',
+    }),
+  ).toBe('{"kind":"supported-tool","toolId":"desmos-graphing"}');
+  expect(
+    practicalWorkChoiceJson({
+      kind: 'external-work',
+      label: 'Own notebook',
+      instructions: '',
+    }),
+  ).toBe('{"kind":"external-work","label":"Own notebook","instructions":""}');
+  const emptyPlan = plan([]);
+  expect(JSON.parse(practicalHumanPlanJson(emptyPlan))).toEqual(emptyPlan);
+  expect(isPracticalWorkChoice({ kind: 'external-work' })).toBe(false);
+  expect(
+    isPracticalWorkChoice({
+      kind: 'supported-tool',
+      toolId: 'desmos-graphing',
+      extra: true,
+    }),
+  ).toBe(false);
+  expect(isPracticalHumanPlan(null)).toBe(false);
+  expect(isPracticalHumanPlan({ ...plan([]), milestones: 'none' })).toBe(false);
+  expect(isPracticalProgressSource(null)).toBe(false);
+  expect(
+    isPracticalProgressSource({ kind: 'human-plan', planRevision: 0 }),
+  ).toBe(false);
+  expect(
+    isPracticalProgressSource({
+      kind: 'human-plan',
+      planRevision: 1,
+      extra: true,
+    }),
+  ).toBe(false);
+  expect(() =>
+    decodeHumanPlanInput({
+      activity,
+      attemptId,
+      expectedRevision: -1,
+      plan: plan([]),
+    }),
+  ).toThrow('Invalid human plan.');
+  expect(() =>
+    decodeProgressInput({
+      activity,
+      attemptId,
+      expectedRevision: 0,
+      checkpointId: 'checkpoint:0',
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'not-started',
+      note: '',
+    }),
+  ).toThrow('Invalid milestone progress.');
+  expect(
+    decodeProgressInput({
+      activity,
+      attemptId,
+      expectedRevision: 0,
+      checkpointId: 'checkpoint:0',
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'not-started',
+      note: '',
+      evidence: null,
+    }).status,
+  ).toBe('not-started');
+  expect(() => decodePreviewInput({ activity, attemptId })).toThrow(
+    'Invalid evidence request.',
   );
 });

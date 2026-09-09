@@ -1422,3 +1422,149 @@ it('previews retained JSON and CSV exactly and reports PDF as unsupported while 
   ).toMatchObject({ status: 'exported', byteLength: pdfBytes.length });
   expect(readFileSync(destination)).toEqual(pdfBytes);
 });
+
+it('refuses an unadapted brief and lists attempts with opaque file counts', () => {
+  const { records, input } = setup();
+  expect(records.retainAcceptedBrief(null)).toEqual({ status: 'failed' });
+  expect(records.retainAcceptedBrief({ activity: input.activity })).toEqual({
+    status: 'failed',
+  });
+  expect(records.listPracticalAttempts({ activity: input.activity })).toEqual({
+    status: 'loaded',
+    attempts: [],
+  });
+  expect(
+    records.loadPracticalAttempt({
+      activity: input.activity,
+      attemptId: randomUUID(),
+    }),
+  ).toEqual({ status: 'loaded', attempt: null });
+  expect(records.previewPracticalFile(null)).toEqual({ status: 'failed' });
+  expect(
+    records.previewPracticalFile({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      selectionId: randomUUID(),
+    }),
+  ).toEqual({ status: 'unavailable' });
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.savePracticalHumanPlan({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      plan: { outcome: 'missing keys' },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(records.loadPracticalJourney(null)).toEqual({ status: 'failed' });
+
+  const snapshot = syntheticAcceptedCourseBrief(input.activity);
+  expect(records.retainAcceptedBrief(snapshot).status).toBe('retained');
+  const unbound = records.loadPracticalJourney({ activity: input.activity });
+  expect(unbound).toMatchObject({
+    status: 'loaded',
+    attempt: null,
+    journey: {
+      brief: {
+        briefRevision: 1,
+        brief: { intendedOutcome: snapshot.binding.brief.intendedOutcome },
+      },
+      workChoice: null,
+      humanPlan: null,
+      milestones: [],
+    },
+  });
+
+  const first = records.importPracticalFile(
+    { activity: input.activity, attemptId: input.attemptId },
+    { displayName: 'trial.txt', bytes: Buffer.from('trial-output=12\n') },
+  );
+  expect(first.status).toBe('imported');
+  const secondId = randomUUID();
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      attemptId: secondId,
+      expectedRevision: 0,
+    }).status,
+  ).toBe('committed');
+  const listed = records.listPracticalAttempts({ activity: input.activity });
+  expect(listed.status).toBe('loaded');
+  if (listed.status !== 'loaded') throw new Error('expected list');
+  expect(listed.attempts).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attemptId: input.attemptId,
+        currentRevision: 0,
+        fileCount: 1,
+      }),
+      expect.objectContaining({
+        attemptId: secondId,
+        currentRevision: 1,
+        fileCount: 0,
+      }),
+    ]),
+  );
+});
+
+it('exports fail closed for a missing file, a directory destination, and a stale generation after the path is chosen', async () => {
+  const { records, input, directory } = setup();
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  const imported = records.importPracticalFile(scope, {
+    displayName: 'trial.txt',
+    bytes: Buffer.from('trial-output=12\n'),
+  });
+  if (imported.status !== 'imported') throw new Error('Expected import');
+  const missing = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => join(directory, 'missing.txt'),
+  });
+  expect(await missing.export({ ...scope, selectionId: randomUUID() })).toEqual(
+    { status: 'failed' },
+  );
+  const ontoDirectory = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => directory,
+  });
+  expect(
+    await ontoDirectory.export({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toEqual({ status: 'failed' });
+
+  let generation = 1;
+  const destination = join(directory, 'stale.txt');
+  const stale = new PracticalFileExport({
+    records,
+    currentGeneration: () => generation,
+    isCurrent: (_value, captured) => captured === generation,
+    chooseSavePath: async () => {
+      generation += 1;
+      return destination;
+    },
+  });
+  expect(
+    await stale.export({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toEqual({ status: 'cancelled' });
+  expect(existsSync(destination)).toBe(false);
+  expect(stale.occupied).toBe(false);
+});

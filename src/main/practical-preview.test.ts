@@ -85,3 +85,31 @@ it('refuses invalid UTF-8 and NUL at the preview boundary', () => {
     text: 'x'.repeat(MAX_PRACTICAL_FIELD_LENGTH),
   });
 });
+
+it('reports image and unknown retained types as unsupported without treating them as measurements', () => {
+  expect(
+    previewRetainedPracticalFile(selectionId, 'plot.png', 'image/png', {
+      displayName: 'plot.png',
+      bytes: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      sha256: 'png',
+    }),
+  ).toMatchObject({
+    status: 'unsupported-preview',
+    mediaType: 'image/png',
+    message: expect.stringMatching(/Export the exact retained bytes/),
+  });
+  expect(
+    previewRetainedPracticalFile(selectionId, 'blob.bin', 'application/zip', {
+      displayName: 'blob.bin',
+      bytes: Buffer.from('PK'),
+      sha256: 'zip',
+    }),
+  ).toEqual({
+    status: 'unsupported-preview',
+    selectionId,
+    displayName: 'blob.bin',
+    mediaType: 'application/zip',
+    byteLength: 2,
+    message: 'This retained file cannot be previewed here.',
+  });
+});

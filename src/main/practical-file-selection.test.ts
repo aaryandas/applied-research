@@ -98,6 +98,56 @@ it('refuses a directory, symlink, empty file and oversized file without importin
   ).toBe(false);
 });
 
+it('refuses a second selection while occupied and drops a stale generation after the path is chosen', async () => {
+  const { store, activity, attemptId, directory } = openStore();
+  const picked = join(directory, 'picked.txt');
+  writeFileSync(picked, 'selected evidence');
+  const blocked = vi.fn(async () => picked);
+  const occupied = new PracticalFileSelection({
+    records: store,
+    chooseFile: blocked,
+    occupied: () => true,
+  });
+  const scope = { activity, attemptId };
+  expect(await occupied.select(scope)).toEqual({ status: 'failed' });
+  expect(blocked).not.toHaveBeenCalled();
+
+  let generation = 1;
+  const staleAfterPick = new PracticalFileSelection({
+    records: store,
+    currentGeneration: () => generation,
+    isCurrent: (_value, captured) => captured === generation,
+    chooseFile: async () => {
+      generation += 1;
+      return picked;
+    },
+  });
+  expect(await staleAfterPick.select(scope)).toEqual({ status: 'cancelled' });
+  expect(store.loadPracticalAttempt(scope)).toEqual({
+    status: 'loaded',
+    attempt: null,
+  });
+
+  let finish!: (value: string | null) => void;
+  const pending = new PracticalFileSelection({
+    records: store,
+    chooseFile: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const first = pending.select(scope);
+  expect(await pending.select(scope)).toEqual({ status: 'failed' });
+  pending.cancel();
+  expect(await first).toEqual({ status: 'cancelled' });
+  finish(picked);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(store.loadPracticalAttempt(scope)).toEqual({
+    status: 'loaded',
+    attempt: null,
+  });
+});
+
 it('refuses an unavailable attempt before opening the native chooser', async () => {
   const { store, activity, attemptId } = openStore();
   const chooseFile = vi.fn(async () => {
