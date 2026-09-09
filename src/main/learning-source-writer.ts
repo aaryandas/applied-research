@@ -68,8 +68,7 @@ export function writeTextSource(
   const locator = input.locator ?? null;
   const sha256 = createHash('sha256').update(input.text, 'utf8').digest('hex');
   if (
-    currentVersion &&
-    currentVersion.title === input.title &&
+    currentVersion?.title === input.title &&
     currentVersion.canonicalText === input.text &&
     currentVersion.acquiredAt === input.acquiredAt &&
     currentVersion.locator === locator
