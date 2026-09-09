@@ -183,7 +183,7 @@ function ClipSession({
   const [enlarged, setEnlarged] = useState(false);
   const [playbackStartMs, setPlaybackStartMs] = useState<number | null>(null);
   const labelId = useId();
-  const failedOpen = Boolean(openError && usingPrior);
+  const priorActuallyAvailable = usingPrior && Boolean(objectUrl) && !openError;
 
   useEffect(() => {
     if (objectUrl) readyAt.current = performance.now();
@@ -338,7 +338,9 @@ function ClipSession({
       {(error || openError) && (
         <p className="retained-clip__error" role="alert">
           {openError ?? error}
-          {failedOpen ? ' Previous clip is still available.' : ''}
+          {priorActuallyAvailable && error
+            ? ' Previous clip is still available.'
+            : ''}
         </p>
       )}
       {busy && <p role="status">A newer render is in progress.</p>}
