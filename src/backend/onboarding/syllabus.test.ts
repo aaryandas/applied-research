@@ -4,6 +4,7 @@ import type { AcquiredSource } from '../../contracts/sourcing.js';
 import {
   assembleOnboardingSyllabus,
   citationsForParagraph,
+  diagnosticPersonalization,
   lessonRoleFromContent,
   practiceToolFor,
 } from './syllabus.js';
@@ -204,5 +205,83 @@ describe('onboarding syllabus projection', () => {
     expect(syllabus.capstone?.stepId).toBe(lessons[2]?.stepId);
     expect(syllabus.capstone?.substantial).toBe(true);
     expect(lessons[0]?.role).not.toBe('capstone');
+  });
+
+  it('uses citation fallbacks, setup/geogebra/julia tools, and diagnostic gaps', async () => {
+    expect(
+      lessonRoleFromContent(
+        step('Install the local toolchain'),
+        'setup environment install',
+      ),
+    ).toBe('setup');
+    expect(
+      practiceToolFor(
+        'geogebra geometry compass',
+        'Construct the cited triangle',
+      ),
+    ).toEqual({ kind: 'app-hosted-catalog', toolId: 'geogebra-graphing' });
+    expect(
+      practiceToolFor(
+        'julia pluto computational thinking',
+        'Reproduce the cited notebook',
+      ),
+    ).toMatchObject({
+      kind: 'learner-external',
+      toolName: 'Julia and a local Pluto notebook',
+    });
+    const unmatched = assembleOnboardingSyllabus({
+      path: {
+        kind: 'learning-path',
+        title: 'Uncited topic',
+        steps: [
+          {
+            title: 'Hardware fractions',
+            objective: 'Use the cited hardware-fraction constraint.',
+            activity: 'Cite the binary-fraction sentence.',
+            citations: [
+              {
+                sourceId: 'source-other',
+                revisionId: 'revision-other',
+                start: 0,
+                end: 4,
+                quote: 'Nope',
+              },
+            ],
+          },
+          step('Setup the comparison environment'),
+        ],
+      },
+      acquired: [acquired('Floating-point hardware fractions')],
+      prior: null,
+    });
+    expect(
+      unmatched.topics.flatMap((topic) => topic.lessons)[0]?.sourceIds,
+    ).toEqual(['source-numpy01']);
+    expect(
+      diagnosticPersonalization({
+        goal: 'binary fractions',
+        focus: 'hardware',
+        answers: [],
+      }).observedGaps,
+    ).toEqual(['No diagnostic answer was supplied for this goal.']);
+    expect(
+      diagnosticPersonalization({
+        goal: 'binary fractions',
+        focus: 'hardware',
+        answers: [{ answer: 'short' }],
+      }).observedGaps[0],
+    ).toMatch(/too brief/);
+    expect(
+      diagnosticPersonalization({
+        goal: 'binary fractions',
+        focus: 'hardware',
+        answers: [
+          {
+            answer:
+              'I already reproduced 0.1 + 0.2 in CPython and read the cited hardware-fraction paragraph.',
+          },
+        ],
+      }).observedGaps[0],
+    ).toMatch(/not mastery/);
   });
 });

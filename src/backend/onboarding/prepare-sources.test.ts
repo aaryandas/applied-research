@@ -246,4 +246,215 @@ describe('prepareOnboardingSources', () => {
     });
     expect(prepared).toEqual({ kind: 'cancelled' });
   });
+
+  it('returns unavailable when discovery is not a coverage outcome', async () => {
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'unavailable',
+          requestId: envelope.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.unavailable,
+          retryable: true,
+        }),
+        acquireCanonicalSource: vi.fn(),
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: request.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+        },
+      }),
+    });
+    expect(prepared).toEqual({ kind: 'unavailable' });
+  });
+
+  it('stops at coverage-pending when the first acquire exhausts the embedding budget', async () => {
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'success',
+          requestId: envelope.requestId,
+          candidates: [metadata(acquired)],
+        }),
+        acquireCanonicalSource: async (envelope) => ({
+          outcome: 'budget-exhausted',
+          requestId: envelope.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+        }),
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: request.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+        },
+      }),
+    });
+    expect(prepared).toMatchObject({
+      kind: 'coverage-pending',
+      message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+    });
+  });
+
+  it('keeps later acquires after a partial budget exhaustion and reselects', async () => {
+    const second: AcquiredSource = {
+      ...acquired,
+      sourceId: 'source-fp-prep-2',
+      providerIds: [{ provider: 'curated-catalog', id: 'python-fp-2' }],
+    };
+    let selections = 0;
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'partial',
+          requestId: envelope.requestId,
+          candidates: [metadata(acquired), metadata(second)],
+          issues: [
+            {
+              provider: 'openalex',
+              reason: 'unavailable',
+              retryAfterMilliseconds: null,
+            },
+          ],
+        }),
+        acquireCanonicalSource: async (envelope) => {
+          if (envelope.sourceId === acquired.sourceId) {
+            return {
+              outcome: 'success',
+              requestId: envelope.requestId,
+              source: acquired,
+            };
+          }
+          return {
+            outcome: 'budget-exhausted',
+            requestId: envelope.requestId,
+            message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+          };
+        },
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => {
+        selections += 1;
+        if (selections === 1) {
+          return {
+            sources: [],
+            retrieval: {
+              outcome: 'no-evidence',
+              requestId: request.requestId,
+              message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+            },
+          };
+        }
+        return {
+          sources: [acquired],
+          retrieval: {
+            outcome: 'success',
+            requestId: request.requestId,
+            evidence: [],
+          },
+        };
+      },
+    });
+    expect(prepared.kind).toBe('ready');
+    expect(selections).toBe(2);
+  });
+
+  it('returns cancelled when acquire is cancelled', async () => {
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'success',
+          requestId: envelope.requestId,
+          candidates: [metadata(acquired)],
+        }),
+        acquireCanonicalSource: async (envelope) => ({
+          outcome: 'cancelled',
+          requestId: envelope.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.cancelled,
+        }),
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: request.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+        },
+      }),
+    });
+    expect(prepared).toEqual({ kind: 'cancelled' });
+  });
+
+  it('skips candidates without provider identities', async () => {
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'success',
+          requestId: envelope.requestId,
+          candidates: [{ ...metadata(acquired), providerIds: [] }],
+        }),
+        acquireCanonicalSource: async () => {
+          throw new Error('must not acquire a candidate without identity');
+        },
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => ({
+        sources: [],
+        retrieval: {
+          outcome: 'unavailable',
+          requestId: request.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.unavailable,
+          retryable: true,
+        },
+      }),
+    });
+    expect(prepared.kind).toBe('coverage-pending');
+  });
+
+  it('returns cancelled when discovery itself is cancelled', async () => {
+    const prepared = await prepareOnboardingSources({
+      account,
+      request,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'cancelled',
+          requestId: envelope.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.cancelled,
+        }),
+        acquireCanonicalSource: vi.fn(),
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async () => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: request.requestId,
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+        },
+      }),
+    });
+    expect(prepared).toEqual({ kind: 'cancelled' });
+  });
 });

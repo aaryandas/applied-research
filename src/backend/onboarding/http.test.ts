@@ -856,4 +856,222 @@ describe('POST /v1/learning/onboarding', () => {
       accounting: 'reservation-retained',
     });
   });
+
+  it('rejects invalid JSON, missing onboarding, and thrown authentication', async () => {
+    const backend = await startOnboarding();
+    const invalid = await fetch(
+      `${backend.origin}${LEARNING_ONBOARDING_PATH}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'session=account-onb1',
+        },
+        body: '{',
+      },
+    );
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      outcome: 'invalid-request',
+    });
+    const empty = await fetch(`${backend.origin}${LEARNING_ONBOARDING_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'session=account-onb1',
+      },
+      body: '',
+    });
+    expect(empty.status).toBe(400);
+    const malformed = await post(backend.origin, {
+      requestId: 'onboard-bad01',
+      apiVersion: 'not-a-version',
+    });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({
+      outcome: 'invalid-request',
+      requestId: 'onboard-bad01',
+    });
+    const authThrow = await startOnboarding({
+      authenticate: async () => {
+        throw new Error('session lookup failed');
+      },
+    });
+    const authResponse = await post(authThrow.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-authfail',
+    });
+    expect(authResponse.status).toBe(503);
+    const missing = await startHttpServer(
+      {
+        auth: {
+          authenticate: async () => account,
+          handle: async (_request, response) => {
+            response.end();
+          },
+        },
+        electronAuthCallbackScript: Buffer.from('/* synthetic callback */'),
+        learning: {
+          quota: () => Effect.succeed(quota),
+          request: () =>
+            Effect.succeed({
+              outcome: 'invalid-request',
+              requestId: 'unused',
+              message: 'unused',
+            }),
+        },
+        ready: async () => true,
+        runEffect: (effect, signal) =>
+          Effect.runPromise(effect, signal ? { signal } : undefined),
+      },
+      0,
+    );
+    stops.push(missing.stop);
+    const missingResponse = await fetch(
+      `http://127.0.0.1:${missing.port}${LEARNING_ONBOARDING_PATH}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'session=account-onb1',
+        },
+        body: JSON.stringify({
+          ...envelope('interview-prompt'),
+          requestId: 'onboard-nosvc',
+        }),
+      },
+    );
+    expect(missingResponse.status).toBe(503);
+    expect(await missingResponse.json()).toMatchObject({
+      outcome: 'unavailable',
+      requestId: 'onboard-nosvc',
+      accounting: 'none',
+    });
+  });
+
+  it('does not claim released after invalid cancelled or quota envelopes', async () => {
+    const cancelled = await startOnboarding({
+      onboarding: {
+        handle: async (_account, request) =>
+          ({
+            outcome: 'cancelled',
+            requestId: request.requestId,
+            accounting: 'released',
+          }) as never,
+      },
+    });
+    const cancelledResponse = await post(cancelled.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-wire-cncl',
+    });
+    expect(cancelledResponse.status).toBe(409);
+    expect(await cancelledResponse.json()).toMatchObject({
+      outcome: 'cancelled',
+      accounting: 'reservation-retained',
+      retryable: false,
+    });
+    const quotaWire = await startOnboarding({
+      onboarding: {
+        handle: async (_account, request) =>
+          ({
+            outcome: 'quota-exceeded',
+            requestId: request.requestId,
+            quota,
+          }) as never,
+      },
+    });
+    const quotaResponse = await post(quotaWire.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-wire-quota',
+    });
+    expect(quotaResponse.status).toBe(429);
+    expect(await quotaResponse.json()).toMatchObject({
+      outcome: 'quota-exceeded',
+      retryable: false,
+      requestId: 'onboard-wire-quota',
+    });
+    const chargedUnavailable = await startOnboarding({
+      onboarding: {
+        handle: async (_account, request) =>
+          ({
+            outcome: 'unavailable',
+            requestId: request.requestId,
+            accounting: 'charged',
+          }) as never,
+      },
+    });
+    const unavailableResponse = await post(chargedUnavailable.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-wire-unavail',
+    });
+    expect(unavailableResponse.status).toBe(503);
+    expect(await unavailableResponse.json()).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'charged',
+      retryable: false,
+    });
+  });
+});
+
+describe('onboarding HTTP abort before handle', () => {
+  it('returns cancelled when the parent signal is already aborted', async () => {
+    const { Readable } = await import('node:stream');
+    const { handleOnboardingRoute } = await import('./http.js');
+    const body = JSON.stringify({
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-abort-http',
+    });
+    const request = Readable.from([
+      body,
+    ]) as import('node:http').IncomingMessage;
+    request.method = 'POST';
+    request.headers = {
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(body)),
+    };
+    let status = 0;
+    let payload = '';
+    const response = {
+      writableEnded: false,
+      destroyed: false,
+      headersSent: false,
+      writeHead(code: number) {
+        status = code;
+        return this;
+      },
+      end(chunk?: string) {
+        payload = chunk ?? '';
+      },
+    } as unknown as import('node:http').ServerResponse;
+    const parent = new AbortController();
+    parent.abort();
+    const handled = await handleOnboardingRoute(
+      LEARNING_ONBOARDING_PATH,
+      request,
+      response,
+      {
+        auth: {
+          authenticate: async () => {
+            throw new Error('must not authenticate after abort');
+          },
+          handle: async (_request, response) => {
+            response.end();
+          },
+        },
+        onboarding: {
+          handle: async () => {
+            throw new Error('must not handle after abort');
+          },
+        },
+      },
+      parent.signal,
+    );
+    expect(handled).toBe(true);
+    expect(status).toBe(409);
+    expect(JSON.parse(payload)).toMatchObject({
+      outcome: 'cancelled',
+      requestId: 'onboard-abort-http',
+      accounting: 'released',
+    });
+  });
 });

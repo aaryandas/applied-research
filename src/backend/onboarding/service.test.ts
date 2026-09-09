@@ -460,4 +460,659 @@ describe('onboarding service lifecycle accounting', () => {
       accounting: 'reservation-retained',
     });
   });
+
+  it('returns conflict, stale-revision, and duplicate operation outcomes', async () => {
+    const { onboarding, proposals } = await service({
+      complete: (learningRequest) => {
+        if (learningRequest.operation.kind === 'generate-learning-path') {
+          return Effect.succeed(pathCompletion(learningRequest.requestId));
+        }
+        return Effect.succeed(tutorCompletion(learningRequest.requestId));
+      },
+    });
+    const proposed = await onboarding.handle(
+      account,
+      proposeRequest('onboard-prop-ops'),
+      new AbortController().signal,
+    );
+    expect(proposed.outcome).toBe('success');
+    const missing = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-sel-miss',
+        model: 'google/gemini-3.8-flash',
+        operation: {
+          kind: 'generate-selected-lesson',
+          human,
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'missing-proposal', revision: 1 },
+            syllabus: { title: 'Cited', topics: [] },
+            personalization: null,
+          },
+          target: {
+            remoteStepId: 'step-001',
+            acceptedProposal: { id: 'missing-proposal', revision: 1 },
+            practice: null,
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(missing.outcome).toBe('conflict');
+    const stored = await proposals.get(account.id, 'onboard-prop-ops');
+    expect(stored?.revision).toBe(1);
+    const staleSelected = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-sel-stale',
+        model: 'google/gemini-3.8-flash',
+        operation: {
+          kind: 'generate-selected-lesson',
+          human,
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'onboard-prop-ops', revision: 9 },
+            syllabus: { title: 'Cited', topics: [] },
+            personalization: null,
+          },
+          target: {
+            remoteStepId:
+              stored?.syllabus.topics[0]?.lessons[0]?.stepId ?? 'step-001',
+            acceptedProposal: { id: 'onboard-prop-ops', revision: 9 },
+            practice: null,
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(staleSelected.outcome).toBe('stale-revision');
+    const duplicate = await onboarding.handle(
+      account,
+      proposeRequest('onboard-prop-ops'),
+      new AbortController().signal,
+    );
+    expect(duplicate.outcome).toBe('success');
+    const conflicted = await onboarding.handle(
+      account,
+      {
+        ...proposeRequest('onboard-prop-ops'),
+        operation: {
+          kind: 'propose-course',
+          human: {
+            ...human,
+            goal: 'A different goal for the same request id.',
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(conflicted.outcome).toBe('conflict');
+  });
+
+  it('charges when path generation returns the wrong contribution kind', async () => {
+    const { onboarding } = await service({
+      complete: (learningRequest) => {
+        if (learningRequest.operation.kind === 'generate-learning-path') {
+          return Effect.succeed(tutorCompletion(learningRequest.requestId));
+        }
+        return Effect.succeed(tutorCompletion(learningRequest.requestId));
+      },
+    });
+    const result = await onboarding.handle(
+      account,
+      proposeRequest('onboard-wrong-kind'),
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'charged',
+      retryable: false,
+    });
+  });
+
+  it('maps interview learning failures and empty path titles', async () => {
+    const learning = {
+      quota: () => Effect.succeed(quota),
+      request: () =>
+        Effect.succeed({
+          outcome: 'unsupported' as const,
+          requestId: 'onboard-unsup-prompt',
+          message: 'This learning operation is not supported.',
+        }),
+    };
+    const onboarding = makeOnboardingService({
+      learning,
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const unsupported = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-unsup-prompt',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(unsupported.outcome).toBe('unsupported');
+    const unauthenticatedLearning = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () =>
+          Effect.succeed({
+            outcome: 'unauthenticated' as const,
+            requestId: 'onboard-unauth-prompt',
+            message: 'Sign in to use remote learning.',
+          }),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const unauthenticated = await unauthenticatedLearning.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-unauth-prompt',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(unauthenticated.outcome).toBe('unauthenticated');
+    const invalidLearning = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () =>
+          Effect.succeed({
+            outcome: 'invalid-request' as const,
+            requestId: 'onboard-invalid-prompt',
+            message: 'The request is invalid.',
+          }),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const invalid = await invalidLearning.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-invalid-prompt',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(invalid.outcome).toBe('invalid-request');
+  });
+
+  it('overlays charged accounting onto a later quota-exceeded lesson', async () => {
+    let calls = 0;
+    const learning = {
+      quota: () => Effect.succeed(quota),
+      request: (
+        accountArg: PublicAccount,
+        request: { requestId: string; operation: { kind: string } },
+      ) => {
+        void accountArg;
+        calls += 1;
+        if (request.operation.kind === 'generate-learning-path') {
+          return Effect.succeed({
+            outcome: 'success' as const,
+            requestId: request.requestId,
+            contribution: pathCompletion(request.requestId).contribution,
+            provenance: {
+              provider: 'openrouter' as const,
+              model: 'google/gemini-3.8-flash' as const,
+              providerRequestId: 'path-1',
+              promptVersion: 'learning-v2-2026-09-09',
+              requestVersion: '2026-09-08' as const,
+              createdAt: AT,
+              sourceRevisions: [],
+              author: 'ai' as const,
+            },
+            quota,
+          });
+        }
+        return Effect.succeed({
+          outcome: 'quota-exceeded' as const,
+          requestId: request.requestId,
+          message: 'The monthly AI allowance is exhausted.',
+          quota,
+        });
+      },
+    };
+    const onboarding = makeOnboardingService({
+      learning,
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const result = await onboarding.handle(
+      account,
+      proposeRequest('onboard-quota-after'),
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'charged',
+      retryable: false,
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('returns cancelled without claiming released when already aborted', async () => {
+    const { onboarding } = await service({
+      complete: () => {
+        throw new Error('must not dispatch after abort');
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const result = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-preabort',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      controller.signal,
+    );
+    expect(result).toMatchObject({
+      outcome: 'cancelled',
+      accounting: 'released',
+      retryable: false,
+    });
+  });
+
+  it('maps interview unavailable and wrong contribution kinds', async () => {
+    const unavailableLearning = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () =>
+          Effect.succeed({
+            outcome: 'unavailable' as const,
+            requestId: 'onboard-unavail-prompt',
+            message: 'Remote learning is temporarily unavailable.',
+            retryable: false,
+            accounting: 'released' as const,
+          }),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const unavailable = await unavailableLearning.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-unavail-prompt',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(unavailable).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'released',
+    });
+    const cancelledLearning = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () =>
+          Effect.succeed({
+            outcome: 'cancelled' as const,
+            requestId: 'onboard-cncl-prompt',
+            message: 'The learning request was cancelled.',
+            retryable: false,
+            accounting: 'charged' as const,
+          }),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    const cancelled = await cancelledLearning.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-cncl-prompt',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(cancelled).toMatchObject({
+      outcome: 'cancelled',
+      accounting: 'charged',
+    });
+    const { onboarding } = await service({
+      complete: (learningRequest) =>
+        Effect.succeed(tutorCompletion(learningRequest.requestId)),
+    });
+    const wrong = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-int-wrong',
+        model: 'google/gemini-3.8-flash',
+        operation: { kind: 'interview-prompt', human },
+      },
+      new AbortController().signal,
+    );
+    expect(wrong).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'charged',
+    });
+  });
+
+  it('covers empty retrieval, empty syllabus, in-progress ops, and stale commit', async () => {
+    const emptySources = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () => Effect.succeed(pathCompletion('unused') as never),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => ({
+        sources: [],
+        retrieval: {
+          outcome: 'success',
+          requestId: query.requestId,
+          evidence: [],
+        },
+      }),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await emptySources.handle(
+          account,
+          proposeRequest('onboard-empty-src'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('coverage-pending');
+    const unavailableRetrieval = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () => Effect.succeed(pathCompletion('unused') as never),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => ({
+        sources: [acquired],
+        retrieval: {
+          outcome: 'unavailable',
+          requestId: query.requestId,
+          message: 'The sourcing operation is unavailable.',
+          retryable: true,
+        },
+      }),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await unavailableRetrieval.handle(
+          account,
+          proposeRequest('onboard-unavail-ret'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('unavailable');
+    const emptyPath = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () =>
+          Effect.succeed({
+            outcome: 'success' as const,
+            requestId: 'onboard-empty-path-path',
+            contribution: {
+              kind: 'learning-path' as const,
+              title: 'Empty',
+              steps: [],
+            },
+            provenance: {
+              provider: 'openrouter' as const,
+              model: 'google/gemini-3.8-flash' as const,
+              providerRequestId: 'empty-path',
+              promptVersion: 'learning-v2-2026-09-09',
+              requestVersion: '2026-09-08' as const,
+              createdAt: AT,
+              sourceRevisions: [],
+              author: 'ai' as const,
+            },
+            quota,
+          }),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await emptyPath.handle(
+          account,
+          proposeRequest('onboard-empty-path'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('coverage-pending');
+    const busy = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () => Effect.succeed(pathCompletion('unused') as never),
+      },
+      operations: {
+        begin: () =>
+          Effect.succeed({
+            kind: 'in-progress' as const,
+            record: {
+              inputHash: 'x',
+              state: 'in-progress' as const,
+              publicResponse: null,
+              frozenPayload: null,
+            },
+          }),
+        freeze: () => Effect.void,
+        complete: () => Effect.void,
+        retain: () => Effect.void,
+      },
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await busy.handle(
+          account,
+          proposeRequest('onboard-busy'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('unavailable');
+    const memory = makeMemoryOnboardingStore();
+    const staleCommit = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: (acct, inner) => {
+          void acct;
+          if (inner.operation.kind === 'generate-learning-path') {
+            return Effect.succeed({
+              outcome: 'success' as const,
+              requestId: inner.requestId,
+              contribution: pathCompletion(inner.requestId).contribution,
+              provenance: {
+                provider: 'openrouter' as const,
+                model: 'google/gemini-3.8-flash' as const,
+                providerRequestId: 'stale-path',
+                promptVersion: 'learning-v2-2026-09-09',
+                requestVersion: '2026-09-08' as const,
+                createdAt: AT,
+                sourceRevisions: [],
+                author: 'ai' as const,
+              },
+              quota,
+            });
+          }
+          return Effect.succeed({
+            outcome: 'success' as const,
+            requestId: inner.requestId,
+            contribution: tutorCompletion(inner.requestId).contribution,
+            provenance: {
+              provider: 'openrouter' as const,
+              model: 'google/gemini-3.8-flash' as const,
+              providerRequestId: 'stale-lesson',
+              promptVersion: 'learning-v2-2026-09-09',
+              requestVersion: '2026-09-08' as const,
+              createdAt: AT,
+              sourceRevisions: [],
+              author: 'ai' as const,
+            },
+            quota,
+          });
+        },
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: {
+        get: memory.get,
+        claim: memory.claim,
+        releaseClaim: memory.releaseClaim,
+        commit: async () => 'stale',
+      },
+      selectEvidence: async (query) => admitted(query.requestId),
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await staleCommit.handle(
+          account,
+          proposeRequest('onboard-stale-commit'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('stale-revision');
+  });
+
+  it('maps prepared source cancelled and unavailable outcomes', async () => {
+    const cancelledPrep = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () => Effect.succeed(pathCompletion('unused') as never),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: query.requestId,
+          message: 'No exact source passage supports this query.',
+        },
+      }),
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'cancelled',
+          requestId: envelope.requestId,
+          message: 'The sourcing request was cancelled.',
+        }),
+        acquireCanonicalSource: async () => {
+          throw new Error('must not acquire');
+        },
+        retrieveEvidence: async () => {
+          throw new Error('must not retrieve');
+        },
+      },
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await cancelledPrep.handle(
+          account,
+          proposeRequest('onboard-prep-cncl'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('cancelled');
+    const unavailablePrep = makeOnboardingService({
+      learning: {
+        quota: () => Effect.succeed(quota),
+        request: () => Effect.succeed(pathCompletion('unused') as never),
+      },
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId: query.requestId,
+          message: 'No exact source passage supports this query.',
+        },
+      }),
+      sourcing: {
+        discoverCandidates: async (envelope) => ({
+          outcome: 'unavailable',
+          requestId: envelope.requestId,
+          message: 'The sourcing operation is unavailable.',
+          retryable: true,
+        }),
+        acquireCanonicalSource: async () => {
+          throw new Error('must not acquire');
+        },
+        retrieveEvidence: async () => {
+          throw new Error('must not retrieve');
+        },
+      },
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
+    expect(
+      (
+        await unavailablePrep.handle(
+          account,
+          proposeRequest('onboard-prep-unav'),
+          new AbortController().signal,
+        )
+      ).outcome,
+    ).toBe('unavailable');
+  });
 });

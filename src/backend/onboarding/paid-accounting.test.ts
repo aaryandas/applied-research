@@ -6,6 +6,7 @@ import {
   paidAccountingFromOnboarding,
   unavailableAccounting,
 } from './paid-accounting.js';
+import { LEARNING_ONBOARDING_PUBLIC_MESSAGES } from '../../contracts/learning-onboarding-api.js';
 
 describe('onboarding paid accounting', () => {
   it('ranks reservation-retained above charged, released, and none', () => {
@@ -65,5 +66,100 @@ describe('onboarding paid accounting', () => {
         accounting: 'charged',
       }),
     ).toBe('charged');
+    expect(
+      paidAccountingFromLearning({
+        outcome: 'quota-exceeded',
+        requestId: 'learning-02',
+        message: 'The monthly AI allowance is exhausted.',
+        quota: {
+          month: '2026-09',
+          limitMicrousd: 1,
+          committedMicrousd: 1,
+          reservedMicrousd: 0,
+          remainingMicrousd: 0,
+        },
+      }),
+    ).toBe('released');
+    expect(
+      paidAccountingFromLearning({
+        outcome: 'cancelled',
+        requestId: 'learning-03',
+        message: 'The learning request was cancelled.',
+        retryable: false,
+        accounting: 'reservation-retained',
+      }),
+    ).toBe('reservation-retained');
+    expect(
+      paidAccountingFromLearning({
+        outcome: 'unavailable',
+        requestId: 'learning-04',
+        message: 'Remote learning is temporarily unavailable.',
+        retryable: false,
+        accounting: 'charged',
+      }),
+    ).toBe('charged');
+    expect(
+      paidAccountingFromLearning({
+        outcome: 'invalid-request',
+        requestId: 'learning-05',
+        message: 'The request is invalid.',
+      }),
+    ).toBe('none');
+    expect(
+      paidAccountingFromOnboarding({
+        outcome: 'quota-exceeded',
+        requestId: 'onboard-02',
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.quotaExceeded,
+        quota: {
+          month: '2026-09',
+          limitMicrousd: 1,
+          committedMicrousd: 1,
+          reservedMicrousd: 0,
+          remainingMicrousd: 0,
+        },
+        retryable: false,
+      }),
+    ).toBe('released');
+    expect(
+      paidAccountingFromOnboarding({
+        outcome: 'success',
+        requestId: 'onboard-03',
+        scope: 'interview-prompt',
+        prompt: {
+          id: 'prompt-01',
+          text: 'What happens when you add 0.1 and 0.2?',
+          provenance: {
+            provider: 'openrouter',
+            model: 'google/gemini-3.8-flash',
+            providerRequestId: 'provider-01',
+            promptVersion: 'learning-v2-2026-09-09',
+            requestVersion: '2026-09-08',
+            createdAt: '2026-09-09T12:00:00.000Z',
+            sourceRevisions: [],
+            author: 'ai',
+          },
+        },
+        assessment: null,
+        quota: {
+          month: '2026-09',
+          limitMicrousd: 1,
+          committedMicrousd: 1,
+          reservedMicrousd: 0,
+          remainingMicrousd: 0,
+        },
+      }),
+    ).toBe('charged');
+    expect(
+      paidAccountingFromOnboarding({
+        outcome: 'coverage-pending',
+        requestId: 'onboard-04',
+        scope: 'complete-syllabus-and-first-lesson',
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.coveragePending,
+        gaps: [],
+        sourceCoverage: null,
+        quota: null,
+        retryable: false,
+      }),
+    ).toBe('none');
   });
 });

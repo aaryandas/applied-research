@@ -145,4 +145,91 @@ describe('global generation-eval allowance', () => {
     const snap = await Effect.runPromise(generationEval.inspect());
     expect(snap.dispatchCommitted).toBe(2);
   });
+
+  it('conflicts, retains in-progress, releases unused reservations, and treats unknown settle as uncertain', async () => {
+    const budget = makeMemoryGenerationEvalBudget({
+      dispatchLimit: 3,
+      limitMicrousd: GENERATION_EVAL_LIMIT_MICROUSD,
+    });
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    const first = await Effect.runPromise(
+      budget.admit({
+        requestId: 'mem-01',
+        inputHash: 'hash-a',
+        maximumChargeMicrousd: 10,
+        now,
+      }),
+    );
+    expect(first.kind).toBe('reserved');
+    await expect(
+      Effect.runPromise(
+        budget.admit({
+          requestId: 'mem-01',
+          inputHash: 'hash-b',
+          maximumChargeMicrousd: 10,
+          now,
+        }),
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    await expect(
+      Effect.runPromise(
+        budget.admit({
+          requestId: 'mem-01',
+          inputHash: 'hash-a',
+          maximumChargeMicrousd: 10,
+          now,
+        }),
+      ),
+    ).resolves.toEqual({ kind: 'in-progress' });
+    const extra = await Effect.runPromise(
+      budget.admit({
+        requestId: 'mem-rel',
+        inputHash: 'hash-rel',
+        maximumChargeMicrousd: 5,
+        now,
+      }),
+    );
+    if (extra.kind !== 'reserved') throw new Error('expected reserved');
+    await Effect.runPromise(extra.reservation.release());
+    if (first.kind !== 'reserved') throw new Error('expected reserved');
+    await Effect.runPromise(first.reservation.retain());
+    await expect(Effect.runPromise(budget.inspect())).resolves.toMatchObject({
+      dispatchCommitted: 1,
+      reservedMicrousd: 10,
+    });
+    const released = await Effect.runPromise(
+      budget.admit({
+        requestId: 'mem-02',
+        inputHash: 'hash-c',
+        maximumChargeMicrousd: 10,
+        now,
+      }),
+    );
+    if (released.kind !== 'reserved') throw new Error('expected reserved');
+    await Effect.runPromise(released.reservation.settle(Number.NaN));
+    await expect(Effect.runPromise(budget.inspect())).resolves.toMatchObject({
+      dispatchCommitted: 2,
+      reservedMicrousd: 10,
+    });
+    const settled = await Effect.runPromise(
+      budget.admit({
+        requestId: 'mem-03',
+        inputHash: 'hash-d',
+        maximumChargeMicrousd: 10,
+        now,
+      }),
+    );
+    if (settled.kind !== 'reserved') throw new Error('expected reserved');
+    await Effect.runPromise(settled.reservation.settle(4));
+    await expect(
+      Effect.runPromise(
+        budget.admit({
+          requestId: 'mem-03',
+          inputHash: 'hash-d',
+          maximumChargeMicrousd: 10,
+          now,
+        }),
+      ),
+    ).resolves.toEqual({ kind: 'budget-exhausted' });
+  });
 });
