@@ -790,7 +790,7 @@ export class ContextualHelpOperations {
       request,
       authority,
       'unsupported',
-      'The planner returned a family this desktop cannot place.',
+      'This concept does not fit an installed visual family.',
     );
   }
 
