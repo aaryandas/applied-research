@@ -43,6 +43,10 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `tests/backend-postgres/authenticated-backend.test.ts`: destructive, disposable-database-only proof of the actual migration, Better Auth session adapter and concurrent Drizzle transactions.
 - `railway.json`, `.env.example`, `tsconfig.backend.json`, `scripts/copy-backend-assets.mjs`: deploy build/start/migration wiring and placeholder-only configuration.
 
+## Source index adapter checkpoint
+
+`src/backend/sourcing/index/adapter.ts` composes bounded indexing, deletion and hybrid retrieval. `writes.ts` validates acquired passages and authoritative tombstones; `retrieval.ts` builds identical scoped ANN/BM25 branches, validates exact canonical evidence and fuses ranks. `identity.ts`, `validation.ts`, `deadline.ts`, `transport.ts`, `results.ts` and `types.ts` own generation/row identity, producer validation, operation deadlines, bounded HTTP and safe outcomes. Adjacent public-boundary tests use synthetic vectors and provider responses. [Source index contract](source-index.md) records limits, integration seams and blocked live acceptance. No production transport or route composition is enabled.
+
 ## MVP modules
 
 - `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
