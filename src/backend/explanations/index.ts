@@ -28,3 +28,16 @@ export {
 export type { PlannerAccountingStore } from './planner-accounting.js';
 export type { GenerationEvalLedger } from './generation-eval.js';
 export { decodePlannerHttpResponse } from './response-decode.js';
+export {
+  CLIP_RENDER_FAMILIES,
+  RENDER_RECEIPT_VERSION,
+  constructRenderReceipt,
+  decodePlannerRenderContext,
+  decodePlannerRenderReceipt,
+} from './render-context.js';
+export type {
+  ClipRenderFamily,
+  PlannerRenderContext,
+  PlannerRenderOrigin,
+  PlannerRenderReceipt,
+} from './render-context.js';

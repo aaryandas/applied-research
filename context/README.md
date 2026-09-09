@@ -27,6 +27,7 @@ The [active presearch session](presearch.md) reopens earlier commitments and rec
 | [CI root causes](ci-root-causes-2026-09-09.md)            | Shared failures, parallel repair owners and merge propagation              |
 | [Learning onboarding](learning-onboarding.md)             | Profile, interview, proposal, practice brief and selected-lesson contracts |
 | [Contextual help contracts](contextual-help-contracts.md) | AR-53 frozen Ask/origin, retained artifact and companion envelopes         |
+| [Render grant](render-grant.md)                           | AR-48 planner receipt join: renderContext, reference-only clip POST        |
 
 Product and domain pages govern current product intent. Architecture and checked-in code/configuration distinguish implemented behavior from proposals. The design reference includes historical specimens; its visual guidance does not override current product scope. If code and accepted intent disagree, surface the discrepancy rather than treating it as a new decision.
 
