@@ -73,8 +73,6 @@ export function PracticalSession(
   const [requester, setRequester] = useState<CompanionRequester | null>(null);
   const [state, setState] = useState<CompanionState | null>(null);
   const [surface, setSurface] = useState<HTMLElement | null>(null);
-  const requesterRef = useRef(requester);
-  requesterRef.current = requester;
   const registerRevocationRef = useRef(props.registerRevocation);
   const [resolvedAttemptId, setResolvedAttemptId] = useState(props.attemptId);
   const [owner] = useState(
@@ -308,7 +306,7 @@ export function PracticalSession(
           ? {
               onRequestGuidance: (request: PracticalGuidanceRequest) => {
                 setSelectedRequest(request);
-                void requesterRef.current?.session.askOnce(request);
+                void requester.session.askOnce(request);
               },
             }
           : {})}
