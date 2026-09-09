@@ -555,13 +555,18 @@ describe('contextual help operations', () => {
   it('serves a local visual scene in desktop-e2e without claiming remote auth', async () => {
     const harness = openExplanationHarness();
     cleanups.push(() => harness.close());
+    let issued = 7;
     const operations = new ContextualHelpOperations({
       records: harness.records,
       authenticated: () => false,
       transport: null,
       testEnvironment: 'desktop-e2e',
       now: () => new Date(createdAt),
-      randomUUID: () => '22000000-0000-4000-8000-000000000008',
+      randomUUID: () => {
+        issued += 1;
+        const suffix = issued.toString(16).padStart(2, '0');
+        return `22000000-0000-4000-8000-0000000000${suffix}`;
+      },
     });
     operations.activate(harness.projectId);
     await expect(
