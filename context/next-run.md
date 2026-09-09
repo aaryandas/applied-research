@@ -93,8 +93,13 @@ Resolve the ticket and revision first:
 Then walk the app:
 3. Run npm ci and the relevant targeted Playwright scenarios for this ticket in the cloud sandbox, using a display or xvfb-run on Linux as needed. Preserve the exact commands, results and revision. Then run npm run dev for the hands-on walkthrough. If Electron's binary is missing after ci, run node node_modules/electron/install.js without editing project files. Rebuild native modules as required for the cloud tests and app.
 4. Start the built-in screen recording before you interact. Walk every acceptance criterion on the ticket as a user would: enter a topic on Opening, use the sidebar, read, save a note, open Canvas, change a setting, quit and relaunch to confirm what persisted. Try the empty, error and cancel cases the ticket names. Sign-in that needs a real account stops at the browser handoff.
-5. Stop recording. Attach the recording, targeted Playwright results and a short pass/fail list per criterion to the Linear issue, naming the exact revision. Report a cloud infrastructure blocker explicitly; do not treat an unrun test as a pass.
-6. If the targeted tests and every hands-on criterion pass, move the issue to In Review. Otherwise move it to In Development with the failing criterion and what you saw.
+5. Stop recording. Attach the recording, targeted Playwright results and a short pass/fail list per criterion to the Linear issue, naming the exact revision. Obtain the actual uploaded recording asset URL on uploads.linear.app; never substitute a PR, screenshot or arbitrary page URL.
+6. Post the following three lines, each exactly once, both in a Linear issue comment and in a comment or review on the linked GitHub PR using your authenticated Cursor GitHub bot. Replace the example values with the frozen full 40-character commit SHA, actual verdict and recording URL:
+VERIFICATION_SHA: <40-character frozen SHA>
+VERIFICATION_RESULT: PASS
+VERIFICATION_VIDEO: <https://uploads.linear.app/... recording asset URL>
+Use FAIL instead of PASS for an observed product failure. Both posts must name the same SHA and recording asset. GitHub evidence must come from cursor[bot] (numeric user ID 206951365); the Linear connection uses the configured founder account. Do not ask an implementer to post as Cursor. NOT_APPLICABLE is permitted only when every changed file is delivery-only under the trusted scripts/workflow-gates.mjs allowlist; AGENTS.md currently requires a recording.
+7. Recheck that the PR head still matches the frozen SHA. Move to In Review only after targeted tests, every hands-on criterion and both evidence posts succeed. Move observed product failures to In Development with the failing criterion. For missing bot publishing capability, unavailable recording, stale revision or cloud infrastructure failure, report BLOCKED and leave the issue In Testing; an unrun check is never a pass. Stop after two infrastructure setup attempts and report the blocker.
 
 Do not edit source, tests, or configuration. Do not push to any branch. Do not use any provider key. Never move an issue to Done; the coordinator owns that.
 ```

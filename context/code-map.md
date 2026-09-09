@@ -23,7 +23,7 @@ This map describes the implemented MVP. See [scope and limitations](mvp.md). Rea
 | `scripts/workflow-*.mjs`        | Trusted GitHub API helpers and pure evidence/verdict rules                      |
 | `scripts/linear-gate.mjs`       | Reconcile exact-commit Linear verification into a required GitHub status        |
 | `scripts/fable-review.mjs`      | Freeze independent review revision and publish validated Fable verdict          |
-| `scripts/merge-group-gates.mjs` | Carry constituent PR evidence into native merge-group checks when enabled       |
+| `scripts/merge-group-gates.mjs` | Refuse unsupported native merge groups; Luna merges directly in sequence        |
 | `context/automation-run.md`     | Active delivery automation commands, roles, claims and recovery protocol        |
 | `electron.vite.config.ts`       | Main, preload and renderer builds                                               |
 | `electron-builder.yml`          | Installer configuration and packaged file scope                                 |
