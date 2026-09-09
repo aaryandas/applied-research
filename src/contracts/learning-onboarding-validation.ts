@@ -1938,12 +1938,13 @@ export function createLearningOnboardingValidation(
         );
       }
       if (
+        targetPractice.sourceIds.length !== compact.sourceIds.length ||
         targetPractice.sourceIds.some(
           (sourceId) => !compact.sourceIds.includes(sourceId),
         )
       ) {
         invalid(
-          'Selected lesson practice sources are not bound to the retained step.',
+          'Selected lesson practice sources must match the retained step exactly.',
         );
       }
     }

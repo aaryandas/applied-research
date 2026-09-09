@@ -4,24 +4,65 @@ import type {
   MonthlyQuota,
   SourceCitation,
   SourceRevisionInput,
-  SourceRevisionLocator,
 } from './learning-api.js';
 import {
   LEARNING_API_VERSION,
   LEARNING_MODEL_ALLOWLIST,
 } from './learning-api.js';
 import type { PathSourceState } from './learning-records.js';
-import type { PracticalToolId } from './practical-tools.js';
+import {
+  COURSE_PRACTICE_BRIEF_KIND,
+  COURSE_PRACTICE_TOOL_KINDS,
+  EXTRACTION_COVERAGE,
+  LESSON_DEPTHS,
+  LESSON_ROLES,
+} from './learning-onboarding.js';
 import type {
-  AcquiredSource,
-  ProviderIdentity,
-  RetrievalEvidence,
-  ScholarlyIdentity,
-  SourceAccess,
-  SourceKind,
-  UntrustedOriginalLocation,
-} from './sourcing.js';
+  CourseCapstoneDesignation,
+  CoursePracticeBrief,
+  CoursePracticeToolChoice,
+  CoursePracticeToolKind,
+  LessonDepth,
+  LessonRole,
+  OnboardingCoverageGap,
+  OnboardingPersonalization,
+  OnboardingSourceCoverage,
+  OnboardingSyllabus,
+  OnboardingSyllabusLesson,
+  OnboardingSyllabusTopic,
+  OpaqueRevisionRef,
+  ProposalSource,
+  ProposalSourceCoverage,
+  UnacquiredSeedUrl,
+} from './learning-onboarding.js';
+import type { AcquiredSource, RetrievalEvidence } from './sourcing.js';
 import { SOURCING_LIMITS } from './sourcing.js';
+
+export {
+  COURSE_PRACTICE_BRIEF_KIND,
+  COURSE_PRACTICE_TOOL_KINDS,
+  EXTRACTION_COVERAGE,
+  LESSON_DEPTHS,
+  LESSON_ROLES,
+};
+export type {
+  CourseCapstoneDesignation,
+  CoursePracticeBrief,
+  CoursePracticeToolChoice,
+  CoursePracticeToolKind,
+  LessonDepth,
+  LessonRole,
+  OnboardingCoverageGap,
+  OnboardingPersonalization,
+  OnboardingSourceCoverage,
+  OnboardingSyllabus,
+  OnboardingSyllabusLesson,
+  OnboardingSyllabusTopic,
+  OpaqueRevisionRef,
+  ProposalSource,
+  ProposalSourceCoverage,
+  UnacquiredSeedUrl,
+};
 
 /** Sibling of `/v1/learning/sourced`. Do not register this path on the old route. */
 export const LEARNING_ONBOARDING_PATH = '/v1/learning/onboarding' as const;
@@ -48,76 +89,9 @@ export const LEARNING_ONBOARDING_OPERATIONS = [
 export type LearningOnboardingOperationKind =
   (typeof LEARNING_ONBOARDING_OPERATIONS)[number];
 
-export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
-export type LessonDepth = (typeof LESSON_DEPTHS)[number];
-
-export const LESSON_ROLES = [
-  'concept',
-  'setup',
-  'practice',
-  'capstone',
-] as const;
-export type LessonRole = (typeof LESSON_ROLES)[number];
-
-export const COURSE_PRACTICE_BRIEF_KIND =
-  'source-supported-practice-brief' as const;
-export const COURSE_PRACTICE_TOOL_KINDS = [
-  'app-hosted-catalog',
-  'learner-external',
-] as const;
-export type CoursePracticeToolKind =
-  (typeof COURSE_PRACTICE_TOOL_KINDS)[number];
-
-/**
- * Generated course-side tool choice. App-hosted ids reuse the existing
- * Practical catalog; opening those tools stays in AR-19/AR-50. Learner-external
- * names a real environment. This is not an attempt, animation, or code runtime.
- */
-export type CoursePracticeToolChoice =
-  | { kind: 'app-hosted-catalog'; toolId: PracticalToolId }
-  | {
-      kind: 'learner-external';
-      toolName: string;
-      intendedUse: string;
-    };
-
-/**
- * Source-supported practice/capstone brief. AR-50 binds this to existing
- * PracticalActivity identity. Human attempts, results and reflections stay in
- * `practical-work` / `practical-records`.
- */
-export type CoursePracticeBrief = {
-  kind: typeof COURSE_PRACTICE_BRIEF_KIND;
-  author: 'ai';
-  masteryEstablished: false;
-  intendedOutcome: string;
-  setup: string;
-  tool: CoursePracticeToolChoice;
-  instructions: string;
-  observableCheckpoints: string[];
-  expectedArtifact: string;
-  reflectionPrompt: string;
-  sourceIds: string[];
-};
-
 export type GeneratedCoursePracticeBrief = CoursePracticeBrief & {
   citations: SourceCitation[];
 };
-
-/** Optional. Present only when the syllabus includes a unique capstone lesson. */
-export type CourseCapstoneDesignation = {
-  stepId: string;
-  outcome: string;
-  substantial: true;
-};
-
-export const EXTRACTION_COVERAGE = [
-  'complete',
-  'partial',
-  'metadata-only',
-  'unavailable',
-] as const;
-export type ProposalSourceCoverage = (typeof EXTRACTION_COVERAGE)[number];
 
 export const ONBOARDING_CONTEXT_TRUST = {
   human: 'untrusted-human-context',
@@ -205,20 +179,9 @@ export const FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS = [
   'evidence',
 ] as const;
 
-export type OpaqueRevisionRef = {
-  id: string;
-  revision: number;
-};
-
 export type SeedRevisionLocator = {
   sourceId: string;
   revisionId: string;
-};
-
-export type UnacquiredSeedUrl = {
-  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
-  kind: 'unacquired-url';
-  url: string;
 };
 
 export type HumanDiagnosticAnswer = {
@@ -276,50 +239,6 @@ export type UntrustedModelSyllabusContext = {
   } | null;
 };
 
-export type OnboardingSyllabusLesson = {
-  stepId: string;
-  title: string;
-  objective: string;
-  /**
-   * Concept/setup related-work note only. Practice/capstone must be null;
-   * AR-50 must not parse this as a practical brief.
-   */
-  activity: string | null;
-  role: LessonRole;
-  prerequisiteStepIds: string[];
-  sourceState: PathSourceState;
-  sourceIds: string[];
-  /** Required for practice/capstone; null for concept/setup. */
-  practice: CoursePracticeBrief | null;
-};
-
-export type OnboardingSyllabusTopic = {
-  topicId: string;
-  title: string;
-  outcome: string;
-  prerequisiteTopicIds: string[];
-  lessons: OnboardingSyllabusLesson[];
-};
-
-export type OnboardingSyllabus = {
-  title: string;
-  topics: OnboardingSyllabusTopic[];
-  capstone: CourseCapstoneDesignation | null;
-};
-
-export type OnboardingCoverageGap = {
-  kind: 'retrieval' | 'generation' | 'support';
-  message: string;
-};
-
-export type OnboardingSourceCoverage = {
-  readyLessons: number;
-  pendingLessons: number;
-  unsupportedLessons: number;
-  sources: number;
-  gaps: number;
-};
-
 export type OnboardingGeneratedLesson = {
   stepId: string;
   source: SourceRevisionInput;
@@ -333,13 +252,6 @@ export type OnboardingGeneratedLesson = {
    * Concept/setup lessons are null. Not renderer-parsed activity prose.
    */
   practice: GeneratedCoursePracticeBrief | null;
-};
-
-export type OnboardingPersonalization = {
-  author: 'ai';
-  summary: string;
-  observedGaps: string[];
-  masteryEstablished: false;
 };
 
 export type InterviewPromptOperation = {
@@ -520,16 +432,3 @@ export type LearningOnboardingFailure =
 
 export type LearningOnboardingResponse =
   LearningOnboardingSuccess | LearningOnboardingFailure;
-
-export type ProposalSource = {
-  sourceId: string;
-  kind: SourceKind;
-  title: string;
-  originalLocation: UntrustedOriginalLocation;
-  providerIds: ProviderIdentity[];
-  scholarlyIdentity: ScholarlyIdentity;
-  access: SourceAccess;
-  edition: SourceRevisionLocator | null;
-  coverage: ProposalSourceCoverage;
-  lessonStepIds: string[];
-};

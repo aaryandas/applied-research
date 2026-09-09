@@ -17,6 +17,7 @@ import type {
 import type { AiProvenance } from './learning-api.js';
 import type { AcquiredSource } from './sourcing.js';
 import { SOURCE_CHANNELS } from './source-desktop.js';
+import * as desktopOnboarding from './learning-onboarding.js';
 import {
   LearningOnboardingValidationError,
   createLearningOnboardingValidation,
@@ -521,6 +522,13 @@ describe('learning onboarding contracts', () => {
     );
     expect(LEARNING_ONBOARDING_LIMITS.practiceCheckpoints).toBe(8);
     expect(SOURCE_CHANNELS.generate).toBe('sources:generate-learning-path');
+    expect(desktopOnboarding).not.toHaveProperty('LEARNING_ONBOARDING_PATH');
+    expect(desktopOnboarding).not.toHaveProperty(
+      'LEARNING_ONBOARDING_API_VERSION',
+    );
+    expect(desktopOnboarding).not.toHaveProperty(
+      'FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS',
+    );
   });
 
   it('roundtrips human profile, interview, proposal projection and step mapping', () => {
@@ -1155,6 +1163,36 @@ describe('learning onboarding contracts', () => {
           target: {
             remoteStepId: 'step-002',
             acceptedProposal: { id: 'proposal-99', revision: 1 },
+            practice: tokenizerBrief,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    const compact = compactFromSyllabus();
+    const extraSourceTopics = compact.topics.map((topic) => ({
+      ...topic,
+      lessons: topic.lessons.map((lesson) =>
+        lesson.stepId === 'step-002'
+          ? { ...lesson, sourceIds: ['openalex_W1', 'openalex_W2'] }
+          : lesson,
+      ),
+    }));
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          kind: 'generate-selected-lesson' as const,
+          human,
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'proposal-01', revision: 1 },
+            syllabus: { title: compact.title, topics: extraSourceTopics },
+            personalization: null,
+          },
+          target: {
+            remoteStepId: 'step-002',
+            acceptedProposal: { id: 'proposal-01', revision: 1 },
             practice: tokenizerBrief,
           },
         },

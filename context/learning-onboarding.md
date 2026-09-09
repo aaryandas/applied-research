@@ -20,16 +20,19 @@ not a preview and must not replace an accepted course on every chapter.
 
 ## Modules
 
-| File                                              | Owns                                                                                      |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/contracts/learning-onboarding.ts`            | Named desktop operations, human profile/interview, opaque proposal identity, mapping      |
-| `src/contracts/learning-onboarding-api.ts`        | `POST /v1/learning/onboarding` discriminated envelope, limits, public messages            |
-| `src/contracts/learning-onboarding-validation.ts` | Strict bounded decoding for renderer inputs, projections and trusted backend envelopes    |
-| `src/contracts/learning-onboarding.test.ts`       | Forged-authority, malformed/oversize, revision/target, compatibility and roundtrip proofs |
+| File                                              | Owns                                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/contracts/learning-onboarding.ts`            | Desktop bridge, human profile/interview, opaque identity, mapping, and renderer projection types |
+| `src/contracts/learning-onboarding-api.ts`        | `POST /v1/learning/onboarding` discriminated envelope, limits, public messages                   |
+| `src/contracts/learning-onboarding-validation.ts` | Strict bounded decoding for renderer inputs, projections and trusted backend envelopes           |
+| `src/contracts/learning-onboarding.test.ts`       | Forged-authority, malformed/oversize, revision/target, compatibility and roundtrip proofs        |
 
-Renderer TypeScript may import desktop projection types. It must not import
-`learning-onboarding-api.ts` or trusted backend envelopes. Main validates the
-backend response, retains it under an opaque proposal id+revision, and
+Renderer TypeScript may import desktop projection types from
+`learning-onboarding.ts`. It must not import `learning-onboarding-api.ts` or
+trusted backend envelopes (`LearningOnboardingRequest` /
+`LearningOnboardingResponse`). The desktop module does not import the API
+module; the API module imports projection types from desktop. Main validates
+the backend response, retains it under an opaque proposal id+revision, and
 projects `CourseProposal`.
 
 ## Authority
@@ -67,9 +70,9 @@ The first listed topic/lesson is the graph source used as the opening lesson.
 Lesson `sourceIds` must appear in the bibliography; bibliography `lessonStepIds`
 must exist in the syllabus. Retrieval evidence quotes must equal the acquired
 canonical slice. Selected-lesson `priorProposal` must equal `acceptedProposal`,
-and `target.practice` must match the compact step's `practiceDigest` and
-`sourceIds`. `AcceptedStepMapping` rows must cover every syllabus step and keep
-one local topic id per remote topic.
+and `target.practice` must match the compact step's `practiceDigest` and the
+same `sourceIds` set. `AcceptedStepMapping` rows must cover every syllabus step
+and keep one local topic id per remote topic.
 
 ## Practice brief and capstone (AR-50)
 

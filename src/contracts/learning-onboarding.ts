@@ -1,22 +1,17 @@
-import type { AiProvenance } from './learning-api.js';
-import type { LearningWorkspace, PathOrigin } from './learning-records.js';
+import type { AiProvenance, SourceRevisionLocator } from './learning-api.js';
 import type {
-  CompactSyllabus,
-  CourseCapstoneDesignation,
-  CoursePracticeBrief,
-  CoursePracticeToolChoice,
-  GeneratedCoursePracticeBrief,
-  LessonDepth,
-  OpaqueRevisionRef,
-  OnboardingCoverageGap,
-  OnboardingPersonalization,
-  OnboardingSourceCoverage,
-  OnboardingSyllabus,
-  OnboardingSyllabusLesson,
-  OnboardingSyllabusTopic,
-  ProposalSource,
-  UnacquiredSeedUrl,
-} from './learning-onboarding-api.js';
+  LearningWorkspace,
+  PathOrigin,
+  PathSourceState,
+} from './learning-records.js';
+import type { PracticalToolId } from './practical-tools.js';
+import type {
+  ProviderIdentity,
+  ScholarlyIdentity,
+  SourceAccess,
+  SourceKind,
+  UntrustedOriginalLocation,
+} from './sourcing.js';
 
 export const LEARNING_ONBOARDING_CHANNELS = {
   getProfile: 'onboarding:get-learner-profile',
@@ -30,6 +25,148 @@ export const LEARNING_ONBOARDING_CHANNELS = {
   ensureLesson: 'onboarding:ensure-lesson',
   cancel: 'onboarding:cancel',
 } as const;
+
+export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
+export type LessonDepth = (typeof LESSON_DEPTHS)[number];
+
+export const LESSON_ROLES = [
+  'concept',
+  'setup',
+  'practice',
+  'capstone',
+] as const;
+export type LessonRole = (typeof LESSON_ROLES)[number];
+
+export const COURSE_PRACTICE_BRIEF_KIND =
+  'source-supported-practice-brief' as const;
+export const COURSE_PRACTICE_TOOL_KINDS = [
+  'app-hosted-catalog',
+  'learner-external',
+] as const;
+export type CoursePracticeToolKind =
+  (typeof COURSE_PRACTICE_TOOL_KINDS)[number];
+
+/**
+ * Generated course-side tool choice. App-hosted ids reuse the existing
+ * Practical catalog; opening those tools stays in AR-19/AR-50. Learner-external
+ * names a real environment. This is not an attempt, animation, or code runtime.
+ */
+export type CoursePracticeToolChoice =
+  | { kind: 'app-hosted-catalog'; toolId: PracticalToolId }
+  | {
+      kind: 'learner-external';
+      toolName: string;
+      intendedUse: string;
+    };
+
+/**
+ * Source-supported practice/capstone brief. AR-50 binds this to existing
+ * PracticalActivity identity. Human attempts, results and reflections stay in
+ * `practical-work` / `practical-records`.
+ */
+export type CoursePracticeBrief = {
+  kind: typeof COURSE_PRACTICE_BRIEF_KIND;
+  author: 'ai';
+  masteryEstablished: false;
+  intendedOutcome: string;
+  setup: string;
+  tool: CoursePracticeToolChoice;
+  instructions: string;
+  observableCheckpoints: string[];
+  expectedArtifact: string;
+  reflectionPrompt: string;
+  sourceIds: string[];
+};
+
+/** Optional. Present only when the syllabus includes a unique capstone lesson. */
+export type CourseCapstoneDesignation = {
+  stepId: string;
+  outcome: string;
+  substantial: true;
+};
+
+export const EXTRACTION_COVERAGE = [
+  'complete',
+  'partial',
+  'metadata-only',
+  'unavailable',
+] as const;
+export type ProposalSourceCoverage = (typeof EXTRACTION_COVERAGE)[number];
+
+export type OpaqueRevisionRef = {
+  id: string;
+  revision: number;
+};
+
+export type UnacquiredSeedUrl = {
+  trust: 'untrusted-human-context';
+  kind: 'unacquired-url';
+  url: string;
+};
+
+export type OnboardingSyllabusLesson = {
+  stepId: string;
+  title: string;
+  objective: string;
+  /**
+   * Concept/setup related-work note only. Practice/capstone must be null;
+   * AR-50 must not parse this as a practical brief.
+   */
+  activity: string | null;
+  role: LessonRole;
+  prerequisiteStepIds: string[];
+  sourceState: PathSourceState;
+  sourceIds: string[];
+  /** Required for practice/capstone; null for concept/setup. */
+  practice: CoursePracticeBrief | null;
+};
+
+export type OnboardingSyllabusTopic = {
+  topicId: string;
+  title: string;
+  outcome: string;
+  prerequisiteTopicIds: string[];
+  lessons: OnboardingSyllabusLesson[];
+};
+
+export type OnboardingSyllabus = {
+  title: string;
+  topics: OnboardingSyllabusTopic[];
+  capstone: CourseCapstoneDesignation | null;
+};
+
+export type OnboardingCoverageGap = {
+  kind: 'retrieval' | 'generation' | 'support';
+  message: string;
+};
+
+export type OnboardingSourceCoverage = {
+  readyLessons: number;
+  pendingLessons: number;
+  unsupportedLessons: number;
+  sources: number;
+  gaps: number;
+};
+
+export type OnboardingPersonalization = {
+  author: 'ai';
+  summary: string;
+  observedGaps: string[];
+  masteryEstablished: false;
+};
+
+export type ProposalSource = {
+  sourceId: string;
+  kind: SourceKind;
+  title: string;
+  originalLocation: UntrustedOriginalLocation;
+  providerIds: ProviderIdentity[];
+  scholarlyIdentity: ScholarlyIdentity;
+  access: SourceAccess;
+  edition: SourceRevisionLocator | null;
+  coverage: ProposalSourceCoverage;
+  lessonStepIds: string[];
+};
 
 export type OnboardingRequest = {
   projectId: string;
@@ -247,13 +384,3 @@ export interface LearningOnboardingBridge {
   ): Promise<OnboardingResult<EnsureLessonValue>>;
   cancelLearningOnboarding(input: OnboardingRequest): Promise<void>;
 }
-
-export type {
-  CompactSyllabus,
-  CourseCapstoneDesignation,
-  CoursePracticeBrief,
-  CoursePracticeToolChoice,
-  GeneratedCoursePracticeBrief,
-  OnboardingSyllabus,
-  OpaqueRevisionRef,
-};
