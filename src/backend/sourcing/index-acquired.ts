@@ -93,15 +93,28 @@ function projectSettledVectors(
   return indexed;
 }
 
+interface EmbedReconcileBatchInput {
+  readonly options: IndexAcquiredSourceOptions;
+  readonly source: AcquiredSource;
+  readonly embeddingGeneration: string;
+  readonly batchIndex: number;
+  readonly batch: readonly SourcePassage[];
+  readonly invocation: SourcingInvocation;
+  readonly diagnostics: Diagnostics;
+}
+
 async function embedReconcileBatch(
-  options: IndexAcquiredSourceOptions,
-  source: AcquiredSource,
-  embeddingGeneration: string,
-  batchIndex: number,
-  batch: readonly SourcePassage[],
-  invocation: SourcingInvocation,
-  diagnostics: Diagnostics,
+  input: EmbedReconcileBatchInput,
 ): Promise<BatchIndexResult> {
+  const {
+    options,
+    source,
+    embeddingGeneration,
+    batchIndex,
+    batch,
+    invocation,
+    diagnostics,
+  } = input;
   const texts = batch.map((passage) => passage.locator.quote);
   const decision = await options.runEffect(
     options.budget.refreshAndReserve({
@@ -185,15 +198,15 @@ export async function indexAcquiredSource(
   ) {
     if (invocation.signal.aborted) return 'unavailable';
     const batch = passages.slice(offset, offset + MAX_EMBEDDING_BATCH);
-    const result = await embedReconcileBatch(
+    const result = await embedReconcileBatch({
       options,
       source,
       embeddingGeneration,
-      offset / MAX_EMBEDDING_BATCH,
+      batchIndex: offset / MAX_EMBEDDING_BATCH,
       batch,
       invocation,
       diagnostics,
-    );
+    });
     if (result.outcome !== 'projected') return result.outcome;
     indexedPassages.push(...result.passages);
   }

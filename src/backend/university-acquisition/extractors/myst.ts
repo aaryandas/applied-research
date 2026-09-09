@@ -44,6 +44,15 @@ interface ScanAdvance {
   currentTarget: string | null;
 }
 
+interface LocatedMystBlock {
+  readonly context: MystScanContext;
+  readonly currentTarget: string | null;
+  readonly title: string;
+  readonly text: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
 export function extractMystMarkdown(
   bytes: Uint8Array,
   options: MystExtractOptions,
@@ -181,22 +190,20 @@ function scanBlocks(
     blocks: [],
     gaps: [],
   };
-  let index = startLine;
-  let currentTarget: string | null = null;
-  while (index <= endLine) {
-    const advanced = advanceMystBlock(context, index, currentTarget);
+  let position: ScanAdvance = { index: startLine, currentTarget: null };
+  while (position.index <= endLine) {
+    const advanced = advanceMystBlock(context, position);
     if (advanced === null) return null;
-    index = advanced.index;
-    currentTarget = advanced.currentTarget;
+    position = advanced;
   }
   return { blocks: context.blocks, gaps: context.gaps };
 }
 
 function advanceMystBlock(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
 ): ScanAdvance | null {
+  const { index, currentTarget } = position;
   const line = context.lines[index - 1] ?? '';
   if (line.trim() === '') {
     return { index: index + 1, currentTarget };
@@ -207,41 +214,40 @@ function advanceMystBlock(
   }
   const heading = parseHeading(line);
   if (heading !== null) {
-    appendLocatedBlock(
+    appendLocatedBlock({
       context,
       currentTarget,
-      heading.title,
-      line,
-      index,
-      index,
-    );
+      title: heading.title,
+      text: line,
+      startLine: index,
+      endLine: index,
+    });
     return { index: index + 1, currentTarget: null };
   }
   const fence = parseFenceOpen(line);
   if (fence !== null) {
-    return advanceFence(context, index, currentTarget, fence);
+    return advanceFence(context, position, fence);
   }
   if (line.startsWith('$$') && line.trim() === '$$') {
-    return advanceDollarMath(context, index, currentTarget);
+    return advanceDollarMath(context, position);
   }
   if (isTableRow(line)) {
-    return advanceTable(context, index, currentTarget);
+    return advanceTable(context, position);
   }
   if (line.startsWith(':::')) {
-    return advanceColonFence(context, index, currentTarget);
+    return advanceColonFence(context, position);
   }
-  return advanceParagraph(context, index, currentTarget);
+  return advanceParagraph(context, position);
 }
 
 function advanceFence(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
   fence: { marker: string; info: string },
 ): ScanAdvance | null {
   const closed = readFence(
     context.lines,
-    index,
+    position.index,
     context.endLine,
     fence.marker,
     fence.info,
@@ -249,7 +255,7 @@ function advanceFence(
   if (closed === null) return null;
   handleFence(
     closed,
-    currentTarget,
+    position.currentTarget,
     context.lineStarts,
     context.byteLength,
     context.blocks,
@@ -260,111 +266,108 @@ function advanceFence(
 
 function advanceDollarMath(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
 ): ScanAdvance | null {
-  const math = readDollarMath(context.lines, index, context.endLine);
+  const math = readDollarMath(context.lines, position.index, context.endLine);
   if (math === null) return null;
-  appendLocatedBlock(
+  appendLocatedBlock({
     context,
-    currentTarget,
-    math.label ?? 'math',
-    math.text,
-    index,
-    math.endLine,
-  );
+    currentTarget: position.currentTarget,
+    title: math.label ?? 'math',
+    text: math.text,
+    startLine: position.index,
+    endLine: math.endLine,
+  });
   return { index: math.endLine + 1, currentTarget: null };
 }
 
 function advanceTable(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
 ): ScanAdvance {
-  const table = readTable(context.lines, index, context.endLine);
-  appendLocatedBlock(
+  const table = readTable(context.lines, position.index, context.endLine);
+  appendLocatedBlock({
     context,
-    currentTarget,
-    'table',
-    table.lines.join('\n'),
-    index,
-    table.endLine,
-  );
+    currentTarget: position.currentTarget,
+    title: 'table',
+    text: table.lines.join('\n'),
+    startLine: position.index,
+    endLine: table.endLine,
+  });
   return { index: table.endLine + 1, currentTarget: null };
 }
 
 function advanceColonFence(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
 ): ScanAdvance | null {
-  const skipped = skipColonFence(context.lines, index, context.endLine);
+  const skipped = skipColonFence(
+    context.lines,
+    position.index,
+    context.endLine,
+  );
   if (skipped === null) return null;
   context.gaps.push({
     kind: 'unknown-directive',
     locator: lineLocator(
-      currentTarget,
+      position.currentTarget,
       [],
-      index,
+      position.index,
       skipped,
       context.lineStarts,
       context.byteLength,
     ),
-    detail: `Unsupported colon fence at line ${index}.`,
+    detail: `Unsupported colon fence at line ${position.index}.`,
   });
   return { index: skipped + 1, currentTarget: null };
 }
 
 function advanceParagraph(
   context: MystScanContext,
-  index: number,
-  currentTarget: string | null,
+  position: ScanAdvance,
 ): ScanAdvance {
-  const paragraph = readParagraph(context.lines, index, context.endLine);
+  const paragraph = readParagraph(
+    context.lines,
+    position.index,
+    context.endLine,
+  );
   if (INTERPOLATION.test(paragraph.text)) {
     context.gaps.push({
       kind: 'interpolation',
       locator: lineLocator(
-        currentTarget,
+        position.currentTarget,
         [],
-        index,
+        position.index,
         paragraph.endLine,
         context.lineStarts,
         context.byteLength,
       ),
-      detail: `Interpolation at lines ${index}-${paragraph.endLine} was not executed.`,
+      detail: `Interpolation at lines ${position.index}-${paragraph.endLine} was not executed.`,
     });
   } else {
-    appendLocatedBlock(
+    appendLocatedBlock({
       context,
-      currentTarget,
-      currentTarget ?? 'paragraph',
-      paragraph.text,
-      index,
-      paragraph.endLine,
-    );
+      currentTarget: position.currentTarget,
+      title: position.currentTarget ?? 'paragraph',
+      text: paragraph.text,
+      startLine: position.index,
+      endLine: paragraph.endLine,
+    });
   }
   return { index: paragraph.endLine + 1, currentTarget: null };
 }
 
-function appendLocatedBlock(
-  context: MystScanContext,
-  currentTarget: string | null,
-  title: string,
-  text: string,
-  startLine: number,
-  endLine: number,
-): void {
-  context.blocks.push({
-    title,
-    text,
+function appendLocatedBlock(block: LocatedMystBlock): void {
+  block.context.blocks.push({
+    title: block.title,
+    text: block.text,
     locator: lineLocator(
-      currentTarget,
-      [title],
-      startLine,
-      endLine,
-      context.lineStarts,
-      context.byteLength,
+      block.currentTarget,
+      [block.title],
+      block.startLine,
+      block.endLine,
+      block.context.lineStarts,
+      block.context.byteLength,
     ),
   });
 }
@@ -394,12 +397,6 @@ function matchDotStarDollar(text: string): string | null {
   return body;
 }
 
-function matchDotPlusDollar(text: string): string | null {
-  const matched = matchDotStarDollar(text);
-  if (matched === null || matched.length === 0) return null;
-  return matched;
-}
-
 function parseFenceOpen(line: string): { marker: string; info: string } | null {
   let count = 0;
   while (count < line.length && (line[count] === '`' || line[count] === '~')) {
@@ -417,15 +414,17 @@ function parseHeading(line: string): { title: string } | null {
     index += 1;
   }
   if (index === 0) return null;
-  if (index >= line.length || !isUnicodeRegexWhitespace(line[index] ?? '')) {
-    return null;
+  const rest = matchDotStarDollar(line.slice(index));
+  if (rest === null || rest.length < 2) return null;
+  if (!isUnicodeRegexWhitespace(rest[0] ?? '')) return null;
+  let whitespace = 0;
+  while (
+    whitespace < rest.length &&
+    isUnicodeRegexWhitespace(rest[whitespace] ?? '')
+  ) {
+    whitespace += 1;
   }
-  while (index < line.length && isUnicodeRegexWhitespace(line[index] ?? '')) {
-    index += 1;
-  }
-  const body = matchDotPlusDollar(line.slice(index));
-  if (body === null) return null;
-  return { title: body.trim() };
+  return { title: rest.slice(whitespace).trim() };
 }
 
 function isTableRow(line: string): boolean {
