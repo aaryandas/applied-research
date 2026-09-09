@@ -11,3 +11,15 @@ export {
 export { makeExplanationPlannerService } from './service.js';
 export { handleExplanationPlanRoute } from './http.js';
 export { reservationMicrousdForPlannerBody } from './reservation.js';
+export {
+  GENERATION_EVAL_ALLOWANCE_NAME,
+  GENERATION_EVAL_LIMIT_DISPATCHES,
+  GENERATION_EVAL_LIMIT_MICROUSD,
+} from './generation-eval.js';
+export {
+  keepUsefulPlannerResponse,
+  plannerInputHash,
+} from './planner-accounting.js';
+export type { PlannerAccountingStore } from './planner-accounting.js';
+export type { GenerationEvalLedger } from './generation-eval.js';
+export { decodePlannerHttpResponse } from './response-decode.js';
