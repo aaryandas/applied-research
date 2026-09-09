@@ -3,6 +3,7 @@ import {
   type SupportReviewContext,
 } from './model-support.js';
 import { Data, Effect } from 'effect';
+import { silentDiagnostics } from '../diagnostics.js';
 import { isAssessment, selectedCitation } from './support-validation.js';
 import type { RetrievalEvidence } from '../../contracts/sourcing.js';
 import type {
@@ -123,8 +124,12 @@ export function assessClaims(
           })),
       };
     }),
-    Effect.catchTag('SupportFailure', () =>
-      Effect.succeed(
+    Effect.catchTag('SupportFailure', (failure) => {
+      (options.diagnostics ?? silentDiagnostics).report(
+        'sourced.support-failed',
+        failure.cause,
+      );
+      return Effect.succeed(
         unavailableSupport({
           method: 'not-run',
           assessments: [],
@@ -132,8 +137,8 @@ export function assessClaims(
           quota: null,
           failure: null,
         }),
-      ),
-    ),
+      );
+    }),
   );
 }
 

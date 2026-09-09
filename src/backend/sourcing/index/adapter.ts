@@ -8,6 +8,7 @@ import type {
 } from '../service.js';
 import { withDeadline } from './deadline.js';
 import { digest, generationId } from './identity.js';
+import { turbopufferNamespaceUrl } from './live-config.js';
 import {
   failureReason,
   IndexOperationError,
@@ -49,9 +50,12 @@ export function makeTurbopufferIndex(
     ...configuration,
     generation: { ...configuration.generation },
   };
-  const namespace = `ar-${digest([options.corpusId, generationId(options.generation)])}`;
-  // A fixture address, not a selected production region. No default fetch/key.
-  const url = `https://gcp-us-central1.turbopuffer.com/v2/namespaces/${namespace}`;
+  const namespace =
+    options.namespace ??
+    `ar-${digest([options.corpusId, generationId(options.generation)])}`;
+  const url = options.live
+    ? turbopufferNamespaceUrl(options.live.region, namespace)
+    : `https://gcp-us-central1.turbopuffer.com/v2/namespaces/${namespace}`;
 
   function run<A>(
     invocation: SourcingInvocation,
