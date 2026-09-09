@@ -125,6 +125,8 @@ jobs:
           COVERAGE_DOWNLOAD_DIR: ${{ runner.temp }}/ci-coverage
           COVERAGE_DEST: coverage/lcov.info
         run: node scripts/hosted-sonar.mjs verify-coverage
+      - name: Install scanner analysis dependencies
+        run: npm ci
       - name: Require analysis token
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -138,4 +140,5 @@ jobs:
           args: >-
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.scm.revision=${{ github.sha }}
+            -Dsonar.typescript.tsconfigPaths=tsconfig.node.json,tsconfig.web.json
             -Dsonar.qualitygate.wait=true
