@@ -106,6 +106,11 @@ export function Shell({
     },
     [registerCanvasFlush],
   );
+  const stopNativePractical = useCallback((): void => {
+    projectLifetime.stopPractical();
+    void bridge.cancelPracticalFileSelection?.();
+    void bridge.cancelPracticalExport?.();
+  }, [bridge, projectLifetime]);
   useEffect(() => {
     // Same-project view changes keep this Reader mounted; never treat its
     // incomplete draft as a failed view flush. Home/native close use registerFlush.
@@ -118,24 +123,19 @@ export function Shell({
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
     void bridge.activateSourceWorkspace?.(workspace.project.id);
-    const revoke = (): void => {
-      projectLifetime.stopPractical();
-      void bridge.cancelPracticalFileSelection?.();
-      void bridge.cancelPracticalExport?.();
-    };
     const unsubscribe = bridge.onAccountState((state) => {
-      if (state.session !== 'signed-in') revoke();
+      if (state.session !== 'signed-in') stopNativePractical();
       else void bridge.activateSourceWorkspace?.(workspace.project.id);
     });
-    window.addEventListener('beforeunload', revoke);
+    window.addEventListener('beforeunload', stopNativePractical);
     return () => {
       projectLifetime.revoke();
-      revoke();
+      stopNativePractical();
       unsubscribe();
-      window.removeEventListener('beforeunload', revoke);
+      window.removeEventListener('beforeunload', stopNativePractical);
       void bridge.activateSourceWorkspace?.(null);
     };
-  }, [bridge, projectLifetime, workspace.project.id]);
+  }, [bridge, projectLifetime, stopNativePractical, workspace.project.id]);
   const practicalBridge = isPracticalWorkspaceBridge(bridge)
     ? {
         recordPracticalResult: bridge.recordPracticalResult,
@@ -153,11 +153,9 @@ export function Shell({
       }
     : null;
   const flushResearch = useCallback(async () => {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
-    void bridge.cancelPracticalExport?.();
+    stopNativePractical();
     return flushView();
-  }, [bridge, flushView, projectLifetime]);
+  }, [flushView, stopNativePractical]);
   const openSavedResearch = useCallback(
     (
       next: LearningWorkspace,
@@ -218,12 +216,6 @@ export function Shell({
     },
     [bridge, onWorkspace],
   );
-
-  function stopNativePractical(): void {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
-    void bridge.cancelPracticalExport?.();
-  }
 
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {

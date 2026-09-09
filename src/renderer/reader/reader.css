@@ -337,6 +337,9 @@
   padding: var(--space-1) var(--space-2);
 }
 .reader-selection-actions {
+  margin: 0;
+  border: 0;
+  min-inline-size: 0;
   background: var(--paper);
   padding: var(--space-2) 0;
 }
