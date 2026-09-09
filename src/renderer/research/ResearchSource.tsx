@@ -33,6 +33,7 @@ interface ResearchSourceProps {
   saved: SavedResult | undefined;
   onOpenSaved: () => Promise<void>;
   opening: boolean;
+  retainAcquisition: (controller: AbortController) => () => void;
 }
 
 export function ResearchSource({
@@ -43,6 +44,7 @@ export function ResearchSource({
   saved,
   onOpenSaved,
   opening,
+  retainAcquisition,
 }: Readonly<ResearchSourceProps>): ReactElement {
   const [acquiring, setAcquiring] = useState(false);
   const [message, setMessage] = useState('');
@@ -54,12 +56,19 @@ export function ResearchSource({
       acquireButton.current?.focus();
   }, [acquiring, message]);
   const pending = useRef<AbortController | null>(null);
-  useEffect(() => () => pending.current?.abort(), []);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   const providerIdentity = source.providerIds[0];
   async function acquire(): Promise<void> {
     if (pending.current || !providerIdentity) return;
     const controller = new AbortController();
     pending.current = controller;
+    const release = retainAcquisition(controller);
     setAcquiring(true);
     setMessage('');
     const requestId = crypto.randomUUID();
@@ -82,26 +91,28 @@ export function ResearchSource({
           result.source.sourceId !== source.sourceId ||
           result.source.content.revision.sourceId !== source.sourceId);
       if (wrongRequest || wrongSource) {
-        setMessage(
-          'The saved source did not match this request. Search again.',
-        );
+        if (mounted.current)
+          setMessage(
+            'The saved source did not match this request. Search again.',
+          );
         return;
       }
       if (result.outcome === 'saved') {
         pending.current = null;
-        setAcquiring(false);
+        if (mounted.current) setAcquiring(false);
         await onSaved(result);
-      } else {
+      } else if (mounted.current) {
         setPermissionDenied(result.outcome === 'not-permitted');
         setMessage(researchMessage(result));
       }
     } catch {
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted && mounted.current)
         setMessage('The source could not be saved. Try acquiring it again.');
     } finally {
+      release();
       if (!controller.signal.aborted) {
         pending.current = null;
-        setAcquiring(false);
+        if (mounted.current) setAcquiring(false);
       }
     }
   }

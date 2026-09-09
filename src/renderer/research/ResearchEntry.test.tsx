@@ -431,6 +431,54 @@ it('turns a denied acquisition into an honest link-only outcome', async () => {
   ).toBeEnabled();
 });
 
+it('keeps an in-flight save after a refined search and still opens the committed version', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'Does retrieval practice help learning?';
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'success',
+      requestId: request.requestId,
+      candidates: [readablePaper()],
+    }),
+  );
+  let finish: (
+    result: Awaited<ReturnType<ResearchEntryProps['onAcquireAndSave']>>,
+  ) => void = () => {};
+  callbacks.onAcquireAndSave = vi.fn<ResearchEntryProps['onAcquireAndSave']>(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  callbacks.onOpenReader = vi.fn<ResearchEntryProps['onOpenReader']>(
+    async () => 'opened',
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Acquire & read' }),
+  );
+  const [request, operation] = vi.mocked(callbacks.onAcquireAndSave).mock
+    .calls[0]!;
+  fireEvent.change(screen.getByRole('textbox', { name: 'Research question' }), {
+    target: { value: 'A refined retrieval question' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  expect(operation.signal.aborted).toBe(false);
+  await waitFor(() => expect(callbacks.onDiscover).toHaveBeenCalledTimes(2));
+  await act(async () => finish(savedResult(request.requestId)));
+  expect(callbacks.onOpenReader).toHaveBeenCalledWith({
+    projectId: 'project-a',
+    sourceId: 'local-paper',
+    revisionId: 'local-original-v2',
+    question: 'Does retrieval practice help learning?',
+    origin: null,
+  });
+  expect(
+    screen.getByRole('region', { name: 'Saved references' }),
+  ).toHaveTextContent('local-original-v2');
+});
+
 it('lets the learner cancel acquisition and ignores a late committed response', async () => {
   const callbacks = props();
   callbacks.initialQuestion = 'A learning question';

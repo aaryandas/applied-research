@@ -49,9 +49,22 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
   const openingRef = useRef(false);
   const [opening, setOpening] = useState(false);
   const pending = useRef<AbortController | null>(null);
+  const acquisitions = useRef(new Set<AbortController>());
   const questionField = useRef<HTMLTextAreaElement>(null);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => () => pending.current?.abort(), []);
+  useEffect(
+    () => () => {
+      pending.current?.abort();
+      for (const controller of acquisitions.current) controller.abort();
+    },
+    [],
+  );
+  function retainAcquisition(controller: AbortController): () => void {
+    acquisitions.current.add(controller);
+    return () => {
+      acquisitions.current.delete(controller);
+    };
+  }
   useLayoutEffect(() => {
     if (results) resultsHeading.current?.focus();
   }, [results]);
@@ -265,6 +278,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
               operation={results.operation}
               callbacks={props}
               opening={opening}
+              retainAcquisition={retainAcquisition}
               onSaved={(result) => saveReference(result, results.operation)}
               saved={
                 references.find(
