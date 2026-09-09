@@ -78,7 +78,7 @@ export class AnimationRenderWorker {
     private readonly options: WorkerOptions,
   ) {
     if (typeof options.dockerContext !== 'string') {
-      throw new Error(
+      throw new TypeError(
         'dockerContext must name a trusted Docker context. OrbStack is not inferred.',
       );
     }
@@ -103,7 +103,7 @@ export class AnimationRenderWorker {
         'The render worker requires a non-root POSIX host process.',
       );
     if (typeof options.dockerContext !== 'string') {
-      throw new Error(
+      throw new TypeError(
         'dockerContext must name a trusted Docker context. OrbStack is not inferred.',
       );
     }

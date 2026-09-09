@@ -1,11 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { finished } from 'node:stream/promises';
-import type { AuthService } from '../auth.js';
+import type { AuthenticatedAccount, AuthService } from '../auth.js';
+import { observeDisconnect } from '../http-body.js';
 import { isRecord, isUuid } from './identity.js';
 import type { RenderDeliveryService } from './service.js';
 import { MAX_RENDER_REQUEST_BYTES } from './types.js';
-import type { PublicRenderJob } from './types.js';
+import type { PublicRenderJob, PublicRetainedClip } from './types.js';
 
 export interface RenderDeliveryHttpDependencies {
   readonly auth: AuthService;
@@ -123,25 +124,79 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function observeDisconnect(
+async function streamOwnedArtifact(
+  response: ServerResponse,
+  opened: { clip: PublicRetainedClip; path: string } | null,
+  mediaId: string,
+): Promise<void> {
+  if (!opened) {
+    writeJson(response, 404, {
+      outcome: 'not-found',
+      mediaId,
+    });
+    return;
+  }
+  response.writeHead(200, {
+    'Content-Type': opened.clip.mediaType,
+    'Content-Length': opened.clip.bytes,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+  });
+  const stream = createReadStream(opened.path);
+  stream.pipe(response);
+  await finished(response).catch(() => undefined);
+  stream.destroy();
+}
+
+function writeOwnedJob(
+  response: ServerResponse,
+  job: PublicRenderJob | null,
+  requestId: string,
+): void {
+  if (!job) {
+    writeJson(response, 404, {
+      outcome: 'not-found',
+      requestId,
+    });
+    return;
+  }
+  writeJson(response, jsonStatus(job), job);
+}
+
+async function submitOwnedRender(
   request: IncomingMessage,
   response: ServerResponse,
-): { signal: AbortSignal; dispose: () => void } {
-  const controller = new AbortController();
-  const abortIfDisconnected = (): void => {
-    const requestEndedBeforeCompletion = request.destroyed && !request.complete;
-    if (response.destroyed || requestEndedBeforeCompletion) controller.abort();
-  };
-  request.on('close', abortIfDisconnected);
-  response.on('close', abortIfDisconnected);
-  abortIfDisconnected();
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      request.off('close', abortIfDisconnected);
-      response.off('close', abortIfDisconnected);
-    },
-  };
+  account: AuthenticatedAccount,
+  delivery: RenderDeliveryService,
+): Promise<void> {
+  const disconnect = observeDisconnect(request, response);
+  try {
+    let body: unknown;
+    try {
+      body = await readJson(request);
+    } catch (error) {
+      writeJson(response, 400, {
+        outcome: 'invalid-request',
+        message:
+          error instanceof BodyError
+            ? error.message
+            : 'The request is invalid.',
+      });
+      return;
+    }
+    if (isRecord(body) && JSON.stringify(body).includes('artifactPath')) {
+      writeJson(response, 400, {
+        outcome: 'invalid-request',
+        message: 'Renderer paths cannot be submitted as trusted input.',
+      });
+      return;
+    }
+    const job = await delivery.submit(account, body, disconnect.signal);
+    writeJson(response, jsonStatus(job), job);
+  } finally {
+    disconnect.dispose();
+  }
 }
 
 export async function handleRenderDelivery(
@@ -169,85 +224,30 @@ export async function handleRenderDelivery(
   }
   try {
     if (route.kind === 'artifact') {
-      const opened = await dependencies.delivery.openArtifact(
-        account,
+      await streamOwnedArtifact(
+        response,
+        await dependencies.delivery.openArtifact(account, route.mediaId),
         route.mediaId,
       );
-      if (!opened) {
-        writeJson(response, 404, {
-          outcome: 'not-found',
-          mediaId: route.mediaId,
-        });
-        return;
-      }
-      response.writeHead(200, {
-        'Content-Type': opened.clip.mediaType,
-        'Content-Length': opened.clip.bytes,
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff',
-        'Referrer-Policy': 'no-referrer',
-      });
-      const stream = createReadStream(opened.path);
-      stream.pipe(response);
-      await finished(response).catch(() => undefined);
-      stream.destroy();
       return;
     }
     if (route.kind === 'status') {
-      const job = await dependencies.delivery.status(account, route.requestId);
-      if (!job) {
-        writeJson(response, 404, {
-          outcome: 'not-found',
-          requestId: route.requestId,
-        });
-        return;
-      }
-      writeJson(response, jsonStatus(job), job);
+      writeOwnedJob(
+        response,
+        await dependencies.delivery.status(account, route.requestId),
+        route.requestId,
+      );
       return;
     }
     if (route.kind === 'cancel') {
-      const job = await dependencies.delivery.cancel(account, route.requestId);
-      if (!job) {
-        writeJson(response, 404, {
-          outcome: 'not-found',
-          requestId: route.requestId,
-        });
-        return;
-      }
-      writeJson(response, jsonStatus(job), job);
+      writeOwnedJob(
+        response,
+        await dependencies.delivery.cancel(account, route.requestId),
+        route.requestId,
+      );
       return;
     }
-    const disconnect = observeDisconnect(request, response);
-    try {
-      let body: unknown;
-      try {
-        body = await readJson(request);
-      } catch (error) {
-        writeJson(response, 400, {
-          outcome: 'invalid-request',
-          message:
-            error instanceof BodyError
-              ? error.message
-              : 'The request is invalid.',
-        });
-        return;
-      }
-      if (isRecord(body) && JSON.stringify(body).includes('artifactPath')) {
-        writeJson(response, 400, {
-          outcome: 'invalid-request',
-          message: 'Renderer paths cannot be submitted as trusted input.',
-        });
-        return;
-      }
-      const job = await dependencies.delivery.submit(
-        account,
-        body,
-        disconnect.signal,
-      );
-      writeJson(response, jsonStatus(job), job);
-    } finally {
-      disconnect.dispose();
-    }
+    await submitOwnedRender(request, response, account, dependencies.delivery);
   } catch {
     writeJson(response, 503, {
       outcome: 'unavailable',
