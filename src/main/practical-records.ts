@@ -89,6 +89,14 @@ export interface PracticalOwnedCaptureLookup {
   ): PracticalOwnedExplanation | null;
 }
 
+interface PracticalReturnedEvidenceQuery {
+  readonly transaction: WorkspaceTransaction;
+  readonly activity: PracticalActivity;
+  readonly projectId: string;
+  readonly attemptId: string;
+  readonly selected: PracticalEvidenceReference | null;
+}
+
 export class PracticalRecords {
   constructor(
     private readonly database: WorkspaceDatabase,
@@ -280,13 +288,13 @@ export class PracticalRecords {
               reflection: { authorKind: 'human', text: '' },
             },
             revisions,
-            returnedEvidence: this.returnedEvidence(
+            returnedEvidence: this.returnedEvidence({
               transaction,
-              input.activity,
-              stored.projectId,
-              stored.id,
-              current?.draft.selectedEvidence ?? null,
-            ),
+              activity: input.activity,
+              projectId: stored.projectId,
+              attemptId: stored.id,
+              selected: current?.draft.selectedEvidence ?? null,
+            }),
           },
         };
       });
@@ -374,19 +382,18 @@ export class PracticalRecords {
   }
 
   private returnedEvidence(
-    transaction: WorkspaceTransaction,
-    activity: PracticalActivity,
-    projectId: string,
-    attemptId: string,
-    selected: PracticalEvidenceReference | null,
+    query: PracticalReturnedEvidenceQuery,
   ): ReturnedPracticalEvidence[] {
-    const files = readPracticalFiles(transaction, {
-      activity,
-      attemptId,
+    const files = readPracticalFiles(query.transaction, {
+      activity: query.activity,
+      attemptId: query.attemptId,
     });
-    if (selected?.kind !== 'app-measured') return files;
-    const capture = this.readOwnedCapture(projectId, selected.captureId);
-    if (!capture || !this.captureMatchesActivity(activity, capture)) {
+    if (query.selected?.kind !== 'app-measured') return files;
+    const capture = this.readOwnedCapture(
+      query.projectId,
+      query.selected.captureId,
+    );
+    if (!capture || !this.captureMatchesActivity(query.activity, capture)) {
       return files;
     }
     return [...files, measuredPracticalResultFromTrustedCapture(capture)];
