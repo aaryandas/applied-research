@@ -183,6 +183,24 @@ describe('serializable companion guidance boundary', () => {
     ).toBe('authority');
   });
 
+  it('rejects help source-highlight as a companion workspace focus', () => {
+    expect(
+      decodeCompanionGuidanceRequest(
+        request({
+          target: {
+            surface: 'reader',
+            projectId,
+            target: {
+              kind: 'source-highlight',
+              sourceRevisionId,
+              highlightId,
+            },
+          },
+        }),
+      ).reason,
+    ).toBe('origin');
+  });
+
   it('requires saved human questions to carry a positive revision and keeps app-authored intents distinct', () => {
     expect(
       decodeCompanionGuidanceRequest(
