@@ -94,6 +94,7 @@
     ],
     "contracts": ["src/contracts/**"],
     "delivery": [
+      ".gitignore",
       "scripts/**",
       "electron-builder.yml",
       "compose.sonar.yml",
