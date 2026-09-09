@@ -372,4 +372,136 @@ describe('HTTPS worker transport', () => {
     });
     await expect(errored.status(owner, execution)).rejects.toThrow('socket');
   });
+
+  it('bounds JSON submit/status/cancel/release when the peer withholds the body', async () => {
+    const certificates = await certFiles();
+    const owner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const execution = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const operations: Array<{
+      name: string;
+      run: (
+        transport: Awaited<ReturnType<typeof createHttpsWorkerTransport>>,
+        signal?: AbortSignal,
+      ) => Promise<unknown>;
+    }> = [
+      {
+        name: 'submit',
+        run: (transport, signal) =>
+          transport.submit({
+            ownerScope: owner,
+            requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            recipeJson: '{"ok":true}',
+            recipeHash: recipeSha256('{"ok":true}'),
+            ...(signal ? { signal } : {}),
+          }),
+      },
+      {
+        name: 'status',
+        run: (transport, signal) => transport.status(owner, execution, signal),
+      },
+      {
+        name: 'cancel',
+        run: (transport, signal) => transport.cancel(owner, execution, signal),
+      },
+      {
+        name: 'release',
+        run: (transport, signal) => transport.release(owner, execution, signal),
+      },
+    ];
+
+    for (const operation of operations) {
+      let destroyed = false;
+      const request = vi.fn(
+        (
+          _url: URL,
+          _options: https.RequestOptions,
+          callback: (response: EventEmitter) => void,
+        ) => {
+          const response = new EventEmitter() as EventEmitter & {
+            statusCode: number;
+            headers: Record<string, string>;
+            destroy: () => void;
+          };
+          response.statusCode = 200;
+          response.headers = { 'content-type': 'application/json' };
+          response.destroy = () => {
+            destroyed = true;
+          };
+          queueMicrotask(() => callback(response));
+          const req = {
+            on: (event: string, listener: (error: Error) => void) => {
+              if (event === 'error') void listener;
+              return req;
+            },
+            write: () => undefined,
+            end: () => undefined,
+            destroy: () => {
+              destroyed = true;
+            },
+          };
+          return req;
+        },
+      );
+      const transport = await createHttpsWorkerTransport({
+        origin: 'https://worker.example:9443',
+        certificates,
+        request: request as unknown as typeof https.request,
+        jsonTimeoutMs: 60,
+      });
+      const started = Date.now();
+      await expect(operation.run(transport)).rejects.toThrow('cancelled');
+      expect(Date.now() - started).toBeGreaterThanOrEqual(40);
+      expect(destroyed).toBe(true);
+    }
+  });
+
+  it('aborts a withheld JSON status on precancel and mid-flight caller abort', async () => {
+    const certificates = await certFiles();
+    const owner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const execution = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const hangingRequest = vi.fn(
+      (
+        _url: URL,
+        _options: https.RequestOptions,
+        callback: (response: EventEmitter) => void,
+      ) => {
+        const response = new EventEmitter() as EventEmitter & {
+          destroy: () => void;
+        };
+        response.destroy = () => undefined;
+        queueMicrotask(() => callback(response));
+        const req = {
+          on: (event: string, listener: (error: Error) => void) => {
+            if (event === 'error') void listener;
+            return req;
+          },
+          write: () => undefined,
+          end: () => undefined,
+          destroy: () => undefined,
+        };
+        return req;
+      },
+    );
+    const transport = await createHttpsWorkerTransport({
+      origin: 'https://worker.example:9443',
+      certificates,
+      request: hangingRequest as unknown as typeof https.request,
+      jsonTimeoutMs: 5_000,
+    });
+    const already = new AbortController();
+    already.abort();
+    const precancelStarted = Date.now();
+    await expect(
+      transport.status(owner, execution, already.signal),
+    ).rejects.toThrow('cancelled');
+    expect(Date.now() - precancelStarted).toBeLessThan(200);
+
+    const mid = new AbortController();
+    const pending = transport.status(owner, execution, mid.signal);
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    mid.abort();
+    const midStarted = Date.now();
+    await expect(pending).rejects.toThrow('cancelled');
+    expect(Date.now() - midStarted).toBeLessThan(200);
+  });
 });

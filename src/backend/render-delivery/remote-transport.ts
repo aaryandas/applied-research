@@ -30,7 +30,12 @@ export interface HttpsWorkerTransportOptions {
   readonly realpath?: typeof realpath;
   readonly lstat?: typeof lstat;
   readonly access?: typeof access;
+  readonly jsonTimeoutMs?: number;
+  readonly artifactTimeoutMs?: number;
 }
+
+const DEFAULT_JSON_TIMEOUT_MS = 20_000;
+const DEFAULT_ARTIFACT_TIMEOUT_MS = 120_000;
 
 export async function createHttpsWorkerTransport(
   options: HttpsWorkerTransportOptions,
@@ -43,12 +48,24 @@ export async function createHttpsWorkerTransport(
     access: options.access ?? access,
   });
   const request = options.request ?? https.request;
+  const jsonTimeoutMs = options.jsonTimeoutMs ?? DEFAULT_JSON_TIMEOUT_MS;
+  const artifactTimeoutMs =
+    options.artifactTimeoutMs ?? DEFAULT_ARTIFACT_TIMEOUT_MS;
+
+  function jsonSignal(caller?: AbortSignal): AbortSignal {
+    return boundSignal(jsonTimeoutMs, caller);
+  }
+
+  function downloadSignal(caller?: AbortSignal): AbortSignal {
+    return boundSignal(artifactTimeoutMs, caller);
+  }
 
   async function jsonCall(
     method: string,
     pathname: string,
     ownerScope: string,
     body: unknown | null,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const url = new URL(pathname, origin);
     const payload = body === null ? null : Buffer.from(JSON.stringify(body));
@@ -58,6 +75,7 @@ export async function createHttpsWorkerTransport(
       body: payload,
       accept: 'application/json',
       tls,
+      signal: jsonSignal(signal),
     });
     if (response.status >= 300 && response.status < 400) {
       throw new Error('The render worker redirected the request.');
@@ -86,6 +104,7 @@ export async function createHttpsWorkerTransport(
           recipeJson: input.recipeJson,
           recipeHash: input.recipeHash,
         },
+        input.signal,
       );
       const status = decodeJobStatus(value);
       if (!status) {
@@ -93,12 +112,13 @@ export async function createHttpsWorkerTransport(
       }
       return status;
     },
-    async status(ownerScope, executionId) {
+    async status(ownerScope, executionId, signal) {
       const value = await jsonCall(
         'GET',
         `/v1/worker/jobs/${executionId}`,
         ownerScope,
         null,
+        signal,
       );
       const status = decodeJobStatus(value);
       if (!status) {
@@ -106,12 +126,13 @@ export async function createHttpsWorkerTransport(
       }
       return status;
     },
-    async cancel(ownerScope, executionId) {
+    async cancel(ownerScope, executionId, signal) {
       const value = await jsonCall(
         'POST',
         `/v1/worker/jobs/${executionId}/cancel`,
         ownerScope,
         null,
+        signal,
       );
       const status = decodeJobStatus(value);
       if (!status) {
@@ -128,7 +149,7 @@ export async function createHttpsWorkerTransport(
         accept: 'video/mp4',
         tls,
         maxBytes: MAX_WORKER_ARTIFACT_BYTES,
-        ...(signal ? { signal } : {}),
+        signal: downloadSignal(signal),
       });
       if (response.status >= 300 && response.status < 400) {
         throw new Error('The render worker redirected the request.');
@@ -140,12 +161,13 @@ export async function createHttpsWorkerTransport(
       if (typeof digest !== 'string') return null;
       return { sha256: digest.toLowerCase(), bytes: response.body };
     },
-    async release(ownerScope, executionId) {
+    async release(ownerScope, executionId, signal) {
       const value = await jsonCall(
         'POST',
         `/v1/worker/jobs/${executionId}/release`,
         ownerScope,
         null,
+        signal,
       );
       if (
         typeof value === 'object' &&
@@ -228,6 +250,11 @@ async function trustedCertFile(
   return io.readFile(resolved);
 }
 
+function boundSignal(timeoutMs: number, caller?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return caller ? AbortSignal.any([caller, timeout]) : timeout;
+}
+
 function requestOnce(
   request: typeof https.request,
   url: URL,
@@ -250,6 +277,25 @@ function requestOnce(
     return Promise.reject(new Error('Owner scope must be a UUID.'));
   }
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let incoming: IncomingMessage | undefined;
+    const succeed = (value: {
+      status: number;
+      contentType: string;
+      headers: IncomingMessage['headers'];
+      body: Buffer;
+    }): void => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener('abort', abort);
+      resolve(value);
+    };
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener('abort', abort);
+      reject(error);
+    };
     const headers: Record<string, string | number> = {
       Accept: input.accept,
       [OWNER_HEADER]: input.ownerScope,
@@ -258,6 +304,12 @@ function requestOnce(
       headers['Content-Type'] = 'application/json; charset=utf-8';
       headers['Content-Length'] = input.body.length;
     }
+    const abort = (): void => {
+      const error = new Error('The render worker request was cancelled.');
+      req.destroy(error);
+      incoming?.destroy();
+      fail(error);
+    };
     const req = request(
       url,
       {
@@ -270,13 +322,14 @@ function requestOnce(
         headers,
       },
       (response) => {
+        incoming = response;
         if (
           response.statusCode &&
           response.statusCode >= 300 &&
           response.statusCode < 400
         ) {
           response.resume();
-          reject(new Error('The render worker redirected the request.'));
+          fail(new Error('The render worker redirected the request.'));
           return;
         }
         const chunks: Buffer[] = [];
@@ -286,26 +339,23 @@ function requestOnce(
           length += chunk.byteLength;
           if (length > limit) {
             response.destroy();
-            reject(new Error('The render worker response is too large.'));
+            fail(new Error('The render worker response is too large.'));
             return;
           }
           chunks.push(chunk);
         });
         response.on('end', () => {
-          resolve({
+          succeed({
             status: response.statusCode ?? 0,
             contentType: String(response.headers['content-type'] ?? ''),
             headers: response.headers,
             body: Buffer.concat(chunks),
           });
         });
-        response.on('error', reject);
+        response.on('error', fail);
       },
     );
-    req.on('error', reject);
-    const abort = (): void => {
-      req.destroy(new Error('The render worker request was cancelled.'));
-    };
+    req.on('error', fail);
     if (input.signal?.aborted) {
       abort();
       return;
