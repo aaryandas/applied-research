@@ -86,16 +86,29 @@ function provenanceLabel(reply: CompanionGuidanceReply): string {
   return provenanceCopy(reply.provenance);
 }
 
-function citationKindLabel(citation: SourceCitation): string {
-  return citation.sourceId === COMPANION_APP_CONTEXT_SOURCE_ID
-    ? 'Supplied application context'
-    : 'Acquired scholarly citation';
+function citationKindLabel(
+  citation: SourceCitation,
+  provenance: AiProvenance,
+): string {
+  if (citation.sourceId === COMPANION_APP_CONTEXT_SOURCE_ID) {
+    return 'Supplied application context';
+  }
+  const revision = provenance.sourceRevisions.find(
+    (item) =>
+      item.sourceId === citation.sourceId &&
+      item.revisionId === citation.revisionId,
+  );
+  return revision?.provenance.kind === 'discovered'
+    ? 'Acquired scholarly citation'
+    : 'Retained source';
 }
 
 function GuidanceCitations({
   citations,
+  provenance,
 }: {
   citations: readonly SourceCitation[];
+  provenance: AiProvenance;
 }): ReactElement {
   return (
     <ul className="activity-companion-citations">
@@ -104,7 +117,7 @@ function GuidanceCitations({
           key={`${citation.sourceId}:${citation.revisionId}:${citation.start}:${citation.end}`}
         >
           <p className="activity-companion-citation-kind">
-            {citationKindLabel(citation)} · retained revision{' '}
+            {citationKindLabel(citation, provenance)} · retained revision{' '}
             {citation.revisionId} (not a web link)
           </p>
           <blockquote className="activity-companion-citation-quote">
@@ -120,15 +133,17 @@ function GuidanceAnswerBody({
   text,
   nextAction,
   citations,
+  provenance,
 }: {
   text: string;
   nextAction: string;
   citations: readonly SourceCitation[];
+  provenance: AiProvenance;
 }): ReactElement {
   return (
     <>
       <p className="activity-companion-answer">{text}</p>
-      <GuidanceCitations citations={citations} />
+      <GuidanceCitations citations={citations} provenance={provenance} />
       <p className="activity-companion-next-action">
         Suggested next step (advice only, never an automatic command):{' '}
         {nextAction}
@@ -150,6 +165,7 @@ function sessionAnswer(outcome: CompanionOutcome): ReactElement | null {
         text={outcome.text}
         nextAction={outcome.nextAction}
         citations={outcome.citations}
+        provenance={outcome.provenance}
       />
     </>
   );
@@ -556,6 +572,7 @@ export function Companion({
                   text={hostReply.text}
                   nextAction={hostReply.nextAction}
                   citations={hostReply.citations}
+                  provenance={hostReply.provenance}
                 />
               </>
             )}

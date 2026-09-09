@@ -11,6 +11,7 @@ Owned by the Companion lane. Main assembler `run-f562` owns `src/main/index.ts`,
 | `resolveCompanionGuidanceContext(request, readers, signal)` | `src/main/guidance-context.ts`          |
 | `CompanionGuidanceReaders`                                  | same                                    |
 | `measuredCaptureTextFromTrusted(capture)`                   | `src/main/guidance-measured-capture.ts` |
+| `measuredCaptureTextFromOwnedAttempt(attempt, id, load)`    | same                                    |
 | `makeCompanionGuidanceTransport(options)`                   | `src/main/guidance-transport.ts`        |
 | `buildCompanionGuidanceEnvelope(...)`                       | `src/main/guidance-envelope.ts`         |
 
@@ -62,7 +63,7 @@ Citation reveal is owned retained revision/context copy, not a model URL. Extra 
 ## Exact reader injection (no new storage)
 
 ```ts
-import { measuredCaptureTextFromTrusted } from './guidance-context';
+import { measuredCaptureTextFromOwnedAttempt } from './guidance-context';
 
 const readers: CompanionGuidanceReaders = {
   readWorkspace: (projectId) => store.getLearningWorkspace(projectId),
@@ -106,13 +107,19 @@ const readers: CompanionGuidanceReaders = {
       projectId,
       attemptId,
     );
-    if (loaded.status !== 'loaded' || !loaded.attempt) return null;
-    const selected = loaded.attempt.draft.selectedEvidence;
-    if (selected?.kind !== 'app-measured' || selected.captureId !== captureId)
+    if (
+      loaded.status !== 'loaded' ||
+      !loaded.attempt ||
+      loaded.attempt.activity.projectId !== projectId
+    ) {
       return null;
-    const capture = store.explanations.loadCapture(projectId, captureId);
-    if (!capture) return null;
-    return measuredCaptureTextFromTrusted(capture); // never renderer text
+    }
+    return measuredCaptureTextFromOwnedAttempt(
+      loaded.attempt,
+      captureId,
+      (ownedProjectId, ownedCaptureId) =>
+        store.explanations.loadCapture(ownedProjectId, ownedCaptureId),
+    );
   },
   boundToolSession: (projectId) => {
     // From the assembler-owned tool host; never a renderer URL.
@@ -130,20 +137,29 @@ loadPracticalAttemptByProjectAndId(projectId: string, attemptId: string) {
 }
 ```
 
-Inject capture lookup into `PracticalRecords` when constructing it (AR56 store constructor; this lane did not edit `workspace-store.ts`):
+Inject capture lookup into `PracticalRecords` when constructing it (AR56 store constructor; this lane did not edit `workspace-store.ts`). `loadExplanation` is required whenever measured associations are enabled. Use the actual AR56 reader — `store.explanations.loadExplanation(projectId, explanationId)` → `RetainedExplanation`. Do not call nonexistent `store.explanations.load`. Pass `Pick<RetainedExplanation, 'explanationId' | 'projectId' | 'origin'>`. Lesson identity is `origin.path.lessonId`; do not invent a null legacy `ExplanationOrigin`.
 
 ```ts
 this.practical = new PracticalRecords(this.orm, {
   loadCapture: (projectId, captureId) =>
     this.explanations.loadCapture(projectId, captureId),
   loadExplanation: (projectId, explanationId) => {
-    const explanation = this.explanations.load(projectId, explanationId);
-    return explanation ? { origin: explanation.origin } : null;
+    const explanation = this.explanations.loadExplanation(
+      projectId,
+      explanationId,
+    );
+    return explanation
+      ? {
+          explanationId: explanation.explanationId,
+          projectId: explanation.projectId,
+          origin: explanation.origin,
+        }
+      : null;
   },
 });
 ```
 
-Do not stub fake captures. `acceptTrustedSceneCapture` remains AR56 (recompute in MAIN before persistence). This lane only associates an already-owned capture id onto the attempt draft. A provided `lookupMeasuredCapture` that returns null is `stale`. PNG/PDF previews are `unsupported`, not missing files.
+Do not stub fake captures. `api.acceptSceneCapture({ projectId, request })` returns `TrustedSceneCapture` directly (AR56 `c4b65392` / explanations `cef3311b`; main recomputes before persistence). This lane only associates an already-owned capture id onto the attempt draft. A provided `lookupMeasuredCapture` that returns null is `stale`. PNG/PDF previews are `unsupported`, not missing files. `PracticalRecords` may omit an invalid capture from `returnedEvidence` while the saved draft id remains — the measured reader must require the revalidated offer, not `draft.selectedEvidence`.
 
 AR51 `groundingForSource` / `tutorSourceInput` at `f7f733f` were inspected only. This producer inlines a bounded canonicalizer + SHA-256 helper. When the coordinator integrates that exact AR51 SHA, those helpers may replace the local copies; do not merge AR51 from here.
 
@@ -183,23 +199,20 @@ Preload: expose **only** named `requestCompanionGuidance` and `cancelCompanionGu
 
 Transport posts `POST ${DESKTOP_AUTH_API_ORIGIN}/v1/learning/companion` once with `origin: applied-research:/` and the session cookie. No retry after uncertainty. Combined-signal timeout is `unavailable`, not `cancelled`. HTTP 401/403 is `unauthenticated` even if the body is success-shaped. Success-shaped JSON is accepted only with HTTP 200.
 
-## Exact AR51 capture-ID handoff (do not edit ContextualHelpPanel here)
+## Exact capture-ID handoff (assembler-owned; do not rebuild RetainedScene)
 
-AR51 currently discards `acceptSceneCapture` / `acceptTrustedSceneCapture` return ID. Required patch, no silent match to the latest unrelated attempt:
+AR56 `c4b65392` `RetainedScene` already retains and displays the trusted capture returned by `api.acceptSceneCapture({ projectId, request })`. That bridge returns `TrustedSceneCapture` directly, not `acceptTrustedSceneCapture` and not a `{ status, capture }` wrapper. Do not tell AR51 to rebuild retain/display.
+
+The remaining assembler gap is an **explicit user action** that copies the returned opaque `captureId` onto the currently mounted owned Practical attempt (same project + activity). Do not auto-select the most recently updated attempt. Practical then records `draft.selectedEvidence: { kind: 'app-measured', captureId }` through the existing result commit. Renderer must not supply measurement text.
 
 ```ts
-const accepted = await api.acceptTrustedSceneCapture(request);
-if (accepted.status !== 'accepted') {
-  return;
-}
-const captureId = accepted.capture.captureId; // retain the real returned opaque id
+const capture = await api.acceptSceneCapture({ projectId, request });
+// capture is TrustedSceneCapture; RetainedScene already displays it.
 offerCaptureToMountedPracticalAttempt({
-  captureId,
-  projectId, // same project only
+  captureId: capture.captureId,
+  projectId, // same project only; current owned attempt only
 });
 ```
-
-The offer must be an **explicit user action** on the currently mounted Practical attempt (same project + activity). Do not auto-select the most recently updated attempt. Practical then records `draft.selectedEvidence: { kind: 'app-measured', captureId }` through the existing result commit. Renderer must not supply measurement text.
 
 ## Exact Shell mount (assembler-owned, do not edit Shell here)
 

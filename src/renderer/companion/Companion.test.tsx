@@ -20,6 +20,7 @@ import {
   answeredGuidance,
   ipcSuccessReply,
   TEST_APP_CONTEXT_CITATION,
+  TEST_DISCOVERED_PROVENANCE,
   TEST_SCHOLARLY_CITATION,
 } from './guidance-test-answer';
 import {
@@ -321,7 +322,7 @@ describe('Companion app-owned controls and decoration', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Acquired scholarly citation · retained revision b0000000-0000-4000-8000-000000000001 (not a web link)',
+        'Retained source · retained revision b0000000-0000-4000-8000-000000000001 (not a web link)',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Shear the basis')).toBeInTheDocument();
@@ -761,7 +762,7 @@ describe('Companion Reader/Canvas selected help', () => {
     expect(
       screen.getByText(/openrouter · google\/gemini-3.8-flash/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Acquired scholarly citation/)).toBeInTheDocument();
+    expect(screen.getByText(/Retained source/)).toBeInTheDocument();
     expect(
       screen.getByText(/Supplied application context/),
     ).toBeInTheDocument();
@@ -774,6 +775,46 @@ describe('Companion Reader/Canvas selected help', () => {
     expect(
       screen.queryByRole('button', { name: /Change one entry/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it('labels a UUID citation as acquired only when provenance is discovered', async () => {
+    const decoded = decodeCompanionGuidanceReply(
+      ipcSuccessReply('Compare the acquired source to the retained one.', {
+        provenance: TEST_DISCOVERED_PROVENANCE,
+      }),
+    );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw new Error('expected success decode');
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance: vi.fn(async () => decoded.value),
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={workspaceTarget}
+        guidanceHost={host}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about selected target' }),
+    );
+    await screen.findByText('Compare the acquired source to the retained one.');
+    expect(
+      screen.getByText(
+        'Acquired scholarly citation · retained revision b0000000-0000-4000-8000-000000000001 (not a web link)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('labels a selected canvas record', () => {

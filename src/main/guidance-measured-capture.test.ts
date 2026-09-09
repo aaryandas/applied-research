@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrustedSceneCapture } from '../contracts/explanation-artifacts';
 import {
+  measuredCaptureTextFromOwnedAttempt,
   measuredCaptureTextFromTrusted,
   measuredPracticalResultFromTrustedCapture,
 } from './guidance-measured-capture';
@@ -34,5 +35,41 @@ describe('trusted scene capture summary', () => {
       measuredAt,
       summary: adapted.text,
     });
+  });
+
+  it('requires a revalidated returnedEvidence offer, not a leftover draft id', () => {
+    const projectId = '27000000-0000-4000-8000-000000000001';
+    const attempt = {
+      activity: { projectId },
+      returnedEvidence: [] as const,
+    };
+    expect(
+      measuredCaptureTextFromOwnedAttempt(attempt, captureId, () => endpoint),
+    ).toBeNull();
+    const offered = {
+      activity: { projectId },
+      returnedEvidence: [
+        {
+          kind: 'app-measured' as const,
+          captureId,
+          summary: 'renderer said otherwise',
+          measuredAt,
+        },
+      ],
+    };
+    expect(
+      measuredCaptureTextFromOwnedAttempt(offered, captureId, () => null),
+    ).toBeNull();
+    const derived = measuredCaptureTextFromOwnedAttempt(
+      offered,
+      captureId,
+      (ownedProjectId, ownedCaptureId) => {
+        expect(ownedProjectId).toBe(projectId);
+        expect(ownedCaptureId).toBe(captureId);
+        return endpoint;
+      },
+    );
+    expect(derived).toEqual(measuredCaptureTextFromTrusted(endpoint));
+    expect(derived?.text).not.toContain('renderer said');
   });
 });

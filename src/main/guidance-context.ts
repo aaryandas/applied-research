@@ -31,7 +31,10 @@ import type {
 
 export const APP_CONTEXT_SOURCE_ID = COMPANION_APP_CONTEXT_SOURCE_ID;
 export const LOCAL_PLAIN_CANONICALIZER = 'workspace-plain-v1';
-export { measuredCaptureTextFromTrusted } from './guidance-measured-capture';
+export {
+  measuredCaptureTextFromOwnedAttempt,
+  measuredCaptureTextFromTrusted,
+} from './guidance-measured-capture';
 export type CompanionGuidanceAttribution =
   | 'retained-source'
   | 'saved-human'
@@ -89,10 +92,11 @@ export interface CompanionGuidanceReaders {
     selectionId: string,
   ) => Promise<ImportedFileRead | null>;
   /**
-   * Main-owned measured-capture read. Assembler must derive text/time with
-   * `measuredCaptureTextFromTrusted` from `store.explanations.loadCapture`.
-   * Omit until AR56 supplies that read. A provided reader that returns null
-   * means that capture is gone.
+   * Main-owned measured-capture read. Assembler must use
+   * `measuredCaptureTextFromOwnedAttempt`: require a revalidated
+   * `returnedEvidence` offer, then derive text/time from
+   * `store.explanations.loadCapture`. Omit until AR56 supplies that read.
+   * A provided reader that returns null means that capture is gone.
    */
   readonly lookupMeasuredCapture?: (
     projectId: string,

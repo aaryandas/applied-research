@@ -44,6 +44,31 @@ export const TEST_GUIDANCE_PROVENANCE: AiProvenance = {
   ],
 };
 
+export const TEST_DISCOVERED_PROVENANCE: AiProvenance = {
+  author: 'ai',
+  provider: 'openrouter',
+  providerRequestId: 'provreq03',
+  model: 'google/gemini-3.8-flash',
+  requestVersion: '2026-09-08',
+  promptVersion: 'learning-v2-2026-09-09',
+  createdAt: TEST_GUIDANCE_CREATED_AT,
+  sourceRevisions: [
+    {
+      sourceId: TEST_SCHOLARLY_CITATION.sourceId,
+      revisionId: TEST_SCHOLARLY_CITATION.revisionId,
+      title: 'Linear maps',
+      sha256: 'a'.repeat(64),
+      format: 'plain-text',
+      canonicalizationVersion: 'workspace-plain-v1',
+      acquiredAt: TEST_GUIDANCE_CREATED_AT,
+      provenance: {
+        kind: 'discovered',
+        locator: 'https://api.openalex.org/works/W1',
+      },
+    },
+  ],
+};
+
 export function ipcSuccessReply(
   text: string,
   extras: Partial<Extract<CompanionGuidanceReply, { outcome: 'success' }>> = {},
