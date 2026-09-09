@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-deploy-6a020ad-20260909
+  group: desktop-deploy-2c9cafa-20260909
   cancel-in-progress: false
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
         run: test "$(date -u +%Y-%m-%d)" = '2026-09-09'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 6a020ad35b74ec21d0995f50d5d59224f8b29508
+          ref: 2c9cafa5fa19d3aca822c9d203365e847b70e69f
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -37,7 +37,7 @@ jobs:
           shasum -a 256 dist/*.dmg dist/*.zip > dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: applied-research-macos-arm64-6a020ad
+          name: applied-research-macos-arm64-2c9cafa
           path: |
             dist/*.dmg
             dist/*.zip
