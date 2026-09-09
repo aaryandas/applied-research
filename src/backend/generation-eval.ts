@@ -94,7 +94,7 @@ export function makePostgresGenerationEvalBudget(
         },
         catch: (cause) =>
           new Error('Generation-eval inspection failed.', { cause }),
-      });
+      }).pipe(Effect.orDie);
     },
     admit(input) {
       if (
@@ -227,7 +227,7 @@ export function makePostgresGenerationEvalBudget(
         },
         catch: (cause) =>
           new Error('Generation-eval admission failed.', { cause }),
-      });
+      }).pipe(Effect.orDie);
     },
   };
 }
@@ -340,7 +340,7 @@ function settleGenerationEval(
     },
     catch: (cause) =>
       new Error('Generation-eval settlement failed.', { cause }),
-  });
+  }).pipe(Effect.orDie);
 }
 
 export function makeMemoryGenerationEvalBudget(options?: {

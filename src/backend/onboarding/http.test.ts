@@ -15,6 +15,7 @@ import type {
   AcquiredSource,
   RetrievalEvidence,
 } from '../../contracts/sourcing.js';
+import { SOURCING_PUBLIC_MESSAGES } from '../../contracts/sourcing.js';
 import type {
   MonthlyQuota,
   PublicAccount,
@@ -595,7 +596,7 @@ describe('POST /v1/learning/onboarding', () => {
         retrieval: {
           outcome: 'no-evidence',
           requestId,
-          message: 'No admitted sources are available.',
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
         },
       }),
     });

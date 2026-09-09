@@ -1,6 +1,6 @@
-import type { SourceFormat } from './learning-api';
-import type { SourceProvenance } from './source-provenance';
-import type { Citation, EntryKind } from './workspace';
+import type { SourceFormat } from './learning-api.js';
+import type { SourceProvenance } from './source-provenance.js';
+import type { Citation, EntryKind } from './workspace.js';
 import {
   decodeExactRecord,
   failed,
@@ -9,7 +9,7 @@ import {
   isContractUuid,
   isPositiveRevision,
   type ContractDecode,
-} from './contextual-contract-guards';
+} from './contextual-contract-guards.js';
 
 export const LEARNING_CHANNELS = {
   getWorkspace: 'learning:get-workspace',

@@ -477,7 +477,8 @@ export function makeOnboardingService(
       };
     }
     if (request.operation.kind === 'generate-selected-lesson') {
-      const ref = request.operation.target.acceptedProposal;
+      const selectedTarget = request.operation.target;
+      const ref = selectedTarget.acceptedProposal;
       const stored = await options.proposals.get(account.id, ref.id);
       if (!stored) {
         return {
@@ -499,9 +500,7 @@ export function makeOnboardingService(
       }
       const target = stored.syllabus.topics
         .flatMap((topic) => topic.lessons)
-        .find(
-          (lesson) => lesson.stepId === request.operation.target.remoteStepId,
-        );
+        .find((lesson) => lesson.stepId === selectedTarget.remoteStepId);
       if (!target) {
         return {
           outcome: 'conflict',

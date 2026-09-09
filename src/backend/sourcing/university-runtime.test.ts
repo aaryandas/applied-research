@@ -245,6 +245,10 @@ describe('production university runtime binding', () => {
     expect(text).toContain('Training a Neural Network');
     expect(text).toContain('X = np.zeros((N*K,D))');
     expect(acquired.source.usePolicy.indexing.status).toBe('permitted');
+    const indexing = acquired.source.usePolicy.indexing;
+    if (indexing.status !== 'permitted') {
+      throw new Error('expected permitted CS231n indexing');
+    }
     expect(
       writes.some((url) => url.includes('aws-us-west-2.turbopuffer.com')),
     ).toBe(true);
@@ -264,7 +268,7 @@ describe('production university runtime binding', () => {
             revisionId: revision.revisionId,
             sha256: revision.sha256,
             canonicalizationVersion: revision.canonicalizationVersion,
-            indexing: acquired.source.usePolicy.indexing,
+            indexing,
           },
         ],
       },
