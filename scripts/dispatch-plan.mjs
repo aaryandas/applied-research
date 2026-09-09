@@ -91,6 +91,21 @@ export function planDispatch({ snapshot, claims = {}, now = Date.now() }) {
   };
 }
 
+function blockerIdentifier(related) {
+  const candidates =
+    typeof related === 'string'
+      ? [related]
+      : [related?.identifier, related?.id];
+  const identifier = candidates.find(
+    (candidate) => typeof candidate === 'string' && /^AR-\d+$/.test(candidate),
+  );
+  if (!identifier)
+    throw new Error(
+      'Linear blocker has no resolved AR ticket identifier; refresh its relation before dispatch.',
+    );
+  return identifier;
+}
+
 export function normalizeIssue(raw) {
   const scope = raw.assignment?.scope;
   return {
@@ -102,9 +117,9 @@ export function normalizeIssue(raw) {
     priority: raw.priority?.value ?? raw.priority ?? 0,
     createdAt: raw.createdAt,
     labels: raw.labels,
-    blockedBy:
-      raw.blockedBy ??
-      raw.relations?.blockedBy?.map((related) => related.identifier),
+    blockedBy: (raw.blockedBy ?? raw.relations?.blockedBy)?.map(
+      blockerIdentifier,
+    ),
     lane: raw.lane ?? raw.assignment?.lane,
     activeRun: raw.activeRun === true,
     prerequisiteCheckpoints:

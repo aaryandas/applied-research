@@ -120,6 +120,44 @@ test('normalizeIssue maps Linear blockedBy relations to ticket identifiers', () 
   );
 });
 
+test('normalizeIssue accepts the connected Linear AR id-only blocker shape', () => {
+  const child = normalizeIssue({
+    ...issue(32),
+    id: 'AR-32',
+    uuid: 'issue-32-uuid',
+    blockedBy: undefined,
+    relations: { blockedBy: [{ id: 'AR-30', title: 'Sourcing contract' }] },
+  });
+  assert.deepEqual(child.blockedBy, ['AR-30']);
+  assert.equal(plan([child, issue(30, { status: 'Done' })]).selected.length, 1);
+  assert.equal(
+    plan([child, issue(30, { status: 'In Review' })]).selected.length,
+    0,
+  );
+});
+
+test('normalizeIssue rejects an unresolved UUID-only blocker rather than dropping it', () => {
+  assert.throws(
+    () =>
+      normalizeIssue({
+        ...issue(32),
+        blockedBy: undefined,
+        relations: {
+          blockedBy: [{ id: '503dfe39-e527-4e71-ae3c-a6d11d039de5' }],
+        },
+      }),
+    /blocker.*AR ticket identifier/,
+  );
+  assert.throws(
+    () =>
+      normalizeIssue({
+        ...issue(32),
+        blockedBy: ['503dfe39-e527-4e71-ae3c-a6d11d039de5'],
+      }),
+    /blocker.*AR ticket identifier/,
+  );
+});
+
 test('reviewed checkpoint releases code work without marking prerequisite Done', () => {
   const result = plan([
     issue(1, {
