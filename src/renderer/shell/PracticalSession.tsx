@@ -14,14 +14,7 @@ import {
   type PracticalToolAdapter,
 } from '../practical/tool-adapter';
 import { PracticalToolHost } from './PracticalToolHost';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type {
   CompanionRequester,
   CompanionState,
@@ -43,6 +36,8 @@ import type {
 import { PracticalWorkspace } from '../practical/PracticalWorkspace';
 import { Companion } from '../companion/Companion';
 import { PracticalSessionOwner } from './practical-session';
+
+const HOST_TOOL_STATES = new Map<string, PracticalHostToolState>();
 
 interface PracticalSessionProps {
   bridge: PracticalWorkspaceBridge;
@@ -78,7 +73,6 @@ export function PracticalSession(
   const [requester, setRequester] = useState<CompanionRequester | null>(null);
   const [state, setState] = useState<CompanionState | null>(null);
   const [surface, setSurface] = useState<HTMLElement | null>(null);
-  const hostToolStateRef = useRef<PracticalHostToolState | null>(null);
   const registerRevocationRef = useRef(props.registerRevocation);
   const [resolvedAttemptId, setResolvedAttemptId] = useState(props.attemptId);
   const [owner] = useState(
@@ -106,18 +100,22 @@ export function PracticalSession(
     };
   }, [owner]);
   useEffect(() => {
-    hostToolStateRef.current = null;
     if (!tool || !toolSessionId) return;
-    return props.toolBridge.onToolState((native) => {
-      hostToolStateRef.current = {
-        sessionId: toolSessionId,
+    const sessionId = toolSessionId;
+    const stop = props.toolBridge.onToolState((native) => {
+      HOST_TOOL_STATES.set(sessionId, {
+        sessionId,
         url: native.url,
         title: native.title,
         loading: native.loading,
         error: native.error || null,
         controls: PRACTICAL_HOST_CONTROLS,
-      };
+      });
     });
+    return () => {
+      stop();
+      HOST_TOOL_STATES.delete(sessionId);
+    };
   }, [props.toolBridge, tool, toolSessionId]);
 
   const resolveEvidence = useMemo(
@@ -149,10 +147,6 @@ export function PracticalSession(
     [props.bridge],
   );
 
-  const getToolState = useCallback(
-    () => readHostToolState(hostToolStateRef),
-    [],
-  );
   const companionContext = useMemo<PracticalContextRegistration | undefined>(
     () =>
       requester
@@ -162,12 +156,13 @@ export function PracticalSession(
             ...(toolSessionId
               ? {
                   toolSessionId,
-                  getToolState,
+                  getToolState: () =>
+                    HOST_TOOL_STATES.get(toolSessionId) ?? null,
                 }
               : {}),
           }
         : undefined,
-    [requester, resolveEvidence, toolSessionId, getToolState],
+    [requester, resolveEvidence, toolSessionId],
   );
 
   const briefTools = journey?.brief
@@ -192,7 +187,6 @@ export function PracticalSession(
     owner.setTool(null);
     setTool(null);
     setToolSessionId(undefined);
-    hostToolStateRef.current = null;
   }
 
   async function applyWorkChoice(
@@ -294,7 +288,7 @@ export function PracticalSession(
             }
           : {})}
         activityGuidance={owner.guidance}
-        {...(companionContext ? { companionContext } : {})}
+        companionContext={companionContext}
         onRequestGuidance={(request) => {
           setSelectedRequest(request);
           void requester?.session.askOnce(request);
@@ -342,12 +336,6 @@ function workChoiceValue(choice: PracticalWorkChoice | null): string {
   return choice.kind === 'supported-tool'
     ? `tool:${choice.toolId}`
     : `external:${choice.label === 'Own tools' ? 'own' : choice.label}`;
-}
-
-function readHostToolState(ref: {
-  current: PracticalHostToolState | null;
-}): PracticalHostToolState | null {
-  return ref.current;
 }
 
 function parseWorkChoice(
