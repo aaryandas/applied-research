@@ -204,4 +204,25 @@ describe('native source selection and explicit origin reveal', () => {
     );
     expect(onOpenCitation).toHaveBeenCalledWith(citation);
   });
+  it('states when a generated citation’s retained revision is unavailable', async () => {
+    const props = await setup();
+    const missing = {
+      sourceId: 'source',
+      revisionId: 'absent-revision',
+      start: 0,
+      end: 4,
+      quote: 'same',
+    };
+    render(
+      <SourcePane
+        {...props}
+        citations={[missing]}
+        sources={[props.source!]}
+        onOpenCitation={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The retained cited revision is unavailable.',
+    );
+  });
 });

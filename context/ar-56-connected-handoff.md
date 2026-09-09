@@ -67,7 +67,18 @@ AR50 currently patches same-workspace guest guard on candidate `6d71d13e`. After
 
 ## Validation
 
-Node 24. Thresholds unchanged. Shared Reader/Shell tests cover Home/Cmd+S resume, failed resume without Home success, fresh selection after chrome blur, retained citation navigation, and Ask focus with preserved draft.
+Node 24. Format/lint/types pass on this revision. Shared Reader/Shell tests cover Home/Cmd+S resume, failed resume without Home success, fresh selection after chrome blur, retained citation navigation (including unavailable cited revisions), and Ask focus with preserved draft.
+
+`vitest run --coverage` on the **restored full candidate corpus** (thresholds unchanged at 90%):
+
+| Metric     | Actual                  | Gate |
+| ---------- | ----------------------- | ---- |
+| Statements | 90.94%                  | 90%  |
+| Branches   | **85.83%** (9467/11029) | 90%  |
+| Functions  | 93.99%                  | 90%  |
+| Lines      | 92.62%                  | 90%  |
+
+`npm run check` fails the branch gate. Thresholds were not lowered. Producer internals remain in the corpus. The 66f **89.11%** figure was against a narrowed exclude list and is not comparable. Root’s native correction remains **29 patterns / 31 lines**. Do not re-introduce coverage exclusions for producer-owned files. Covering AR47/AR51 owned feature tests stays on those producers.
 
 Not run here (root-owned): hosted macOS CI, packaged smoke, live auth/provider, Sonar, desktop recording, connected Cloud acceptance. Do not self-PASS or mark Done.
 
