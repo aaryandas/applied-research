@@ -46,7 +46,7 @@ export function SourcePane({
   onExplainVisual,
 }: Readonly<SourcePaneProps>): ReactElement {
   const prose = useRef<HTMLDivElement>(null);
-  const actions = useRef<HTMLDivElement>(null);
+  const actions = useRef<HTMLFieldSetElement>(null);
   const [anchor, setAnchor] = useState<SelectionPoint | null>(null);
   const [position, setPosition] = useState<
     { left: number; top: number } | undefined
@@ -63,13 +63,12 @@ export function SourcePane({
         ? readSelection(prose.current, version.canonicalText, selection)
         : null;
       onSelection(next);
-      setAnchor(
-        next && selection
-          ? event
-            ? { x: event.clientX, y: event.clientY }
-            : selectionFocusPoint(selection)
-          : null,
-      );
+      let nextAnchor: SelectionPoint | null = null;
+      if (next && selection) {
+        if (event) nextAnchor = { x: event.clientX, y: event.clientY };
+        else nextAnchor = selectionFocusPoint(selection);
+      }
+      setAnchor(nextAnchor);
     };
     const selectionChanged = (): void => capture();
     document.addEventListener('selectionchange', selectionChanged);
@@ -156,14 +155,15 @@ export function SourcePane({
           version.canonicalText
         )}
       </div>
-      <div
+      <fieldset
         ref={actions}
-        role="group"
-        aria-label={span ? 'Selected passage actions' : 'Reading actions'}
         className={`ui-action-row reader-selection-actions${span && anchor ? ' reader-selection-actions--floating' : ''}`}
         style={span && anchor ? position : undefined}
         onPointerDown={(event) => event.preventDefault()}
       >
+        <legend className="ui-sr-only">
+          {span ? 'Selected passage actions' : 'Reading actions'}
+        </legend>
         {onExplainText && (
           <button
             className="ui-button"
@@ -188,7 +188,7 @@ export function SourcePane({
         <button className="ui-button" disabled={busy} onClick={onQuestion}>
           Save a question
         </button>
-      </div>
+      </fieldset>
     </>
   );
 }
