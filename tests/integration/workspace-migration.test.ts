@@ -161,6 +161,10 @@ function interruptingMigrationFolder(): string {
     join(process.cwd(), 'drizzle/0003_practical_records.sql'),
     join(directory, '0003_practical_records.sql'),
   );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0004_practical_journey.sql'),
+    join(directory, '0004_practical_journey.sql'),
+  );
   return directory;
 }
 
