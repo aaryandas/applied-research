@@ -177,11 +177,34 @@ test('HTTP 409 on create is fail-closed and does not GET the existing agent', as
   assert.equal(gotAgent, false);
 });
 
-test('F3: GET startingRef must equal the live head', () => {
+test('F3: GET startingRef is optional; explicit mismatch fails and omitted pin uses the trusted POST', () => {
   const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const STALE = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const receipt = {
+    source: 'trusted-launch-job',
+    headSha: HEAD,
+    repository: 'aaryandas/applied-research',
+  };
   assert.doesNotThrow(() =>
-    assertPinnedStartingRef({ repos: [{ startingRef: HEAD }] }, HEAD),
+    assertPinnedStartingRef(
+      { repos: [{ url: 'https://github.com/aaryandas/applied-research' }] },
+      HEAD,
+      { launchReceipt: receipt },
+    ),
+  );
+  assert.doesNotThrow(() =>
+    assertPinnedStartingRef(
+      {
+        repos: [
+          {
+            url: 'https://github.com/aaryandas/applied-research',
+            startingRef: HEAD,
+          },
+        ],
+      },
+      HEAD,
+      { launchReceipt: receipt },
+    ),
   );
   assert.throws(
     () =>
@@ -189,13 +212,86 @@ test('F3: GET startingRef must equal the live head', () => {
         {
           repos: [
             {
+              url: 'https://github.com/aaryandas/applied-research',
               startingRef: STALE,
-              prUrl: 'https://github.com/aaryandas/applied-research/pull/44',
             },
           ],
         },
         HEAD,
+        { launchReceipt: receipt },
       ),
     /startingRef is bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/,
+  );
+  assert.throws(
+    () =>
+      assertPinnedStartingRef(
+        { repos: [{ url: 'https://github.com/other/fork' }] },
+        HEAD,
+        { launchReceipt: receipt },
+      ),
+    /other\/fork/,
+  );
+  assert.throws(
+    () =>
+      assertPinnedStartingRef(
+        { repos: [{ url: 'https://github.com/aaryandas/applied-research' }] },
+        HEAD,
+        {
+          launchReceipt: {
+            source: 'coordinator-dispatch-input',
+            headSha: HEAD,
+            repository: 'aaryandas/applied-research',
+          },
+        },
+      ),
+    /caller JSON/,
+  );
+  assert.throws(
+    () =>
+      assertPinnedStartingRef(
+        {
+          repos: [
+            {
+              url: 'https://github.com/aaryandas/applied-research',
+              startingRef: '',
+            },
+          ],
+        },
+        HEAD,
+        { launchReceipt: receipt },
+      ),
+    /empty, null, or malformed/,
+  );
+  assert.throws(
+    () =>
+      assertPinnedStartingRef(
+        {
+          repos: [
+            {
+              url: 'https://github.com/aaryandas/applied-research',
+              startingRef: null,
+            },
+          ],
+        },
+        HEAD,
+        { launchReceipt: receipt },
+      ),
+    /empty, null, or malformed/,
+  );
+  assert.throws(
+    () =>
+      assertPinnedStartingRef(
+        {
+          repos: [
+            {
+              url: 'https://github.com/aaryandas/applied-research',
+              prUrl: 'https://github.com/aaryandas/applied-research/pull/99',
+            },
+          ],
+        },
+        HEAD,
+        { launchReceipt: receipt },
+      ),
+    /prUrl is present/,
   );
 });

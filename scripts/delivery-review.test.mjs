@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   AGENT_ID,
+  COORDINATOR_DISPATCH_RECEIPT_SOURCE,
   INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
   LAUNCH_RECEIPT_KIND,
   MISSING_CURSOR_API_KEY,
@@ -94,7 +95,6 @@ function documentedAgent(overrides = {}) {
     repos: [
       {
         url: 'https://github.com/aaryandas/applied-research',
-        startingRef: HEAD,
       },
     ],
     createdAt: '2026-09-09T00:00:00.000Z',
@@ -127,6 +127,7 @@ function receipt(overrides = {}) {
     headSha: HEAD,
     prNumber: 99,
     prUrl: PR_URL,
+    repository: 'aaryandas/applied-research',
     modelId: REQUIRED_MODEL_ID,
     modelParams: [...REQUIRED_MODEL_PARAMS],
     idempotencyKey: `independent-review:aaryandas/applied-research:99:${HEAD}`,
@@ -266,6 +267,79 @@ test('F3: GET startingRef mismatch fails closed', () => {
   });
   assert.equal(result.passed, false);
   assert.match(result.failures.join('\n'), /startingRef/);
+});
+
+test('actual GET agent url without startingRef PASSes when the trusted POST receipt pins the head', () => {
+  const result = evaluate({
+    agent: documentedAgent({
+      repos: [{ url: 'https://github.com/aaryandas/applied-research' }],
+    }),
+  });
+  assert.equal(result.passed, true);
+  assert.equal(result.evidence.headSha, HEAD);
+  assert.equal(result.evidence.agentId, AGENT);
+});
+
+test('omitted GET startingRef cannot PASS an untrusted or caller-authored receipt', () => {
+  const untrusted = evaluate({
+    launchReceipt: receipt({ source: COORDINATOR_DISPATCH_RECEIPT_SOURCE }),
+  });
+  assert.equal(untrusted.passed, false);
+  assert.match(untrusted.failures.join('\n'), /trusted-launch-job|caller JSON/);
+  const arbitrary = evaluate({
+    launchReceipt: receipt({ source: 'reviewer-authored-json' }),
+  });
+  assert.equal(arbitrary.passed, false);
+  assert.match(arbitrary.failures.join('\n'), /trusted-launch-job|caller JSON/);
+  const reusedHead = evaluate({
+    launchReceipt: receipt({
+      headSha: STALE,
+    }),
+  });
+  assert.equal(reusedHead.passed, false);
+  assert.match(reusedHead.failures.join('\n'), /headSha/);
+});
+
+test('explicit empty or null GET startingRef cannot use the trusted POST pin', () => {
+  const empty = evaluate({
+    agent: documentedAgent({
+      repos: [
+        {
+          url: 'https://github.com/aaryandas/applied-research',
+          startingRef: '',
+        },
+      ],
+    }),
+  });
+  assert.equal(empty.passed, false);
+  assert.match(empty.failures.join('\n'), /empty, null, or malformed/);
+  const missingValue = evaluate({
+    agent: documentedAgent({
+      repos: [
+        {
+          url: 'https://github.com/aaryandas/applied-research',
+          startingRef: null,
+        },
+      ],
+    }),
+  });
+  assert.equal(missingValue.passed, false);
+  assert.match(missingValue.failures.join('\n'), /empty, null, or malformed/);
+});
+
+test('omitted GET startingRef cannot PASS a foreign repo or reused actor identity', () => {
+  const foreign = evaluate({
+    agent: documentedAgent({
+      repos: [{ url: 'https://github.com/other/fork' }],
+    }),
+  });
+  assert.equal(foreign.passed, false);
+  assert.match(foreign.failures.join('\n'), /other\/fork/);
+  const reusedActor = evaluate({
+    agent: documentedAgent({ id: IMPLEMENTER }),
+  });
+  assert.equal(reusedActor.passed, false);
+  assert.match(reusedActor.failures.join('\n'), /different cloud agent/);
 });
 
 test('F3: launch body pins startingRef SHA, omits prUrl, sends grok-4.6 params and idempotent agentId', () => {
@@ -1571,10 +1645,87 @@ test('evaluateFromCursor GETs the receipt run id, not a later latestRunId', asyn
     },
   });
   assert.equal(result.passed, true);
+  assert.equal(Object.hasOwn(documentedAgent().repos[0], 'startingRef'), false);
   assert.equal(
     fetched.some((href) => href.includes(`/runs/${OTHER_RUN}`)),
     false,
   );
+});
+
+test('evaluateFromCursor FAILs an explicit wrong GET pin or foreign repo with zero new POST', async () => {
+  const makeFetch = (agent) => async (url, init) => {
+    const href = String(url);
+    if (href.includes('/v1/models')) return bothJson(catalog);
+    if (href.includes(`/v1/agents/${AGENT}/runs/${RUN}`)) {
+      return bothJson(documentedRun());
+    }
+    if (href.includes(`/v1/agents/${AGENT}/artifacts`)) {
+      return bothJson({ items: [] });
+    }
+    if (href.includes(`/v1/agents/${AGENT}`)) {
+      return bothJson(agent);
+    }
+    if (href.includes('/actions/runs/1')) {
+      return bothJson({
+        id: 1,
+        path: TRUSTED_WORKFLOW_FILE,
+        event: 'workflow_run',
+      });
+    }
+    if (init?.method === 'POST') {
+      throw new Error('must not POST Cursor');
+    }
+    throw new Error(`unexpected fetch ${href}`);
+  };
+  const env = {
+    TRUSTED_DEFAULT_BRANCH: 'true',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_DEFAULT_BRANCH: 'main',
+    GITHUB_TOKEN: 'ghs_test',
+    GITHUB_REPOSITORY: 'aaryandas/applied-research',
+  };
+  const wrongPin = await evaluateFromCursor({
+    apiKey: 'cursor_test-key',
+    prUrl: PR_URL,
+    expectedHeadSha: HEAD,
+    implementerAgentId: IMPLEMENTER,
+    verifierAgentId: VERIFIER,
+    recorderAgentId: RECORDER,
+    launchReceipt: receipt(),
+    env,
+    fetchImpl: makeFetch(
+      documentedAgent({
+        repos: [
+          {
+            url: 'https://github.com/aaryandas/applied-research',
+            startingRef: STALE,
+          },
+        ],
+      }),
+    ),
+  });
+  assert.equal(wrongPin.passed, false);
+  assert.equal(wrongPin.status, 'FAIL');
+  assert.match(wrongPin.failures.join('\n'), /startingRef/);
+  const foreign = await evaluateFromCursor({
+    apiKey: 'cursor_test-key',
+    prUrl: PR_URL,
+    expectedHeadSha: HEAD,
+    implementerAgentId: IMPLEMENTER,
+    verifierAgentId: VERIFIER,
+    recorderAgentId: RECORDER,
+    launchReceipt: receipt(),
+    env,
+    fetchImpl: makeFetch(
+      documentedAgent({
+        repos: [{ url: 'https://github.com/other/fork' }],
+      }),
+    ),
+  });
+  assert.equal(foreign.passed, false);
+  assert.equal(foreign.status, 'FAIL');
+  assert.match(foreign.failures.join('\n'), /other\/fork/);
 });
 
 test('stale live PR head denies before launch or resume', async () => {
@@ -1880,6 +2031,10 @@ test('same GitHub run attempt 2 resumes the original launch receipt with zero PO
     assert.equal(second.passed, true);
     assert.equal(state.agentPosts, 1);
     assert.equal(state.latestJobsHits, 0);
+    assert.equal(
+      Object.hasOwn(documentedAgent().repos[0], 'startingRef'),
+      false,
+    );
     assert.equal(
       state.fetchedRuns.every((id) => id === RUN),
       true,
