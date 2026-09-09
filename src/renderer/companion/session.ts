@@ -224,7 +224,7 @@ export function createCompanionSession(
     }
     if (!current()) return cancelled();
     if (
-      cause !== 'ask-once' ||
+      cause === 'activity-start' ||
       outcome.status === 'offline' ||
       outcome.status === 'unauthenticated'
     ) {

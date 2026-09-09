@@ -104,6 +104,25 @@ describe('Companion session public interface', () => {
     },
   );
 
+  it.each(['error', 'stale', 'unavailable'] as const)(
+    'a follow-up cue %s keeps already-authorized observation',
+    async (status) => {
+      const t = setup();
+      await t.session.startActivity(t.request);
+      t.advance();
+      t.requestGuidance.mockResolvedValueOnce({
+        status,
+        message: 'Try that page again.',
+      });
+      expect((await t.navigate()).status).toBe(status);
+      expect(t.session.getState().observation.status).toBe('active');
+      t.advance();
+      expect((await t.navigate('https://tool.test/later')).status).toBe(
+        'answered',
+      );
+    },
+  );
+
   it('uses the latest host navigation identity on a new explicit request without observing while inactive', async () => {
     const t = setup();
     await t.navigate('https://tool.test/current');
