@@ -508,10 +508,13 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       .toBe(true);
     await expect(
       page.getByRole('button', { name: 'Start from a source' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     await expect(
       page.getByText('Source import is not available yet.'),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Explore a topic' }),
+    ).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const fonts = await page.evaluate(async () => {
       const families = [
@@ -535,7 +538,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-empty-${width}x${height}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Build something' }).click();
+    await input.focus();
     await expect(input).toBeFocused();
     await input.fill('A robot that can find its way');
     await input.press('Enter');
@@ -549,7 +552,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await expect(savedRow).toBeVisible();
     await expect(
       page
-        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('navigation', { name: 'All saved work' })
         .getByRole('button'),
     ).toHaveCount(1);
     for (const [width, height] of OPENING_VIEWPORTS) {
@@ -558,7 +561,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-saved-${width}x${height}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Build something' }).focus();
+    await page.getByRole('button', { name: 'Start from a source' }).focus();
     await page.keyboard.press('Tab');
     await expect(savedRow).toBeFocused();
     await expect(savedRow).toHaveCSS('outline-color', 'rgb(123, 199, 201)');
@@ -572,7 +575,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       'A robot that can find its way',
     );
     await page.getByRole('button', { name: 'Applied Research home' }).click();
-    await page.getByRole('button', { name: 'Explore a topic' }).click();
+    await input.click();
     await expect(input).toBeFocused();
     for (const theme of ['light', 'dark']) {
       await page
@@ -605,14 +608,16 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-input-focus-${theme}.png`),
       });
       await input.press('Tab');
-      const topicButton = page.getByRole('button', { name: 'Explore a topic' });
-      await expect(topicButton).toBeFocused();
-      await expect(topicButton).toHaveCSS(
+      const sourceButton = page.getByRole('button', {
+        name: 'Start from a source',
+      });
+      await expect(sourceButton).toBeFocused();
+      await expect(sourceButton).toHaveCSS(
         'outline-color',
         'rgb(123, 199, 201)',
       );
-      await expect(topicButton).toHaveCSS('outline-width', '2px');
-      await expect(topicButton).toHaveCSS('outline-style', 'solid');
+      await expect(sourceButton).toHaveCSS('outline-width', '2px');
+      await expect(sourceButton).toHaveCSS('outline-style', 'solid');
       await expect(page.locator('.learning-input')).toHaveCSS(
         'transform',
         'none',
@@ -688,7 +693,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await expect(
       page
-        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('navigation', { name: 'All saved work' })
         .getByRole('button'),
     ).toHaveCount(2);
     await page

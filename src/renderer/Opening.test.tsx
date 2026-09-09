@@ -8,11 +8,24 @@ import {
 import { expect, it, vi } from 'vitest';
 import type { Project } from '../contracts/workspace';
 import { Opening } from './Opening';
+import type { OpeningOnboardingBridge } from './onboarding/types';
 
-it('focuses the live topic field and keeps source import unavailable', () => {
+function project(goal: string, id: string): Project {
+  return { id, goal, createdAt: '', updatedAt: '', entries: [] };
+}
+
+it('centers topic entry, keeps source import secondary, and lists saved work aside', () => {
   const onCreate = vi.fn(async () => {});
   render(<Opening projects={[]} onCreate={onCreate} onReopen={vi.fn()} />);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByText('Source import is not available yet.')).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Explore a topic' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Build something' }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: 'Your projects' })).not.toBeInTheDocument();
   const input = screen.getByRole('textbox');
   expect(input).toHaveAccessibleName('What do you want to learn about?');
   expect(screen.getByText('I want to learn about…')).toBeVisible();
@@ -20,21 +33,12 @@ it('focuses the live topic field and keeps source import unavailable', () => {
   fireEvent.change(input, { target: { value: '   ' } });
   fireEvent.submit(screen.getByRole('form'));
   expect(onCreate).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Build something' }));
-  expect(input).toHaveFocus();
-  expect(
-    screen.getByRole('button', { name: 'Build something' }),
-  ).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.click(screen.getByRole('button', { name: 'Explore a topic' }));
-  expect(input).toHaveFocus();
   const source = screen.getByRole('button', { name: 'Start from a source' });
-  expect(source).toBeDisabled();
-  expect(source).toHaveAccessibleDescription(
-    'Source import is not available yet.',
-  );
+  expect(source).toBeEnabled();
+  fireEvent.click(source);
   expect(
-    screen.getByRole('navigation', { name: 'Your projects' }),
-  ).toHaveTextContent('Your saved projects will appear here.');
+    screen.getByText(/not treated as trusted instructions/),
+  ).toBeVisible();
 });
 
 it('submits once while pending and keeps failed creation retryable with focus', async () => {
@@ -100,30 +104,79 @@ it('handles non-Error failures and preserves multiline and composing input', asy
   );
 });
 
-it('reopens the selected saved project from anywhere in its full row', () => {
-  const projects: Project[] = [
-    'Robot perception',
-    'Learning science '.repeat(40),
-  ].map((goal, index) => ({
-    id: `saved-${index}`,
-    goal,
-    createdAt: '',
-    updatedAt: '',
-    entries: [],
-  }));
+it('reopens saved work from the secondary list and continues the most recent lesson', () => {
+  const projects = [
+    project('Robot perception', 'saved-0'),
+    project('Learning science '.repeat(40), 'saved-1'),
+  ];
   const onReopen = vi.fn();
+  const onContinue = vi.fn();
   render(
     <Opening
       projects={projects}
       onCreate={vi.fn(async () => {})}
       onReopen={onReopen}
+      continueLearning={{
+        projectId: 'saved-0',
+        path: {
+          pathId: 'path-1',
+          pathRevision: 1,
+          topicId: 'topic-1',
+          lessonId: 'lesson-1',
+        },
+        sourceRevisionId: 'source-1',
+        span: null,
+        lessonTitle: 'Attention',
+        projectGoal: 'Robot perception',
+      }}
+      onContinueLearning={onContinue}
     />,
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Continue learning' }));
+  expect(onContinue).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByText('Robot perception'));
   expect(onReopen).toHaveBeenLastCalledWith('saved-0');
   fireEvent.click(screen.getAllByText('Saved on this device')[1]!);
   expect(onReopen).toHaveBeenLastCalledWith('saved-1');
   expect(
-    screen.getByRole('button', { name: /Learning science/ }),
-  ).toHaveTextContent(projects[1]!.goal.trim());
+    screen.getByRole('navigation', { name: 'All saved work' }),
+  ).toBeVisible();
+});
+
+it('starts the interview instead of creating a finished course when onboarding is provided', async () => {
+  const onCreate = vi.fn(async () => {});
+  const createDraftProject = vi.fn(async () => ({ id: 'draft-1' }));
+  const bridge = {
+    getLearningOnboarding: vi.fn(async () => ({
+      interview: null,
+      proposal: null,
+      accepted: null,
+    })),
+  } as unknown as OpeningOnboardingBridge;
+  render(
+    <Opening
+      projects={[]}
+      onCreate={onCreate}
+      onReopen={vi.fn()}
+      onboarding={{
+        createDraftProject,
+        bridge,
+        onAccepted: vi.fn(),
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'Learn transformers from original sources' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start learning' }));
+  expect(await screen.findByText(/Your goal stays/)).toHaveTextContent(
+    'Learn transformers from original sources',
+  );
+  expect(onCreate).not.toHaveBeenCalled();
+  expect(createDraftProject).toHaveBeenCalledExactlyOnceWith(
+    'Learn transformers from original sources',
+  );
+  expect(
+    screen.getByText(/uncertainty is a valid answer/i),
+  ).toBeVisible();
 });
