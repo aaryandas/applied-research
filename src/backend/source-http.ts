@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Effect } from 'effect';
 import type {
   AccountResponse,
+  LearningRequest,
   LearningResponse,
   PublicAccount,
   UnauthenticatedLearningRequest,
@@ -24,7 +25,6 @@ import {
   parseAcquireCanonicalSourceResponse,
   parseDiscoverSourcesRequest,
   parseDiscoverSourcesResponse,
-  SourcingContractValidationError,
 } from './sourcing/contract-validation.js';
 import type { SourcingService } from './sourcing/service.js';
 import { parseLearningRequest, RequestValidationError } from './validation.js';
@@ -227,6 +227,83 @@ function isAccount(
   return 'id' in value && 'name' in value && !('outcome' in value);
 }
 
+type SourceBodyRead =
+  { readonly ok: true; readonly value: unknown } | { readonly ok: false };
+
+async function readSourceBody(
+  request: IncomingMessage,
+  response: ServerResponse,
+  genericInvalidMessage: string,
+): Promise<SourceBodyRead> {
+  try {
+    return { ok: true, value: await readJson(request) };
+  } catch (error) {
+    writeJson(response, 400, {
+      outcome: 'invalid-request',
+      requestId: null,
+      message:
+        error instanceof BodyError ? error.message : genericInvalidMessage,
+    });
+    return { ok: false };
+  }
+}
+
+type SourcedRequestDecode =
+  | { readonly kind: 'parsed'; readonly request: LearningRequest }
+  | { readonly kind: 'unsupported'; readonly error: RequestValidationError }
+  | {
+      readonly kind: 'invalid';
+      readonly requestId: string | null;
+      readonly message: string;
+    };
+
+function classifySourcedRequest(
+  body: unknown,
+  fallbackRequestId: string | null,
+): SourcedRequestDecode {
+  try {
+    return { kind: 'parsed', request: parseLearningRequest(body) };
+  } catch (error) {
+    if (
+      error instanceof RequestValidationError &&
+      error.outcome === 'unsupported'
+    ) {
+      return { kind: 'unsupported', error };
+    }
+    return {
+      kind: 'invalid',
+      requestId:
+        error instanceof RequestValidationError
+          ? error.requestId
+          : fallbackRequestId,
+      message:
+        error instanceof RequestValidationError
+          ? error.message
+          : 'The request is invalid.',
+    };
+  }
+}
+
+function writeUnsupportedSourced(
+  response: ServerResponse,
+  unsupported: RequestValidationError,
+  publicId: string,
+): void {
+  writeJson(
+    response,
+    200,
+    generationGap(unsupported.requestId ?? publicId, unsupported.message),
+  );
+}
+
+function sourcedPublicId(
+  decoded: Exclude<SourcedRequestDecode, { kind: 'invalid' }>,
+  requestId: string | null,
+): string {
+  if (decoded.kind === 'parsed') return decoded.request.requestId;
+  return decoded.error.requestId ?? requestId ?? publicRequestId(null);
+}
+
 async function handleDiscover(
   request: IncomingMessage,
   response: ServerResponse,
@@ -235,32 +312,22 @@ async function handleDiscover(
 ): Promise<void> {
   const timeout = combinedSignal(parent, SOURCE_ROUTE_TIMEOUT_MS);
   try {
-    let body: unknown;
-    try {
-      body = await readJson(request);
-    } catch (error) {
-      writeJson(response, 400, {
-        outcome: 'invalid-request',
-        requestId: null,
-        message:
-          error instanceof BodyError
-            ? error.message
-            : SOURCING_PUBLIC_MESSAGES.invalidRequest,
-      });
-      return;
-    }
+    const bodyRead = await readSourceBody(
+      request,
+      response,
+      SOURCING_PUBLIC_MESSAGES.invalidRequest,
+    );
+    if (!bodyRead.ok) return;
+    const body = bodyRead.value;
     const requestId = publicRequestIdFromBody(body);
     let parsed;
     try {
       parsed = parseDiscoverSourcesRequest(body);
-    } catch (error) {
+    } catch {
       writeJson(response, 400, {
         outcome: 'invalid-request',
         requestId,
-        message:
-          error instanceof SourcingContractValidationError
-            ? SOURCING_PUBLIC_MESSAGES.invalidRequest
-            : SOURCING_PUBLIC_MESSAGES.invalidRequest,
+        message: SOURCING_PUBLIC_MESSAGES.invalidRequest,
       });
       return;
     }
@@ -322,20 +389,13 @@ async function handleAcquire(
 ): Promise<void> {
   const timeout = combinedSignal(parent, SOURCE_ROUTE_TIMEOUT_MS);
   try {
-    let body: unknown;
-    try {
-      body = await readJson(request);
-    } catch (error) {
-      writeJson(response, 400, {
-        outcome: 'invalid-request',
-        requestId: null,
-        message:
-          error instanceof BodyError
-            ? error.message
-            : SOURCING_PUBLIC_MESSAGES.invalidRequest,
-      });
-      return;
-    }
+    const bodyRead = await readSourceBody(
+      request,
+      response,
+      SOURCING_PUBLIC_MESSAGES.invalidRequest,
+    );
+    if (!bodyRead.ok) return;
+    const body = bodyRead.value;
     const requestId = publicRequestIdFromBody(body);
     let parsed;
     try {
@@ -409,50 +469,24 @@ async function handleSourced(
 ): Promise<void> {
   const timeout = combinedSignal(parent, SOURCED_ROUTE_TIMEOUT_MS);
   try {
-    let body: unknown;
-    try {
-      body = await readJson(request);
-    } catch (error) {
+    const bodyRead = await readSourceBody(
+      request,
+      response,
+      'The request is invalid.',
+    );
+    if (!bodyRead.ok) return;
+    const body = bodyRead.value;
+    const requestId = publicRequestIdFromBody(body);
+    const decoded = classifySourcedRequest(body, requestId);
+    if (decoded.kind === 'invalid') {
       writeJson(response, 400, {
         outcome: 'invalid-request',
-        requestId: null,
-        message:
-          error instanceof BodyError
-            ? error.message
-            : 'The request is invalid.',
+        requestId: decoded.requestId,
+        message: decoded.message,
       });
       return;
     }
-    const requestId = publicRequestIdFromBody(body);
-    let parsed = null;
-    let unsupported: RequestValidationError | null = null;
-    try {
-      parsed = parseLearningRequest(body);
-    } catch (error) {
-      if (
-        error instanceof RequestValidationError &&
-        error.outcome === 'unsupported'
-      ) {
-        unsupported = error;
-      } else {
-        const invalidId =
-          error instanceof RequestValidationError ? error.requestId : requestId;
-        writeJson(response, 400, {
-          outcome: 'invalid-request',
-          requestId: invalidId,
-          message:
-            error instanceof RequestValidationError
-              ? error.message
-              : 'The request is invalid.',
-        });
-        return;
-      }
-    }
-    const publicId =
-      parsed?.requestId ??
-      unsupported?.requestId ??
-      requestId ??
-      publicRequestId(null);
+    const publicId = sourcedPublicId(decoded, requestId);
     if (timeout.signal.aborted) {
       writeJson(
         response,
@@ -474,28 +508,11 @@ async function handleSourced(
       writeJson(response, learningStatus(account), account);
       return;
     }
-    if (unsupported) {
-      writeJson(
-        response,
-        200,
-        generationGap(
-          unsupported.requestId ??
-            publicId ??
-            parsed?.requestId ??
-            'unsupported',
-          unsupported.message,
-        ),
-      );
+    if (decoded.kind === 'unsupported') {
+      writeUnsupportedSourced(response, decoded.error, publicId);
       return;
     }
-    if (!parsed) {
-      writeJson(response, 400, {
-        outcome: 'invalid-request',
-        requestId: publicId,
-        message: 'The request is invalid.',
-      });
-      return;
-    }
+    const parsed = decoded.request;
     if (!dependencies.sourcedLearning) {
       writeJson(
         response,

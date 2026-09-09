@@ -161,7 +161,7 @@ describe('source index eval smoke', () => {
     const openRouterCalls = request.mock.calls.filter(([url]) =>
       String(url).includes('openrouter.ai'),
     );
-    expect(openRouterCalls.length).toBe(2);
+    expect(openRouterCalls).toHaveLength(2);
     expect(
       request.mock.calls.some(([url]) =>
         String(url).includes(`${TURBOPUFFER_FOUNDER_REGION}.turbopuffer.com`),
