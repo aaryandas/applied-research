@@ -17,6 +17,8 @@ import type {
   LearningOnboardingBridge as OnboardingBridge,
 } from '../../contracts/learning-onboarding';
 import type { ContextualHelpBridge } from '../../contracts/contextual-help-desktop';
+import { EXPLANATION_ARTIFACT_CONTRACT_VERSION } from '../../contracts/explanation-artifacts';
+import type { RetainedExplanation } from '../../contracts/explanation-artifacts';
 import { fixture } from '../reader/reader.test.fixtures';
 import { Shell } from '../Shell';
 import { practicalWorkspaceMethods } from '../practical/workspace-bridge.fixture';
@@ -164,6 +166,76 @@ async function shellBridge(
     ensureLesson,
     saveReadingResume,
     emitAccount: (state: DesktopAccountState) => accountListener(state),
+  };
+}
+
+function ownedCanvasExplanation(
+  projectId: string,
+  caption: string,
+): RetainedExplanation {
+  const explanationId = '21000000-0000-4000-8000-000000000001';
+  const attemptId = '22000000-0000-4000-8000-000000000001';
+  return {
+    contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+    explanationId,
+    projectId,
+    origin: {
+      sourceRevisionId: 'source-v1',
+      highlightId: 'highlight',
+    },
+    intent: 'visual',
+    attempts: [
+      {
+        attemptId,
+        explanationId,
+        intent: 'visual',
+        status: 'ready',
+        requestedAt: '2026-09-09T08:00:00.000Z',
+        completedAt: '2026-09-09T08:00:00.000Z',
+        humanQuestion: {
+          kind: 'app-authored',
+          intent: 'explain-this-visually',
+        },
+        aiResponse: null,
+        provenance: null,
+        citations: [],
+        plan: {
+          status: 'supported',
+          family: 'weighted-combination',
+          parameters: {
+            vectors: [
+              [1, 0],
+              [0, 1],
+            ],
+            weights: [1, 1],
+            labels: ['A', 'B'],
+          },
+          stages: [{ name: 'Combine', seconds: 1 }],
+          caption,
+          copy: {
+            role: 'untrusted-display-copy',
+            title: caption,
+            quote: null,
+          },
+          sourceSupport: {
+            kind: 'illustrative-assumption',
+            note: 'Synthetic overlay identity.',
+          },
+          rationale: {
+            role: 'untrusted-display-copy',
+            text: 'Owned Canvas overlay.',
+          },
+        },
+        result: {
+          kind: 'text-answer',
+          body: caption,
+          nextAction: 'Write a Note.',
+        },
+      },
+    ],
+    usefulAttemptId: attemptId,
+    createdAt: '2026-09-09T08:00:00.000Z',
+    updatedAt: '2026-09-09T08:00:00.000Z',
   };
 }
 
@@ -1213,4 +1285,131 @@ it('opens Settings, Find empty, topic, and Research from the connected shell', a
   expect(
     await screen.findByRole('heading', { name: 'Research' }),
   ).toBeVisible();
+});
+
+it('hides a loaded Canvas overlay when the workspace project changes before the next list settles', async () => {
+  const first = createCanvasFixture();
+  const second = {
+    ...first,
+    project: { ...first.project, id: 'project-b', goal: 'Second space' },
+  };
+  const caption = 'Project A retained overlay identity';
+  let resolveSecond: ((value: RetainedExplanation[]) => void) | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge } = await shellBridge(first, activate);
+  vi.mocked(bridge.listRetainedExplanations).mockImplementation(
+    async (input) => {
+      if (input.projectId === first.project.id) {
+        return [ownedCanvasExplanation(first.project.id, caption)];
+      }
+      return new Promise((resolve) => {
+        resolveSecond = resolve;
+      });
+    },
+  );
+  const view = render(
+    <Shell
+      bridge={bridge}
+      workspace={first}
+      onWorkspace={vi.fn()}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText('Canvas'));
+  expect(await screen.findByText(caption)).toBeInTheDocument();
+  view.rerender(
+    <Shell
+      bridge={bridge}
+      workspace={second}
+      onWorkspace={vi.fn()}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  expect(screen.queryByText(caption)).toBeNull();
+  await act(async () => {
+    resolveSecond?.([]);
+  });
+  expect(screen.queryByText(caption)).toBeNull();
+});
+
+it('does not apply a delayed overlay list from the previous project', async () => {
+  const first = createCanvasFixture();
+  const second = {
+    ...first,
+    project: { ...first.project, id: 'project-b', goal: 'Second space' },
+  };
+  const caption = 'Stale project A overlay must not steal Canvas';
+  let resolveFirst: ((value: RetainedExplanation[]) => void) | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge } = await shellBridge(first, activate);
+  vi.mocked(bridge.listRetainedExplanations).mockImplementation(
+    async (input) => {
+      if (input.projectId === first.project.id) {
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return [];
+    },
+  );
+  const view = render(
+    <Shell
+      bridge={bridge}
+      workspace={first}
+      onWorkspace={vi.fn()}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  view.rerender(
+    <Shell
+      bridge={bridge}
+      workspace={second}
+      onWorkspace={vi.fn()}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText('Canvas'));
+  await act(async () => {
+    resolveFirst?.([ownedCanvasExplanation(first.project.id, caption)]);
+  });
+  expect(screen.queryByText(caption)).toBeNull();
+  await waitFor(() =>
+    expect(bridge.listRetainedExplanations).toHaveBeenCalledWith({
+      projectId: second.project.id,
+    }),
+  );
+});
+
+it('keeps Canvas empty when the retained overlay list is rejected', async () => {
+  const workspace = createCanvasFixture();
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge } = await shellBridge(workspace, activate);
+  vi.mocked(bridge.listRetainedExplanations).mockRejectedValue(
+    new Error('private overlay failure'),
+  );
+  render(
+    <Shell
+      bridge={bridge}
+      workspace={workspace}
+      onWorkspace={vi.fn()}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText('Canvas'));
+  expect(await screen.findByRole('button', { name: 'New note' })).toBeVisible();
+  expect(screen.queryByText('AI retained explanation')).toBeNull();
 });
