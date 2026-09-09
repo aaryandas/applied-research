@@ -48,6 +48,12 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 `src/backend/sourcing/index/adapter.ts` composes bounded indexing, deletion and hybrid retrieval. `writes.ts` validates acquired passages and authoritative tombstones; `retrieval.ts` builds identical scoped ANN/BM25 branches, validates exact canonical evidence and fuses ranks. `identity.ts`, `validation.ts`, `deadline.ts`, `transport.ts`, `results.ts` and `types.ts` own generation/row identity, producer validation, operation deadlines, bounded HTTP and safe outcomes. Adjacent public-boundary tests use synthetic vectors and provider responses. [Source index contract](source-index.md) records limits, integration seams and blocked live acceptance. No production transport or route composition is enabled.
 
+## Evidence selection
+
+- `src/backend/sourcing/retrieval/selection.ts`: one backend-only deterministic learning/research selection seam over frozen sourcing contracts; no adapter or route composition.
+- `src/backend/sourcing/retrieval/{identity,ranking,fusion,diversity,passages,validation}.ts`: stable work/version grouping, attributed policy signals, reciprocal rank fusion, coverage diversity, exact permitted canonical passages and bounded input validation.
+- `src/backend/sourcing/retrieval/selection.test.ts`: synthetic public-seam acceptance cases; [selection policy and outstanding relevance/integration acceptance](evidence-selection.md).
+
 ## MVP modules
 
 - `src/main/auth-sdk.ts`: supported Better Auth Electron client, guarded Node fetch for cookie-bearing auth responses, and the SDK OAuth state compatibility wrapper. Adjacent SDK tests cover real Node response headers; `tests/e2e/auth.spec.ts` exercises encrypted restart and sign-out in Electron.
