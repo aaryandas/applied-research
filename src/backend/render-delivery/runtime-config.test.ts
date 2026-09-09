@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,7 +54,9 @@ describe('trusted render runtime', () => {
       AR_FFPROBE_PATH: ffprobe,
     });
     expect(runtime.dockerContext).toBe('desktop-linux');
-    expect(runtime.ffmpeg).toBe(ffmpeg);
+    expect(runtime.docker).toBe(await realpath(docker));
+    expect(runtime.ffmpeg).toBe(await realpath(ffmpeg));
+    expect(runtime.ffprobe).toBe(await realpath(ffprobe));
     await chmod(docker, 0o777);
     await expect(
       resolveTrustedRenderRuntime({
