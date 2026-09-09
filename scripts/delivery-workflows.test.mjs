@@ -29,6 +29,9 @@ test('trusted evaluator checks out the default branch only and pins starting eva
   );
   assert.match(trusted, /persist-credentials: false/);
   assert.match(trusted, /workflow_run:/);
+  assert.match(trusted, /Independent review \(untrusted pending\)/);
+  assert.match(trusted, /- CI/);
+  assert.match(trusted, /github\.event\.workflow_run\.event == 'pull_request'/);
   assert.match(trusted, /workflow_dispatch:/);
   assert.match(trusted, /secrets\.CURSOR_API_KEY/);
   assert.match(trusted, /node scripts\/delivery-review\.mjs evaluate/);
