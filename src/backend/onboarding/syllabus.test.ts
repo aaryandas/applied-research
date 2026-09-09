@@ -229,6 +229,33 @@ describe('onboarding syllabus projection', () => {
     expect(syllabus.capstone).toBeNull();
   });
 
+  it('demotes a weak capstone with a bound brief to practice, not a substantial capstone', () => {
+    const weak = practiceBrief({
+      expectedArtifact: 'Too short to be substantial.',
+      observableCheckpoints: ['One cited checkpoint.'],
+    });
+    const path: LearningPathContribution = {
+      kind: 'learning-path',
+      title: 'CS231n softmax',
+      steps: [
+        step('Softmax as a classifier', { role: 'concept', practice: null }),
+        step('Capstone: synthesize the cited network', {
+          role: 'capstone',
+          practice: weak,
+        }),
+      ],
+    };
+    const syllabus = assembleOnboardingSyllabus({
+      path,
+      acquired: [acquired('CS231n neural networks and NumPy softmax')],
+      prior: null,
+    });
+    const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
+    expect(lessons[1]?.role).toBe('practice');
+    expect(lessons[1]?.practice).not.toBeNull();
+    expect(syllabus.capstone).toBeNull();
+  });
+
   it('does not keep a practice role when the generated brief is missing', () => {
     const path: LearningPathContribution = {
       kind: 'learning-path',
