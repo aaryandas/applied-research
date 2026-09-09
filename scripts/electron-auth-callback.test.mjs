@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
+import { base64Url } from '@better-auth/utils/base64';
 
 // Run after npm run build:backend to exercise the shipped browser bundle.
 const source = await readFile(
@@ -9,7 +10,13 @@ const source = await readFile(
   'utf8',
 );
 const origin = 'https://api-production-e7aa.up.railway.app';
-const syntheticCode = 'synthetic-one-time-code';
+const syntheticCode = base64Url.encode(
+  new TextEncoder().encode(
+    JSON.stringify({ identifier: 'a'.repeat(32), state: 'b'.repeat(16) }),
+  ),
+);
+assert.ok(syntheticCode.endsWith('='));
+const expectedToken = syntheticCode.replace(/=+$/, '');
 
 for (const initialCookie of ['', `better-auth.electron=${syntheticCode}`]) {
   test(`callback initializes without Node globals (${initialCookie ? 'cookie' : 'no cookie'})`, () => {
@@ -98,7 +105,7 @@ for (const initialCookie of ['', `better-auth.electron=${syntheticCode}`]) {
       redirects,
       initialCookie
         ? [
-            `com.aaryandas.appliedresearch://auth/callback#token=${syntheticCode}`,
+            `com.aaryandas.appliedresearch://auth/callback#token=${expectedToken}`,
           ]
         : [],
     );
