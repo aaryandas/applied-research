@@ -272,7 +272,13 @@ try {
       const job = JSON.parse(readFileSync(claim.jobPath, 'utf8'));
       claim.threadId = job.threadId ?? claim.threadId;
       claim.phase = job.status;
-      if (job.status === 'launching')
+      if (
+        job.status === 'launching' &&
+        !events.some(
+          (event) =>
+            event.type === 'launched' && event.identifier === issue.identifier,
+        )
+      )
         events.push({
           type: 'attention',
           identifier: issue.identifier,
@@ -361,9 +367,16 @@ try {
           });
           continue;
         }
+        const previousRound = claim.round ?? 0;
+        const previousJobPath = claim.jobPath;
+        claim.round = previousRound + 1;
+        try {
+          launch(issue, claim);
+        } catch (error) {
+          if (claim.jobPath === previousJobPath) claim.round = previousRound;
+          throw error;
+        }
         claim.lastRepairId = issue.repairRequest.id;
-        claim.round += 1;
-        launch(issue, claim);
       }
     } catch (error) {
       claim.lastError = {
