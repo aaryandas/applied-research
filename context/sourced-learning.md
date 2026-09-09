@@ -128,11 +128,14 @@ those pending gates or the full ticket are accepted.
 
 ## Review follow-up and ownership
 
-The Fable review of `67f6458` requires a shared `PROMPT_VERSION` bump so ledger
-rows and AI provenance distinguish the revised system prompt, plus a type-only
-`LearningService.request` annotation using `ProviderLearningRequest`. Those
-changes belong to `src/backend/policy.ts` and `src/backend/learning.ts`, outside
-the assigned AR-36 paths. Explicit authorization for these two narrow edits is
-pending; the provider boundary itself is now typed and the HTTP boundary still
-rejects client-supplied evidence context. The unchanged shared prompt version is
-a remaining review blocker, not accepted provenance behavior.
+The coordinator authorized the two adjacent Fable fixes in `policy.ts` and
+`learning.ts` under the existing `lane:backend` label (AR-36 comment
+`58117fb5-f1da-4040-9c2a-243daf40495d`). The shared `PROMPT_VERSION` is now
+`learning-v2-2026-09-09`, used by both accounting ledger rows and AI provenance.
+A public API regression first observed the old version, then passed for both
+content-generation and paid support-review receipts after the bump.
+`LearningService.request` now declares `ProviderLearningRequest`; its optional
+evidence context preserves existing callers while making the backend seam
+explicit. The HTTP boundary still rejects client-supplied evidence context.
+These ownership fixes do not authorize changes to other backend adapters,
+HTTP/runtime composition, shared contracts or delivery gates.

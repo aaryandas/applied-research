@@ -703,6 +703,19 @@ describe('sourced learning API', () => {
     expect(result.gaps[0]?.kind).toBe('retrieval');
   });
 
+  it('identifies the revised prompt in both generated content and paid support-review provenance', async () => {
+    const api = await harness({ useModelSupport: true });
+    const result = await Effect.runPromise(api.request(account, request));
+    expect(result.outcome).toBe('sourced');
+    expect(result.provenance.map((entry) => entry.promptVersion)).toEqual([
+      'learning-v2-2026-09-09',
+      'learning-v2-2026-09-09',
+    ]);
+    expect(
+      result.supportReviews.map((review) => review.provenance?.promptVersion),
+    ).toEqual(['learning-v2-2026-09-09', 'learning-v2-2026-09-09']);
+  });
+
   it('uses a separate quota-controlled semantic review when no external assessor is supplied', async () => {
     let providerCalls = 0;
     const api = await harness({

@@ -21,7 +21,7 @@ export const MAX_PROVIDER_DURATION_MS = 45_000;
 export const MAX_CONCURRENT_PROVIDER_REQUESTS = 8;
 export const MAX_IN_FLIGHT_REQUESTS_PER_ACCOUNT = 2;
 export const MAX_PROVIDER_REQUEST_PRICE_USD = 0;
-export const PROMPT_VERSION = 'learning-v1-2026-09-08';
+export const PROMPT_VERSION = 'learning-v2-2026-09-09';
 
 export interface ModelAdmission {
   model: LearningModel;
