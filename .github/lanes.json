@@ -82,7 +82,13 @@
       "src/main/tutor.ts",
       "src/preload/**"
     ],
-    "contracts": ["src/contracts/**"],
+    "contracts": [
+      "src/contracts/**",
+      "src/main/learning-record-validation.ts",
+      "src/main/learning-record-validation.test.ts",
+      "src/main/practical-validation.ts",
+      "src/main/practical-validation.test.ts"
+    ],
     "delivery": [
       "scripts/**",
       "electron-builder.yml",
