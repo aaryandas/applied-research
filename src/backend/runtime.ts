@@ -138,6 +138,8 @@ function makeBackendLayer(
               },
             }
           : undefined;
+      // University catalog/acquisition is injected by root after AR-57 lands
+      // (`bindUniversityLane`). This lane does not copy that namespace.
       const sourcing = makeSourcingService({
         persistence,
         operations,

@@ -15,7 +15,7 @@ import { silentDiagnostics } from '../diagnostics.js';
 import { SOURCE_INDEX_CORPUS_VERSION } from '../policy.js';
 import { SourceAcquisitionAdapter } from './acquisition/acquire.js';
 import type { AcquisitionAdapterResult } from './acquisition/types.js';
-import { discoverStarterCatalog } from './catalog.js';
+import { discoverStarterCatalog, composeCatalogSources } from './catalog.js';
 import {
   parseAcquireCanonicalSourceRequest,
   parseAcquireCanonicalSourceResponse,
@@ -49,6 +49,16 @@ import type {
   RetrieveEvidenceAdapterRequest,
   SourcingService,
 } from './service.js';
+import {
+  boundUniversityLane,
+  indexingGrantFromDescriptor,
+  isExtractionReady,
+  mapUniversityAcquisitionFailure,
+  universityCandidateId,
+  type UniversityAcquisitionApi,
+  type UniversityByteTransport,
+  type UniversityLaneBinding,
+} from './university-join.js';
 
 export interface SourcingCompositionOptions {
   readonly persistence: SourcePersistence;
@@ -58,12 +68,28 @@ export interface SourcingCompositionOptions {
   readonly liveIndex?: LiveIndexTransport | undefined;
   readonly embedding?: EmbeddingClient | undefined;
   readonly embeddingBudget?: EmbeddingBudgetService | undefined;
+  readonly catalogSources?: readonly MetadataOnlySource[] | undefined;
+  readonly universityAcquisition?: UniversityAcquisitionApi | undefined;
+  readonly universityTransport?: UniversityByteTransport | undefined;
   readonly diagnostics?: Diagnostics | undefined;
   readonly clock?: (() => Date) | undefined;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
   ) => Promise<A>;
+}
+
+function resolveUniversityLane(
+  options: SourcingCompositionOptions,
+): UniversityLaneBinding | undefined {
+  const bound = boundUniversityLane();
+  const api = options.universityAcquisition ?? bound?.api;
+  const transport = options.universityTransport ?? bound?.transport;
+  if (!api || !transport) return undefined;
+  const catalog = options.catalogSources ?? bound?.catalog;
+  return catalog === undefined
+    ? { api, transport }
+    : { api, transport, catalog };
 }
 
 function remapSessionSafeDiscovery(
@@ -397,6 +423,7 @@ export function makeSourcingService(
             query: parsed.query,
             kinds: parsed.kinds,
             limit: parsed.limit,
+            sources: composeCatalogSources(options.catalogSources),
           });
           let remote: DiscoverSourcesResponse | null = null;
           if (options.openAlex && parsed.kinds.includes('paper')) {
@@ -471,6 +498,74 @@ export function makeSourcingService(
               decision: 'unknown',
               message: SOURCING_PUBLIC_MESSAGES.notPermitted,
             };
+          }
+          const university = resolveUniversityLane(options);
+          const candidateId = universityCandidateId(descriptor);
+          if (university?.api.supportsCandidate(candidateId)) {
+            const extracted = await university.api.acquireUniversitySource({
+              candidateId,
+              transport: university.transport,
+              signal: invocation.signal,
+              clock: { now },
+            });
+            if (!isExtractionReady(extracted)) {
+              return mapUniversityAcquisitionFailure(
+                parsed.requestId,
+                extracted,
+              );
+            }
+            const acquiredSource = university.api.toAcquiredSource(
+              extracted,
+              indexingGrantFromDescriptor(descriptor),
+            );
+            const passages =
+              university.api.sourcePassagesFromExtraction(extracted);
+            const stored = await options.runEffect(
+              options.persistence.saveRevision(
+                invocation.account.id,
+                acquiredSource,
+                now(),
+              ),
+            );
+            if (
+              options.liveIndex &&
+              options.embedding &&
+              options.embeddingBudget &&
+              stored.usePolicy.indexing.status === 'permitted'
+            ) {
+              const index = makeIndex(invocation.account.id, [stored]);
+              if (index) {
+                const indexed = await indexAcquiredSource(
+                  {
+                    persistence: options.persistence,
+                    index,
+                    embedding: options.embedding,
+                    budget: options.embeddingBudget,
+                    diagnostics,
+                    runEffect: options.runEffect,
+                    now,
+                  },
+                  stored,
+                  passages,
+                  invocation,
+                );
+                if (indexed === 'budget-exhausted') {
+                  return {
+                    outcome: 'budget-exhausted',
+                    requestId: parsed.requestId,
+                    message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+                  };
+                }
+              }
+            }
+            return parseAcquireCanonicalSourceResponse(
+              {
+                outcome: 'success',
+                requestId: parsed.requestId,
+                source: stored,
+              },
+              parsed,
+            );
           }
           const acquired = await options.acquisition.acquire({
             request: parsed,
