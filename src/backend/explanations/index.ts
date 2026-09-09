@@ -4,6 +4,8 @@ export {
 } from './types.js';
 export { parseExplanationPlannerRequest } from './request.js';
 export {
+  ADMITTED_OPENROUTER_ROUTE,
+  ADMITTED_REASONING_EFFORT,
   buildPlannerBody,
   makeExplanationPlannerProvider,
   plannerAccountingRequest,

@@ -7,6 +7,8 @@ import { AccountingFailure } from '../accounting.js';
 import { ProviderFailure } from '../provider.js';
 import { parseExplanationPlannerRequest } from './request.js';
 import {
+  ADMITTED_OPENROUTER_ROUTE,
+  ADMITTED_REASONING_EFFORT,
   buildPlannerBody,
   makeExplanationPlannerProvider,
 } from './provider.js';
@@ -120,12 +122,130 @@ describe('explanation planner provider', () => {
     const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
     expect(body.messages[0].content).toBe(EXPLANATION_PLANNER_SYSTEM_PROMPT);
     expect(body.response_format.json_schema.name).toBe('explanation_planner');
+    expect(body.provider).toMatchObject({
+      only: [ADMITTED_OPENROUTER_ROUTE],
+      allow_fallbacks: false,
+      require_parameters: true,
+      max_price: { prompt: 0.75, completion: 3.75, request: 0 },
+    });
+    expect(body.max_tokens).toBe(2048);
+    expect(body.reasoning).toEqual({
+      effort: ADMITTED_REASONING_EFFORT,
+      exclude: true,
+    });
+    expect(body.reasoning).not.toHaveProperty('max_tokens');
     expect(buildPlannerBody(envelope)).not.toContain(
       'No tools or recipes are available in this request.',
     );
     expect(
       reservationMicrousdForPlannerBody(buildPlannerBody(envelope)),
     ).toBeGreaterThan(0);
+  });
+
+  it('accepts exact canonical citations and rejects equal-length fabricated quotes', async () => {
+    const quote = text.slice(0, 9);
+    const citedPlan = {
+      status: 'supported',
+      family: 'weighted-combination',
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ],
+        weights: [3, 1],
+        labels: ['First vector', 'Second vector'],
+      },
+      stages: [{ name: 'Combine', seconds: 2 }],
+      caption: 'Weighted sum of two vectors',
+      copy: {
+        role: 'untrusted-display-copy',
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [
+          {
+            sourceId,
+            revisionId,
+            start: 0,
+            end: 9,
+            quote,
+          },
+        ],
+      },
+      rationale: {
+        role: 'untrusted-display-copy',
+        text: 'Shows a weighted combination.',
+      },
+    };
+    const request = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          id: 'or-planner-1',
+          model: 'google/gemini-3.8-flash',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: JSON.stringify(citedPlan) },
+            },
+          ],
+          usage: { cost: 0.000001 },
+        }),
+      );
+    });
+    const provider = makeExplanationPlannerProvider({
+      apiKey: 'test-key',
+      request,
+    });
+    const completion = await Effect.runPromise(
+      provider.complete(plannerRequest()),
+    );
+    expect(completion.plan).toMatchObject({
+      status: 'supported',
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [{ sourceId, revisionId, quote }],
+      },
+    });
+
+    const forged = {
+      ...citedPlan,
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [
+          {
+            sourceId,
+            revisionId,
+            start: 0,
+            end: 9,
+            quote: 'WRONGQUOT',
+          },
+        ],
+      },
+    };
+    const forgedRequest = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          id: 'or-planner-2',
+          model: 'google/gemini-3.8-flash',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: JSON.stringify(forged) },
+            },
+          ],
+          usage: { cost: 0.000002 },
+        }),
+      );
+    });
+    const forgedProvider = makeExplanationPlannerProvider({
+      apiKey: 'test-key',
+      request: forgedRequest,
+    });
+    await expect(
+      Effect.runPromise(forgedProvider.complete(plannerRequest())),
+    ).rejects.toThrow('The AI provider response could not be validated.');
   });
 });
 

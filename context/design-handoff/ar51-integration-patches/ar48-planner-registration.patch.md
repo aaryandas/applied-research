@@ -108,14 +108,27 @@ Prefer storing planner `promptVersion` `explanation-planner-v1-2026-09-09` on pl
 
 ## 3. Same generation-eval ledger (required)
 
-Every planner **physical** OpenRouter call must admit against AR-48's durable global generation evaluation allowance: **2,000,000 µUSD and 10 physical dispatches** (`GENERATION_EVAL_ALLOWANCE_NAME = 'generation-eval'`). Replay of a settled requestId+inputHash is **zero additional dispatch**. Known / unknown / zero-charge / cancel-after-dispatch all count. Cancel before dispatch does not.
+Every planner **physical** OpenRouter call must admit against AR-48's durable global generation evaluation allowance: **2,000,000 µUSD and 10 physical dispatches**. Replay of a settled requestId+inputHash is **zero additional dispatch**. Known / unknown / zero-charge / cancel-after-dispatch all count. Cancel before dispatch does not.
 
-AR-51 injects `GenerationEvalLedger` from `src/backend/explanations/generation-eval.ts`. Implement that interface on the **existing** shared budget (do not add a second ledger). If your landed types already match, pass them through; if they differ, keep one adapter.
+AR-51 injects `GenerationEvalLedger` from `src/backend/explanations/generation-eval.ts`. **Do not change those request/response kinds.** AR-48 SHA `27165a39cc0ef68057d760198ad4a0d00d637234` still wires the old f7 service and exposes `{ kind: 'reserved', reservation: { release, settle, retain } }` plus `budget-exhausted`, not `{ kind: 'admit' }` with a top-level `settle`. Root/AR-48 owns the PostgreSQL adapter. Memory ledgers in AR-51 tests are not production proof.
+
+Adapter mapping (keep one ledger, no second cap):
+
+| Planner event                | AR-48 `GenerationEvalBudget`                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| admit → dispatch             | `{ kind: 'reserved', reservation }` → treat as AR-51 `{ kind: 'admit' }` and hold `reservation`  |
+| budget-exhausted             | `{ kind: 'budget-exhausted' }` → AR-51 `{ kind: 'exhausted' }`, **no dispatch**, monthly release |
+| known charge including **0** | `reservation.settle(actualMicrousd)` including `settle(0)`                                       |
+| unknown after dispatch       | `reservation.retain()`                                                                           |
+| precancel / not dispatched   | `reservation.release()`                                                                          |
+| settled same requestId+hash  | must be **replay / zero additional dispatch**, not `budget-exhausted`                            |
+
+Stash the reservation from `admit` keyed by requestId; AR-51 `generation.settle` then calls `release` / `settle` / `retain`. Duplicate plan replay is **not** production-claimed until this adapter plus Postgres proof exists.
 
 ```text
 const explanationPlanner = yield* makeExplanationPlannerService({
   accounting: makePlannerAccounting(makePostgresAccounting(database)),
-  generation: generationEvalLedger,
+  generation: adaptPlannerGenerationEval(generationEvalBudget),
   provider: makeExplanationPlannerProvider({
     apiKey: config.openRouterApiKey,
     request,
@@ -126,7 +139,24 @@ const explanationPlanner = yield* makeExplanationPlannerService({
 });
 ```
 
-`generationEvalLedger` is the same object tutor/path generation uses. Constructor seam is `accounting` + `generation` + admitted `provider`. No provider/model swap.
+`generationEvalBudget` is the same object tutor/path generation uses. Constructor seam is `accounting` + `generation` + admitted `provider`. No provider/model swap.
+
+## 3b. Export admitted OpenRouter body policy (required)
+
+Planner now sends the reviewed route/reasoning (not `reasoning.max_tokens: 1024`):
+
+```ts
+provider: {
+  only: ['google-ai-studio'],
+  allow_fallbacks: false,
+  require_parameters: true,
+  max_price: { prompt: 0.75, completion: 3.75, request: 0 },
+}
+max_tokens: 2048
+reasoning: { effort: 'low', exclude: true }
+```
+
+1024 remains a **monetary reservation margin** (`MAX_REASONING_TOKENS` in `reservationMicrousdFor*`), not a thinking ceiling. Export these fields from `src/backend/provider.ts` (for example `admittedOpenRouterProvider` / `admittedOpenRouterReasoning`) and have tutor/path/planner import them. Do not edit AR-51 `buildPlannerBody` except to switch to that export. No new model or budget.
 
 a3fda5d on origin is an onboarding wire-parser commit, not generation-eval types. Do not require AR-51 to merge it. If generation-eval types land under a different SHA, switch the import; do not fork limits.
 

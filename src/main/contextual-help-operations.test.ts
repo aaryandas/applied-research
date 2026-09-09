@@ -4,7 +4,14 @@ import { LEARNING_API_VERSION } from '../contracts/learning-api';
 import { DEFAULT_ARM } from '../contracts/explanations';
 import { ContextualHelpOperations } from './contextual-help-operations';
 import { CONTEXTUAL_HELP_CHANNELS } from './contextual-help-channels';
-import { unavailableClipPlayback } from './contextual-help-clip';
+import {
+  unavailableClipPlayback,
+  type ClipPlaybackResult,
+} from './contextual-help-clip';
+import {
+  CLIP_ASSET_VERSION,
+  RETAINED_CLIP_RENDERER,
+} from '../contracts/explanation-artifacts';
 import {
   CONTEXTUAL_HELP_CANCEL_CHANNEL,
   CONTEXTUAL_HELP_REQUEST_CHANNEL,
@@ -48,6 +55,136 @@ function provenance(sourceId: string, revisionId: string, text: string) {
         provenance: { kind: 'human-imported' as const, locator: null },
       },
     ],
+  };
+}
+
+function visualEnvelope(
+  projectId: string,
+  sourceRevisionId: string,
+  highlightId: string,
+) {
+  return {
+    contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
+    projectId,
+    expectedProjectGeneration: 1,
+    expectedRequestGeneration: 0,
+    origin: {
+      kind: 'source-highlight' as const,
+      sourceRevisionId,
+      highlightId,
+    },
+    intent: 'visual' as const,
+    question: {
+      kind: 'app-authored' as const,
+      intent: 'explain-this-visually' as const,
+    },
+  };
+}
+
+function armPlanResponse(
+  requestId: string,
+  harness: { sourceId: string; revisionId: string; text: string },
+) {
+  const planned = { ...DEFAULT_ARM, firstLength: 1.1, shoulderDegrees: 12 };
+  return {
+    outcome: 'success' as const,
+    requestId,
+    plan: {
+      status: 'supported' as const,
+      family: 'two-link-arm' as const,
+      parameters: planned,
+      stages: [{ name: 'Compose', seconds: 2 }],
+      caption: 'Compose two rotations',
+      copy: {
+        role: 'untrusted-display-copy' as const,
+        title: 'Compose',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption' as const,
+        note: 'Original geometry, not a photograph of the source.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy' as const,
+        text: 'A two-link arm can show composition of planar rotations.',
+      },
+    },
+    provenance: {
+      ...provenance(harness.sourceId, harness.revisionId, harness.text),
+      promptVersion: 'explanation-planner-v1-2026-09-09',
+    },
+    quota,
+  };
+}
+
+function weightedPlanResponse(
+  requestId: string,
+  harness: { sourceId: string; revisionId: string; text: string },
+) {
+  return {
+    outcome: 'success' as const,
+    requestId,
+    plan: {
+      status: 'supported' as const,
+      family: 'weighted-combination' as const,
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ],
+        weights: [3, 1],
+        labels: ['First vector', 'Second vector'],
+      },
+      stages: [{ name: 'Combine', seconds: 2 }],
+      caption: 'Weighted sum of two vectors',
+      copy: {
+        role: 'untrusted-display-copy' as const,
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption' as const,
+        note: 'The geometry is original, not a photograph of the source.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy' as const,
+        text: 'This shows a weighted-sum sub-concept, not a transformer.',
+      },
+    },
+    provenance: {
+      ...provenance(harness.sourceId, harness.revisionId, harness.text),
+      promptVersion: 'explanation-planner-v1-2026-09-09',
+    },
+    quota,
+  };
+}
+
+function readyWeightedClip(): ClipPlaybackResult {
+  return {
+    kind: 'ready',
+    result: {
+      kind: 'clip',
+      family: 'weighted-combination',
+      assetVersion: CLIP_ASSET_VERSION,
+      media: {
+        kind: 'app-retained-media',
+        artifactId: '44000000-0000-4000-8000-000000000001',
+      },
+      verified: {
+        sha256: 'ab'.repeat(32),
+        mediaType: 'video/mp4',
+        bytes: 4096,
+        width: 1280,
+        height: 720,
+        durationSeconds: 4,
+        stages: [{ name: 'Combine', seconds: 2 }],
+        renderer: {
+          name: RETAINED_CLIP_RENDERER.name,
+          version: RETAINED_CLIP_RENDERER.version,
+          image: 'manim-community:test',
+        },
+      },
+    },
   };
 }
 
@@ -565,6 +702,163 @@ describe('contextual help operations', () => {
     expect(listed[0]?.attempts[0]).not.toHaveProperty('clip');
     expect(listed[0]?.attempts[0]).not.toHaveProperty('media');
     expect(unavailableClipPlayback().kind).toBe('unavailable');
+  });
+
+  it('does not commit a late ready clip after cancel, keeping the previous useful scene', async () => {
+    const harness = openExplanationHarness();
+    cleanups.push(() => harness.close());
+    const sceneId = '11000000-0000-4000-8000-000000000008';
+    const clipId = '11000000-0000-4000-8000-000000000009';
+    const fetchImpl = vi
+      .fn<(input: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(armPlanResponse(sceneId, harness)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(weightedPlanResponse(clipId, harness)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    let resolveClip: ((result: ClipPlaybackResult) => void) | undefined;
+    const clipGate = new Promise<ClipPlaybackResult>((resolve) => {
+      resolveClip = resolve;
+    });
+    let clipStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      clipStarted = resolve;
+    });
+    let n = 0;
+    const ids = [
+      '22000000-0000-4000-8000-000000000008',
+      '21000000-0000-4000-8000-000000000008',
+      '22000000-0000-4000-8000-000000000009',
+    ];
+    const operations = new ContextualHelpOperations({
+      records: harness.records,
+      authenticated: () => true,
+      transport: makeContextualHelpTransport({
+        request: fetchImpl,
+        sessionCookie: () => 'session=test',
+      }),
+      now: () => new Date(createdAt),
+      randomUUID: () => ids[n++] ?? ids[ids.length - 1]!,
+      requestClip: async () => {
+        clipStarted();
+        return clipGate;
+      },
+    });
+    operations.activate(harness.projectId);
+    const envelope = visualEnvelope(
+      harness.projectId,
+      harness.revisionId,
+      harness.highlightId,
+    );
+    const scene = await operations.request({ ...envelope, requestId: sceneId });
+    expect(scene.outcome).toBe('success');
+    const pending = operations.request({ ...envelope, requestId: clipId });
+    await started;
+    operations.cancel({
+      requestId: clipId,
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+    });
+    resolveClip?.(readyWeightedClip());
+    await expect(pending).resolves.toMatchObject({ outcome: 'cancelled' });
+    const loaded = operations.load({
+      projectId: harness.projectId,
+      explanationId: scene.outcome === 'success' ? scene.explanationId : '',
+    });
+    expect(loaded?.usefulAttemptId).toBe(
+      '22000000-0000-4000-8000-000000000008',
+    );
+    expect(
+      loaded?.attempts.find((item) => item.status === 'ready')?.result,
+    ).toMatchObject({
+      kind: 'scene',
+      family: 'two-link-arm',
+    });
+    expect(loaded?.attempts.some((item) => item.result?.kind === 'clip')).toBe(
+      false,
+    );
+  });
+
+  it('does not mutate project A after an A→B switch even if requestClip later returns ready', async () => {
+    const harness = openExplanationHarness();
+    cleanups.push(() => harness.close());
+    const sceneId = '11000000-0000-4000-8000-00000000000a';
+    const clipId = '11000000-0000-4000-8000-00000000000b';
+    const fetchImpl = vi
+      .fn<(input: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(armPlanResponse(sceneId, harness)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(weightedPlanResponse(clipId, harness)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    let resolveClip: ((result: ClipPlaybackResult) => void) | undefined;
+    const clipGate = new Promise<ClipPlaybackResult>((resolve) => {
+      resolveClip = resolve;
+    });
+    let clipStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      clipStarted = resolve;
+    });
+    let n = 0;
+    const ids = [
+      '22000000-0000-4000-8000-00000000000a',
+      '21000000-0000-4000-8000-00000000000a',
+      '22000000-0000-4000-8000-00000000000b',
+    ];
+    const operations = new ContextualHelpOperations({
+      records: harness.records,
+      authenticated: () => true,
+      transport: makeContextualHelpTransport({
+        request: fetchImpl,
+        sessionCookie: () => 'session=test',
+      }),
+      now: () => new Date(createdAt),
+      randomUUID: () => ids[n++] ?? ids[ids.length - 1]!,
+      requestClip: async () => {
+        clipStarted();
+        return clipGate;
+      },
+    });
+    operations.activate(harness.projectId);
+    const envelope = visualEnvelope(
+      harness.projectId,
+      harness.revisionId,
+      harness.highlightId,
+    );
+    const scene = await operations.request({ ...envelope, requestId: sceneId });
+    expect(scene.outcome).toBe('success');
+    const pending = operations.request({ ...envelope, requestId: clipId });
+    await started;
+    operations.activate('33000000-0000-4000-8000-000000000001');
+    resolveClip?.(readyWeightedClip());
+    await expect(pending).resolves.toMatchObject({ outcome: 'cancelled' });
+    const stored = harness.records.listExplanations(harness.projectId)[0];
+    expect(stored?.usefulAttemptId).toBe(
+      '22000000-0000-4000-8000-00000000000a',
+    );
+    expect(
+      stored?.attempts.find((item) => item.status === 'ready')?.result,
+    ).toMatchObject({
+      kind: 'scene',
+      family: 'two-link-arm',
+    });
+    expect(stored?.attempts.some((item) => item.result?.kind === 'clip')).toBe(
+      false,
+    );
   });
 });
 

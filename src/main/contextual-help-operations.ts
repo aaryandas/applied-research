@@ -309,6 +309,17 @@ export class ContextualHelpOperations {
     return this.options.now?.() ?? new Date();
   }
 
+  private stillOwnsRequest(
+    request: ContextualHelpRequest,
+    signal: AbortSignal,
+  ): boolean {
+    return (
+      !signal.aborted &&
+      request.projectId === this.projectId &&
+      request.expectedProjectGeneration === this.projectGeneration
+    );
+  }
+
   private createId(): string {
     return this.options.randomUUID?.() ?? randomUUID();
   }
@@ -667,6 +678,13 @@ export class ContextualHelpOperations {
         plan,
         signal,
       });
+      if (!this.stillOwnsRequest(request, signal)) {
+        return {
+          outcome: 'cancelled',
+          requestId: request.requestId,
+          message: 'The explanation request was cancelled.',
+        };
+      }
       if (clip.kind === 'ready') {
         return this.commit(
           request,

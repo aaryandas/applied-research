@@ -192,21 +192,18 @@ Delete the production assertion that Reader always shows **Explore a two-link ar
 
 ## 9. Canvas artifact mapping (AR-49/AR-56)
 
-Producer: `src/main/explanation-canvas.ts`.
+Producer DTO only: `src/main/explanation-canvas.ts`. **Not persisted, not mounted, not Canvas-done.**
 
 ```ts
 import {
   projectRetainedExplanationToCanvas,
   explanationCanvasPlacement,
 } from './explanation-canvas';
-
-const projections = operations
-  .list({ projectId })
-  .map(projectRetainedExplanationToCanvas);
 ```
 
-- `kind: 'retained-explanation'`. Same `explanationId` / `origin` as Reader. `authorKind: 'assistant'`. `activeRuntime: false` (Canvas must not start a second WebGL runtime).
-- Do **not** insert these as `workspace_records` human notes. Current `record_type` CHECK is `entry|source|path|topic|lesson`. Extend through a reviewed migration if Canvas must persist placement on that table; otherwise persist `RetainedExplanationCanvasPlacement` keyed by `explanationId` (sibling of 0006, not a new SQLite connection).
+- `kind: 'retained-explanation'`. Same `explanationId` / `origin` as Reader. `authorKind: 'assistant'`. `activeRuntime: false`.
+- Do **not** insert these as `workspace_records` human notes. Current `record_type` CHECK is `entry|source|path|topic|lesson`.
+- AR-56 assembler needs placement **storage and read-model**. If a migration is required, propose **0008** and let **root coordinate numbering** (0006 is AR-51, 0007 entry origin reserved). One SQLite connection. No second authority.
 - `moveLearningRecord` must not relabel an explanation as a note. Placement identity is `explanationId`.
 - Only the active surface (`destination === 'reader'` today) passes `active` into `RetainedScene` / `ExplanationExperience`.
 
