@@ -6,7 +6,8 @@ Apply these diffs on `codex/ar-walkthrough-integration` (or cherry-pick onto the
 integration merge). Do not use migration 0004 (AR-50) or 0006 (AR-56).
 
 Consumer branch: `codex/ar-47-onboarding-cloud`  
-Candidate SHA: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89`  
+Candidate SHA: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89` (implementation).
+Docs-only follow-ups may sit on the same branch; use `git rev-parse origin/codex/ar-47-onboarding-cloud` for HEAD.  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
 Patch path: `context/ar-47-onboarding-handoff.md`
