@@ -192,4 +192,34 @@ describe('authenticated companion guidance transport', () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects an undecodable JSON reply and a missing body', async () => {
+    const invalid = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(JSON.stringify({ outcome: 'nope' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      invalid(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+
+    const empty = makeCompanionGuidanceTransport({
+      request: async () =>
+        ({
+          status: 200,
+          headers: {
+            get: (name: string) =>
+              name === 'content-type' ? 'application/json' : null,
+          },
+          body: null,
+        }) as Response,
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      empty(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+  });
 });

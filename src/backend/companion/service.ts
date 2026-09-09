@@ -49,12 +49,11 @@ export interface CompanionGuidanceService {
 }
 
 function tutorQuestion(envelope: CompanionBackendEnvelope): string {
-  if (envelope.grounding === 'app-context') {
-    const combined = `${APP_CONTEXT_QUESTION} ${envelope.question}`;
-    return combined.length <= 2_000 ? combined : APP_CONTEXT_QUESTION;
-  }
-  const combined = `${SOURCE_QUESTION_PREFIX}${envelope.question}`;
-  return combined.length <= 2_000 ? combined : envelope.question;
+  const prefix =
+    envelope.grounding === 'app-context'
+      ? `${APP_CONTEXT_QUESTION} `
+      : SOURCE_QUESTION_PREFIX;
+  return `${prefix}${envelope.question}`.slice(0, 2_000);
 }
 
 function learningRequest(envelope: CompanionBackendEnvelope): LearningRequest {

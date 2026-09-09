@@ -173,7 +173,7 @@ function tutorSource(version: SourceVersion): SourceRevisionInput | null {
     title: version.title.slice(0, 200),
     canonicalText: version.canonicalText,
     sha256: sha256Utf8(version.canonicalText),
-    format: version.format === 'plain-text' ? 'plain-text' : version.format,
+    format: version.format,
     canonicalizationVersion: canonicalizer,
     acquiredAt: version.acquiredAt,
     provenance: {
@@ -374,13 +374,6 @@ async function resolveWorkspace(
         attributionSummary: `Saved human question · revision ${target.target.entry.revision}`,
       },
     };
-  }
-  if (target.target.kind !== 'selected-graph-record') {
-    return failed(
-      'stale',
-      request.requestId,
-      'The selected canvas record is no longer available.',
-    );
   }
   const recordId = target.target.recordId;
   const placement = workspace.placements.find(

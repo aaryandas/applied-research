@@ -113,10 +113,14 @@ export function Companion({
       guidanceHost ? guidanceHost.subscribe(listener) : () => undefined,
     [guidanceHost],
   );
+  const getHostState = useCallback(
+    () => guidanceHost?.getState() ?? null,
+    [guidanceHost],
+  );
   const hostState = useSyncExternalStore(
     subscribeHost,
-    () => guidanceHost?.getState() ?? null,
-    () => guidanceHost?.getState() ?? null,
+    getHostState,
+    getHostState,
   );
   const [open, setOpen] = useState(false);
   const [pointing, setPointing] = useState<CompanionPointingState>({

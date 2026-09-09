@@ -198,4 +198,90 @@ describe('companion backend envelope', () => {
       message: 'Companion guidance is unavailable.',
     });
   });
+
+  it('rejects non-records, missing identity, and oversized learner context', () => {
+    expect(() => decodeCompanionBackendEnvelope(null)).toThrow(
+      CompanionEnvelopeError,
+    );
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          projectId: 'not-a-uuid',
+        }),
+      ),
+    ).toThrow(/identity/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          learnerContext: Array.from({ length: 13 }, (_, index) => ({
+            id: `noteitem${index + 10}`,
+            kind: 'human-note',
+            text: 'note',
+          })),
+        }),
+      ),
+    ).toThrow(/context/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: 'plain',
+        }),
+      ),
+    ).toThrow(/source/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          excerpt: 'quote',
+        }),
+      ),
+    ).toThrow(/excerpt/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: {
+            ...(companionEnvelope().source as object),
+            acquiredAt: 'yesterday',
+          },
+        }),
+      ),
+    ).toThrow(/integrity/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: {
+            ...(companionEnvelope().source as object),
+            extra: true,
+          },
+        }),
+      ),
+    ).toThrow(/source/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: {
+            ...(companionEnvelope().source as object),
+            provenance: {
+              kind: 'human-imported',
+              locator: null,
+              account: 'nope',
+            },
+          },
+        }),
+      ),
+    ).toThrow(/provenance/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          learnerContext: [
+            {
+              id: 'noteitem01',
+              kind: 'human-note',
+              text: 'x',
+              url: 'https://x.test',
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/context/);
+  });
 });

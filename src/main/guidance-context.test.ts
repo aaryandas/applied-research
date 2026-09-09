@@ -724,4 +724,437 @@ describe('companion guidance context resolver', () => {
     );
     expect(aliased).toMatchObject({ ok: true });
   });
+
+  it('fails closed on missing records, ungroundable sources, and oversized material', async () => {
+    const missingWorkspace = await resolveCompanionGuidanceContext(
+      request(),
+      readers({ readWorkspace: async () => null }),
+      new AbortController().signal,
+    );
+    expect(missingWorkspace).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
+    });
+
+    const missingHighlight = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'reader',
+          projectId,
+          target: {
+            kind: 'selected-source-highlight',
+            sourceRevisionId,
+            highlightId: recordId,
+          },
+        },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(missingHighlight).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
+    });
+
+    const ungroundable = await resolveCompanionGuidanceContext(
+      request(),
+      readers({
+        readWorkspace: async () => {
+          const current = workspace();
+          const source = current.sources[0];
+          if (!source) throw new Error('fixture');
+          const version = {
+            ...source.currentVersion,
+            canonicalizationVersion: 'x',
+          };
+          return {
+            ...current,
+            sources: [
+              { ...source, currentVersion: version, versions: [version] },
+            ],
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(ungroundable).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unsupported' },
+    });
+
+    const missingQuestion = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'canvas',
+          projectId,
+          target: {
+            kind: 'saved-question',
+            entry: { entryId: recordId, revision: 1 },
+          },
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(missingQuestion).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
+    });
+
+    const assistantQuestion = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'canvas',
+          projectId,
+          target: {
+            kind: 'saved-question',
+            entry: { entryId, revision: 1 },
+          },
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        readWorkspace: async () => {
+          const current = workspace();
+          const entry = current.entries[0];
+          if (!entry) throw new Error('fixture');
+          return {
+            ...current,
+            entries: [
+              {
+                ...entry,
+                current: { ...entry.current, authorKind: 'assistant' },
+              },
+            ],
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(assistantQuestion).toMatchObject({
+      ok: false,
+      reply: { outcome: 'invalid-request' },
+    });
+
+    const missingPlacement = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'canvas',
+          projectId,
+          target: {
+            kind: 'selected-graph-record',
+            recordId: highlightId,
+          },
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(missingPlacement).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
+    });
+
+    const oversized = 'x'.repeat(48_001);
+    const hugeReflection = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'reflection',
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () => {
+          const current = attempt();
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              reflection: { authorKind: 'human', text: oversized },
+            },
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(hugeReflection).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unavailable' },
+    });
+
+    const emptyReport = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: { kind: 'none' },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () => {
+          const current = attempt();
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              reportedResult: { kind: 'user-reported-text', text: '' },
+            },
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(emptyReport).toMatchObject({
+      ok: true,
+      value: { attribution: 'human-draft' },
+    });
+
+    const priorRevision = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'canvas',
+          projectId,
+          target: {
+            kind: 'saved-question',
+            entry: { entryId, revision: 1 },
+          },
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        readWorkspace: async () => {
+          const current = workspace();
+          const entry = current.entries[0];
+          if (!entry) throw new Error('fixture');
+          return {
+            ...current,
+            entries: [
+              {
+                ...entry,
+                currentRevision: 2,
+                current: {
+                  ...entry.current,
+                  revision: 2,
+                  body: 'Newer question',
+                },
+                revisions: [entry.current],
+              },
+            ],
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(priorRevision).toMatchObject({
+      ok: true,
+      value: { attribution: 'saved-human' },
+    });
+
+    const credentialedLocator = await resolveCompanionGuidanceContext(
+      request(),
+      readers({
+        readWorkspace: async () => {
+          const current = workspace();
+          const source = current.sources[0];
+          if (!source) throw new Error('fixture');
+          const version = {
+            ...source.currentVersion,
+            provenance: {
+              kind: 'human-imported' as const,
+              locator: 'https://user@example.test/paper',
+            },
+          };
+          return {
+            ...current,
+            sources: [
+              { ...source, currentVersion: version, versions: [version] },
+            ],
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(credentialedLocator.ok).toBe(true);
+    if (credentialedLocator.ok) {
+      expect(credentialedLocator.value.source.provenance.locator).toBeNull();
+    }
+
+    const withoutNow: CompanionGuidanceReaders = {
+      readWorkspace: async () => workspace(),
+      loadOwnedAttempt: async () => attempt(),
+      readImportedFile: async () => ({
+        text: 'imported column,1\n2,3',
+        displayName: 'notes.csv',
+      }),
+      lookupMeasuredCapture: async () => null,
+      boundToolSession: () => ({
+        sessionId: 'tool-session',
+        title: 'Matrix experiment',
+        controls: [{ name: 'Reset', description: 'Restore the identity.' }],
+      }),
+    };
+    const highlightAsk = await resolveCompanionGuidanceContext(
+      request({ utterance: { kind: 'none' } }),
+      withoutNow,
+      new AbortController().signal,
+    );
+    expect(highlightAsk).toMatchObject({ ok: true });
+
+    const longQuestion = await resolveCompanionGuidanceContext(
+      request({
+        utterance: {
+          kind: 'human',
+          text: 'q'.repeat(2_001),
+          persistence: 'unsaved-draft',
+          savedRevision: null,
+        },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(longQuestion).toMatchObject({
+      ok: false,
+      reply: { outcome: 'invalid-request' },
+    });
+
+    const huge = 'x'.repeat(48_001);
+    const hugeInstructions = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'activity-instructions',
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () => {
+          const current = attempt();
+          return {
+            ...current,
+            activity: { ...current.activity, instructions: huge },
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(hugeInstructions).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unavailable' },
+    });
+
+    const hugeFile = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: {
+          kind: 'user-selected-file',
+          selectionId: 'file-01',
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        readImportedFile: async () => ({
+          text: huge,
+          displayName: 'notes.csv',
+        }),
+      }),
+      new AbortController().signal,
+    );
+    expect(hugeFile).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unsupported' },
+    });
+
+    const hugeCapture = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: { kind: 'app-measured', captureId },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        lookupMeasuredCapture: async () => ({
+          text: huge,
+          capturedAt: createdAt,
+        }),
+      }),
+      new AbortController().signal,
+    );
+    expect(hugeCapture).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unavailable' },
+    });
+
+    const savedReflection = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'reflection',
+        },
+        utterance: {
+          kind: 'human',
+          text: 'Order changed the result.',
+          persistence: 'saved',
+          savedRevision: 2,
+        },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(savedReflection).toMatchObject({
+      ok: true,
+      value: { attribution: 'saved-human' },
+    });
+
+    const historic = await resolveCompanionGuidanceContext(
+      request(),
+      readers({
+        readWorkspace: async () => {
+          const current = workspace();
+          const source = current.sources[0];
+          if (!source) throw new Error('fixture');
+          const previous = source.currentVersion;
+          const newer = {
+            ...previous,
+            revisionId: recordId,
+            revision: 2,
+          };
+          return {
+            ...current,
+            sources: [
+              {
+                ...source,
+                currentRevision: 2,
+                currentVersionId: recordId,
+                currentVersion: newer,
+                versions: [previous, newer],
+              },
+            ],
+          };
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(historic).toMatchObject({ ok: true });
+  });
 });

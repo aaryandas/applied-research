@@ -453,4 +453,52 @@ describe('companion guidance learning adapter', () => {
     ).toMatchObject({ outcome: 'invalid-request', requestId: null });
     expect(t.request).not.toHaveBeenCalled();
   });
+
+  it('maps a decoder throw and an aborted lookup failure', async () => {
+    const t = service(() => Effect.succeed(success('x')));
+    const exploding = new Proxy(
+      {},
+      {
+        get() {
+          throw new TypeError('proxy');
+        },
+      },
+    );
+    await expect(
+      t.api.answer(account, exploding, new AbortController().signal),
+    ).resolves.toMatchObject({ outcome: 'invalid-request', requestId: null });
+
+    const aborted = new AbortController();
+    const lookupFail = service(
+      (_account, request) => Effect.succeed(success(request.requestId)),
+      {
+        lookupAdmittedSource: async () => {
+          aborted.abort();
+          throw new Error('source store');
+        },
+      },
+    );
+    await expect(
+      lookupFail.api.answer(account, companionEnvelope(), aborted.signal),
+    ).resolves.toMatchObject({ outcome: 'cancelled' });
+    expect(lookupFail.request).not.toHaveBeenCalled();
+
+    const thrownAbort = new AbortController();
+    const request = vi.fn<LearningService['request']>(() =>
+      Effect.succeed(success(requestId)),
+    );
+    const failing = makeCompanionGuidanceService({
+      learning: {
+        request,
+        quota: () => Effect.die('quota unused'),
+      },
+      runEffect: async () => {
+        thrownAbort.abort();
+        throw new Error('provider');
+      },
+    });
+    await expect(
+      failing.answer(account, companionEnvelope(), thrownAbort.signal),
+    ).resolves.toMatchObject({ outcome: 'cancelled' });
+  });
 });

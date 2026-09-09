@@ -64,6 +64,19 @@ function failure(
   return { outcome, requestId, message };
 }
 
+function lateReply(
+  aborted: boolean,
+  requestId: string,
+): CompanionGuidanceReply {
+  return failure(
+    aborted ? 'cancelled' : 'stale',
+    requestId,
+    aborted
+      ? 'The companion request was cancelled.'
+      : 'The selected context changed. Ask again.',
+  );
+}
+
 export function createCompanionGuidanceOperations(
   options: CompanionGuidanceOperationsOptions,
 ): CompanionGuidanceOperations {
@@ -187,13 +200,7 @@ export function createCompanionGuidanceOperations(
       try {
         const resolved = await options.resolve(request, controller.signal);
         if (!stillHeld()) {
-          return failure(
-            controller.signal.aborted ? 'cancelled' : 'stale',
-            request.requestId,
-            controller.signal.aborted
-              ? 'The companion request was cancelled.'
-              : 'The selected context changed. Ask again.',
-          );
+          return lateReply(controller.signal.aborted, request.requestId);
         }
         if (!resolved.ok) return resolved.reply;
         const envelope = buildCompanionGuidanceEnvelope({
@@ -206,13 +213,7 @@ export function createCompanionGuidanceOperations(
         });
         const reply = await options.post(envelope, controller.signal);
         if (!stillHeld()) {
-          return failure(
-            controller.signal.aborted ? 'cancelled' : 'stale',
-            request.requestId,
-            controller.signal.aborted
-              ? 'The companion request was cancelled.'
-              : 'The selected context changed. Ask again.',
-          );
+          return lateReply(controller.signal.aborted, request.requestId);
         }
         if (
           reply.outcome === 'success' &&

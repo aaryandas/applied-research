@@ -11,7 +11,6 @@ import {
 import type { LearningService } from '../learning.js';
 import {
   COMPANION_GUIDANCE_PATH,
-  CompanionEnvelopeError,
   failureReply,
   type CompanionGuidanceHttpReply,
 } from './envelope.js';
@@ -101,7 +100,7 @@ export async function handleCompanionGuidanceRoute(
         400,
         failureReply(
           'invalid-request',
-          error instanceof CompanionEnvelopeError ? error.requestId : null,
+          null,
           error instanceof BodyError
             ? error.message
             : 'The companion request is invalid.',

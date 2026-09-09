@@ -12,6 +12,7 @@ import {
 
 const projectId = '10000000-0000-4000-8000-000000000001';
 const attemptId = '32000000-0000-4000-8000-000000000001';
+const otherAttempt = '34000000-0000-4000-8000-000000000001';
 const requestId = '31000000-0000-4000-8000-000000000001';
 const highlightId = '40000000-0000-4000-8000-000000000001';
 const sourceRevisionId = '30000000-0000-4000-8000-000000000001';
@@ -316,5 +317,133 @@ describe('companion AR53 host adapter', () => {
       outcome: 'unavailable',
     });
     expect(t.host.getState().activity).toBe('off');
+  });
+
+  it('maps session reply statuses and ignores idle cancel', async () => {
+    const t = setup();
+    t.host.cancel();
+    const input: CompanionGuidanceInput = {
+      requestId,
+      requestedTarget: {
+        scope: 'applied-research',
+        surface: 'practical-work',
+        attemptId,
+        target: 'activity-instructions',
+        activity: {
+          projectId,
+          title: 'Compare',
+          objective: 'Explain',
+          instructions: 'Try',
+          origin: {
+            path: {
+              pathId: '11000000-0000-4000-8000-000000000001',
+              pathRevision: 1,
+              topicId: '12000000-0000-4000-8000-000000000001',
+              lessonId: '13000000-0000-4000-8000-000000000001',
+            },
+          },
+        },
+      },
+      cause: 'ask-once',
+      context: {
+        target: 'activity-instructions',
+        title: 'Compare',
+        objective: 'Explain',
+        instructions: 'Try',
+      },
+      pageAccess: 'none',
+    };
+    t.requestCompanionGuidance.mockResolvedValueOnce({
+      outcome: 'unauthenticated',
+      requestId,
+      message: 'Sign in to use remote learning.',
+    });
+    await expect(
+      t.host.requestFromSession(input, new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'unauthenticated' });
+
+    t.requestCompanionGuidance.mockResolvedValueOnce({
+      outcome: 'unsupported',
+      requestId,
+      message: 'Unsupported.',
+    });
+    await expect(
+      t.host.requestFromSession(input, new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'unavailable' });
+
+    t.requestCompanionGuidance.mockResolvedValueOnce({
+      outcome: 'invalid-request',
+      requestId,
+      message: 'Invalid.',
+    });
+    await expect(
+      t.host.requestFromSession(input, new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'error' });
+
+    t.host.setSelection({
+      surface: 'practical-work',
+      projectId,
+      attemptId: otherAttempt,
+      target: 'reflection',
+    });
+    t.requestCompanionGuidance.mockResolvedValueOnce(success);
+    await expect(
+      t.host.requestFromSession(input, new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'answered' });
+
+    await expect(
+      t.host.requestFromSession(
+        {
+          ...input,
+          requestedTarget: {
+            ...input.requestedTarget,
+            surface: 'reader',
+          } as unknown as CompanionGuidanceInput['requestedTarget'],
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ status: 'stale' });
+
+    t.host.setSelection({
+      surface: 'practical-work',
+      projectId,
+      attemptId,
+      target: 'activity-instructions',
+    });
+    t.requestCompanionGuidance.mockResolvedValueOnce({
+      outcome: 'quota-exceeded',
+      requestId,
+      message: 'The monthly AI allowance is exhausted.',
+    });
+    await expect(t.host.startActivity()).resolves.toMatchObject({
+      outcome: 'quota-exceeded',
+    });
+    expect(t.host.getState().activity).toBe('off');
+  });
+
+  it('cancels while project bind is outstanding', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const t = setup();
+    t.activate.mockImplementationOnce(async () => {
+      await gate;
+      return { projectGeneration: 1, requestGeneration: 0 };
+    });
+    t.host.setSelection({
+      surface: 'reader',
+      projectId,
+      target: {
+        kind: 'selected-source-highlight',
+        sourceRevisionId,
+        highlightId,
+      },
+    });
+    const pending = t.host.askOnce();
+    await Promise.resolve();
+    t.host.invalidate();
+    release();
+    await expect(pending).resolves.toMatchObject({ outcome: 'cancelled' });
   });
 });

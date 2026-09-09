@@ -147,4 +147,71 @@ describe('companion owned-ref reveal registry', () => {
     });
     control.remove();
   });
+
+  it('aborts a pending frame, unregisters refs, and rejects a mismatched reveal', async () => {
+    const registry = createCompanionRevealRegistry();
+    const control = document.createElement('button');
+    document.body.append(control);
+    registry.register(companionWorkspaceRevealKey(target), control);
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      registry.reveal(companionWorkspaceRevealKey(target), aborted.signal),
+    ).resolves.toMatchObject({ status: 'cancelled' });
+
+    const pendingAbort = new AbortController();
+    const pending = registry.reveal(
+      companionWorkspaceRevealKey(target),
+      pendingAbort.signal,
+    );
+    pendingAbort.abort();
+    await flushFrame();
+    await expect(pending).resolves.toMatchObject({ status: 'cancelled' });
+
+    registry.register(companionWorkspaceRevealKey(target), null);
+    await expect(
+      registry.reveal(
+        companionWorkspaceRevealKey(target),
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ status: 'unavailable' });
+
+    const other: CompanionSelectedTarget = {
+      surface: 'canvas',
+      projectId,
+      target: { kind: 'selected-graph-record', recordId: highlightId },
+    };
+    const pointer = createCompanionSelectionPointer({
+      revealer: {
+        reveal: async () => ({
+          status: 'revealed',
+          target: other,
+          bounds: { x: 1, y: 1, width: 10, height: 10 },
+        }),
+        onInvalidate: () => () => undefined,
+      },
+      viewport: () => ({ width: 800, height: 600 }),
+      onStateChange: vi.fn(),
+    });
+    await expect(pointer.point(target)).resolves.toMatchObject({
+      status: 'stale',
+    });
+    pointer.dispose();
+
+    const throwing = createCompanionSelectionPointer({
+      revealer: {
+        reveal: async () => {
+          throw new Error('measure');
+        },
+        onInvalidate: () => () => undefined,
+      },
+      viewport: () => ({ width: 800, height: 600 }),
+      onStateChange: vi.fn(),
+    });
+    await expect(throwing.point(target)).resolves.toMatchObject({
+      status: 'unavailable',
+    });
+    throwing.dispose();
+    control.remove();
+  });
 });

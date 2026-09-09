@@ -356,4 +356,64 @@ describe('companion guidance operations', () => {
       outcome: 'stale',
     });
   });
+
+  it('suppresses a late success after abort and maps a generic abort throw', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const late = setup({
+      post: async () => {
+        await gate;
+        return success();
+      },
+    });
+    late.operations.activate(projectId);
+    const pending = late.operations.request(payload());
+    late.operations.cancel({
+      requestId,
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+    });
+    release();
+    await expect(pending).resolves.toMatchObject({ outcome: 'cancelled' });
+
+    let releaseResolve!: () => void;
+    const resolveGate = new Promise<void>((resolve) => {
+      releaseResolve = resolve;
+    });
+    const duringResolve = setup({
+      resolveDelay: () => resolveGate,
+      post: async () => {
+        throw new Error('late');
+      },
+    });
+    duringResolve.operations.activate(projectId);
+    const hanging = duringResolve.operations.request(payload());
+    duringResolve.operations.cancel({
+      requestId,
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+    });
+    releaseResolve();
+    await expect(hanging).resolves.toMatchObject({ outcome: 'cancelled' });
+
+    let epoch = 0;
+    const staleResolve = setup({
+      epoch: () => epoch,
+      resolveDelay: async () => {
+        epoch += 1;
+      },
+    });
+    staleResolve.operations.activate(projectId);
+    await expect(
+      staleResolve.operations.request(payload()),
+    ).resolves.toMatchObject({ outcome: 'stale' });
+
+    staleResolve.operations.cancel({
+      requestId,
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 9,
+    });
+  });
 });

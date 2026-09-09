@@ -456,9 +456,15 @@ describe('Companion app-owned controls and decoration', () => {
     });
     expect(t.resolveTarget).not.toHaveBeenCalled();
     expect(t.requestGuidance).not.toHaveBeenCalled();
+    fireEvent.scroll(window);
+    expect(t.container.querySelector('.activity-companion-target')).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show selected target' }),
+    );
+    await screen.findByText('Showing Your reflection.');
     act(() => invalidate());
     expect(t.container.querySelector('.activity-companion-target')).toBeNull();
-    expect(reveal).toHaveBeenCalledTimes(1);
+    expect(reveal).toHaveBeenCalledTimes(2);
     t.unmount();
     ownedControl.remove();
   });
@@ -658,5 +664,84 @@ describe('Companion Reader/Canvas selected help', () => {
       screen.getByRole('button', { name: 'Explain this passage' }),
     );
     await screen.findByText('The monthly AI allowance is exhausted.');
+  });
+
+  it('labels a saved question and hides an owned reveal without a model call', async () => {
+    const requestCompanionGuidance = vi.fn(async () => {
+      throw new Error('must not request');
+    });
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance,
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const saved: CompanionSelectedTarget = {
+      surface: 'canvas',
+      projectId,
+      target: {
+        kind: 'saved-question',
+        entry: { entryId: highlightId, revision: 1 },
+      },
+    };
+    const registry = createCompanionRevealRegistry();
+    const owned = document.createElement('button');
+    owned.textContent = 'Question';
+    document.body.append(owned);
+    vi.spyOn(owned, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(8, 8, 40, 12),
+    );
+    registry.register(companionWorkspaceRevealKey(saved), owned);
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={saved}
+        guidanceHost={host}
+        selectionRevealer={createCompanionSelectionRevealer(registry)}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    expect(screen.getByText('Saved question')).toBeInTheDocument();
+    fireEvent.keyDown(surface, { key: 'j', ctrlKey: true });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show selected target' }),
+    );
+    await waitFor(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const frame of pending) frame(0);
+      expect(screen.getByText('Showing Saved question.')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide target' }));
+    expect(
+      screen.queryByText('Showing Saved question.'),
+    ).not.toBeInTheDocument();
+    expect(requestCompanionGuidance).not.toHaveBeenCalled();
+    owned.remove();
+  });
+
+  it('labels a selected canvas record', () => {
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={{
+          surface: 'canvas',
+          projectId,
+          target: { kind: 'selected-graph-record', recordId: highlightId },
+        }}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    expect(screen.getByText('Selected canvas record')).toBeInTheDocument();
   });
 });
