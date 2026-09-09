@@ -574,22 +574,29 @@ describe('Canvas authoring', () => {
     container: HTMLElement,
     ids: readonly string[],
   ): Promise<void> {
-    const first = container.querySelector(`[data-id="${ids[0]}"]`);
+    const node = (id: string) => container.querySelector(`[data-id="${id}"]`);
+    const isSelected = (id: string) =>
+      Boolean(node(id)?.classList.contains('selected'));
+    const first = node(ids[0]!);
     expect(first).toBeTruthy();
     fireEvent.keyDown(first!, { key: 'Enter' });
-    await waitFor(() => expect(first!.className).toMatch(/selected/));
+    fireEvent.keyUp(first!, { key: 'Enter' });
+    await waitFor(() => expect(isSelected(ids[0]!)).toBe(true));
     if (ids.length < 2) return;
     await act(async () => {
-      fireEvent.keyDown(window, { key: 'Shift' });
+      fireEvent.keyDown(window, { key: 'Shift', code: 'ShiftLeft' });
     });
     for (const id of ids.slice(1)) {
-      const node = container.querySelector(`[data-id="${id}"]`);
-      expect(node).toBeTruthy();
-      fireEvent.keyDown(node!, { key: 'Enter' });
-      await waitFor(() => expect(node!.className).toMatch(/selected/));
+      const next = node(id);
+      expect(next).toBeTruthy();
+      fireEvent.keyDown(next!, { key: 'Enter' });
+      await waitFor(() => expect(isSelected(id)).toBe(true));
     }
+    await waitFor(() => {
+      for (const id of ids) expect(isSelected(id)).toBe(true);
+    });
     await act(async () => {
-      fireEvent.keyUp(window, { key: 'Shift' });
+      fireEvent.keyUp(window, { key: 'Shift', code: 'ShiftLeft' });
     });
   }
 
