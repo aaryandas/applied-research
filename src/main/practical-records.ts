@@ -19,9 +19,9 @@ import type {
 } from '../contracts/practical-records';
 import {
   decodeTrustedSceneCapture,
+  type RetainedExplanation,
   type TrustedSceneCapture,
 } from '../contracts/explanation-artifacts';
-import type { ExplanationOrigin } from '../contracts/explanations';
 import {
   isPracticalActivity,
   isRecordPracticalResultInput,
@@ -70,17 +70,23 @@ import type {
   WorkspaceTransaction,
 } from './workspace-schema';
 
+/** Canonical AR56 retained identity. Lesson lives at `origin.path.lessonId`. */
+export type PracticalOwnedExplanation = Pick<
+  RetainedExplanation,
+  'explanationId' | 'projectId' | 'origin'
+>;
+
 /** Uses the store-owned connection. No filesystem, IPC, or connection ownership. */
 export interface PracticalOwnedCaptureLookup {
   loadCapture(projectId: string, captureId: string): TrustedSceneCapture | null;
   /**
-   * When present, a missing explanation rejects the association. `origin: null`
-   * means the retained explanation has no learning-path linkage.
+   * Required whenever measured associations are enabled. Missing records reject
+   * the association. A `LearningOrigin` without `path` is an unlinked capture.
    */
-  loadExplanation?(
+  loadExplanation(
     projectId: string,
     explanationId: string,
-  ): { origin: ExplanationOrigin | null } | null;
+  ): PracticalOwnedExplanation | null;
 }
 
 export class PracticalRecords {
@@ -344,18 +350,26 @@ export class PracticalRecords {
     activity: PracticalActivity,
     capture: TrustedSceneCapture,
   ): boolean {
-    if (!this.captures?.loadExplanation) return true;
+    if (!this.captures) return false;
     const explanation = this.captures.loadExplanation(
       activity.projectId,
       capture.explanationId,
     );
     if (!explanation) return false;
-    const origin = explanation.origin;
-    if (origin === null) return true;
-    if (origin.projectId !== activity.projectId) return false;
+    if (
+      explanation.projectId !== activity.projectId ||
+      explanation.explanationId !== capture.explanationId
+    ) {
+      return false;
+    }
+    const originPath = explanation.origin.path;
+    if (!originPath) return true;
+    const claimed = activity.origin.path;
     return (
-      origin.lessonId === null ||
-      origin.lessonId === activity.origin.path.lessonId
+      originPath.pathId === claimed.pathId &&
+      originPath.pathRevision === claimed.pathRevision &&
+      originPath.topicId === claimed.topicId &&
+      originPath.lessonId === claimed.lessonId
     );
   }
 
