@@ -18,6 +18,7 @@ import {
   GUEST_COMMIT_TIMEOUT_MS,
   MATRIX_LAB_TITLE,
   MATRIX_LAB_URL,
+  captureAdmittedGuestPng,
   committedLearningToolsGuest,
   installGuestLifecycleProbe,
   readGuestLifecycle,
@@ -417,17 +418,12 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
           ?.getBounds(),
     );
     expect(guestBounds).toEqual({ x: 320, y: 80, width: 480, height: 500 });
-    const guestImage = await application.evaluate(async ({ webContents }) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((contents) => contents.getURL() === 'https://learning.test/');
-      return (await guest?.capturePage())?.toPNG().toString('base64');
-    });
-    expect(guestImage).toBeTruthy();
-    writeFileSync(
-      test.info().outputPath('embedded-page.png'),
-      Buffer.from(guestImage ?? '', 'base64'),
+    const guestImage = await captureAdmittedGuestPng(
+      application,
+      MATRIX_LAB_URL,
     );
+    expect(guestImage.length).toBeGreaterThan(32);
+    writeFileSync(test.info().outputPath('embedded-page.png'), guestImage);
     const askGuided = async () => {
       const [project] = await window.desktop.listProjects();
       return window.desktop.askTutor({
