@@ -449,7 +449,7 @@ describe('adversarial embedding spend accounting', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'discover-spend-01',
-        query: 'sql',
+        query: 'floating',
         intent: 'learning',
         kinds: ['chapter'],
         limit: 10,
