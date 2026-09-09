@@ -8,6 +8,8 @@ AR-23 foundation: two installed mathematical recipes produce real 10-second, 128
 
 A success contains `jobId`, an internal `artifactPath`, and the serializable artifact record: complete recipe/version/asset version/origin, exact renderer version/image, deterministic recipe SHA256, output SHA256, measured bytes/duration/dimensions, independently computed endpoint, named stage times, and queue/compute/verification durations. `artifactPath` is an internal handoff, never a browser URL or public response field. The authenticated artifact owner must copy the verified file into its own retention boundary before calling `release(jobId)`. `close()` cancels active/queued work and removes this instance's temporary files. At most eight queued, active or retained jobs may exist; one renders at a time. Retained files count against capacity until released.
 
+The private daemon (`daemon-server.ts` / `daemon-main.ts`) wraps this worker behind versioned submit/status/cancel/artifact/release messages. It never returns `artifactPath` on the wire. HTTPS/mTLS listen uses operator-supplied certificate paths. Desktop cookies and database credentials do not belong on this process.
+
 Minimal later integration:
 
 1. Authenticate and authorize the project/source-version/question origin before submission. The worker validates UUID shape, not account ownership. `origin: null` explicitly represents unbound/synthetic content.
