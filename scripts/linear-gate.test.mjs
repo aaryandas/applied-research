@@ -7,6 +7,7 @@ import {
   confirmExactIssueUrl,
   ensureIssueHasPrUrl,
   isDuplicateAttachmentError,
+  isSuccessfulAttachmentLink,
   issueHasExactAttachmentUrl,
   linearGraphql,
   main,
@@ -72,6 +73,18 @@ test('duplicate attachment detection requires INPUT_ERROR plus the live message'
     false,
   );
   assert.equal(isDuplicateAttachmentError(new Error('network down')), false);
+  const mixed = new LinearGraphqlError([
+    {
+      message: 'Duplicate attachment for duplicate url',
+      extensions: { code: 'INPUT_ERROR', statusCode: 400 },
+    },
+    {
+      message: 'Authentication required',
+      extensions: { code: 'AUTHENTICATION_ERROR', statusCode: 401 },
+    },
+  ]);
+  assert.equal(parseLinearGraphqlErrors(mixed).length, 2);
+  assert.equal(isDuplicateAttachmentError(mixed), false);
   assert.deepEqual(
     parseLinearGraphqlErrors(duplicateAttachmentError()).length,
     1,
@@ -229,6 +242,132 @@ test('duplicate error fails closed when the issue is missing on re-query', async
         title: 'PR',
       }),
     /missing after a duplicate attachment error/,
+  );
+});
+
+test('mixed duplicate and AUTHENTICATION_ERROR fails even if the exact URL exists', async () => {
+  const mixed = new LinearGraphqlError(
+    [
+      {
+        message: 'Duplicate attachment for duplicate url',
+        path: ['attachmentLinkURL'],
+        extensions: {
+          type: 'invalid input',
+          code: 'INPUT_ERROR',
+          statusCode: 400,
+          userError: true,
+          userPresentableMessage:
+            'An attachment with the same URL already exists.',
+        },
+      },
+      {
+        message: 'Authentication required',
+        extensions: { code: 'AUTHENTICATION_ERROR', statusCode: 401 },
+      },
+    ],
+    { httpStatus: 400 },
+  );
+  assert.equal(isDuplicateAttachmentError(mixed), false);
+  await assert.rejects(
+    () =>
+      ensureIssueHasPrUrl({
+        gql: async (query) => {
+          if (query === ATTACHMENT_LINK_MUTATION) {
+            throw mixed;
+          }
+          return issueQueryData(issueRecord({ urls: [PR_URL] }));
+        },
+        issue: issueRecord(),
+        identifier: IDENTIFIER,
+        prUrl: PR_URL,
+        title: 'PR',
+      }),
+    (error) => {
+      assert.equal(isDuplicateAttachmentError(error), false);
+      assert.match(
+        error.message,
+        /AUTHENTICATION_ERROR|Authentication required/,
+      );
+      return true;
+    },
+  );
+});
+
+test('rejected or malformed attachmentLinkURL payload is not created', async () => {
+  const payloads = [
+    { attachmentLinkURL: { success: false } },
+    { attachmentLinkURL: null },
+    {},
+    undefined,
+    { attachmentLinkURL: { success: 'true' } },
+  ];
+  for (const data of payloads) {
+    assert.equal(isSuccessfulAttachmentLink(data), false);
+    await assert.rejects(
+      () =>
+        ensureIssueHasPrUrl({
+          gql: async (query) => {
+            if (query === TEAM_ISSUE_QUERY) {
+              throw new Error('must not re-query a malformed create');
+            }
+            return data;
+          },
+          issue: issueRecord(),
+          identifier: IDENTIFIER,
+          prUrl: PR_URL,
+          title: 'PR',
+        }),
+      /success:true payload/,
+    );
+  }
+  assert.equal(
+    isSuccessfulAttachmentLink({ attachmentLinkURL: { success: true } }),
+    true,
+  );
+});
+
+test('HTTP 200 empty GraphQL data is not a created link', async () => {
+  await assert.rejects(
+    () =>
+      ensureIssueHasPrUrl({
+        gql: async (query, variables) =>
+          linearGraphql(query, variables, {
+            apiKey: 'lin_api_test',
+            fetchImpl: async () => ({
+              status: 200,
+              ok: true,
+              async json() {
+                return { data: {} };
+              },
+            }),
+          }),
+        issue: issueRecord(),
+        identifier: IDENTIFIER,
+        prUrl: PR_URL,
+        title: 'PR',
+      }),
+    /success:true payload/,
+  );
+  await assert.rejects(
+    () =>
+      ensureIssueHasPrUrl({
+        gql: async (query, variables) =>
+          linearGraphql(query, variables, {
+            apiKey: 'lin_api_test',
+            fetchImpl: async () => ({
+              status: 200,
+              ok: true,
+              async json() {
+                return { data: { attachmentLinkURL: { success: false } } };
+              },
+            }),
+          }),
+        issue: issueRecord(),
+        identifier: IDENTIFIER,
+        prUrl: PR_URL,
+        title: 'PR',
+      }),
+    /success:true payload/,
   );
 });
 

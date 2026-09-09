@@ -19,7 +19,7 @@ Both jobs queried attachments, saw a missing PR URL, and called `attachmentLinkU
 
 ## Bounded fix
 
-If `attachmentLinkURL` fails, re-query the exact intended AR issue and accept the error only when that issue already has the exact PR URL. Missing issue, wrong issue id/identifier, wrong or missing URL, and every other Linear error stay fail-closed. Do not globally swallow GraphQL failures.
+If `attachmentLinkURL` fails, re-query the exact intended AR issue and accept the error only when **every** GraphQL error is the narrow duplicate-attachment `INPUT_ERROR` and that issue already has the exact PR URL. Mixed payloads (duplicate plus `AUTHENTICATION_ERROR` or any other entry) stay fail-closed even if the URL exists. Creation requires `attachmentLinkURL.success === true`; `success: false`, null, missing, or HTTP 200 `{}` is not created and is not a generic requery fallback.
 
 ## Cursor CI Autofix (paused)
 

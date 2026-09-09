@@ -50,12 +50,37 @@ export function parseLinearGraphqlErrors(error) {
   return [];
 }
 
+export function isDuplicateAttachmentEntry(entry) {
+  const code = entry?.extensions?.code;
+  const message = String(entry?.message ?? '');
+  return code === 'INPUT_ERROR' && DUPLICATE_ATTACHMENT_MESSAGE.test(message);
+}
+
 export function isDuplicateAttachmentError(error) {
-  return parseLinearGraphqlErrors(error).some((entry) => {
-    const code = entry?.extensions?.code;
-    const message = String(entry?.message ?? '');
-    return code === 'INPUT_ERROR' && DUPLICATE_ATTACHMENT_MESSAGE.test(message);
-  });
+  const errors = parseLinearGraphqlErrors(error);
+  return errors.length > 0 && errors.every(isDuplicateAttachmentEntry);
+}
+
+export function isSuccessfulAttachmentLink(data) {
+  const link = data?.attachmentLinkURL;
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    link !== null &&
+    typeof link === 'object' &&
+    !Array.isArray(link) &&
+    link.success === true
+  );
+}
+
+export function assertSuccessfulAttachmentLink(data) {
+  if (!isSuccessfulAttachmentLink(data)) {
+    throw new Error(
+      'attachmentLinkURL did not return a valid success:true payload; refusing to treat the link as created',
+    );
+  }
+  return data;
 }
 
 export function issueHasExactAttachmentUrl(issue, url) {
@@ -115,11 +140,12 @@ export async function queryTeamIssue(identifier, gql) {
 }
 
 export async function linkIssueUrl(gql, { issueId, url, title }) {
-  return gql(ATTACHMENT_LINK_MUTATION, {
+  const data = await gql(ATTACHMENT_LINK_MUTATION, {
     id: issueId,
     url,
     t: title,
   });
+  return assertSuccessfulAttachmentLink(data);
 }
 
 export async function confirmExactIssueUrl({ gql, identifier, issueId, url }) {
