@@ -46,6 +46,7 @@
       "src/render-worker/**",
       "src/backend/render-delivery/**",
       "src/main/retained-media-*.ts",
+      "src/main/clip-*.ts",
       "src/main/contextual-help-*.ts",
       "src/main/explanation-*.ts",
       "src/backend/explanations/**",

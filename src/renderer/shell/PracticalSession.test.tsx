@@ -76,6 +76,26 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function resolveDeferred<T>(
+  pending: ReturnType<typeof deferred<T>>,
+  value: T,
+): Promise<void> {
+  await act(async () => {
+    pending.resolve(value);
+    await pending.promise;
+  });
+}
+
+/** Radio/Ask can commit before PracticalWork registers the companion resolver. */
+async function waitForCheckedTrialAndResolver(): Promise<void> {
+  await waitFor(() =>
+    expect(screen.getByRole('radio', { name: /trial.txt/ })).toBeChecked(),
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 function committed(input: {
   activity: PracticalActivity;
   attemptId: string;
@@ -521,7 +541,8 @@ it('does not send retained-file context from a replaced attempt preview', async 
     previewPracticalFile: vi.fn(() => preview.promise),
   });
   const { view, requestGuidance } = renderSession({ bridge });
-  first.resolve(
+  await resolveDeferred(
+    first,
     loadedJourney(
       savedAttempt({
         returnedEvidence: [file],
@@ -535,13 +556,13 @@ it('does not send retained-file context from a replaced attempt preview', async 
       }),
     ),
   );
-  await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /trial.txt/ })).toBeChecked(),
-  );
+  await waitForCheckedTrialAndResolver();
   fireEvent.click(
     screen.getByRole('button', { name: 'Ask about this result' }),
   );
-  await waitFor(() => expect(bridge.previewPracticalFile).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(bridge.previewPracticalFile).toHaveBeenCalledTimes(1),
+  );
   const otherAttempt = 'aa234567-1234-4234-8234-123456789012';
   view.rerender(
     <PracticalSession
@@ -581,6 +602,7 @@ it('does not preview file context after disposal, including a late ready result'
     deferred<
       Awaited<ReturnType<PracticalWorkspaceBridge['previewPracticalFile']>>
     >();
+  const load = deferred<LoadPracticalJourneyResult>();
   const file = {
     kind: 'user-selected-file' as const,
     selectionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -589,30 +611,36 @@ it('does not preview file context after disposal, including a late ready result'
     byteLength: 12,
   };
   const bridge = sessionBridge({
-    loadPracticalJourney: vi.fn(async () =>
-      loadedJourney(
-        savedAttempt({
-          returnedEvidence: [file],
-          draft: {
-            ...draft,
-            selectedEvidence: {
-              kind: 'user-selected-file',
-              selectionId: file.selectionId,
-            },
-          },
-        }),
-      ),
-    ),
+    loadPracticalJourney: vi.fn(() => load.promise),
     previewPracticalFile: vi.fn(() => preview.promise),
   });
   const { view, requestGuidance } = renderSession({ bridge });
-  await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /trial.txt/ })).toBeChecked(),
+  expect(
+    screen.queryByRole('button', { name: 'Ask about this result' }),
+  ).not.toBeInTheDocument();
+  expect(bridge.previewPracticalFile).not.toHaveBeenCalled();
+  await resolveDeferred(
+    load,
+    loadedJourney(
+      savedAttempt({
+        returnedEvidence: [file],
+        draft: {
+          ...draft,
+          selectedEvidence: {
+            kind: 'user-selected-file',
+            selectionId: file.selectionId,
+          },
+        },
+      }),
+    ),
   );
+  await waitForCheckedTrialAndResolver();
   fireEvent.click(
     screen.getByRole('button', { name: 'Ask about this result' }),
   );
-  await waitFor(() => expect(bridge.previewPracticalFile).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(bridge.previewPracticalFile).toHaveBeenCalledTimes(1),
+  );
   expect(bridge.previewPracticalFile).toHaveBeenCalledWith({
     activity,
     attemptId: savedAttemptId,
@@ -633,6 +661,7 @@ it('does not preview file context after disposal, including a late ready result'
     await preview.promise;
   });
   expect(requestGuidance).not.toHaveBeenCalled();
+  expect(bridge.previewPracticalFile).toHaveBeenCalledTimes(1);
 });
 
 it('keeps the current flush registration when an older workspace unregister runs', async () => {

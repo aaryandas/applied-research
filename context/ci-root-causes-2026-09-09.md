@@ -1,5 +1,15 @@
 # CI root causes and delivery propagation
 
+## Current result
+
+Frozen candidate `a0c0b9b0550a9846988afe12cc01b299a9b88931` passes [CI34349980151](https://github.com/aaryandas/applied-research/actions/runs/34349980151): macOS and Ubuntu formatting, lint, types, coverage, build, desktop smoke, packaging and packaged smoke all pass. macOS has164 test files /1,805 tests,90.28% branch coverage,15 desktop tests and15 packaged tests. The required gate, dedicated desktop feedback, actual Manim evidence, Lane guard and Linear gate pass. Thresholds remain unchanged. Historical failures below explain the repairs; they are not the current candidate verdict.
+
+The current Windows report has five failing tests: Practical file-selection refusal, three POSIX executable-mode runtime assertions and one Practical guidance-unavailable assertion. These are reporting-only under the existing shipping policy and remain owner follow-ups; they must not be mislabeled as only the older coverage/MSVC failures.
+
+AR50 follow-up `9b504c5a89510d36c24fba447b89ad6a010ca7eb` makes the two selected-file preview lifecycle tests resolve their deferred journey under React `act` and settle the selected context before one explicit Ask. The original combined-suite failure clicked before resolver registration and never reached its intended preview assertion. The repair preserves exactly one owned preview call and rejection of late results after replacement/unmount. It changes no production code, timeout, skip or retry policy. This newly integrated test repair still needs its own exact-head checks and independent review; it does not claim the separate Windows guidance assertion is fixed.
+
+PR44 at `c1f5d6a` repairs normal persisted-launch recovery and unproven409 replay. Two bounded follow-ups now concern original GitHub run-attempt identity and transient reads after a successful launch. Its owner and independent critic are active; automatic activation remains off. Green application CI is distinct from approval of the delivery workflow or completion of the connected application.
+
 This summary reconciles the 9 September 2026 candidate, dependency, and feature CI audits with current coordinator assignments. Main at `fa3e59aca35ac10d8917dd75b73da19bdb036ba8` has passing CI and hosted Sonar. That establishes the main baseline; it does not validate unmerged candidate or producer changes.
 
 macOS is the blocking application platform. Windows failures remain diagnostic work, not a reason to describe macOS as failing. Lane, Linear, and independent-review evidence are separate delivery requirements: their failures do not establish an application defect, but must be resolved before eligibility. A successful review _job_ without a substantive verdict is not approval.
@@ -46,6 +56,30 @@ Keep a published candidate frozen while its checks run. Batch accepted shared re
 
 ## Renderer and Practical batch
 
-Code checkpoint `ef3702e24437016d728c402177a22c023f6a5e9d` integrates AR58 `f024385`, final Practical `9e325f2` and renderer `60c2db4`. All157 test files /1,710 tests pass, along with formatting, lint and types. The separate build passes. Statements93.14%, branches88.82% (7,756/8,732), functions95.03% and lines94.64%; the unchanged90% branch gate still fails, requiring104 additional covered branches at this denominator. New renderer/media code explains the denominator increase. Four isolated acquisition test files are assigned to AR58 while product owners finish their actual consumers.
+Code checkpoint `ef3702e24437016d728c402177a22c023f6a5e9d` integrates AR58 `f024385`, final Practical `9e325f2` and renderer `60c2db4`. All157 test files /1,710 tests pass, along with formatting, lint and types. The separate build passes. Statements93.14%, branches88.82% (7,756/8,732), functions95.03% and lines94.64%; the unchanged90% branch gate still fails, requiring103 additional covered branches at this denominator. New renderer/media code explains the denominator increase. Four isolated acquisition test files are assigned to AR58 while product owners finish their actual consumers.
 
 Practical's final checkpoint fixes the host-Node/Electron ABI mismatch and passes the actual Cloud journey smoke; the next frozen macOS run must verify desktop and packaged behavior. The renderer and first backend coverage checkpoints have scoped independent Standards/Spec PASS. Practical lifecycle and retained-media service review are running. PR44 additionally has a confirmed check-provenance issue: a supplied check URL can alias a trusted run without proving the custom check's association. The delivery owner is adding actual run-owned evidence binding; do not resolve that thread merely because the borrowed run exists.
+
+## Acquisition follow-up and isolated packaged failure
+
+Local code checkpoint `82b2f42` adds AR58 `1d4bb943ce56bde8924e990d086c20f89007d9ec`:71 observable acquisition/OpenAlex boundary tests and78 newly covered branches. All161 test files /1,781 tests pass, with formatting, lint and types passing. Statements93.82%, branches89.71% (7,834/8,732), functions95.43%, lines95.18%. The unchanged90% branch gate still needs25 covered branches at this denominator. Build is not reached by this failed full-check invocation; the added diff changes tests only. AR54 separately covers HTTP/media retention/player boundaries. Each new feature owner remains responsible for coverage of its own introduced code.
+
+Frozen published `58c11f0` macOS desktop-feedback run34345154082 passes all15 desktop tests and packaging. Packaged smoke passes14/15, including both Practical journeys; its sole failure is the embedded Matrix Lab guest remaining in the initial loading state while the test expects a title. AR50 owns the bounded guest-lifecycle investigation. Do not attribute this failure to the already-fixed Practical ABI problem. Actual integrated Manim evidence34345154015 passes.
+
+Independent critic `bc-b5405cc3-927f-4434-9269-3bbdb86f7bd6`, run `run-e99b608b-3216-40c9-b087-1b28f304cd5c`, separately passes AR50 `9e325f2` (74 renderer +89 unit tests) and AR54 service/retained-media `60c2db4` (26 focused tests). These are exact producer verdicts, not completed shared mounts or whole-product acceptance.
+
+PR44 `14e07798e27859ab00ce32762040466a1b036cba` passes macOS Verify and the CI gate on34346381853. The trusted workflow now evaluates automatic events without launching agents, checks both dispatch actor identities for fresh manual launch, and binds custom review displays through an Actions artifact. Final independent review of this repair remains in progress. Keep activation off and unresolved substantive threads open until their actual fixes are confirmed.
+
+AR56 assembles shared desktop migrations and mounts on its isolated branch. AR48 repairs fresh-account source preparation, paid-phase accounting and course generation while independent producer review proceeds. New producer checkpoints are not evidence that a registered endpoint is usable from a fresh account. Preserve the current published candidate while checks finish; batch accepted repairs before the next push.
+
+## Shipping smoke repaired; coverage threshold reached
+
+Published `46fe072d1c98aadce8019328c93943ebcc8f788b` passes macOS desktop-feedback run34348994102: all15 desktop tests, packaging and all15 packaged tests pass. AR50 `701a3fb` separates subscription/opening and requires the actual main-process guest URL/title/loading state plus both bridge observations before resize. No isolation, screenshot, hide/restore or recorded tutor assertions were removed. This establishes the candidate observation repair on macOS; it does not prove a specific underlying Electron defect.
+
+Local code checkpoint `957743445bda9d81da0776e338f29f3e7b8b47ee` adds AR54 `063ca33`,24 media HTTP/retention/player tests covering50 additional branches. Combined with acquisition tests, all164files /1,805tests pass on the diagnostic coverage rerun: statements94.15%, branches90.28% (7,884/8,732), functions95.43%, lines95.43%. The90% gates are unchanged. The first full check had one intermittent PracticalSession disposal-test failure at the preview-callback assertion; the isolated test, its full file and subsequent full suite pass. Preserve that failure as owner follow-up, not a silent automatic retry or a claim that a race was fixed.
+
+AR47 `fe8bbef` independently improves its own modules to90.49% branch and97.45% statement coverage and fixes late planner success after cancel. It remains outside this CI batch with the other new feature assembly. Each producer must cover its introduced behavior before blaming the shared baseline.
+
+PR44's previous custom-check association and automatic-launch issues passed independent review at14e0779 (89delivery tests). A distinct later audit found missing asynchronous launch-receipt recovery and unproven409 replay minting model provenance. AR41 is repairing those before activation. Main merges remain coordinator-controlled; a test PASS or display check cannot replace genuine launch/review evidence.
+
+The subsequent required full `npm run check` on this combined code passes formatting, lint, strict types, all1,805tests, every90% coverage threshold, and the production build. The earlier intermittent Practical preview failure remains assigned to AR50's isolated `codex/ar-50-preview-lifecycle` follow-up; no test was removed and no retry configuration was added. The only lane change leases `src/main/clip-*.ts` to the existing explanation owner for the already-planned remote-media producer.
