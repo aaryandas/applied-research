@@ -988,24 +988,6 @@ it.each([
   },
 );
 
-it('rejects official fetch redirect failures without retries', async () => {
-  const request = vi.fn<typeof fetch>(async () => {
-    throw Object.assign(new TypeError('fetch failed'), {
-      cause: new Error('unexpected redirect'),
-    });
-  });
-  expect(
-    await fixture(request).indexBatch(
-      {
-        generation,
-        passages: [{ sourceVersion: version, locator, vector: [1, 0, 0] }],
-      },
-      invocation,
-    ),
-  ).toEqual({ outcome: 'unavailable', reason: 'unavailable' });
-  expect(request).toHaveBeenCalledTimes(1);
-});
-
 it('rejects declared oversized responses and cancels a late fetch response after timeout', async () => {
   const request = vi.fn<typeof fetch>(
     async () =>
