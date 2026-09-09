@@ -279,6 +279,9 @@ describe('render delivery HTTP route identity', () => {
       matchRenderDeliveryRoute(`/v1/render/jobs/${id}/cancel`, 'GET'),
     ).toBeNull();
     expect(
+      matchRenderDeliveryRoute('/v1/render/jobs/not-a-uuid', 'GET'),
+    ).toBeNull();
+    expect(
       matchRenderDeliveryRoute('/v1/render/jobs/not-a-uuid/cancel', 'POST'),
     ).toBeNull();
     expect(
@@ -301,6 +304,13 @@ describe('render delivery HTTP route identity', () => {
     expect(
       (
         await fetch(`${active.origin}/v1/render/jobs/${id}/cancel`, {
+          headers: { cookie: 'session=user-a' },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await fetch(`${active.origin}/v1/render/jobs/not-a-uuid`, {
           headers: { cookie: 'session=user-a' },
         })
       ).status,
@@ -331,6 +341,8 @@ describe('public render job status mapping', () => {
   it.each([
     ['queued', publicJob('queued'), 200],
     ['verifying', publicJob('verifying'), 200],
+    ['cancelled', publicJob('cancelled'), 409],
+    ['failed-cancelled', failedJob('cancelled', true, 'caller cancelled'), 409],
     ['unsupported', failedJob('unsupported', false, 'unsupported recipe'), 422],
     ['artifact', failedJob('artifact', false, 'corrupt artifact'), 422],
     ['capacity', failedJob('capacity', true, 'at capacity'), 429],
@@ -360,6 +372,31 @@ describe('submit body admission', () => {
     const primitive = await jsonResponse(await postJob(active.origin, true));
     expect(primitive.status).toBe(400);
     expect(primitive.body).toMatchObject({
+      status: 'failed',
+      failure: { reason: 'invalid-request' },
+    });
+
+    const badId = await jsonResponse(
+      await postJob(active.origin, {
+        requestId: 'not-a-uuid',
+        recipeJson: recipeJson(),
+      }),
+    );
+    expect(badId.status).toBe(400);
+    expect(badId.body).toMatchObject({
+      status: 'failed',
+      failure: { reason: 'invalid-request' },
+    });
+    expect(badId.body.requestId).toEqual(expect.stringMatching(UUID));
+
+    const emptyRecipe = await jsonResponse(
+      await postJob(active.origin, {
+        requestId: randomUUID(),
+        recipeJson: '',
+      }),
+    );
+    expect(emptyRecipe.status).toBe(400);
+    expect(emptyRecipe.body).toMatchObject({
       status: 'failed',
       failure: { reason: 'invalid-request' },
     });
@@ -456,6 +493,48 @@ describe('submit body admission', () => {
     expect(overflow.headers['cache-control']).toBe('no-store');
     expect(overflow.headers['x-content-type-options']).toBe('nosniff');
     expect(JSON.parse(overflow.text)).toEqual({
+      outcome: 'invalid-request',
+      message: 'The request body is too large.',
+    });
+
+    const declared = await new Promise<{
+      status: number;
+      headers: IncomingMessage['headers'];
+      text: string;
+    }>((resolve, reject) => {
+      const url = new URL('/v1/render/jobs', active.origin);
+      const payload = Buffer.alloc(MAX_RENDER_REQUEST_BYTES + 1, 0x7b);
+      const req = httpRequest(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            cookie: 'session=user-a',
+            'content-type': 'application/json',
+            'content-length': String(payload.length),
+          },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk) => chunks.push(chunk as Buffer));
+          response.on('end', () =>
+            resolve({
+              status: response.statusCode ?? 0,
+              headers: response.headers,
+              text: Buffer.concat(chunks).toString('utf8'),
+            }),
+          );
+        },
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+    expect(declared.status).toBe(400);
+    expect(declared.headers['cache-control']).toBe('no-store');
+    expect(JSON.parse(declared.text)).toEqual({
       outcome: 'invalid-request',
       message: 'The request body is too large.',
     });

@@ -151,6 +151,22 @@ describe('artifact retention source boundaries', () => {
       }),
     ).toBe('corrupt');
     expect(await store.readOwned(ACCOUNT, mismatchId)).toBeNull();
+
+    const typedId = newMediaId();
+    expect(
+      await store.retain({
+        accountId: ACCOUNT,
+        mediaId: typedId,
+        sourcePath: await source(bytes),
+        clip: {
+          ...record,
+          mediaId: typedId,
+          mediaType: 'video/webm' as PublicRetainedClip['mediaType'],
+        },
+        signal: new AbortController().signal,
+      }),
+    ).toBe('corrupt');
+    expect(await store.readOwned(ACCOUNT, typedId)).toBeNull();
   });
 });
 
@@ -271,6 +287,9 @@ describe('artifact discard boundaries', () => {
         signal: new AbortController().signal,
       }),
     ).toBe('retained');
+    expect(await store.readOwned(ACCOUNT, 'not-a-uuid')).toBeNull();
+    expect(await store.openOwned(ACCOUNT, 'not-a-uuid')).toBeNull();
+    expect(await store.readOwned('not-a-uuid', record.mediaId)).toBeNull();
     await store.discard(ACCOUNT, 'not-a-uuid');
     await store.discard(ACCOUNT, randomUUID());
     expect((await store.openOwned(ACCOUNT, record.mediaId))?.clip.mediaId).toBe(
