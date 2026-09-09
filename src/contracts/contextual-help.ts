@@ -698,59 +698,78 @@ function decodeHelpOptionalRequestId(
   return { ok: true, value };
 }
 
+interface HelpMessageFailureInput {
+  requestId: string | null;
+  message: string;
+  record: Record<string, unknown>;
+}
+
 function decodeHelpPublicMessageFailure(
   outcome: 'invalid-request' | 'unsupported' | 'unauthenticated',
-  requestId: string | null,
-  message: string,
-  value: Record<string, unknown>,
+  input: HelpMessageFailureInput,
 ): ContractDecode<
   Extract<
     ContextualHelpFailure,
     { outcome: 'invalid-request' | 'unsupported' | 'unauthenticated' }
   >
 > {
-  const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
+  const extra = extraKeyReason(input.record, [
+    'outcome',
+    'requestId',
+    'message',
+  ]);
   if (extra) return failed(extra);
   return {
     ok: true,
-    value: { outcome, requestId, message },
+    value: {
+      outcome,
+      requestId: input.requestId,
+      message: input.message,
+    },
   };
 }
 
 function decodeHelpAccountedMessageFailure(
   outcome: 'cancelled' | 'quota-exceeded',
-  requestId: string | null,
-  message: string,
-  value: Record<string, unknown>,
+  input: HelpMessageFailureInput,
 ): ContractDecode<
   Extract<ContextualHelpFailure, { outcome: 'cancelled' | 'quota-exceeded' }>
 > {
-  const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
+  const extra = extraKeyReason(input.record, [
+    'outcome',
+    'requestId',
+    'message',
+  ]);
   if (extra) return failed(extra);
-  if (requestId === null) return failed('identity');
-  return { ok: true, value: { outcome, requestId, message } };
+  if (input.requestId === null) return failed('identity');
+  return {
+    ok: true,
+    value: {
+      outcome,
+      requestId: input.requestId,
+      message: input.message,
+    },
+  };
 }
 
 function decodeHelpUnavailableFailure(
-  requestId: string | null,
-  message: string,
-  value: Record<string, unknown>,
+  input: HelpMessageFailureInput,
 ): ContractDecode<Extract<ContextualHelpFailure, { outcome: 'unavailable' }>> {
-  const extra = extraKeyReason(value, [
+  const extra = extraKeyReason(input.record, [
     'outcome',
     'requestId',
     'message',
     'retryable',
   ]);
   if (extra) return failed(extra);
-  if (typeof value.retryable !== 'boolean') return failed('shape');
+  if (typeof input.record.retryable !== 'boolean') return failed('shape');
   return {
     ok: true,
     value: {
       outcome: 'unavailable',
-      requestId,
-      message,
-      retryable: value.retryable,
+      requestId: input.requestId,
+      message: input.message,
+      retryable: input.record.retryable,
     },
   };
 }
@@ -766,28 +785,23 @@ function decodeHelpMessageFailure(
   ) {
     return failed('bounds');
   }
+  const input: HelpMessageFailureInput = {
+    requestId: requestId.value,
+    message: value.message,
+    record: value,
+  };
   if (
     value.outcome === 'invalid-request' ||
     value.outcome === 'unsupported' ||
     value.outcome === 'unauthenticated'
   ) {
-    return decodeHelpPublicMessageFailure(
-      value.outcome,
-      requestId.value,
-      value.message,
-      value,
-    );
+    return decodeHelpPublicMessageFailure(value.outcome, input);
   }
   if (value.outcome === 'cancelled' || value.outcome === 'quota-exceeded') {
-    return decodeHelpAccountedMessageFailure(
-      value.outcome,
-      requestId.value,
-      value.message,
-      value,
-    );
+    return decodeHelpAccountedMessageFailure(value.outcome, input);
   }
   if (value.outcome === 'unavailable') {
-    return decodeHelpUnavailableFailure(requestId.value, value.message, value);
+    return decodeHelpUnavailableFailure(input);
   }
   return failed('unsupported');
 }

@@ -366,3 +366,76 @@ describe('help origin locators', () => {
     ).toBe('origin');
   });
 });
+
+describe('help message failure envelopes', () => {
+  it('allows a null request id on public failures and forbids it on cancelled', () => {
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'invalid-request',
+        requestId: null,
+        message: 'The request is invalid.',
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        outcome: 'invalid-request',
+        requestId: null,
+        message: 'The request is invalid.',
+      },
+    });
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'cancelled',
+          requestId: null,
+          message: 'Cancelled.',
+        }),
+      ),
+    ).toBe('identity');
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'cancelled',
+        requestId,
+        message: 'Cancelled.',
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('keeps extra-key and message-bound checks on public and accounted failures', () => {
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'unsupported',
+          requestId,
+          message: 'Unsupported.',
+          retryable: false,
+        }),
+      ),
+    ).toBe('shape');
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'quota-exceeded',
+          requestId,
+          message: 'x'.repeat(401),
+        }),
+      ),
+    ).toBe('bounds');
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+      },
+    });
+  });
+});
