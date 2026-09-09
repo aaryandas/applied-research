@@ -56,14 +56,15 @@ function stripTags(
 ): string {
   let next = text;
   for (const tag of tags) {
-    const pattern = new RegExp(`<${tag}\\b[^>]*>`, 'i');
+    const markup = String.raw`<${tag}\b[^>]*>`;
+    const pattern = new RegExp(markup, 'i');
     if (pattern.test(next)) {
       gaps.push({
         kind: 'unsupported-media',
         locator: null,
         detail: 'Embedded image or media markup was omitted.',
       });
-      next = next.replace(new RegExp(`<${tag}\\b[^>]*>`, 'gi'), '');
+      next = next.replace(new RegExp(markup, 'gi'), '');
     }
   }
   return next;

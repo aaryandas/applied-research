@@ -118,7 +118,7 @@ describe('university source catalog states', () => {
     expect(universityAcquisition.UNIVERSITY_CANONICALIZATION_VERSION).toBe(
       'univ-canon-v1',
     );
-    expect(universityAcquisition.universityCatalogSources().length).toBe(
+    expect(universityAcquisition.universityCatalogSources()).toHaveLength(
       UNIVERSITY_CANDIDATES.length + EXTERNAL_COURSE_DIRECTORY.length,
     );
   });

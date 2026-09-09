@@ -18,15 +18,31 @@ export type MystParseResult =
   | { outcome: 'malformed-content'; reason: string }
   | { outcome: 'unsupported'; reason: string };
 
-const FENCE_OPEN = /^([`~]{3,})(.*)$/u;
-const HEADING = /^(#{1,6})\s+(.+)$/u;
 const TARGET = /^\(([^)]+)\)=\s*$/u;
-const TABLE_ROW = /^\s*\|.*\|.*$/u;
-const FOOTNOTE_DEF = /^\[\^([^\]]+)\]:\s*(.*)$/u;
 const MATH_END = /^\$\$(?:\s*\(([^)]+)\))?\s*$/u;
 const CROSSREF_ROLE = /\{(?:eq|numref|cite|ref|doc|footcite)\}`[^`]*`/u;
 const INTERPOLATION = /\{\{/u;
 const MEDIA_DIRECTIVES = new Set(['figure', 'image', 'video', 'youtube']);
+
+interface MystBlock {
+  title: string;
+  text: string;
+  locator: SourceLocator;
+}
+
+interface MystScanContext {
+  lines: readonly string[];
+  endLine: number;
+  lineStarts: readonly number[];
+  byteLength: number;
+  blocks: MystBlock[];
+  gaps: ExtractionGap[];
+}
+
+interface ScanAdvance {
+  index: number;
+  currentTarget: string | null;
+}
 
 export function extractMystMarkdown(
   bytes: Uint8Array,
@@ -130,10 +146,10 @@ function collectFootnotes(
     { text: string; startLine: number; endLine: number }
   >();
   for (const [index, line] of lines.entries()) {
-    const match = FOOTNOTE_DEF.exec(line);
-    if (match?.[1] === undefined || match[2] === undefined) continue;
-    notes.set(match[1], {
-      text: match[2],
+    const parsed = parseFootnoteDef(line);
+    if (parsed === null) continue;
+    notes.set(parsed.id, {
+      text: parsed.text,
       startLine: index + 1,
       endLine: index + 1,
     });
@@ -154,141 +170,294 @@ function scanBlocks(
   lineStarts: readonly number[],
   byteLength: number,
 ): {
-  blocks: { title: string; text: string; locator: SourceLocator }[];
+  blocks: MystBlock[];
   gaps: ExtractionGap[];
 } | null {
-  const blocks: { title: string; text: string; locator: SourceLocator }[] = [];
-  const gaps: ExtractionGap[] = [];
+  const context: MystScanContext = {
+    lines,
+    endLine,
+    lineStarts,
+    byteLength,
+    blocks: [],
+    gaps: [],
+  };
   let index = startLine;
   let currentTarget: string | null = null;
   while (index <= endLine) {
-    const line = lines[index - 1] ?? '';
-    if (line.trim() === '') {
-      index += 1;
-      continue;
-    }
-    const target = TARGET.exec(line);
-    if (target?.[1] !== undefined) {
-      currentTarget = target[1];
-      index += 1;
-      continue;
-    }
-    const heading = HEADING.exec(line);
-    if (heading?.[2] !== undefined) {
-      const title = heading[2].trim();
-      blocks.push({
-        title,
-        text: line,
-        locator: lineLocator(
-          currentTarget,
-          [title],
-          index,
-          index,
-          lineStarts,
-          byteLength,
-        ),
-      });
-      currentTarget = null;
-      index += 1;
-      continue;
-    }
-    const fence = FENCE_OPEN.exec(line);
-    if (fence?.[1] !== undefined) {
-      const closed = readFence(lines, index, endLine, fence[1], fence[2] ?? '');
-      if (closed === null) return null;
-      handleFence(closed, currentTarget, lineStarts, byteLength, blocks, gaps);
-      currentTarget = null;
-      index = closed.endLine + 1;
-      continue;
-    }
-    if (line.startsWith('$$') && line.trim() === '$$') {
-      const math = readDollarMath(lines, index, endLine);
-      if (math === null) return null;
-      blocks.push({
-        title: math.label ?? 'math',
-        text: math.text,
-        locator: lineLocator(
-          currentTarget,
-          [math.label ?? 'math'],
-          index,
-          math.endLine,
-          lineStarts,
-          byteLength,
-        ),
-      });
-      currentTarget = null;
-      index = math.endLine + 1;
-      continue;
-    }
-    if (TABLE_ROW.test(line)) {
-      const table = readTable(lines, index, endLine);
-      blocks.push({
-        title: 'table',
-        text: table.lines.join('\n'),
-        locator: lineLocator(
-          currentTarget,
-          ['table'],
-          index,
-          table.endLine,
-          lineStarts,
-          byteLength,
-        ),
-      });
-      currentTarget = null;
-      index = table.endLine + 1;
-      continue;
-    }
-    if (line.startsWith(':::')) {
-      const skipped = skipColonFence(lines, index, endLine);
-      if (skipped === null) return null;
-      gaps.push({
-        kind: 'unknown-directive',
-        locator: lineLocator(
-          currentTarget,
-          [],
-          index,
-          skipped,
-          lineStarts,
-          byteLength,
-        ),
-        detail: `Unsupported colon fence at line ${index}.`,
-      });
-      currentTarget = null;
-      index = skipped + 1;
-      continue;
-    }
-    const paragraph = readParagraph(lines, index, endLine);
-    if (INTERPOLATION.test(paragraph.text)) {
-      gaps.push({
-        kind: 'interpolation',
-        locator: lineLocator(
-          currentTarget,
-          [],
-          index,
-          paragraph.endLine,
-          lineStarts,
-          byteLength,
-        ),
-        detail: `Interpolation at lines ${index}-${paragraph.endLine} was not executed.`,
-      });
-    } else {
-      blocks.push({
-        title: currentTarget ?? 'paragraph',
-        text: paragraph.text,
-        locator: lineLocator(
-          currentTarget,
-          [currentTarget ?? 'paragraph'],
-          index,
-          paragraph.endLine,
-          lineStarts,
-          byteLength,
-        ),
-      });
-    }
-    currentTarget = null;
-    index = paragraph.endLine + 1;
+    const advanced = advanceMystBlock(context, index, currentTarget);
+    if (advanced === null) return null;
+    index = advanced.index;
+    currentTarget = advanced.currentTarget;
   }
-  return { blocks, gaps };
+  return { blocks: context.blocks, gaps: context.gaps };
+}
+
+function advanceMystBlock(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+): ScanAdvance | null {
+  const line = context.lines[index - 1] ?? '';
+  if (line.trim() === '') {
+    return { index: index + 1, currentTarget };
+  }
+  const target = TARGET.exec(line);
+  if (target?.[1] !== undefined) {
+    return { index: index + 1, currentTarget: target[1] };
+  }
+  const heading = parseHeading(line);
+  if (heading !== null) {
+    appendLocatedBlock(
+      context,
+      currentTarget,
+      heading.title,
+      line,
+      index,
+      index,
+    );
+    return { index: index + 1, currentTarget: null };
+  }
+  const fence = parseFenceOpen(line);
+  if (fence !== null) {
+    return advanceFence(context, index, currentTarget, fence);
+  }
+  if (line.startsWith('$$') && line.trim() === '$$') {
+    return advanceDollarMath(context, index, currentTarget);
+  }
+  if (isTableRow(line)) {
+    return advanceTable(context, index, currentTarget);
+  }
+  if (line.startsWith(':::')) {
+    return advanceColonFence(context, index, currentTarget);
+  }
+  return advanceParagraph(context, index, currentTarget);
+}
+
+function advanceFence(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+  fence: { marker: string; info: string },
+): ScanAdvance | null {
+  const closed = readFence(
+    context.lines,
+    index,
+    context.endLine,
+    fence.marker,
+    fence.info,
+  );
+  if (closed === null) return null;
+  handleFence(
+    closed,
+    currentTarget,
+    context.lineStarts,
+    context.byteLength,
+    context.blocks,
+    context.gaps,
+  );
+  return { index: closed.endLine + 1, currentTarget: null };
+}
+
+function advanceDollarMath(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+): ScanAdvance | null {
+  const math = readDollarMath(context.lines, index, context.endLine);
+  if (math === null) return null;
+  appendLocatedBlock(
+    context,
+    currentTarget,
+    math.label ?? 'math',
+    math.text,
+    index,
+    math.endLine,
+  );
+  return { index: math.endLine + 1, currentTarget: null };
+}
+
+function advanceTable(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+): ScanAdvance {
+  const table = readTable(context.lines, index, context.endLine);
+  appendLocatedBlock(
+    context,
+    currentTarget,
+    'table',
+    table.lines.join('\n'),
+    index,
+    table.endLine,
+  );
+  return { index: table.endLine + 1, currentTarget: null };
+}
+
+function advanceColonFence(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+): ScanAdvance | null {
+  const skipped = skipColonFence(context.lines, index, context.endLine);
+  if (skipped === null) return null;
+  context.gaps.push({
+    kind: 'unknown-directive',
+    locator: lineLocator(
+      currentTarget,
+      [],
+      index,
+      skipped,
+      context.lineStarts,
+      context.byteLength,
+    ),
+    detail: `Unsupported colon fence at line ${index}.`,
+  });
+  return { index: skipped + 1, currentTarget: null };
+}
+
+function advanceParagraph(
+  context: MystScanContext,
+  index: number,
+  currentTarget: string | null,
+): ScanAdvance {
+  const paragraph = readParagraph(context.lines, index, context.endLine);
+  if (INTERPOLATION.test(paragraph.text)) {
+    context.gaps.push({
+      kind: 'interpolation',
+      locator: lineLocator(
+        currentTarget,
+        [],
+        index,
+        paragraph.endLine,
+        context.lineStarts,
+        context.byteLength,
+      ),
+      detail: `Interpolation at lines ${index}-${paragraph.endLine} was not executed.`,
+    });
+  } else {
+    appendLocatedBlock(
+      context,
+      currentTarget,
+      currentTarget ?? 'paragraph',
+      paragraph.text,
+      index,
+      paragraph.endLine,
+    );
+  }
+  return { index: paragraph.endLine + 1, currentTarget: null };
+}
+
+function appendLocatedBlock(
+  context: MystScanContext,
+  currentTarget: string | null,
+  title: string,
+  text: string,
+  startLine: number,
+  endLine: number,
+): void {
+  context.blocks.push({
+    title,
+    text,
+    locator: lineLocator(
+      currentTarget,
+      [title],
+      startLine,
+      endLine,
+      context.lineStarts,
+      context.byteLength,
+    ),
+  });
+}
+
+function isJsLineTerminator(char: string): boolean {
+  return (
+    char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
+  );
+}
+
+function isUnicodeRegexWhitespace(char: string): boolean {
+  return /^\s$/u.test(char);
+}
+
+function stripOneTrailingLineTerminatorSequence(text: string): string {
+  if (text.endsWith('\r\n')) return text.slice(0, -2);
+  const last = text.at(-1);
+  if (last !== undefined && isJsLineTerminator(last)) return text.slice(0, -1);
+  return text;
+}
+
+function matchDotStarDollar(text: string): string | null {
+  const body = stripOneTrailingLineTerminatorSequence(text);
+  for (let index = 0; index < body.length; index += 1) {
+    if (isJsLineTerminator(body[index] ?? '')) return null;
+  }
+  return body;
+}
+
+function matchDotPlusDollar(text: string): string | null {
+  const matched = matchDotStarDollar(text);
+  if (matched === null || matched.length === 0) return null;
+  return matched;
+}
+
+function parseFenceOpen(line: string): { marker: string; info: string } | null {
+  let count = 0;
+  while (count < line.length && (line[count] === '`' || line[count] === '~')) {
+    count += 1;
+  }
+  if (count < 3) return null;
+  const info = matchDotStarDollar(line.slice(count));
+  if (info === null) return null;
+  return { marker: line.slice(0, count), info };
+}
+
+function parseHeading(line: string): { title: string } | null {
+  let index = 0;
+  while (index < line.length && index < 6 && line[index] === '#') {
+    index += 1;
+  }
+  if (index === 0) return null;
+  if (index >= line.length || !isUnicodeRegexWhitespace(line[index] ?? '')) {
+    return null;
+  }
+  while (index < line.length && isUnicodeRegexWhitespace(line[index] ?? '')) {
+    index += 1;
+  }
+  const body = matchDotPlusDollar(line.slice(index));
+  if (body === null) return null;
+  return { title: body.trim() };
+}
+
+function isTableRow(line: string): boolean {
+  const content = stripOneTrailingLineTerminatorSequence(line);
+  let index = 0;
+  while (
+    index < content.length &&
+    isUnicodeRegexWhitespace(content[index] ?? '')
+  ) {
+    index += 1;
+  }
+  if (content[index] !== '|') return false;
+  const rest = content.slice(index + 1);
+  for (let cursor = 0; cursor < rest.length; cursor += 1) {
+    if (isJsLineTerminator(rest[cursor] ?? '')) return false;
+  }
+  return rest.includes('|');
+}
+
+function parseFootnoteDef(line: string): { id: string; text: string } | null {
+  if (!line.startsWith('[^')) return null;
+  const close = line.indexOf(']:', 2);
+  if (close < 3) return null;
+  const id = line.slice(2, close);
+  if (id.length === 0 || id.includes(']')) return null;
+  let index = close + 2;
+  while (index < line.length && isUnicodeRegexWhitespace(line[index] ?? '')) {
+    index += 1;
+  }
+  const text = matchDotStarDollar(line.slice(index));
+  if (text === null) return null;
+  return { id, text };
 }
 
 function handleFence(
@@ -302,7 +471,7 @@ function handleFence(
   currentTarget: string | null,
   lineStarts: readonly number[],
   byteLength: number,
-  blocks: { title: string; text: string; locator: SourceLocator }[],
+  blocks: MystBlock[],
   gaps: ExtractionGap[],
 ): void {
   const locator = lineLocator(
@@ -411,7 +580,7 @@ function readTable(
 ): { lines: string[]; endLine: number } {
   const rows: string[] = [];
   let index = startLine;
-  while (index <= limit && TABLE_ROW.test(lines[index - 1] ?? '')) {
+  while (index <= limit && isTableRow(lines[index - 1] ?? '')) {
     rows.push(lines[index - 1] ?? '');
     index += 1;
   }
@@ -428,8 +597,13 @@ function readParagraph(
   while (index <= limit) {
     const line = lines[index - 1] ?? '';
     if (line.trim() === '') break;
-    if (FENCE_OPEN.test(line) || HEADING.test(line) || line.startsWith('$$'))
+    if (
+      parseFenceOpen(line) !== null ||
+      parseHeading(line) !== null ||
+      line.startsWith('$$')
+    ) {
       break;
+    }
     rows.push(line);
     index += 1;
   }

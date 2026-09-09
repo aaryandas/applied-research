@@ -26,6 +26,12 @@ describe('university UTF-8 helpers', () => {
     expect(lineRangeBytes([0], 1, 0, 4)).toBeNull();
     expect(lineRangeBytes([0], 2, 2, 4)).toBeNull();
     expect(utf16LineStarts('ab\ncd')).toEqual([0, 3]);
+    expect(utf16LineStarts('😀\nab')).toEqual([0, 3]);
+    expect(utf16LineStarts('a😀\nb')).toEqual([0, 4]);
+    expect(lineRangeBytes([0, 0], 1, 1, 4)).toEqual({
+      startByte: 0,
+      endByte: 0,
+    });
   });
 
   it('protects UTF-16 surrogate boundaries', () => {

@@ -35,13 +35,13 @@ export function lineRangeBytes(
   const startByte = lineStarts[startLine - 1];
   if (startByte === undefined) return null;
   const afterEnd = lineStarts[endLine];
-  return { startByte, endByte: afterEnd === undefined ? byteLength : afterEnd };
+  return { startByte, endByte: afterEnd ?? byteLength };
 }
 
 export function utf16LineStarts(text: string): readonly number[] {
   const starts: number[] = [0];
   for (let index = 0; index < text.length; index += 1) {
-    if (text.charCodeAt(index) === 10) starts.push(index + 1);
+    if (text[index] === '\n') starts.push(index + 1);
   }
   return starts;
 }

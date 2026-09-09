@@ -181,4 +181,21 @@ Ignored directive
       expect.arrayContaining(['unresolved-crossref', 'unknown-directive']),
     );
   });
+
+  it('parses CRLF lines without regex backtracking and keeps locators on LF splits', () => {
+    const source =
+      '# Heading\r\n\r\n```python\r\nprint(1)\r\n```\r\n\r\n| A | B |\r\n| - | - |\r\n| 1 | 2 |\r\n\r\nSee [^1].\r\n\r\n[^1]: Note\r\n';
+    const extracted = extractMystMarkdown(bytesOf(source), {
+      slice: null,
+      includeFootnotes: ['1'],
+    });
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.text).toContain('# Heading');
+    expect(extracted.document.text).toContain('print(1)');
+    expect(extracted.document.text).toContain('| A | B |');
+    expect(extracted.document.text).toContain('[^1]: Note');
+    expect(extracted.document.locators[0]?.sourceStartLine).toBe(1);
+    expect(extracted.document.locators[0]?.sourceStartByte).toBe(0);
+  });
 });
