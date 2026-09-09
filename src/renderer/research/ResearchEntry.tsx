@@ -6,6 +6,7 @@ import {
   type ReactElement,
 } from 'react';
 import {
+  SOURCE_KINDS,
   SOURCING_API_VERSION,
   SOURCING_LIMITS,
   SOURCING_PUBLIC_MESSAGES,
@@ -28,6 +29,9 @@ import {
 } from './research-presentation';
 
 type SavedResult = Extract<ResearchAdoptionResult, { outcome: 'saved' }>;
+const OPENING_MESSAGE = 'Opening the saved version in Reader…';
+const SAVED_REFERENCE_HINT =
+  'Open it from Saved references when you are ready.';
 interface SavedReference {
   result: SavedResult;
   operation: Omit<ResearchOperation, 'signal'>;
@@ -144,7 +148,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
           requestId,
           intent: 'research',
           query,
-          kinds: ['paper', 'textbook', 'course', 'chapter', 'lecture'],
+          kinds: [...SOURCE_KINDS],
           limit: 20,
         },
         { ...operation, signal: controller.signal },
@@ -196,7 +200,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
     if (openingRef.current) return;
     openingRef.current = true;
     setOpening(true);
-    setMessage('Opening the saved version in Reader…');
+    setMessage(OPENING_MESSAGE);
     const { result, operation } = reference;
     try {
       const outcome = await props.onOpenReader({
@@ -205,7 +209,6 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
         origin: operation.context.origin,
       });
       const messages = {
-        opened: '',
         blocked:
           'Save your current work before opening Reader. Your reference is saved.',
         'missing-source':
@@ -213,7 +216,11 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
         'stale-project':
           'This project changed. Search again in the current project.',
       };
-      setMessage(messages[outcome]);
+      // A source saved while this open was in flight has already replaced the
+      // opening notice with where to find it; keep that.
+      if (outcome === 'opened')
+        setMessage((current) => (current === OPENING_MESSAGE ? '' : current));
+      else setMessage(messages[outcome]);
     } catch {
       setMessage(
         'Reader could not open this version. Your reference is saved; try again.',
@@ -235,11 +242,16 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
       ),
       reference,
     ]);
-    if (open) await openReference(reference);
-    else
-      setMessage(
-        'This source was saved before the cancellation took effect. Open it from Saved references when you are ready.',
-      );
+    if (open && !openingRef.current) return openReference(reference);
+    // Reader navigation is serialized while the shell flushes drafts; a second
+    // saved source is recorded and the learner is told where it is.
+    setMessage(
+      `${
+        open
+          ? 'This source was saved while Reader was opening another version.'
+          : 'This source was saved before the cancellation took effect.'
+      } ${SAVED_REFERENCE_HINT}`,
+    );
   }
   return (
     <section className="research-entry" aria-label="Research">
@@ -264,14 +276,25 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
             onChange={(event) => setQuestion(event.target.value)}
           />
         </label>
-        <button type="submit" disabled={searching || !question.trim()}>
-          {searching ? 'Finding sources…' : 'Find sources'}
-        </button>
-        {searching && (
-          <button type="button" onClick={cancelSearch}>
-            Cancel search
+        <div className="research-actions">
+          <button
+            type="submit"
+            className="primary"
+            disabled={!question.trim()}
+            aria-disabled={searching}
+          >
+            {searching ? 'Finding sources…' : 'Find sources'}
           </button>
-        )}
+          {searching && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={cancelSearch}
+            >
+              Cancel search
+            </button>
+          )}
+        </div>
       </form>
       <p role="status">{searching ? 'Finding sources…' : message}</p>
       {noResults && <p>Try a broader question or different terms.</p>}
@@ -316,7 +339,8 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
                 </dl>
               </details>
               <button
-                disabled={opening}
+                className="secondary"
+                aria-disabled={opening}
                 onClick={() => void openReference(reference)}
               >
                 Open in Reader
@@ -330,6 +354,10 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
           <h2 tabIndex={-1} ref={resultsHeading}>
             Search results
           </h2>
+          <p className="research-muted">
+            Provider metadata matches for “{results.operation.question}”.
+            Relevance has not been verified.
+          </p>
           {results.sources.map((source) => (
             <ResearchSource
               key={source.sourceId}

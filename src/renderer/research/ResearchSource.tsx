@@ -1,7 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import { useRef, useState, type ReactElement } from 'react';
 import {
   SOURCING_API_VERSION,
-  SOURCING_PUBLIC_MESSAGES,
   type MetadataOnlySource,
 } from '../../contracts/sourcing';
 import type {
@@ -11,8 +10,10 @@ import type {
   ResearchLinkTarget,
 } from './research-contract';
 import {
+  AVAILABILITY_LABELS,
   acquiredVersion,
   canAcquire,
+  isAbstract,
   providerName,
   researchMessage,
   sourceAvailability,
@@ -58,10 +59,6 @@ export function ResearchSource({
   const message = acquisitionMessage || linkMessage;
   const acquisitionAllowed = canAcquire(source) && !permissionDenied && !saved;
   const acquireButton = useRef<HTMLButtonElement>(null);
-  useLayoutEffect(() => {
-    if (!acquiring && message === SOURCING_PUBLIC_MESSAGES.cancelled)
-      acquireButton.current?.focus();
-  }, [acquiring, message]);
   const pending = useRef<AbortController | null>(null);
   const providerIdentity = source.providerIds[0];
   async function acquire(): Promise<void> {
@@ -122,18 +119,27 @@ export function ResearchSource({
   function cancelAcquisition(): void {
     pending.current = null;
     onCancelAcquisition();
+    // The learner cancelled, so return focus here; a shell-side `cancelled`
+    // outcome for a request they did not cancel must not steal focus.
+    acquireButton.current?.focus();
   }
   async function openOriginal(target: ResearchLinkTarget): Promise<void> {
     try {
-      if ((await callbacks.onOpenOriginal(target)) === 'unavailable')
-        setLinkMessage('The original link is unavailable.');
+      setLinkMessage(
+        (await callbacks.onOpenOriginal(target)) === 'opened'
+          ? ''
+          : 'The original link is unavailable.',
+      );
     } catch {
       setLinkMessage('The original link is unavailable.');
     }
   }
-  const isAbstract = source.providerIds.some(
-    (id) => id.provider === 'openalex',
-  );
+  const abstract = isAbstract(source);
+  const availability = sourceAvailability(source, {
+    saved: saved !== undefined,
+    acquiring,
+    permissionDenied,
+  });
   return (
     <article className="research-source">
       <h3>{source.title}</h3>
@@ -174,19 +180,12 @@ export function ResearchSource({
         </div>
       </dl>
       <p className="research-availability">
-        {saved ? 'Acquired' : sourceAvailability(source)}
-      </p>
-      <p className="research-relevance">
-        Returned by{' '}
-        {source.providerIds.map((id) => providerName(id.provider)).join(', ') ||
-          'the source catalog'}{' '}
-        for “{operation.question}”. Metadata match; relevance has not been
-        verified.
+        {AVAILABILITY_LABELS[availability]}
       </p>
       {source.metadataSummary && (
         <details>
           <summary>
-            {isAbstract ? 'Read abstract' : 'Read provider metadata'}
+            {abstract ? 'Read abstract' : 'Read provider metadata'}
           </summary>
           <p className="research-abstract">{source.metadataSummary}</p>
           <p>
@@ -242,6 +241,7 @@ export function ResearchSource({
                   </p>
                   {parentIdentity && (
                     <button
+                      className="text-button"
                       onClick={() =>
                         void openOriginal({
                           projectId: operation.context.projectId,
@@ -261,24 +261,32 @@ export function ResearchSource({
       )}
       <div className="research-actions">
         {saved && (
-          <button disabled={opening} onClick={() => void onOpenSaved()}>
+          <button
+            className="secondary"
+            aria-disabled={opening}
+            onClick={() => void onOpenSaved()}
+          >
             Open saved version
           </button>
         )}
         {acquisitionAllowed && (
           <button
             ref={acquireButton}
-            disabled={acquiring}
+            className="secondary"
+            aria-disabled={acquiring}
             onClick={() => void acquire()}
           >
             {acquiring ? 'Acquiring and saving…' : 'Acquire & read'}
           </button>
         )}
         {acquiring && (
-          <button onClick={cancelAcquisition}>Cancel acquisition</button>
+          <button className="text-button" onClick={cancelAcquisition}>
+            Cancel acquisition
+          </button>
         )}
         {providerIdentity && (
           <button
+            className="text-button"
             onClick={() =>
               void openOriginal({
                 projectId: operation.context.projectId,

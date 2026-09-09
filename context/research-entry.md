@@ -43,7 +43,9 @@ The frozen discovery result has no verified relevance explanation. Display the
 actual provider/query match, explicitly unverified, without inventing scientific
 support or using retrieval rank/citation counts as correctness. Only OpenAlex's
 metadata summary currently has an adapter guarantee that it is an abstract;
-other summaries must remain labeled provider metadata. Discovery time is separate
+other summaries must remain labeled provider metadata. The renderer applies the
+abstract label only when OpenAlex is the sole provider identity, since a merged
+multi-provider record does not say which provider supplied the summary. Discovery time is separate
 from publication date. Catalog records have no acquired version or note action.
 
 ## Delivery and acceptance boundary

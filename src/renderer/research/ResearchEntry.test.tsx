@@ -10,7 +10,7 @@ import { expect, it, vi } from 'vitest';
 import type { MetadataOnlySource } from '../../contracts/sourcing';
 import { ResearchEntry } from './ResearchEntry';
 import type { ResearchEntryProps } from './research-contract';
-import { researchMessage } from './research-presentation';
+import { researchMessage, sourceAvailability } from './research-presentation';
 
 const paper: MetadataOnlySource = {
   sourceId: 'openalex_W123',
@@ -71,8 +71,9 @@ it('finds papers for a question with provenance and honest catalog-only actions'
   expect(screen.getByText('2024-01-12')).toBeVisible();
   expect(screen.getByText('Catalog only')).toBeVisible();
   expect(screen.getByText(/Version not acquired/)).toBeVisible();
-  expect(screen.getByText(/Returned by OpenAlex for/)).toHaveTextContent(
-    'Does retrieval practice help learning?',
+  expect(screen.getByText('paper · OpenAlex')).toBeVisible();
+  expect(screen.getByText(/Provider metadata matches for/)).toHaveTextContent(
+    'Provider metadata matches for “Does retrieval practice help learning?”. Relevance has not been verified.',
   );
   expect(
     screen.queryByRole('button', { name: /Reader|Acquire|Note|Summary/ }),
@@ -142,6 +143,7 @@ it('acquires and saves before opening the exact local revision with its question
     await screen.findByRole('button', { name: 'Acquire & read' }),
   );
   expect(screen.getByText('Acquiring and saving…')).toBeVisible();
+  expect(screen.getByText('Acquiring…')).toBeVisible();
   expect(callbacks.onOpenReader).not.toHaveBeenCalled();
   const request = vi.mocked(callbacks.onAcquireAndSave).mock.calls[0]![0];
   await act(async () => finish(savedResult(request.requestId)));
@@ -428,11 +430,148 @@ it('turns a denied acquisition into an honest link-only outcome', async () => {
   expect(
     screen.queryByRole('button', { name: 'Acquire & read' }),
   ).not.toBeInTheDocument();
+  expect(screen.getByText('Not permitted')).toBeVisible();
   expect(screen.getByText(/Link only/)).toBeVisible();
   expect(callbacks.onOpenReader).not.toHaveBeenCalled();
   expect(
     screen.getByRole('button', { name: 'Open original link' }),
   ).toBeEnabled();
+});
+
+it.each([
+  {
+    label: 'a permitted readable link',
+    source: readablePaper(),
+    expected: 'readable',
+  },
+  {
+    label: 'a readable link whose acquisition is forbidden',
+    source: { ...readablePaper(), usePolicy: paper.usePolicy },
+    expected: 'abstract',
+  },
+  {
+    label: 'a summary merged from several providers',
+    source: {
+      ...readablePaper(),
+      acquisitionLocation: null,
+      providerIds: [
+        { provider: 'openalex', id: 'W123' },
+        { provider: 'curated-catalog', id: 'catalog-1' },
+      ],
+    },
+    expected: 'catalog',
+  },
+  { label: 'a catalog record', source: paper, expected: 'catalog' },
+] satisfies { label: string; source: MetadataOnlySource; expected: string }[])(
+  'derives the state line for $label from policy and provenance, not location alone',
+  ({ source, expected }) => {
+    expect(
+      sourceAvailability(source, {
+        saved: false,
+        acquiring: false,
+        permissionDenied: false,
+      }),
+    ).toBe(expected);
+  },
+);
+
+it('keeps focus where the learner left it when the shell cancels a request they did not cancel', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'A learning question';
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'success',
+      requestId: request.requestId,
+      candidates: [readablePaper()],
+    }),
+  );
+  let finish: (
+    result: Awaited<ReturnType<ResearchEntryProps['onAcquireAndSave']>>,
+  ) => void = () => {};
+  callbacks.onAcquireAndSave = vi.fn<ResearchEntryProps['onAcquireAndSave']>(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Acquire & read' }),
+  );
+  const request = vi.mocked(callbacks.onAcquireAndSave).mock.calls[0]![0];
+  const question = screen.getByRole('textbox', { name: 'Research question' });
+  act(() => question.focus());
+  await act(async () =>
+    finish({
+      outcome: 'cancelled',
+      requestId: request.requestId,
+      message: 'The sourcing request was cancelled.',
+    }),
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'The sourcing request was cancelled.',
+  );
+  expect(question).toHaveFocus();
+});
+
+it('records a source saved while Reader is opening another version and says where to find it', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'Question';
+  const second: MetadataOnlySource = {
+    ...readablePaper(),
+    sourceId: 'openalex_W124',
+    title: 'A second readable paper',
+    providerIds: [{ provider: 'openalex', id: 'W124' }],
+  };
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'success',
+      requestId: request.requestId,
+      candidates: [readablePaper(), second],
+    }),
+  );
+  callbacks.onAcquireAndSave = vi.fn<ResearchEntryProps['onAcquireAndSave']>(
+    async (request) => {
+      const result = savedResult(request.requestId);
+      result.source.sourceId = request.sourceId;
+      result.source.content.revision.sourceId = request.sourceId;
+      result.saved.revisionId = `local-${request.sourceId}`;
+      return result;
+    },
+  );
+  let finishOpen: (outcome: 'opened') => void = () => {};
+  callbacks.onOpenReader = vi.fn<ResearchEntryProps['onOpenReader']>(
+    () =>
+      new Promise((resolve) => {
+        finishOpen = resolve;
+      }),
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  const [first, next] = await screen.findAllByRole('button', {
+    name: 'Acquire & read',
+  });
+  fireEvent.click(first!);
+  await waitFor(() =>
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Opening the saved version in Reader…',
+    ),
+  );
+  fireEvent.click(next!);
+  await waitFor(() =>
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This source was saved while Reader was opening another version. Open it from Saved references when you are ready.',
+    ),
+  );
+  expect(callbacks.onOpenReader).toHaveBeenCalledTimes(1);
+  await act(async () => finishOpen('opened'));
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Open it from Saved references',
+  );
+  const references = screen.getByRole('region', { name: 'Saved references' });
+  expect(references).toHaveTextContent('local-openalex_W123');
+  expect(references).toHaveTextContent('local-openalex_W124');
 });
 
 it('keeps an in-flight save after a refined search and still opens the committed version', async () => {
@@ -472,7 +611,7 @@ it('keeps an in-flight save after a refined search and still opens the committed
   await waitFor(() => expect(callbacks.onDiscover).toHaveBeenCalledTimes(2));
   expect(
     screen.getByRole('button', { name: 'Acquiring and saving…' }),
-  ).toBeDisabled();
+  ).toHaveAttribute('aria-disabled', 'true');
   expect(
     screen.getByRole('button', { name: 'Cancel acquisition' }),
   ).toBeVisible();
@@ -975,6 +1114,11 @@ it.each(['unavailable', 'throw'] as const)(
     );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The original link is unavailable.',
+    );
+    vi.mocked(callbacks.onOpenOriginal).mockResolvedValue('opened');
+    fireEvent.click(screen.getByRole('button', { name: 'Open original link' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument(),
     );
   },
 );

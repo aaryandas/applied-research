@@ -45,7 +45,6 @@
 .research-entry label {
   display: grid;
   gap: 8px;
-  margin-bottom: 12px;
 }
 .research-entry textarea {
   box-sizing: border-box;
@@ -61,30 +60,7 @@
   font-optical-sizing: auto;
   caret-color: var(--accent);
 }
-.research-entry button {
-  min-height: 40px;
-  padding: 9px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-  cursor: pointer;
-  transition:
-    color var(--duration-press) ease,
-    background-color var(--duration-press) ease;
-}
-.research-entry button[type='submit'] {
-  color: var(--paper);
-  background: var(--ink);
-  border-color: transparent;
-  margin-right: 8px;
-}
-.research-entry button:hover:enabled {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.research-entry button:disabled {
+.research-entry button[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -130,9 +106,6 @@
 .research-availability {
   color: var(--accent);
   font-weight: 600;
-}
-.research-relevance {
-  max-width: 68ch;
 }
 .research-entry details {
   margin-block: 12px;

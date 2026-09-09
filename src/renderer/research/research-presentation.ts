@@ -26,15 +26,50 @@ export function canAcquire(source: MetadataOnlySource): boolean {
   );
 }
 
-export function sourceAvailability(source: MetadataOnlySource): string {
-  if (source.usePolicy.access === 'unavailable') return 'Unavailable';
-  if (source.acquisitionLocation) return 'Readable link';
-  if (
-    source.metadataSummary &&
-    source.providerIds.some((id) => id.provider === 'openalex')
-  )
-    return 'Abstract available';
-  return 'Catalog only';
+/**
+ * Only OpenAlex's summary has an adapter guarantee that it is an abstract, and
+ * only when it is the sole provider identity: a merged record carries no such
+ * guarantee for whichever provider supplied the text.
+ */
+export function isAbstract(source: MetadataOnlySource): boolean {
+  return (
+    source.metadataSummary !== null &&
+    source.providerIds.length === 1 &&
+    source.providerIds[0]?.provider === 'openalex'
+  );
+}
+
+export type SourceAvailability =
+  | 'acquired'
+  | 'acquiring'
+  | 'not-permitted'
+  | 'unavailable'
+  | 'readable'
+  | 'abstract'
+  | 'catalog';
+
+export const AVAILABILITY_LABELS: Record<SourceAvailability, string> = {
+  acquired: 'Acquired',
+  acquiring: 'Acquiring…',
+  'not-permitted': 'Not permitted',
+  unavailable: 'Unavailable',
+  readable: 'Readable link',
+  abstract: 'Abstract available',
+  catalog: 'Catalog only',
+};
+
+/** One derivation for the state line, so it never disagrees with the actions. */
+export function sourceAvailability(
+  source: MetadataOnlySource,
+  state: { saved: boolean; acquiring: boolean; permissionDenied: boolean },
+): SourceAvailability {
+  if (state.saved) return 'acquired';
+  if (state.acquiring) return 'acquiring';
+  if (state.permissionDenied) return 'not-permitted';
+  if (source.usePolicy.access === 'unavailable') return 'unavailable';
+  if (canAcquire(source)) return 'readable';
+  if (isAbstract(source)) return 'abstract';
+  return 'catalog';
 }
 
 /** Learner-facing version line; the revision id stays in the provenance disclosure. */

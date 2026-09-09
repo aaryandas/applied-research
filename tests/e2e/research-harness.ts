@@ -4,9 +4,23 @@ import type { MetadataOnlySource } from '../../src/contracts/sourcing';
 import type { ResearchEntryProps } from '../../src/renderer/research/research-contract';
 import '../../src/renderer/styles.css';
 
+// This harness is type-checked by tsconfig.node.json (tests/e2e/**), which has
+// no JSX support, while the component lives in the tsconfig.web.json graph. A
+// static import would pull the TSX into the node project, so the component is
+// loaded by URL from the fixture's Vite server and its shape is checked at
+// runtime instead of by the compiler.
 const componentUrl = '/src/renderer/research/ResearchEntry.tsx';
-const { ResearchEntry }: { ResearchEntry: ComponentType<ResearchEntryProps> } =
-  await import(/* @vite-ignore */ componentUrl);
+const loaded: unknown = await import(/* @vite-ignore */ componentUrl);
+if (
+  typeof loaded !== 'object' ||
+  loaded === null ||
+  !('ResearchEntry' in loaded) ||
+  typeof loaded.ResearchEntry !== 'function'
+)
+  throw new Error(
+    'The research fixture did not load a ResearchEntry component.',
+  );
+const ResearchEntry = loaded.ResearchEntry as ComponentType<ResearchEntryProps>;
 
 const paper: MetadataOnlySource = {
   sourceId: 'openalex_W123',
