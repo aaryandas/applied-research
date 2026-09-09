@@ -37,9 +37,7 @@ it('composes a caller class with its own rather than replacing them', () => {
       Loading
     </StatusRegion>,
   );
-  expect(screen.getByRole('status')).toHaveClass(
-    'ui-status',
-    'ui-busy',
-    'reader-status',
-  );
+  const region = screen.getByRole('status');
+  expect(region).toHaveClass('ui-busy', 'reader-status');
+  expect(region).not.toHaveClass('ui-status');
 });

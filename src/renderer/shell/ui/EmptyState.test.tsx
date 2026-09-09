@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { EmptyState } from './EmptyState';
+import { StatusRegion } from './StatusRegion';
 
 it('names the region with its title', () => {
   render(<EmptyState title="No experiments yet" />);
@@ -46,6 +47,20 @@ it('is not a live region — StatusRegion owns the stable mount announcements ne
   render(<EmptyState title="No matches" />);
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.getByRole('group')).not.toHaveAttribute('aria-live');
+});
+
+it('keeps its own layout when announced through StatusRegion', () => {
+  render(
+    <StatusRegion busy>
+      <EmptyState title="No matches" />
+    </StatusRegion>,
+  );
+  const region = screen.getByRole('status');
+  expect(region).not.toHaveClass('ui-status');
+  expect(region).toHaveClass('ui-busy');
+  expect(screen.getByRole('group', { name: 'No matches' })).toHaveClass(
+    'ui-empty-state',
+  );
 });
 
 it('keeps the caller class alongside its own', () => {

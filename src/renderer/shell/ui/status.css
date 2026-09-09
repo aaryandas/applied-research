@@ -58,7 +58,7 @@
 }
 
 .ui-status--busy .ui-status__dot,
-.ui-busy[aria-busy='true'] {
+.ui-status.ui-busy[aria-busy='true'] {
   animation: ui-pulse calc(var(--duration-arrive) * 2) var(--ease-out) infinite;
 }
 
@@ -74,7 +74,7 @@
 /* tokens.css already zeroes --duration-* here; stop the animation outright as well. */
 @media (prefers-reduced-motion: reduce) {
   .ui-status--busy .ui-status__dot,
-  .ui-busy[aria-busy='true'] {
+  .ui-status.ui-busy[aria-busy='true'] {
     animation: none;
   }
 }

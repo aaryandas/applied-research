@@ -11,6 +11,9 @@ import type { ReactElement, ReactNode } from 'react';
  *
  * `tone` doubles as the ARIA role because the two tones are the two roles:
  * 'status' announces at the next pause, 'alert' interrupts.
+ *
+ * This is only the live-region mount. The dot+label indicator is `.ui-status`
+ * and is opt-in via `className`, so a nested `EmptyState` keeps its own layout.
  */
 export function StatusRegion({
   children,
@@ -28,9 +31,7 @@ export function StatusRegion({
       role={tone}
       aria-live={tone === 'alert' ? 'assertive' : 'polite'}
       aria-busy={busy}
-      className={['ui-status', busy ? 'ui-busy' : null, className]
-        .filter(Boolean)
-        .join(' ')}
+      className={[busy ? 'ui-busy' : null, className].filter(Boolean).join(' ')}
     >
       {children}
     </div>
