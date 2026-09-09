@@ -115,10 +115,15 @@ test('video N/A is permitted only for exclusively delivery workflow files', () =
     verificationPassed(issue, sha, [
       '.github/workflows/ci.yml',
       'scripts/dispatch-plan.mjs',
+      '.gitignore',
     ]),
     true,
   );
   assert.equal(verificationPassed(issue, sha, ['src/main/index.ts']), false);
+  assert.equal(
+    verificationPassed(issue, sha, ['.gitignore', 'src/main/index.ts']),
+    false,
+  );
   assert.equal(verificationPassed(issue, sha, []), false);
   assert.equal(verificationPassed(issue, sha, ['package.json']), false);
 });
