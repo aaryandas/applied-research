@@ -31,7 +31,7 @@ export function ReaderSidebar({
       aria-label="Project navigation"
     >
       <button
-        className="reader-brand"
+        className="reader-brand ui-list-row"
         aria-label="Applied Research home"
         title="Home"
         onClick={() => onNavigate('home')}
@@ -42,6 +42,7 @@ export function ReaderSidebar({
       <p className="reader-project">{workspace.project.goal}</p>
       <div className="reader-workspace-links">
         <button
+          className="ui-list-row"
           aria-label="Reading"
           title="Reading"
           aria-current={destination === 'reader' ? 'page' : undefined}
@@ -51,6 +52,7 @@ export function ReaderSidebar({
           <span>Reading</span>
         </button>
         <button
+          className="ui-list-row"
           aria-label="Canvas"
           title="Canvas"
           aria-current={destination === 'canvas' ? 'page' : undefined}
@@ -60,6 +62,7 @@ export function ReaderSidebar({
           <span>Canvas</span>
         </button>
         <button
+          className="ui-list-row"
           aria-label="Practical"
           title="Practical"
           aria-current={destination === 'practical' ? 'page' : undefined}
@@ -84,6 +87,7 @@ export function ReaderSidebar({
                 {topic.lessons.map((lesson) => (
                   <button
                     key={lesson.id}
+                    className="ui-list-row"
                     aria-current={
                       selectedLessonId === lesson.id ? 'page' : undefined
                     }
@@ -108,7 +112,7 @@ export function ReaderSidebar({
         ))}
       </div>
       <button
-        className="reader-find"
+        className="reader-find ui-list-row"
         aria-label="Find"
         title="Find"
         aria-current={destination === 'find' ? 'page' : undefined}
@@ -118,7 +122,7 @@ export function ReaderSidebar({
         <span>Find</span>
       </button>
       <button
-        className="reader-profile"
+        className="reader-profile ui-list-row"
         aria-label="Profile and settings"
         title="Settings"
         aria-current={destination === 'settings' ? 'page' : undefined}

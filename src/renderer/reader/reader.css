@@ -5,7 +5,23 @@
   color: var(--ink);
   font: 400 14px/1.5 var(--font-ui);
 }
-.reader-shell button {
+/* TEMPORARY COMPATIBILITY SHIM — for surfaces that have not adopted `.ui-button`,
+   `.ui-input`/`.ui-textarea` or `.ui-alert` yet.
+
+   Shell.tsx:144 puts `.reader-shell` on the whole desktop workspace, so these bare-element
+   rules reach every surface inside it. `:not([class])` stops them outranking `.primary`,
+   `.secondary`, `.text-button`, `.icon-button`, `.settings-button` and `.practical-button`
+   app-wide: a control that carries any class now falls back to the design its own
+   stylesheet declares, and only genuinely unstyled elements are still picked up here.
+
+   The block is self-retiring. When the last surface adopts the `.ui-*` primitives it matches
+   nothing and is deleted — and shell.css:144-145's two forced `!important` overrides, which
+   exist only to outrank it, go with it (AR-37).
+
+   `:where()` keeps the class exclusion at the original `.reader-shell button` specificity
+   so descendant-styled unclassed controls (`.shell-segmented [aria-pressed='true']`) still
+   win. A bare `:not([class])` is one attribute and outranks that pressed rule. */
+.reader-shell button:where(:not([class])) {
   color: inherit;
   background: transparent;
   border: 0;
@@ -14,23 +30,16 @@
   cursor: pointer;
   font: inherit;
 }
-.reader-shell button:hover {
+.reader-shell button:where(:not([class])):hover {
   background: var(--surface-subtle);
   color: var(--accent);
 }
-.reader-shell button:disabled,
-.reader-shell button[aria-disabled='true'] {
+.reader-shell button:where(:not([class])):disabled,
+.reader-shell button:where(:not([class]))[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.reader-shell
-  :is(button, input, textarea, select, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
-}
-.reader-shell input,
-.reader-shell textarea,
-.reader-shell select {
+.reader-shell :is(input, textarea, select):not([class]) {
   background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line-strong);
@@ -38,29 +47,24 @@
   padding: 10px 12px;
   min-width: 0;
   font: inherit;
-  caret-color: var(--accent);
+  caret-color: var(--human);
 }
-.reader-shell label {
+.reader-shell label:not([class]) {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-bottom: 16px;
 }
-.reader-shell textarea {
+.reader-shell textarea:not([class]) {
   min-height: 180px;
   resize: vertical;
   font: 400 18px/1.55 var(--font-reading);
   color: var(--human-ink);
 }
-.reader-shell h1,
-.reader-shell h2 {
+.reader-shell :is(h1, h2):not([class]) {
   font: 500 22px/1.3 var(--font-reading);
   font-optical-sizing: auto;
   margin: 0 0 20px;
-}
-.reader-shell ::selection {
-  background: var(--human-soft);
-  color: var(--ink);
 }
 .reader-sidebar {
   display: flex;
@@ -95,7 +99,7 @@
   gap: 4px;
   margin-bottom: 24px;
 }
-.reader-workspace-links button,
+.reader-workspace-links .ui-list-row,
 .reader-profile {
   display: flex;
   align-items: center;
@@ -119,11 +123,13 @@
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-.reader-outline button {
+/* `.ui-list-row` is a flex row; these lesson rows carry a `<small>` second line that has to
+   stay stacked under the label, so the block override is load-bearing, not leftover. */
+.reader-outline .ui-list-row {
   display: block;
   width: 100%;
   text-align: left;
-  padding-left: 24px;
+  padding-left: var(--space-6);
   overflow-wrap: anywhere;
 }
 .reader-outline small {
@@ -131,7 +137,12 @@
   color: var(--muted);
   margin-top: 4px;
 }
-.reader-shell [aria-current='page'] {
+/* Scoped to the sidebar, the only place in the renderer that sets aria-current. The accent
+   on the label is the existing current-page semantic; `.ui-list-row`'s selected treatment
+   puts it on `__lead`, which cannot exist here because shell.css:82-88 hides sidebar
+   `<span>`s in the collapsed rail. The shared selected rule is a class plus two attributes,
+   so this has to carry `.ui-list-row` and the same `:not` guard or it loses. */
+.reader-sidebar .ui-list-row[aria-current='page']:not([aria-current='false']) {
   background: var(--surface);
   color: var(--accent);
 }
@@ -143,6 +154,16 @@
   min-width: 0;
   overflow: auto;
   padding: 0 32px 60px;
+}
+/* Margins and heights stay with the surface (see status.css:5, empty-state.css:4).
+   The margin replaces the 16px the bare-label rule used to give every field; the floor
+   replaces the min-height the bare-textarea rule gave, since field.css takes a textarea's
+   height from its rows. */
+.reader-main .ui-field {
+  margin-bottom: var(--space-4);
+}
+.reader-main .ui-textarea {
+  min-height: 180px;
 }
 .reader-header {
   display: flex;
@@ -194,16 +215,6 @@
 .reader-panel-tabs [data-hovered] {
   color: var(--accent);
 }
-.reader-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .reader-prose,
 .reader-human,
 .reader-shell blockquote {
@@ -232,21 +243,29 @@
 .reader-muted {
   color: var(--muted);
 }
+/* Retained for `ReaderExplanations.tsx`, which is outside this lane and still the last
+   consumer of the class. Identical to `.ui-action-row`; it retires when that surface adopts
+   the primitive. Every `.reader-actions` inside `reader/` is already `.ui-action-row`. */
 .reader-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
-.reader-actions label {
+.reader-main .ui-action-row .ui-field {
   margin-bottom: 0;
 }
 .reader-entry {
   margin: 24px 0;
 }
-.reader-shell .reader-support {
+/* Self-contained: it no longer inherits the stack from the bare-label shim above. 13px and
+   6px are today's shipping values and the token scale has no 13px step. */
+.reader-support {
+  display: flex;
   flex-direction: row;
   align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 16px;
   font-size: 13px;
 }
 .reader-shell blockquote {
@@ -258,7 +277,7 @@
   color: var(--muted);
   font: 400 12px/1.5 var(--font-ui);
 }
-.reader-shell [role='alert'] {
+.reader-shell [role='alert']:not([class]) {
   color: var(--danger);
 }
 @media (max-width: 1100px) {
@@ -292,13 +311,6 @@
     flex-wrap: wrap;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .reader-shell * {
-    scroll-behavior: auto;
-    animation: none;
-    transition: none;
-  }
-}
 
 .reader-status:empty {
   margin: 0;
@@ -312,12 +324,14 @@
   color: var(--muted);
   font-size: 12px;
 }
-.reader-source-meta label {
+/* Real local semantic, not drift: `.ui-field` is a column stack, and this one field sits
+   inline in the meta bar beside the Update source button. */
+.reader-source-meta .ui-field {
   flex-direction: row;
   align-items: center;
 }
-.reader-source-meta select {
-  padding: 6px 8px;
+.reader-source-meta .ui-input {
+  padding: var(--space-1) var(--space-2);
 }
 .reader-selection-actions {
   position: sticky;

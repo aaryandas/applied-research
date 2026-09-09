@@ -56,10 +56,11 @@ export function SourcePane({
   return (
     <>
       <h2>{version.title}</h2>
-      <div className="reader-actions reader-source-meta">
-        <label>
-          <span>Source version</span>
+      <div className="ui-action-row reader-source-meta">
+        <label className="ui-field">
+          <span className="ui-field__label">Source version</span>
           <select
+            className="ui-input"
             value={version.revisionId}
             onChange={(event) => {
               const next = source?.versions.find(
@@ -79,6 +80,7 @@ export function SourcePane({
           </select>
         </label>
         <button
+          className="ui-button ui-button--small"
           disabled={!source}
           onClick={() => {
             if (source) onUpdate(source);
@@ -106,11 +108,11 @@ export function SourcePane({
           version.canonicalText
         )}
       </div>
-      <div className="reader-actions reader-selection-actions">
-        <button disabled={!span || busy} onClick={onNote}>
+      <div className="ui-action-row reader-selection-actions">
+        <button className="ui-button" disabled={!span || busy} onClick={onNote}>
           {busy ? 'Retaining selection…' : 'Note'}
         </button>
-        <button disabled={busy} onClick={onQuestion}>
+        <button className="ui-button" disabled={busy} onClick={onQuestion}>
           Save a question
         </button>
       </div>
