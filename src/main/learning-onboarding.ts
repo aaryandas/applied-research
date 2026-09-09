@@ -35,9 +35,7 @@ import {
   LearningOnboardingValidationError,
   createLearningOnboardingValidation,
 } from '../contracts/learning-onboarding-validation';
-import { SOURCING_API_VERSION } from '../contracts/sourcing';
 import type {
-  LearningWorkspace,
   PathLessonInput,
   PathOrigin,
   PathTopicInput,
@@ -248,7 +246,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     const parsed = validation.parseInterviewPromptInput(input);
     const human = this.humanContext(parsed.projectId, parsed.interviewRevision);
     if (!human) {
-      return this.staleRevision(parsed.requestId, parsed.interviewRevision);
+      return this.staleRevision(parsed.requestId);
     }
     const response = await this.remote(
       parsed.projectId,
@@ -270,7 +268,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     }
     const interview = this.options.records.getInterview(parsed.projectId);
     if (!interview || interview.revision !== parsed.interviewRevision) {
-      return this.staleRevision(parsed.requestId, parsed.interviewRevision);
+      return this.staleRevision(parsed.requestId);
     }
     const saved = this.options.records.saveInterview(
       interview.revision,
@@ -304,7 +302,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     const parsed = validation.parseProposeCourseInput(input);
     const human = this.humanContext(parsed.projectId, parsed.interviewRevision);
     if (!human) {
-      return this.staleRevision(parsed.requestId, parsed.interviewRevision);
+      return this.staleRevision(parsed.requestId);
     }
     const response = await this.remote(
       parsed.projectId,
@@ -351,11 +349,11 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     }
     const human = this.humanContext(parsed.projectId, parsed.interviewRevision);
     if (!human) {
-      return this.staleRevision(parsed.requestId, parsed.interviewRevision);
+      return this.staleRevision(parsed.requestId);
     }
     const interview = this.options.records.getInterview(parsed.projectId);
     if (!interview) {
-      return this.staleRevision(parsed.requestId, parsed.interviewRevision);
+      return this.staleRevision(parsed.requestId);
     }
     const savedFocus = this.options.records.saveInterview(
       interview.revision,
@@ -379,7 +377,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       savedFocus.record.revision,
     );
     if (!revisedHuman) {
-      return this.staleRevision(parsed.requestId, savedFocus.record.revision);
+      return this.staleRevision(parsed.requestId);
     }
     const response = await this.remote(
       parsed.projectId,
@@ -558,7 +556,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     );
     const stored = this.options.records.getProposal(parsed.projectId);
     if (!human || !stored) {
-      return this.staleRevision(parsed.requestId, 0);
+      return this.staleRevision(parsed.requestId);
     }
     const response = await this.remote(
       parsed.projectId,
@@ -623,10 +621,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     }
   }
 
-  private staleRevision<T>(
-    requestId: string,
-    _currentRevision: number,
-  ): OnboardingResult<T> {
+  private staleRevision<T>(requestId: string): OnboardingResult<T> {
     return {
       outcome: 'stale-revision',
       requestId,
@@ -1062,9 +1057,15 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         })),
       );
       validation.parseAcceptedStepMappings(
-        mappings.map(
-          ({ practiceDigest, sourceIds, practice, ...mapping }) => mapping,
-        ),
+        mappings.map((row) => ({
+          projectId: row.projectId,
+          pathId: row.pathId,
+          acceptedProposalId: row.acceptedProposalId,
+          acceptedProposalRevision: row.acceptedProposalRevision,
+          remoteStepId: row.remoteStepId,
+          localTopicId: row.localTopicId,
+          localLessonId: row.localLessonId,
+        })),
         envelope.syllabus,
       );
       this.options.records.replaceMappings(mappings, transaction);
