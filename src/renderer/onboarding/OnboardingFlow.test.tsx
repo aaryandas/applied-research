@@ -484,7 +484,7 @@ it('restores a reviewed plan, revises focus, and reuses one accept request id', 
   );
   expect(onAccepted).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
-  expect(onCancel).toHaveBeenCalledOnce();
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce());
 });
 
 it('seeds only https URLs, preserves pasted bytes, and reports write conflicts', async () => {
@@ -1047,4 +1047,321 @@ it('saves pasted bytes, retries a failed plan review, and ignores a second submi
     'Could not write the course',
   );
   expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+it('seeds profile fields without claiming a diagnostic, persists exact Back answers, and clears paste', async () => {
+  const saveProfile = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: { ...savedProfile(), revision: 2 },
+  }));
+  const saveInterview = vi.fn(
+    async (input: { draft: { answers: InterviewRecord['answers'] } }) => ({
+      status: 'saved' as const,
+      record: interviewRecord({
+        revision: 1,
+        answers: input.draft.answers,
+      }),
+    }),
+  );
+  const savePaste = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: interviewRecord({ revision: 2 }),
+  }));
+  const onCancel = vi.fn();
+  const bridge = {
+    getLearnerProfile: vi.fn(async () => savedProfile()),
+    saveLearnerProfile: saveProfile,
+    getLearningOnboarding: vi.fn(async () => ({
+      interview: null,
+      proposal: null,
+      accepted: null,
+    })),
+    saveLearningInterview: saveInterview,
+    savePastedSource: savePaste,
+    getPastedSource: vi.fn(async () => null),
+    proposeCourse: vi.fn(),
+    cancelLearningOnboarding: vi.fn(async () => {}),
+  } as unknown as OpeningOnboardingBridge;
+  const { unmount } = render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      pastedSource="  excerpt from a paper  "
+      bridge={bridge}
+      onAccepted={vi.fn()}
+      onCancel={onCancel}
+    />,
+  );
+  expect(
+    await screen.findByLabelText(/background with this kind of work/),
+  ).toHaveValue('Python services');
+  expect(screen.getByLabelText(/want to be able to do/)).toHaveValue(
+    'Build attention then LoRA',
+  );
+  expect(screen.getByLabelText(/already understand/)).toHaveValue(
+    'Small classifiers',
+  );
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    '',
+  );
+  fireEvent.change(screen.getByLabelText(/Explain how you would approach/), {
+    target: { value: 'I am not sure yet' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce());
+  expect(saveProfile).not.toHaveBeenCalled();
+  expect(saveInterview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({
+        profileRevision: 1,
+        answers: expect.arrayContaining([
+          { promptId: LOCAL_PROMPT_IDS.background, answer: 'Python services' },
+          {
+            promptId: LOCAL_PROMPT_IDS.diagnostic,
+            answer: 'I am not sure yet',
+          },
+        ]),
+      }),
+    }),
+  );
+  expect(savePaste).toHaveBeenCalledWith(
+    expect.objectContaining({
+      pastedSourceText: '  excerpt from a paper  ',
+    }),
+  );
+  unmount();
+
+  const saveCleared = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: interviewRecord({ revision: 3 }),
+  }));
+  const leave = vi.fn();
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: saveProfile,
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: interviewRecord({
+              answers: [
+                {
+                  promptId: LOCAL_PROMPT_IDS.diagnostic,
+                  answer: 'I am not sure yet',
+                },
+              ],
+            }),
+            proposal: null,
+            accepted: null,
+          })),
+          saveLearningInterview: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 2 }),
+          })),
+          savePastedSource: saveCleared,
+          getPastedSource: vi.fn(async () => '  excerpt from a paper  '),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={leave}
+    />,
+  );
+  expect(await screen.findByLabelText('Optional pasted excerpt')).toHaveValue(
+    '  excerpt from a paper  ',
+  );
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    'I am not sure yet',
+  );
+  fireEvent.change(screen.getByLabelText('Optional pasted excerpt'), {
+    target: { value: '   ' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  await waitFor(() => expect(leave).toHaveBeenCalledOnce());
+  expect(saveCleared).toHaveBeenCalledWith(
+    expect.objectContaining({ pastedSourceText: null }),
+  );
+});
+
+it('keeps typed answers on the sheet when a draft Back save conflicts', async () => {
+  const onCancel = vi.fn();
+  const bridge = {
+    getLearnerProfile: vi.fn(async () => savedProfile()),
+    saveLearnerProfile: vi.fn(),
+    getLearningOnboarding: vi.fn(async () => ({
+      interview: null,
+      proposal: null,
+      accepted: null,
+    })),
+    saveLearningInterview: vi.fn(async () => ({
+      status: 'conflict' as const,
+      expectedRevision: 0,
+      currentRevision: 1,
+    })),
+    savePastedSource: vi.fn(),
+    getPastedSource: vi.fn(async () => null),
+    proposeCourse: vi.fn(),
+    cancelLearningOnboarding: vi.fn(async () => {}),
+  } as unknown as OpeningOnboardingBridge;
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={bridge}
+      onAccepted={vi.fn()}
+      onCancel={onCancel}
+    />,
+  );
+  await screen.findByLabelText(/Explain how you would approach/);
+  fireEvent.change(screen.getByLabelText(/Explain how you would approach/), {
+    target: { value: 'I am not sure yet' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /already saved this draft/,
+  );
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    'I am not sure yet',
+  );
+  expect(onCancel).not.toHaveBeenCalled();
+});
+
+it('creates the first profile from typed statements on Back and keeps answers when that write conflicts', async () => {
+  const saveProfile = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: savedProfile(),
+  }));
+  const saveInterview = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: interviewRecord(),
+  }));
+  const onCancel = vi.fn();
+  const { unmount } = render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => null),
+          saveLearnerProfile: saveProfile,
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+          })),
+          saveLearningInterview: saveInterview,
+          savePastedSource: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 2 }),
+          })),
+          getPastedSource: vi.fn(async () => null),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={onCancel}
+    />,
+  );
+  await screen.findByLabelText(/background with this kind of work/);
+  fillDiagnostic();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce());
+  expect(saveProfile).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedRevision: 0,
+      draft: {
+        background: 'Python services',
+        learningGoals: 'Build attention then LoRA',
+        priorKnowledge: 'Small classifiers',
+      },
+    }),
+  );
+  expect(saveInterview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({ profileRevision: 1 }),
+    }),
+  );
+  unmount();
+
+  const stay = vi.fn();
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => null),
+          saveLearnerProfile: vi.fn(async () => ({
+            status: 'conflict' as const,
+            expectedRevision: 0,
+            currentRevision: 1,
+          })),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+          })),
+          saveLearningInterview: vi.fn(),
+          getPastedSource: vi.fn(async () => null),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={stay}
+    />,
+  );
+  await screen.findByLabelText(/background with this kind of work/);
+  fillDiagnostic();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /already saved this draft/,
+  );
+  expect(stay).not.toHaveBeenCalled();
+});
+
+it('keeps typed answers when a draft Back persist throws', async () => {
+  const onCancel = vi.fn();
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+          })),
+          saveLearningInterview: vi.fn(async () => {
+            throw new Error('Disk full');
+          }),
+          getPastedSource: vi.fn(async () => 'stored paste bytes'),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={onCancel}
+    />,
+  );
+  await screen.findByLabelText(/Explain how you would approach/);
+  expect(
+    await screen.findByDisplayValue('stored paste bytes'),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Explain how you would approach/), {
+    target: { value: 'I am not sure yet' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    'I am not sure yet',
+  );
+  expect(onCancel).not.toHaveBeenCalled();
 });

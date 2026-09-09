@@ -154,6 +154,8 @@ it('starts the interview instead of creating a finished course when onboarding i
       proposal: null,
       accepted: null,
     })),
+    getLearnerProfile: vi.fn(async () => null),
+    getPastedSource: vi.fn(async () => null),
   } as unknown as OpeningOnboardingBridge;
   render(
     <Opening
@@ -183,24 +185,44 @@ it('starts the interview instead of creating a finished course when onboarding i
 
 it('resumes an unfinished draft into the interview and returns to the topic on cancel', async () => {
   const createDraftProject = vi.fn(async () => ({ id: 'draft-2' }));
+  const interview = {
+    projectId: 'draft-1',
+    revision: 1,
+    updatedAt: '2026-09-09T12:00:00.000Z',
+    goal: 'Learn transformers from original sources',
+    focus: 'Learn transformers from original sources',
+    depth: 'balanced' as const,
+    profileRevision: 1,
+    sourceRevisionIds: [] as string[],
+    seedDrafts: [] as const,
+    answers: [{ promptId: 'diagnostic-01', answer: 'I am not sure yet' }],
+    prompts: [] as const,
+  };
+  const saveInterview = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: interview,
+  }));
+  const savePaste = vi.fn(async () => ({
+    status: 'saved' as const,
+    record: interview,
+  }));
   const bridge = {
     getLearningOnboarding: vi.fn(async () => ({
-      interview: {
-        projectId: 'draft-1',
-        revision: 1,
-        updatedAt: '2026-09-09T12:00:00.000Z',
-        goal: 'Learn transformers from original sources',
-        focus: 'Learn transformers from original sources',
-        depth: 'balanced',
-        profileRevision: 1,
-        sourceRevisionIds: [],
-        seedDrafts: [],
-        answers: [{ promptId: 'diagnostic-01', answer: 'I am not sure yet' }],
-        prompts: [],
-      },
+      interview,
       proposal: null,
       accepted: null,
     })),
+    getLearnerProfile: vi.fn(async () => ({
+      background: 'Python services',
+      learningGoals: 'Build attention then LoRA',
+      priorKnowledge: 'Small classifiers',
+      revision: 1,
+      updatedAt: '2026-09-09T12:00:00.000Z',
+      author: 'human' as const,
+    })),
+    saveLearnerProfile: vi.fn(),
+    saveLearningInterview: saveInterview,
+    savePastedSource: savePaste,
     getPastedSource: vi.fn(async () => null),
   } as unknown as OpeningOnboardingBridge;
   render(
@@ -228,8 +250,16 @@ it('resumes an unfinished draft into the interview and returns to the topic on c
   );
   fireEvent.click(screen.getByRole('button', { name: 'Back to opening' }));
   expect(
-    screen.getByRole('textbox', { name: /What do you want to learn/ }),
+    await screen.findByRole('textbox', { name: /What do you want to learn/ }),
   ).toHaveValue('Learn transformers from original sources');
+  expect(saveInterview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({
+        answers: [{ promptId: 'diagnostic-01', answer: 'I am not sure yet' }],
+      }),
+    }),
+  );
+  expect(bridge.saveLearnerProfile).not.toHaveBeenCalled();
 });
 
 it('passes source URL and pasted excerpt into onboarding and continues without a dedicated handler', async () => {
@@ -240,6 +270,7 @@ it('passes source URL and pasted excerpt into onboarding and continues without a
       proposal: null,
       accepted: null,
     })),
+    getLearnerProfile: vi.fn(async () => null),
     getPastedSource: vi.fn(async () => null),
   } as unknown as OpeningOnboardingBridge;
   const onReopen = vi.fn();

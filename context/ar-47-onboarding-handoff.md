@@ -320,9 +320,18 @@ still lands a new topic in Reader. When the onboarding methods exist:
 - `getContinueLearning()` for the compact Continue learning card. Draft
   proposals must not appear as that card (main already requires an acceptance
   row).
-- `onReopen`: if `getLearningOnboarding({ projectId }).accepted` is null and
-  an interview/proposal exists, pass `resumeDraft={{ projectId, goal }}` into
-  Opening instead of opening Reader.
+- `onReopen(id)` (root/AR-56 apply; do not skip this or drafts fall into Reader):
+  1. `const snapshot = await bridge.getLearningOnboarding({ projectId: id })`
+  2. If `snapshot.accepted !== null` → existing `getLearningWorkspace` / Shell.
+     AR-56 owns `ensureLesson` renderer lifetime, new-Reader handoff, resume
+     barrier, and current coverage restoration.
+  3. Else if `snapshot.interview !== null || snapshot.proposal !== null` → stay
+     on Opening with `resumeDraft={{ projectId: id, goal }}` and the named
+     onboarding bridge. **Do not** call `getLearningWorkspace`.
+  4. Else → current empty-workspace Reader path.
+- Opening Back already persists the interview (and explicit paste clear) before
+  unmounting the sheet. Reopen step 3 restores exact answer/paste bytes via
+  `getLearningOnboarding` + `getPastedSource`.
 - Preserve every `listProjects()` row under All saved work.
 
 Type the App bridge as
@@ -370,3 +379,56 @@ untrusted context. Evidence must be acquired originals (open courses/textbooks
 and OpenAlex papers). First success scope is
 `complete-syllabus-and-first-lesson`; later chapters use
 `generate-selected-lesson` / `selected-existing-lesson`.
+
+Keep the existing allowlisted model (`google/gemini-3.8-flash`) and US$20
+monthly quota. No new provider or budget.
+
+### `human.pastedSeedText` (required `string | null`)
+
+Exact private human paste, or `null` when none or explicitly cleared. This is
+untrusted planning context on the existing human object, not a new operation.
+
+- Do **not** acquire it as a public source.
+- Do **not** index it.
+- Do **not** treat it as trusted question instructions or as a diagnostic
+  answer.
+- Do **not** place it on `seedRevisionLocators` (those remain reacquire/
+  evidence locators only).
+- Public URLs stay on `unacquiredSeedUrls`. Workspace `importTextSource`
+  (`human-imported`) stays the local file/paste-into-library boundary; this
+  field is not that import and must not fabricate an acquired original.
+
+### `generate-selected-lesson` profile bind
+
+Do **not** reject when `human.profileRevision` differs from the accepted
+interview row’s stored `profileRevision`. `human.profile` and
+`human.profileRevision` are the **live intended** statements after later
+Settings saves or another course plan. Historical attribution stays on the
+stored interview (answers, `interviewRevision`, stored `profileRevision`
+number) and the retained syllabus envelope. Do not rewrite those rows. Historical
+profile _bytes_ are not snapshotted; only the revision number plus answers and
+syllabus remain after a global profile overwrite.
+
+## Remaining full-app work (not this checkpoint)
+
+These stay explicit remaining requirements. They must not block publishing the
+producer fixes above.
+
+**W42 reviewed-course adjustment.** Later Practical attempts and diagnostic
+evidence must be able to request a bounded syllabus/practice adjustment of an
+_accepted_ course. Not implemented. When scheduled, reuse
+`revise-course` / `generate-selected-lesson` with the current model allowlist
+and US$20 quota: send historical interview + retained compact syllabus as
+`untrusted-model-context`, live profile as intended human context (same bind
+rule as selected-lesson), and new human notes as answers — do not invent a
+second planner or spend policy.
+
+**`requestInterviewPrompt`.** Mounted Opening still asks four fixed local
+questions and does not call `requestInterviewPrompt`. A later mount can add one
+optional follow-up prompt after the local diagnostic, still
+`google/gemini-3.8-flash`, without replacing the four questions or treating AI
+text as human answers.
+
+**App/Opening mount.** Assembler owns the named onboarding bridge. Root applies
+section 8; AR-56 owns Reader/`ensureLesson` lifetime. This producer does not
+edit `App.tsx` / `Shell.tsx` / `src/main/index.ts`.

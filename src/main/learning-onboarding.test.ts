@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LEARNING_ONBOARDING_PUBLIC_MESSAGES } from '../contracts/learning-onboarding-api';
+import {
+  LEARNING_ONBOARDING_LIMITS,
+  LEARNING_ONBOARDING_PUBLIC_MESSAGES,
+} from '../contracts/learning-onboarding-api';
 import { LearningOnboardingValidationError } from '../contracts/learning-onboarding-validation';
 import { LearningOnboardingOperations } from './learning-onboarding';
 import {
@@ -353,6 +356,136 @@ describe('learning onboarding operations', () => {
     expect(next.current.topics[0]!.lessons[1]!.sourceRevisionId).toBeTruthy();
   });
 
+  it('generates remaining lessons after a later profile save or second course plan', async () => {
+    const bodies: Array<{
+      operation: {
+        kind: string;
+        human: {
+          profileRevision: number;
+          interviewRevision: number;
+          goal: string;
+          profile: { background: string };
+          answers: { promptId: string; answer: string }[];
+        };
+      };
+    }> = [];
+    const { store, records, operations } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as (typeof bodies)[number] & {
+          requestId: string;
+        };
+        bodies.push(request);
+        if (request.operation.kind === 'generate-selected-lesson') {
+          return bytes(selectedLessonSuccess(request.requestId));
+        }
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const first = await seededInterview(operations, store);
+    const proposed = await operations.proposeCourse({
+      projectId: first.project.id,
+      requestId: 'request-01',
+      interviewRevision: first.interview.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    if (proposed.outcome !== 'success') throw new Error('propose A');
+    const accepted = await operations.acceptCourse({
+      projectId: first.project.id,
+      requestId: 'accept-01',
+      proposal: { id: proposed.value.id, revision: proposed.value.revision },
+    });
+    if (accepted.outcome !== 'success') throw new Error('accept A');
+    const storedInterview = records.getInterview(first.project.id);
+    expect(storedInterview?.profileRevision).toBe(first.profile.revision);
+    const updated = await operations.saveLearnerProfile({
+      expectedRevision: first.profile.revision,
+      draft: {
+        background: 'Updated background after accepting course A.',
+        learningGoals: 'Plan a later course without rewriting A.',
+        priorKnowledge: 'Still know classifiers.',
+      },
+    });
+    expect(updated.status).toBe('saved');
+    if (updated.status !== 'saved') throw new Error('profile');
+    const second = store.create('A second course about LoRA practice.');
+    const secondInterview = await operations.saveLearningInterview({
+      projectId: second.id,
+      expectedRevision: 0,
+      draft: {
+        goal: second.goal,
+        focus: second.goal,
+        depth: 'balanced',
+        profileRevision: updated.record.revision,
+        sourceRevisionIds: [],
+        seedDrafts: [],
+        answers: [
+          {
+            promptId: 'diagnostic-01',
+            answer: 'I would start from a small adapter.',
+          },
+        ],
+      },
+    });
+    expect(secondInterview.status).toBe('saved');
+    if (secondInterview.status !== 'saved') throw new Error('interview B');
+    const proposedB = await operations.proposeCourse({
+      projectId: second.id,
+      requestId: 'request-b',
+      interviewRevision: secondInterview.record.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    expect(proposedB.outcome).toBe('success');
+    await expect(
+      operations.proposeCourse({
+        projectId: first.project.id,
+        requestId: 'request-stale-a',
+        interviewRevision: first.interview.revision,
+        consent: 'acquire-learning-evidence',
+      }),
+    ).resolves.toMatchObject({ outcome: 'stale-revision', retryable: false });
+    const path = accepted.value.workspace.paths[0]!;
+    const practice = path.current.topics[0]!.lessons[1]!;
+    const generated = await operations.ensureLesson({
+      projectId: first.project.id,
+      requestId: 'request-02',
+      target: {
+        pathId: path.id,
+        pathRevision: path.currentRevision,
+        topicId: path.current.topics[0]!.id,
+        lessonId: practice.id,
+      },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(generated.outcome).toBe('success');
+    const selected = bodies.find(
+      (item) => item.operation.kind === 'generate-selected-lesson',
+    );
+    expect(selected?.operation.human.goal).toBe(first.project.goal);
+    expect(selected?.operation.human.interviewRevision).toBe(
+      first.interview.revision,
+    );
+    expect(selected?.operation.human.profileRevision).toBe(
+      updated.record.revision,
+    );
+    expect(selected?.operation.human.profile.background).toBe(
+      'Updated background after accepting course A.',
+    );
+    expect(
+      selected?.operation.human.answers.find(
+        (item) => item.promptId === 'diagnostic-01',
+      )?.answer,
+    ).toContain('not sure yet');
+    expect(records.getInterview(first.project.id)?.profileRevision).toBe(
+      first.profile.revision,
+    );
+    expect(records.getInterview(first.project.id)?.answers).toEqual(
+      storedInterview?.answers,
+    );
+    expect(records.getProposal(first.project.id)?.envelope.syllabus.title).toBe(
+      proposed.value.title,
+    );
+  });
+
   it('revises a sourced plan, then accept, exact resume, and skip already-ready lessons', async () => {
     const kinds: string[] = [];
     const { store, records, operations } = setup({
@@ -502,6 +635,110 @@ describe('learning onboarding operations', () => {
     await operations.saveReadingResume({ projectId: project.id });
     await operations.saveReadingResume([]);
     expect(await operations.getContinueLearning()).toBeNull();
+  });
+
+  it('sends exact pasted seed bytes as untrusted context and clears them on blank', async () => {
+    const bodies: Array<{
+      operation: {
+        kind: string;
+        human: {
+          pastedSeedText: string | null;
+          seedRevisionLocators: { sourceId: string; revisionId: string }[];
+          answers: { promptId: string; answer: string }[];
+        };
+      };
+    }> = [];
+    const { store, operations } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as (typeof bodies)[number] & {
+          requestId: string;
+        };
+        bodies.push(request);
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const { project, interview } = await seededInterview(operations, store);
+    const pasted = '  excerpt from a paper  ';
+    const saved = await operations.savePastedSource({
+      projectId: project.id,
+      expectedRevision: interview.revision,
+      pastedSourceText: pasted,
+    });
+    expect(saved.status).toBe('saved');
+    if (saved.status !== 'saved') throw new Error('paste');
+    const proposed = await operations.proposeCourse({
+      projectId: project.id,
+      requestId: 'request-01',
+      interviewRevision: saved.record.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    expect(proposed.outcome).toBe('success');
+    expect(bodies[0]?.operation.human.pastedSeedText).toBe(pasted);
+    expect(bodies[0]?.operation.human.seedRevisionLocators).toEqual([]);
+    expect(
+      bodies[0]?.operation.human.answers.some((item) =>
+        item.answer.includes('excerpt from a paper'),
+      ),
+    ).toBe(false);
+    expect(store.getLearningWorkspace(project.id).sources).toEqual([]);
+    const cleared = await operations.savePastedSource({
+      projectId: project.id,
+      expectedRevision: saved.record.revision,
+      pastedSourceText: null,
+    });
+    expect(cleared.status).toBe('saved');
+    if (cleared.status !== 'saved') throw new Error('clear');
+    expect(
+      await operations.getPastedSource({ projectId: project.id }),
+    ).toBeNull();
+    const proposedAgain = await operations.proposeCourse({
+      projectId: project.id,
+      requestId: 'request-02',
+      interviewRevision: cleared.record.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    expect(proposedAgain.outcome).toBe('success');
+    expect(bodies[1]?.operation.human.pastedSeedText).toBeNull();
+    expect(store.getLearningWorkspace(project.id).sources).toEqual([]);
+  });
+
+  it('rejects invalid pasted seed and treats blank paste as an explicit clear', async () => {
+    const { store, operations } = setup();
+    const { project, interview } = await seededInterview(operations, store);
+    await expect(
+      operations.savePastedSource({
+        projectId: project.id,
+        expectedRevision: interview.revision,
+        pastedSourceText: 12 as unknown as string,
+      }),
+    ).rejects.toBeInstanceOf(LearningOnboardingValidationError);
+    await expect(
+      operations.savePastedSource({
+        projectId: project.id,
+        expectedRevision: interview.revision,
+        pastedSourceText: `${'excerpt '.repeat(4000)}\n`,
+      }),
+    ).rejects.toBeInstanceOf(LearningOnboardingValidationError);
+    expect(
+      `${'excerpt '.repeat(4000)}\n`.length >
+        LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters,
+    ).toBe(true);
+    await expect(
+      operations.savePastedSource({
+        projectId: project.id,
+        expectedRevision: interview.revision,
+        pastedSourceText: 'hello\u0000world',
+      }),
+    ).rejects.toBeInstanceOf(LearningOnboardingValidationError);
+    const blank = await operations.savePastedSource({
+      projectId: project.id,
+      expectedRevision: interview.revision,
+      pastedSourceText: '   ',
+    });
+    expect(blank.status).toBe('saved');
+    expect(
+      await operations.getPastedSource({ projectId: project.id }),
+    ).toBeNull();
   });
 
   it('does not invent generation when signed out, offline, or a second request is already in flight', async () => {

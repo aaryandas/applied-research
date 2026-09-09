@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   LEARNING_ONBOARDING_API_VERSION,
+  LEARNING_ONBOARDING_LIMITS,
   LEARNING_ONBOARDING_MODEL_ALLOWLIST,
   LEARNING_ONBOARDING_PUBLIC_MESSAGES,
   ONBOARDING_CONTEXT_TRUST,
@@ -34,6 +35,7 @@ import {
   type SaveLearnerProfileInput,
   type SaveLearningInterviewInput,
 } from '../contracts/learning-onboarding';
+import { isRemoteText } from '../contracts/source-text';
 import {
   LearningOnboardingValidationError,
   createLearningOnboardingValidation,
@@ -89,6 +91,18 @@ function unavailable(
     message,
     retryable,
   };
+}
+
+function storedPastedSeed(value: string): string {
+  if (
+    value.length > LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters ||
+    !isRemoteText(value)
+  ) {
+    throw new LearningOnboardingValidationError({
+      message: 'Pasted seed text is invalid.',
+    });
+  }
+  return value;
 }
 
 export class LearningOnboardingOperations implements LearningOnboardingBridge {
@@ -161,6 +175,18 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         message: 'Interview answers are invalid.',
       });
     }
+    if (
+      input.pastedSourceText !== null &&
+      typeof input.pastedSourceText !== 'string'
+    ) {
+      throw new LearningOnboardingValidationError({
+        message: 'Pasted seed text is invalid.',
+      });
+    }
+    const pastedSourceText =
+      input.pastedSourceText === null || input.pastedSourceText.trim() === ''
+        ? null
+        : storedPastedSeed(input.pastedSourceText);
     return this.options.records.saveInterview(
       input.expectedRevision,
       {
@@ -174,7 +200,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         projectId: interview.projectId,
         prompts: interview.prompts,
       },
-      input.pastedSourceText,
+      pastedSourceText,
     );
   }
 
@@ -548,6 +574,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     const human = this.humanContext(
       parsed.projectId,
       this.options.records.getInterview(parsed.projectId)?.revision ?? 0,
+      'intended-current',
     );
     const stored = this.options.records.getProposal(parsed.projectId);
     if (!human || !stored) {
@@ -628,13 +655,15 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
   private humanContext(
     projectId: string,
     interviewRevision: number,
+    profileBinding: 'bound' | 'intended-current' = 'bound',
   ): UntrustedHumanLearnerContext | null {
     const interview = this.options.records.getInterview(projectId);
     const profile = this.options.records.getProfileView().profile;
+    if (!interview || !profile || interview.revision !== interviewRevision) {
+      return null;
+    }
     if (
-      !interview ||
-      !profile ||
-      interview.revision !== interviewRevision ||
+      profileBinding === 'bound' &&
       interview.profileRevision !== profile.revision
     ) {
       return null;
@@ -667,6 +696,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       })),
       seedRevisionLocators: locators,
       unacquiredSeedUrls: interview.seedDrafts,
+      pastedSeedText: this.options.records.getPastedSource(projectId),
     };
   }
 

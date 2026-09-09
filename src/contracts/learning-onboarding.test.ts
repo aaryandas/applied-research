@@ -202,6 +202,7 @@ const human = {
   ],
   seedRevisionLocators: [{ sourceId: 'openalex_W1', revisionId: 'edition-1' }],
   unacquiredSeedUrls: [],
+  pastedSeedText: null,
 } satisfies UntrustedHumanLearnerContext;
 
 const tokenizerBrief = {
@@ -521,6 +522,9 @@ describe('learning onboarding contracts', () => {
       48_000,
     );
     expect(LEARNING_ONBOARDING_LIMITS.practiceCheckpoints).toBe(8);
+    expect(LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters).toBe(
+      LEARNING_ONBOARDING_LIMITS.previewCharacters,
+    );
     expect(SOURCE_CHANNELS.generate).toBe('sources:generate-learning-path');
     expect(desktopOnboarding).not.toHaveProperty('LEARNING_ONBOARDING_PATH');
     expect(desktopOnboarding).not.toHaveProperty(
@@ -598,6 +602,58 @@ describe('learning onboarding contracts', () => {
     expect(
       validation.parseLearningOnboardingResponse(courseSuccess, proposeRequest),
     ).toEqual(courseSuccess);
+  });
+
+  it('admits exact pasted seed bytes as untrusted context and unbound interview drafts', () => {
+    const pasted = '  excerpt from a paper  ';
+    const withPaste = {
+      ...proposeRequest,
+      operation: {
+        ...proposeRequest.operation,
+        human: { ...human, pastedSeedText: pasted },
+      },
+    };
+    expect(validation.parseLearningOnboardingRequest(withPaste)).toEqual(
+      withPaste,
+    );
+    expectRejected(
+      {
+        ...proposeRequest,
+        operation: {
+          ...proposeRequest.operation,
+          human: { ...human, pastedSeedText: '   ' },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expectRejected(
+      {
+        ...proposeRequest,
+        operation: {
+          ...proposeRequest.operation,
+          human: Object.fromEntries(
+            Object.entries(human).filter(([key]) => key !== 'pastedSeedText'),
+          ),
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    const unbound = {
+      goal: human.goal,
+      focus: human.focus,
+      depth: human.depth,
+      profileRevision: 0,
+      sourceRevisionIds: [] as string[],
+      seedDrafts: [] as const,
+      answers: [{ promptId: 'prompt-01', answer: human.answers[0]!.answer }],
+    };
+    expect(
+      validation.parseSaveLearningInterviewInput({
+        projectId,
+        expectedRevision: 0,
+        draft: unbound,
+      }).draft.profileRevision,
+    ).toBe(0);
   });
 
   it('rejects forged renderer authority on accept, ensure and network envelopes', () => {
