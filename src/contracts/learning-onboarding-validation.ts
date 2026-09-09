@@ -41,6 +41,7 @@ import type {
   LearningOnboardingScope,
   LessonDepth,
   LessonRole,
+  OnboardingCancelled,
   OnboardingCoverageGap,
   OnboardingGeneratedLesson,
   OnboardingPersonalization,
@@ -48,6 +49,7 @@ import type {
   OnboardingSyllabus,
   OnboardingSyllabusLesson,
   OnboardingSyllabusTopic,
+  OnboardingUnavailable,
   OpaqueRevisionRef,
   ProposalSource,
   ProposeCourseOperation,
@@ -106,6 +108,52 @@ export class LearningOnboardingValidationError extends Error {
     super(input.message);
     this.name = 'LearningOnboardingValidationError';
   }
+}
+
+function invalid(message: string): never {
+  throw new LearningOnboardingValidationError({ message });
+}
+
+function isPracticeRole(value: LessonRole): boolean {
+  return value === 'practice' || value === 'capstone';
+}
+
+function samePracticeBrief(
+  expected: CoursePracticeBrief,
+  actual: CoursePracticeBrief,
+): boolean {
+  if (
+    expected.kind !== actual.kind ||
+    expected.author !== actual.author ||
+    expected.masteryEstablished !== actual.masteryEstablished ||
+    expected.intendedOutcome !== actual.intendedOutcome ||
+    expected.setup !== actual.setup ||
+    expected.instructions !== actual.instructions ||
+    expected.expectedArtifact !== actual.expectedArtifact ||
+    expected.reflectionPrompt !== actual.reflectionPrompt
+  ) {
+    return false;
+  }
+  if (
+    expected.sourceIds.join('\0') !== actual.sourceIds.join('\0') ||
+    expected.observableCheckpoints.join('\0') !==
+      actual.observableCheckpoints.join('\0')
+  ) {
+    return false;
+  }
+  if (expected.tool.kind !== actual.tool.kind) return false;
+  if (
+    expected.tool.kind === 'app-hosted-catalog' &&
+    actual.tool.kind === 'app-hosted-catalog'
+  ) {
+    return expected.tool.toolId === actual.tool.toolId;
+  }
+  return (
+    expected.tool.kind === 'learner-external' &&
+    actual.tool.kind === 'learner-external' &&
+    expected.tool.toolName === actual.tool.toolName &&
+    expected.tool.intendedUse === actual.tool.intendedUse
+  );
 }
 
 export type BoundedJsonWireResult =
@@ -198,9 +246,6 @@ export interface LearningOnboardingValidation {
 export function createLearningOnboardingValidation(
   sha256Text: (value: string) => string,
 ): LearningOnboardingValidation {
-  function invalid(message: string): never {
-    throw new LearningOnboardingValidationError({ message });
-  }
   const validation = createValidationPrimitives({
     invalid,
     unsupportedFieldMessage: 'The value contains an unsupported field.',
@@ -318,10 +363,6 @@ export function createLearningOnboardingValidation(
       invalid('Lesson source state is invalid.');
     }
     return value;
-  }
-
-  function isPracticeRole(value: LessonRole): boolean {
-    return value === 'practice' || value === 'capstone';
   }
 
   function assertListedTopology(
@@ -471,44 +512,6 @@ export function createLearningOnboardingValidation(
       ),
       sourceIds,
     };
-  }
-
-  function samePracticeBrief(
-    expected: CoursePracticeBrief,
-    actual: CoursePracticeBrief,
-  ): boolean {
-    if (
-      expected.kind !== actual.kind ||
-      expected.author !== actual.author ||
-      expected.masteryEstablished !== actual.masteryEstablished ||
-      expected.intendedOutcome !== actual.intendedOutcome ||
-      expected.setup !== actual.setup ||
-      expected.instructions !== actual.instructions ||
-      expected.expectedArtifact !== actual.expectedArtifact ||
-      expected.reflectionPrompt !== actual.reflectionPrompt
-    ) {
-      return false;
-    }
-    if (
-      expected.sourceIds.join('\0') !== actual.sourceIds.join('\0') ||
-      expected.observableCheckpoints.join('\0') !==
-        actual.observableCheckpoints.join('\0')
-    ) {
-      return false;
-    }
-    if (expected.tool.kind !== actual.tool.kind) return false;
-    if (
-      expected.tool.kind === 'app-hosted-catalog' &&
-      actual.tool.kind === 'app-hosted-catalog'
-    ) {
-      return expected.tool.toolId === actual.tool.toolId;
-    }
-    return (
-      expected.tool.kind === 'learner-external' &&
-      actual.tool.kind === 'learner-external' &&
-      expected.tool.toolName === actual.tool.toolName &&
-      expected.tool.intendedUse === actual.tool.intendedUse
-    );
   }
 
   function capstoneDesignation(
@@ -1213,10 +1216,7 @@ export function createLearningOnboardingValidation(
       'Source id',
     );
     const practice = practical ? practiceBrief(input.practice) : null;
-    if (
-      practice !== null &&
-      practice.sourceIds.some((sourceId) => !sourceIds.includes(sourceId))
-    ) {
+    if (practice?.sourceIds.some((sourceId) => !sourceIds.includes(sourceId))) {
       invalid('Practice brief sources must belong to the lesson.');
     }
     return {
@@ -1464,12 +1464,10 @@ export function createLearningOnboardingValidation(
     const firstStep = topics[0]?.lessons[0];
     if (input.acceptance === 'ready') {
       if (
-        first === null ||
-        firstStep === undefined ||
-        first.stepId !== firstStep.stepId ||
-        first.title !== firstStep.title ||
-        firstStep.sourceState !== 'ready' ||
-        firstStep.prerequisiteStepIds.length > 0 ||
+        first?.stepId !== firstStep?.stepId ||
+        first?.title !== firstStep?.title ||
+        firstStep?.sourceState !== 'ready' ||
+        (firstStep?.prerequisiteStepIds.length ?? 0) > 0 ||
         (topics[0]?.prerequisiteTopicIds.length ?? 0) > 0
       ) {
         invalid(
@@ -1859,47 +1857,47 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function operation(value: unknown): LearningOnboardingOperation {
-    const input = strictRecord(value, [
-      'kind',
-      'human',
-      'model',
-      'changes',
-      'target',
-    ]);
-    if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
-      invalid('Onboarding operation is not supported.');
+  function interviewOrProposeOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): InterviewPromptOperation | ProposeCourseOperation {
+    if (
+      input.model !== undefined ||
+      input.changes !== undefined ||
+      input.target !== undefined
+    ) {
+      invalid('Onboarding operation fields are invalid.');
     }
-    const human = humanContext(input.human);
-    if (input.kind === 'interview-prompt' || input.kind === 'propose-course') {
-      if (
-        input.model !== undefined ||
-        input.changes !== undefined ||
-        input.target !== undefined
-      ) {
-        invalid('Onboarding operation fields are invalid.');
-      }
-      return { kind: input.kind, human } as
-        InterviewPromptOperation | ProposeCourseOperation;
-    }
-    if (input.kind === 'revise-course') {
-      if (input.target !== undefined)
-        invalid('Revise-course fields are invalid.');
-      const changes = strictRecord(input.changes, ['focus', 'depth']);
-      return {
-        kind: input.kind,
-        human,
-        model: modelContext(input.model),
-        changes: {
-          focus: boundedText(
-            changes.focus,
-            LIMITS.focusCharacters,
-            'Course focus',
-          ),
-          depth: depth(changes.depth),
-        },
-      } satisfies ReviseCourseOperation;
-    }
+    return { kind: input.kind, human } as
+      InterviewPromptOperation | ProposeCourseOperation;
+  }
+
+  function reviseCourseOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): ReviseCourseOperation {
+    if (input.target !== undefined)
+      invalid('Revise-course fields are invalid.');
+    const changes = strictRecord(input.changes, ['focus', 'depth']);
+    return {
+      kind: 'revise-course',
+      human,
+      model: modelContext(input.model),
+      changes: {
+        focus: boundedText(
+          changes.focus,
+          LIMITS.focusCharacters,
+          'Course focus',
+        ),
+        depth: depth(changes.depth),
+      },
+    };
+  }
+
+  function generateSelectedLessonOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): GenerateSelectedLessonOperation {
     const target = strictRecord(input.target, [
       'remoteStepId',
       'acceptedProposal',
@@ -1948,7 +1946,9 @@ export function createLearningOnboardingValidation(
         );
       }
     }
-    const selected: GenerateSelectedLessonOperation = {
+    if (input.changes !== undefined)
+      invalid('Selected-lesson fields are invalid.');
+    return {
       kind: 'generate-selected-lesson',
       human,
       model,
@@ -1958,9 +1958,27 @@ export function createLearningOnboardingValidation(
         practice: targetPractice,
       },
     };
-    if (input.changes !== undefined)
-      invalid('Selected-lesson fields are invalid.');
-    return selected;
+  }
+
+  function operation(value: unknown): LearningOnboardingOperation {
+    const input = strictRecord(value, [
+      'kind',
+      'human',
+      'model',
+      'changes',
+      'target',
+    ]);
+    if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
+      invalid('Onboarding operation is not supported.');
+    }
+    const human = humanContext(input.human);
+    if (input.kind === 'interview-prompt' || input.kind === 'propose-course') {
+      return interviewOrProposeOperation(input, human);
+    }
+    if (input.kind === 'revise-course') {
+      return reviseCourseOperation(input, human);
+    }
+    return generateSelectedLessonOperation(input, human);
   }
 
   function parseLearningOnboardingRequest(
@@ -2120,7 +2138,7 @@ export function createLearningOnboardingValidation(
     const original = originals.find(
       (item) => item.sourceId === sourceId && item.revisionId === revisionId,
     );
-    if (!original || original.canonicalText.slice(start, end) !== quote) {
+    if (original?.canonicalText.slice(start, end) !== quote) {
       invalid('Citation does not match backend-owned source evidence.');
     }
     return { sourceId, revisionId, start, end, quote };
@@ -2275,10 +2293,10 @@ export function createLearningOnboardingValidation(
         item.revisionId === locator.revisionId,
     );
     if (
-      original === undefined ||
-      original.canonicalText.slice(start, end) !== quote ||
-      original.sha256 !== sourceVersion.sha256 ||
-      original.canonicalizationVersion !== sourceVersion.canonicalizationVersion
+      original?.canonicalText.slice(start, end) !== quote ||
+      original?.sha256 !== sourceVersion.sha256 ||
+      original?.canonicalizationVersion !==
+        sourceVersion.canonicalizationVersion
     ) {
       invalid('Evidence quote does not match backend-owned source text.');
     }
@@ -2707,6 +2725,147 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function optionalResponseRequestId(value: unknown): string | null {
+    return value === null ? null : identifier(value, 'Request id');
+  }
+
+  function publicOutcomeFailure<
+    T extends 'invalid-request' | 'unauthenticated' | 'unsupported',
+    M extends string,
+  >(
+    outcome: T,
+    input: Record<string, unknown>,
+    expectedMessage: M,
+  ): {
+    outcome: T;
+    requestId: string | null;
+    message: M;
+  } {
+    return {
+      outcome,
+      requestId: optionalResponseRequestId(input.requestId),
+      message: publicMessage(input.message, expectedMessage),
+    };
+  }
+
+  function cancelledFailure(
+    input: Record<string, unknown>,
+  ): OnboardingCancelled {
+    if (input.retryable !== false)
+      invalid('Cancelled onboarding cannot authorize a paid retry.');
+    const accounting = input.accounting;
+    if (
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
+    ) {
+      return {
+        outcome: 'cancelled',
+        requestId: identifier(input.requestId, 'Request id'),
+        message: publicMessage(input.message, MESSAGES.cancelled),
+        retryable: false,
+        accounting,
+      };
+    }
+    invalid('Cancelled accounting is invalid.');
+  }
+
+  function unavailableFailure(
+    input: Record<string, unknown>,
+  ): OnboardingUnavailable {
+    const retryable = booleanField(input.retryable, 'Retryable');
+    const accounting = input.accounting;
+    if (
+      accounting === 'none' ||
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
+    ) {
+      if (
+        (accounting === 'charged' || accounting === 'reservation-retained') &&
+        retryable
+      ) {
+        invalid(
+          'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
+        );
+      }
+      return {
+        outcome: 'unavailable',
+        requestId: optionalResponseRequestId(input.requestId),
+        message: publicMessage(input.message, MESSAGES.unavailable),
+        retryable,
+        accounting,
+      };
+    }
+    invalid('Unavailable accounting is invalid.');
+  }
+
+  function coveragePendingFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Coverage-pending cannot authorize a paid retry.');
+    if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
+      invalid('Coverage scope is invalid.');
+    }
+    return {
+      outcome: 'coverage-pending' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: input.scope as LearningOnboardingScope,
+      message: publicMessage(input.message, MESSAGES.coveragePending),
+      gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+      sourceCoverage:
+        input.sourceCoverage === null ? null : coverage(input.sourceCoverage),
+      quota: input.quota === null ? null : quota(input.quota),
+      retryable: false as const,
+    };
+  }
+
+  function conflictFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Conflict cannot authorize a paid retry.');
+    return {
+      outcome: 'conflict' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.conflict),
+      retryable: false as const,
+    };
+  }
+
+  function staleRevisionFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Stale revision cannot authorize a paid retry.');
+    return {
+      outcome: 'stale-revision' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.staleRevision),
+      expectedRevision:
+        input.expectedRevision === null
+          ? null
+          : revision(input.expectedRevision, 'Expected revision'),
+      currentRevision:
+        input.currentRevision === null
+          ? null
+          : boundedInteger(
+              input.currentRevision,
+              1,
+              LIMITS.revision,
+              'Current revision',
+            ),
+      retryable: false as const,
+    };
+  }
+
+  function quotaExceededFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Quota-exceeded cannot authorize a paid retry.');
+    return {
+      outcome: 'quota-exceeded' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.quotaExceeded),
+      quota: quota(input.quota),
+      retryable: false as const,
+    };
+  }
+
   function failure(
     value: unknown,
     requestId: string,
@@ -2717,137 +2876,31 @@ export function createLearningOnboardingValidation(
     }
     switch (input.outcome) {
       case 'invalid-request':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.invalidRequest),
-        };
+        return publicOutcomeFailure(
+          input.outcome,
+          input,
+          MESSAGES.invalidRequest,
+        );
       case 'unauthenticated':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unauthenticated),
-        };
+        return publicOutcomeFailure(
+          input.outcome,
+          input,
+          MESSAGES.unauthenticated,
+        );
       case 'unsupported':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unsupported),
-        };
+        return publicOutcomeFailure(input.outcome, input, MESSAGES.unsupported);
       case 'cancelled':
-        if (input.retryable !== false)
-          invalid('Cancelled onboarding cannot authorize a paid retry.');
-        if (
-          input.accounting !== 'released' &&
-          input.accounting !== 'charged' &&
-          input.accounting !== 'reservation-retained'
-        ) {
-          invalid('Cancelled accounting is invalid.');
-        }
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.cancelled),
-          retryable: false,
-          accounting: input.accounting,
-        };
-      case 'unavailable': {
-        const retryable = booleanField(input.retryable, 'Retryable');
-        const accounting =
-          input.accounting === 'none' ||
-          input.accounting === 'released' ||
-          input.accounting === 'charged' ||
-          input.accounting === 'reservation-retained'
-            ? input.accounting
-            : invalid('Unavailable accounting is invalid.');
-        if (
-          (accounting === 'charged' || accounting === 'reservation-retained') &&
-          retryable
-        ) {
-          invalid(
-            'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
-          );
-        }
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unavailable),
-          retryable,
-          accounting,
-        };
-      }
+        return cancelledFailure(input);
+      case 'unavailable':
+        return unavailableFailure(input);
       case 'coverage-pending':
-        if (input.retryable !== false)
-          invalid('Coverage-pending cannot authorize a paid retry.');
-        if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
-          invalid('Coverage scope is invalid.');
-        }
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          scope: input.scope as LearningOnboardingScope,
-          message: publicMessage(input.message, MESSAGES.coveragePending),
-          gaps: input.gaps === undefined ? [] : gaps(input.gaps),
-          sourceCoverage:
-            input.sourceCoverage === null
-              ? null
-              : coverage(input.sourceCoverage),
-          quota: input.quota === null ? null : quota(input.quota),
-          retryable: false,
-        };
+        return coveragePendingFailure(input);
       case 'conflict':
-        if (input.retryable !== false)
-          invalid('Conflict cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.conflict),
-          retryable: false,
-        };
+        return conflictFailure(input);
       case 'stale-revision':
-        if (input.retryable !== false)
-          invalid('Stale revision cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.staleRevision),
-          expectedRevision:
-            input.expectedRevision === null
-              ? null
-              : revision(input.expectedRevision, 'Expected revision'),
-          currentRevision:
-            input.currentRevision === null
-              ? null
-              : boundedInteger(
-                  input.currentRevision,
-                  1,
-                  LIMITS.revision,
-                  'Current revision',
-                ),
-          retryable: false,
-        };
+        return staleRevisionFailure(input);
       case 'quota-exceeded':
-        if (input.retryable !== false)
-          invalid('Quota-exceeded cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.quotaExceeded),
-          quota: quota(input.quota),
-          retryable: false,
-        };
+        return quotaExceededFailure(input);
       default:
         return invalid('Onboarding outcome is invalid.');
     }

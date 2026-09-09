@@ -2,9 +2,9 @@ import { decodeAnimationRecipe } from './animation-recipes.js';
 import type { Matrix2, Vector2 } from './animation-recipes.js';
 import {
   decodeAiProvenance,
+  decodeContextualQuestion,
   decodeUntrustedDisplayCopy,
   decodeUntrustedRationale,
-  UNTRUSTED_DISPLAY_COPY_ROLE,
   type ContextualHelpIntent,
   type ContextualQuestion,
   type UntrustedDisplayCopy,
@@ -24,7 +24,6 @@ import {
   type ContractDecode,
 } from './contextual-contract-guards';
 import {
-  ARM_LIMITS,
   EXPLANATION_VERSION,
   isExplanationSpec,
   PART_IDS,
@@ -252,8 +251,9 @@ const UNSUPPORTED_PLAN_REASONS = [
   'recipe-or-version',
   'capability',
 ] as const;
-const PINNED_IMAGE_PATTERN =
-  /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
+const IMAGE_NAME_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+const IMAGE_TAG_PATTERN = /^[A-Za-z0-9._-]+$/;
+const PINNED_DIGEST_PREFIX = '@sha256:';
 
 function includes<T>(values: readonly T[], value: unknown): value is T {
   const candidates: readonly unknown[] = values;
@@ -362,28 +362,32 @@ function decodeStages(
   return { ok: true, value: stages };
 }
 
+function decodeCitedSourceSupport(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<PlannerSourceSupport, { kind: 'cited-source' }>> {
+  const decoded = decodeExactRecord(value, ['kind', 'citations']);
+  if (!decoded.ok) return decoded;
+  if (
+    !isDenseArray(decoded.value.citations) ||
+    decoded.value.citations.length < 1 ||
+    decoded.value.citations.length > 12
+  ) {
+    return failed('bounds');
+  }
+  const citations: SourceCitation[] = [];
+  for (const item of decoded.value.citations) {
+    const citation = decodeSourceCitation(item);
+    if (!citation.ok) return citation;
+    citations.push(citation.value);
+  }
+  return { ok: true, value: { kind: 'cited-source', citations } };
+}
+
 function decodeSourceSupport(
   value: unknown,
 ): ContractDecode<PlannerSourceSupport> {
   if (!isContractRecord(value)) return failed('shape');
-  if (value.kind === 'cited-source') {
-    const decoded = decodeExactRecord(value, ['kind', 'citations']);
-    if (!decoded.ok) return decoded;
-    if (
-      !isDenseArray(decoded.value.citations) ||
-      decoded.value.citations.length < 1 ||
-      decoded.value.citations.length > 12
-    ) {
-      return failed('bounds');
-    }
-    const citations: SourceCitation[] = [];
-    for (const item of decoded.value.citations) {
-      const citation = decodeSourceCitation(item);
-      if (!citation.ok) return citation;
-      citations.push(citation.value);
-    }
-    return { ok: true, value: { kind: 'cited-source', citations } };
-  }
+  if (value.kind === 'cited-source') return decodeCitedSourceSupport(value);
   if (value.kind === 'illustrative-assumption') {
     const decoded = decodeExactRecord(value, ['kind', 'note']);
     if (!decoded.ok) return decoded;
@@ -408,89 +412,48 @@ function decodePlainCaption(value: unknown): ContractDecode<string> {
   return invalid ? failed('bounds') : { ok: true, value };
 }
 
-export function decodeExplanationPlan(
-  value: unknown,
-): ContractDecode<ExplanationPlan> {
-  if (!isContractRecord(value)) return failed('shape');
-  if (value.status === 'unsupported') {
-    const decoded = decodeExactRecord(
-      value,
-      ['status', 'reason', 'textualContinuation', 'practicalContinuation'],
-      [],
-      PLANNER_AUTHORITY_KEYS,
-    );
-    if (!decoded.ok) return decoded;
-    if (!includes(UNSUPPORTED_PLAN_REASONS, decoded.value.reason)) {
-      return failed('unsupported');
-    }
-    if (
-      !isBoundedRemoteText(decoded.value.textualContinuation, 2_000) ||
-      !isBoundedRemoteText(decoded.value.practicalContinuation, 2_000)
-    ) {
-      return failed('bounds');
-    }
-    return {
-      ok: true,
-      value: {
-        status: 'unsupported',
-        reason: decoded.value.reason,
-        textualContinuation: decoded.value.textualContinuation,
-        practicalContinuation: decoded.value.practicalContinuation,
-      },
-    };
-  }
-  if (value.status !== 'supported') return failed('shape');
+function decodeUnsupportedExplanationPlan(
+  value: Record<string, unknown>,
+): ContractDecode<UnsupportedExplanationPlan> {
   const decoded = decodeExactRecord(
     value,
-    [
-      'status',
-      'family',
-      'parameters',
-      'stages',
-      'caption',
-      'copy',
-      'sourceSupport',
-      'rationale',
-    ],
+    ['status', 'reason', 'textualContinuation', 'practicalContinuation'],
     [],
     PLANNER_AUTHORITY_KEYS,
   );
   if (!decoded.ok) return decoded;
-  if (!isSupportedPlannerFamily(decoded.value.family))
+  if (!includes(UNSUPPORTED_PLAN_REASONS, decoded.value.reason)) {
     return failed('unsupported');
-  const stages = decodeStages(decoded.value.stages);
-  if (!stages.ok) return stages;
-  const caption = decodePlainCaption(decoded.value.caption);
-  if (!caption.ok) return caption;
-  const copy = decodeUntrustedDisplayCopy(decoded.value.copy);
-  if (!copy.ok) return copy;
-  const sourceSupport = decodeSourceSupport(decoded.value.sourceSupport);
-  if (!sourceSupport.ok) return sourceSupport;
-  const rationale = decodeUntrustedRationale(decoded.value.rationale);
-  if (!rationale.ok) return rationale;
-  const family = decoded.value.family;
-  const parameters = decoded.value.parameters;
-  const common = {
-    status: 'supported' as const,
-    stages: stages.value,
-    caption: caption.value,
-    copy: copy.value,
-    sourceSupport: sourceSupport.value,
-    rationale: rationale.value,
+  }
+  if (
+    !isBoundedRemoteText(decoded.value.textualContinuation, 2_000) ||
+    !isBoundedRemoteText(decoded.value.practicalContinuation, 2_000)
+  ) {
+    return failed('bounds');
+  }
+  return {
+    ok: true,
+    value: {
+      status: 'unsupported',
+      reason: decoded.value.reason,
+      textualContinuation: decoded.value.textualContinuation,
+      practicalContinuation: decoded.value.practicalContinuation,
+    },
   };
+}
+
+function decodeSupportedPlanFamily(
+  family: SupportedPlannerFamily,
+  parameters: unknown,
+  common: Omit<SupportedExplanationPlan, 'family' | 'parameters'>,
+): ContractDecode<SupportedExplanationPlan> {
   if (family === 'spatial-assembly') {
     if (!isAssemblyParameters(parameters)) return failed('bounds');
-    return {
-      ok: true,
-      value: { ...common, family, parameters },
-    };
+    return { ok: true, value: { ...common, family, parameters } };
   }
   if (family === 'two-link-arm') {
     if (!isArmParameters(parameters)) return failed('bounds');
-    return {
-      ok: true,
-      value: { ...common, family, parameters },
-    };
+    return { ok: true, value: { ...common, family, parameters } };
   }
   if (family === 'linear-transform') {
     if (!isClipParameters(family, parameters)) return failed('bounds');
@@ -514,6 +477,63 @@ export function decodeExplanationPlan(
   };
 }
 
+function decodeSupportedExplanationPlan(
+  value: Record<string, unknown>,
+): ContractDecode<SupportedExplanationPlan> {
+  const decoded = decodeExactRecord(
+    value,
+    [
+      'status',
+      'family',
+      'parameters',
+      'stages',
+      'caption',
+      'copy',
+      'sourceSupport',
+      'rationale',
+    ],
+    [],
+    PLANNER_AUTHORITY_KEYS,
+  );
+  if (!decoded.ok) return decoded;
+  if (!isSupportedPlannerFamily(decoded.value.family)) {
+    return failed('unsupported');
+  }
+  const stages = decodeStages(decoded.value.stages);
+  if (!stages.ok) return stages;
+  const caption = decodePlainCaption(decoded.value.caption);
+  if (!caption.ok) return caption;
+  const copy = decodeUntrustedDisplayCopy(decoded.value.copy);
+  if (!copy.ok) return copy;
+  const sourceSupport = decodeSourceSupport(decoded.value.sourceSupport);
+  if (!sourceSupport.ok) return sourceSupport;
+  const rationale = decodeUntrustedRationale(decoded.value.rationale);
+  if (!rationale.ok) return rationale;
+  return decodeSupportedPlanFamily(
+    decoded.value.family,
+    decoded.value.parameters,
+    {
+      status: 'supported',
+      stages: stages.value,
+      caption: caption.value,
+      copy: copy.value,
+      sourceSupport: sourceSupport.value,
+      rationale: rationale.value,
+    },
+  );
+}
+
+export function decodeExplanationPlan(
+  value: unknown,
+): ContractDecode<ExplanationPlan> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.status === 'unsupported') {
+    return decodeUnsupportedExplanationPlan(value);
+  }
+  if (value.status !== 'supported') return failed('shape');
+  return decodeSupportedExplanationPlan(value);
+}
+
 export function decodeOpaqueMediaReference(
   value: unknown,
 ): ContractDecode<OpaqueMediaReference> {
@@ -530,17 +550,50 @@ export function decodeOpaqueMediaReference(
   };
 }
 
+function isPinnedImagePath(path: string): boolean {
+  if (path.length === 0) return false;
+  return path.split('/').every((segment) => IMAGE_NAME_PATTERN.test(segment));
+}
+
+function splitPinnedImageReference(value: string): {
+  path: string;
+  tag: string | null;
+  digest: string | null;
+} {
+  let remainder = value;
+  let digest: string | null = null;
+  const digestIndex = remainder.lastIndexOf(PINNED_DIGEST_PREFIX);
+  if (digestIndex !== -1) {
+    digest = remainder.slice(digestIndex + PINNED_DIGEST_PREFIX.length);
+    remainder = remainder.slice(0, digestIndex);
+  }
+  const tagIndex = remainder.lastIndexOf(':');
+  if (tagIndex === -1) {
+    return { path: remainder, tag: null, digest };
+  }
+  return {
+    path: remainder.slice(0, tagIndex),
+    tag: remainder.slice(tagIndex + 1),
+    digest,
+  };
+}
+
 function isPinnedRendererImage(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 256 &&
-    !value.includes('..') &&
-    !value.includes('\\') &&
-    !value.includes('://') &&
-    !value.startsWith('/') &&
-    PINNED_IMAGE_PATTERN.test(value)
-  );
+  if (typeof value !== 'string') return false;
+  if (
+    value.length === 0 ||
+    value.length > 256 ||
+    value.includes('..') ||
+    value.includes('\\') ||
+    value.includes('://') ||
+    value.startsWith('/')
+  ) {
+    return false;
+  }
+  const { path, tag, digest } = splitPinnedImageReference(value);
+  if (digest !== null && !isContractSha256(digest)) return false;
+  if (tag !== null && !IMAGE_TAG_PATTERN.test(tag)) return false;
+  return isPinnedImagePath(path);
 }
 
 export function decodeVerifiedClipMetadata(
@@ -643,117 +696,267 @@ function decodeTextAnswer(
   };
 }
 
-function decodeRetainedResult(
-  value: unknown,
-): ContractDecode<RetainedExplanationResult> {
-  if (!isContractRecord(value)) return failed('shape');
-  if (value.kind === 'text-answer') return decodeTextAnswer(value);
-  if (value.kind === 'scene') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'family',
-      'assetVersion',
-      'initialParameters',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      decoded.value.family !== 'spatial-assembly' &&
-      decoded.value.family !== 'two-link-arm'
-    ) {
-      return failed('unsupported');
-    }
-    if (decoded.value.assetVersion !== SCENE_ASSET_VERSION) {
-      return failed('revision');
-    }
-    if (decoded.value.family === 'spatial-assembly') {
-      if (!isAssemblyParameters(decoded.value.initialParameters)) {
-        return failed('bounds');
-      }
-      return {
-        ok: true,
-        value: {
-          kind: 'scene',
-          family: 'spatial-assembly',
-          assetVersion: SCENE_ASSET_VERSION,
-          initialParameters: decoded.value.initialParameters,
-        },
-      };
-    }
-    if (!isArmParameters(decoded.value.initialParameters)) {
+function decodeSceneResult(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<RetainedExplanationResult, { kind: 'scene' }>> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'family',
+    'assetVersion',
+    'initialParameters',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (
+    decoded.value.family !== 'spatial-assembly' &&
+    decoded.value.family !== 'two-link-arm'
+  ) {
+    return failed('unsupported');
+  }
+  if (decoded.value.assetVersion !== SCENE_ASSET_VERSION) {
+    return failed('revision');
+  }
+  if (decoded.value.family === 'spatial-assembly') {
+    if (!isAssemblyParameters(decoded.value.initialParameters)) {
       return failed('bounds');
     }
     return {
       ok: true,
       value: {
         kind: 'scene',
-        family: 'two-link-arm',
+        family: 'spatial-assembly',
         assetVersion: SCENE_ASSET_VERSION,
         initialParameters: decoded.value.initialParameters,
       },
     };
   }
-  if (value.kind === 'clip') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'family',
-      'assetVersion',
-      'media',
-      'verified',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      decoded.value.family !== 'linear-transform' &&
-      decoded.value.family !== 'weighted-combination'
-    ) {
-      return failed('unsupported');
-    }
-    if (decoded.value.assetVersion !== CLIP_ASSET_VERSION) {
-      return failed('revision');
-    }
-    const media = decodeOpaqueMediaReference(decoded.value.media);
-    if (!media.ok) return media;
-    const verified = decodeVerifiedClipMetadata(decoded.value.verified);
-    if (!verified.ok) return verified;
-    return {
-      ok: true,
-      value: {
-        kind: 'clip',
-        family: decoded.value.family,
-        assetVersion: CLIP_ASSET_VERSION,
-        media: media.value,
-        verified: verified.value,
-      },
-    };
+  if (!isArmParameters(decoded.value.initialParameters)) {
+    return failed('bounds');
   }
+  return {
+    ok: true,
+    value: {
+      kind: 'scene',
+      family: 'two-link-arm',
+      assetVersion: SCENE_ASSET_VERSION,
+      initialParameters: decoded.value.initialParameters,
+    },
+  };
+}
+
+function decodeClipResult(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<RetainedExplanationResult, { kind: 'clip' }>> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'family',
+    'assetVersion',
+    'media',
+    'verified',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (
+    decoded.value.family !== 'linear-transform' &&
+    decoded.value.family !== 'weighted-combination'
+  ) {
+    return failed('unsupported');
+  }
+  if (decoded.value.assetVersion !== CLIP_ASSET_VERSION) {
+    return failed('revision');
+  }
+  const media = decodeOpaqueMediaReference(decoded.value.media);
+  if (!media.ok) return media;
+  const verified = decodeVerifiedClipMetadata(decoded.value.verified);
+  if (!verified.ok) return verified;
+  return {
+    ok: true,
+    value: {
+      kind: 'clip',
+      family: decoded.value.family,
+      assetVersion: CLIP_ASSET_VERSION,
+      media: media.value,
+      verified: verified.value,
+    },
+  };
+}
+
+function decodeRetainedResult(
+  value: unknown,
+): ContractDecode<RetainedExplanationResult> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.kind === 'text-answer') return decodeTextAnswer(value);
+  if (value.kind === 'scene') return decodeSceneResult(value);
+  if (value.kind === 'clip') return decodeClipResult(value);
   return failed('shape');
 }
 
-function decodeHumanQuestion(
+function decodeNullableAttemptField<T>(
   value: unknown,
-): ContractDecode<ContextualQuestion> {
-  if (!isContractRecord(value)) return failed('shape');
-  if (value.kind === 'human') {
-    const decoded = decodeExactRecord(value, ['kind', 'text']);
-    if (!decoded.ok) return decoded;
-    if (!isBoundedRemoteText(decoded.value.text, 2_000))
-      return failed('bounds');
-    return { ok: true, value: { kind: 'human', text: decoded.value.text } };
+  decode: (item: unknown) => ContractDecode<T>,
+): ContractDecode<T | null> {
+  if (value === null) return { ok: true, value: null };
+  return decode(value);
+}
+
+function decodeAttemptCitations(
+  value: unknown,
+): ContractDecode<SourceCitation[]> {
+  if (!isDenseArray(value) || value.length > 12) return failed('bounds');
+  const citations: SourceCitation[] = [];
+  for (const item of value) {
+    const citation = decodeSourceCitation(item);
+    if (!citation.ok) return citation;
+    citations.push(citation.value);
   }
-  if (value.kind === 'app-authored') {
-    const decoded = decodeExactRecord(value, ['kind', 'intent']);
-    if (!decoded.ok) return decoded;
-    if (
-      decoded.value.intent !== 'explain-this-passage' &&
-      decoded.value.intent !== 'explain-this-visually'
-    ) {
-      return failed('unsupported');
-    }
-    return {
-      ok: true,
-      value: { kind: 'app-authored', intent: decoded.value.intent },
-    };
+  return { ok: true, value: citations };
+}
+
+function decodeAttemptIdentity(
+  value: Record<string, unknown>,
+  explanationId: string,
+  parentIntent: ContextualHelpIntent,
+): ContractDecode<{
+  attemptId: string;
+  intent: ContextualHelpIntent;
+  status: ExplanationAttemptStatus;
+  requestedAt: string;
+  completedAt: string | null;
+}> {
+  if (
+    !isContractUuid(value.attemptId) ||
+    !isContractUuid(value.explanationId)
+  ) {
+    return failed('identity');
   }
-  return failed('shape');
+  if (value.explanationId !== explanationId) return failed('origin');
+  const intent = value.intent;
+  if (!isHelpIntent(intent)) return failed('unsupported');
+  if (intent !== parentIntent) return failed('origin');
+  if (!includes(ATTEMPT_STATUSES, value.status)) return failed('unsupported');
+  if (!isIsoTimestamp(value.requestedAt)) return failed('revision');
+  if (value.completedAt !== null && !isIsoTimestamp(value.completedAt)) {
+    return failed('revision');
+  }
+  return {
+    ok: true,
+    value: {
+      attemptId: value.attemptId,
+      intent,
+      status: value.status,
+      requestedAt: value.requestedAt,
+      completedAt: value.completedAt,
+    },
+  };
+}
+
+function decodeAttemptBodies(value: Record<string, unknown>): ContractDecode<{
+  humanQuestion: ContextualQuestion;
+  aiResponse: ExplanationAttempt['aiResponse'];
+  provenance: AiProvenance | null;
+  citations: SourceCitation[];
+  plan: ExplanationPlan | null;
+  result: RetainedExplanationResult | null;
+}> {
+  const humanQuestion = decodeContextualQuestion(value.humanQuestion);
+  if (!humanQuestion.ok) return humanQuestion;
+  const aiResponse = decodeAiResponse(value.aiResponse);
+  if (!aiResponse.ok) return aiResponse;
+  const provenance = decodeNullableAttemptField(
+    value.provenance,
+    decodeAiProvenance,
+  );
+  if (!provenance.ok) return provenance;
+  const citations = decodeAttemptCitations(value.citations);
+  if (!citations.ok) return citations;
+  const plan = decodeNullableAttemptField(value.plan, decodeExplanationPlan);
+  if (!plan.ok) return plan;
+  const result = decodeNullableAttemptField(value.result, decodeRetainedResult);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    value: {
+      humanQuestion: humanQuestion.value,
+      aiResponse: aiResponse.value,
+      provenance: provenance.value,
+      citations: citations.value,
+      plan: plan.value,
+      result: result.value,
+    },
+  };
+}
+
+function decodeAttemptConsistency(
+  status: ExplanationAttemptStatus,
+  intent: ContextualHelpIntent,
+  bodies: {
+    aiResponse: ExplanationAttempt['aiResponse'];
+    provenance: AiProvenance | null;
+    plan: ExplanationPlan | null;
+    result: RetainedExplanationResult | null;
+  },
+): ContractDecode<true> {
+  if (status === 'ready' && bodies.result === null) return failed('shape');
+  if (
+    !retainedResultAgreesWithIntentAndPlan(intent, bodies.plan, bodies.result)
+  ) {
+    return failed('origin');
+  }
+  if (bodies.aiResponse && bodies.provenance === null) {
+    return failed('provenance');
+  }
+  return { ok: true, value: true };
+}
+
+function decodeAttempt(
+  value: unknown,
+  explanationId: string,
+  parentIntent: ContextualHelpIntent,
+): ContractDecode<ExplanationAttempt> {
+  const decoded = decodeExactRecord(value, [
+    'attemptId',
+    'explanationId',
+    'intent',
+    'status',
+    'requestedAt',
+    'completedAt',
+    'humanQuestion',
+    'aiResponse',
+    'provenance',
+    'citations',
+    'plan',
+    'result',
+  ]);
+  if (!decoded.ok) return decoded;
+  const identity = decodeAttemptIdentity(
+    decoded.value,
+    explanationId,
+    parentIntent,
+  );
+  if (!identity.ok) return identity;
+  const bodies = decodeAttemptBodies(decoded.value);
+  if (!bodies.ok) return bodies;
+  const consistency = decodeAttemptConsistency(
+    identity.value.status,
+    identity.value.intent,
+    bodies.value,
+  );
+  if (!consistency.ok) return consistency;
+  return {
+    ok: true,
+    value: {
+      attemptId: identity.value.attemptId,
+      explanationId,
+      intent: identity.value.intent,
+      status: identity.value.status,
+      requestedAt: identity.value.requestedAt,
+      completedAt: identity.value.completedAt,
+      humanQuestion: bodies.value.humanQuestion,
+      aiResponse: bodies.value.aiResponse,
+      provenance: bodies.value.provenance,
+      citations: bodies.value.citations,
+      plan: bodies.value.plan,
+      result: bodies.value.result,
+    },
+  };
 }
 
 function decodeAiResponse(
@@ -806,102 +1009,48 @@ function retainedResultAgreesWithIntentAndPlan(
   return readyResultMatchesSupportedPlan(plan, result);
 }
 
-function decodeAttempt(
+function usefulAttemptIsReady(
+  useful: ExplanationAttempt | undefined,
+  intent: ContextualHelpIntent,
+): boolean {
+  return (
+    useful?.status === 'ready' &&
+    useful.result !== null &&
+    useful.intent === intent &&
+    retainedResultAgreesWithIntentAndPlan(intent, useful.plan, useful.result)
+  );
+}
+
+function decodeExplanationAttempts(
   value: unknown,
   explanationId: string,
-  parentIntent: ContextualHelpIntent,
-): ContractDecode<ExplanationAttempt> {
-  const decoded = decodeExactRecord(value, [
-    'attemptId',
-    'explanationId',
-    'intent',
-    'status',
-    'requestedAt',
-    'completedAt',
-    'humanQuestion',
-    'aiResponse',
-    'provenance',
-    'citations',
-    'plan',
-    'result',
-  ]);
-  if (!decoded.ok) return decoded;
-  if (
-    !isContractUuid(decoded.value.attemptId) ||
-    !isContractUuid(decoded.value.explanationId)
-  ) {
-    return failed('identity');
-  }
-  if (decoded.value.explanationId !== explanationId) return failed('origin');
-  const intent = decoded.value.intent;
-  if (!isHelpIntent(intent)) return failed('unsupported');
-  if (intent !== parentIntent) return failed('origin');
-  if (!includes(ATTEMPT_STATUSES, decoded.value.status))
-    return failed('unsupported');
-  if (!isIsoTimestamp(decoded.value.requestedAt)) return failed('revision');
-  if (
-    decoded.value.completedAt !== null &&
-    !isIsoTimestamp(decoded.value.completedAt)
-  ) {
-    return failed('revision');
-  }
-  const humanQuestion = decodeHumanQuestion(decoded.value.humanQuestion);
-  if (!humanQuestion.ok) return humanQuestion;
-  const aiResponse = decodeAiResponse(decoded.value.aiResponse);
-  if (!aiResponse.ok) return aiResponse;
-  let provenance: AiProvenance | null = null;
-  if (decoded.value.provenance !== null) {
-    const decodedProvenance = decodeAiProvenance(decoded.value.provenance);
-    if (!decodedProvenance.ok) return decodedProvenance;
-    provenance = decodedProvenance.value;
-  }
-  if (
-    !isDenseArray(decoded.value.citations) ||
-    decoded.value.citations.length > 12
-  ) {
+  intent: ContextualHelpIntent,
+): ContractDecode<ExplanationAttempt[]> {
+  if (!isDenseArray(value) || value.length < 1 || value.length > 32) {
     return failed('bounds');
   }
-  const citations: SourceCitation[] = [];
-  for (const item of decoded.value.citations) {
-    const citation = decodeSourceCitation(item);
-    if (!citation.ok) return citation;
-    citations.push(citation.value);
+  const attempts: ExplanationAttempt[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const attempt = decodeAttempt(item, explanationId, intent);
+    if (!attempt.ok) return attempt;
+    if (seen.has(attempt.value.attemptId)) return failed('identity');
+    seen.add(attempt.value.attemptId);
+    attempts.push(attempt.value);
   }
-  let plan: ExplanationPlan | null = null;
-  if (decoded.value.plan !== null) {
-    const decodedPlan = decodeExplanationPlan(decoded.value.plan);
-    if (!decodedPlan.ok) return decodedPlan;
-    plan = decodedPlan.value;
-  }
-  let result: RetainedExplanationResult | null = null;
-  if (decoded.value.result !== null) {
-    const decodedResult = decodeRetainedResult(decoded.value.result);
-    if (!decodedResult.ok) return decodedResult;
-    result = decodedResult.value;
-  }
-  if (decoded.value.status === 'ready' && result === null)
-    return failed('shape');
-  if (!retainedResultAgreesWithIntentAndPlan(intent, plan, result)) {
-    return failed('origin');
-  }
-  if (aiResponse.value && provenance === null) return failed('provenance');
-  return {
-    ok: true,
-    value: {
-      attemptId: decoded.value.attemptId,
-      explanationId,
-      intent,
-      status: decoded.value.status,
-      requestedAt: decoded.value.requestedAt,
-      completedAt: decoded.value.completedAt,
-      humanQuestion: humanQuestion.value,
-      aiResponse: aiResponse.value,
-      provenance,
-      citations,
-      plan,
-      result,
-    },
-  };
+  return { ok: true, value: attempts };
+}
+
+function decodeUsefulAttemptId(
+  usefulAttemptId: unknown,
+  attempts: readonly ExplanationAttempt[],
+  intent: ContextualHelpIntent,
+): ContractDecode<string | null> {
+  if (usefulAttemptId === null) return { ok: true, value: null };
+  if (!isContractUuid(usefulAttemptId)) return failed('identity');
+  const useful = attempts.find((item) => item.attemptId === usefulAttemptId);
+  if (!usefulAttemptIsReady(useful, intent)) return failed('origin');
+  return { ok: true, value: usefulAttemptId };
 }
 
 export function decodeRetainedExplanation(
@@ -938,36 +1087,18 @@ export function decodeRetainedExplanation(
   ) {
     return failed('revision');
   }
-  if (
-    !isDenseArray(decoded.value.attempts) ||
-    decoded.value.attempts.length < 1 ||
-    decoded.value.attempts.length > 32
-  ) {
-    return failed('bounds');
-  }
-  const attempts: ExplanationAttempt[] = [];
-  const seen = new Set<string>();
-  for (const item of decoded.value.attempts) {
-    const attempt = decodeAttempt(item, decoded.value.explanationId, intent);
-    if (!attempt.ok) return attempt;
-    if (seen.has(attempt.value.attemptId)) return failed('identity');
-    seen.add(attempt.value.attemptId);
-    attempts.push(attempt.value);
-  }
-  const usefulAttemptId = decoded.value.usefulAttemptId;
-  if (usefulAttemptId !== null) {
-    if (!isContractUuid(usefulAttemptId)) return failed('identity');
-    const useful = attempts.find((item) => item.attemptId === usefulAttemptId);
-    if (
-      !useful ||
-      useful.status !== 'ready' ||
-      useful.result === null ||
-      useful.intent !== intent ||
-      !retainedResultAgreesWithIntentAndPlan(intent, useful.plan, useful.result)
-    ) {
-      return failed('origin');
-    }
-  }
+  const attempts = decodeExplanationAttempts(
+    decoded.value.attempts,
+    decoded.value.explanationId,
+    intent,
+  );
+  if (!attempts.ok) return attempts;
+  const usefulAttemptId = decodeUsefulAttemptId(
+    decoded.value.usefulAttemptId,
+    attempts.value,
+    intent,
+  );
+  if (!usefulAttemptId.ok) return usefulAttemptId;
   return {
     ok: true,
     value: {
@@ -976,8 +1107,8 @@ export function decodeRetainedExplanation(
       projectId: decoded.value.projectId,
       origin: origin.value,
       intent,
-      attempts,
-      usefulAttemptId,
+      attempts: attempts.value,
+      usefulAttemptId: usefulAttemptId.value,
       createdAt: decoded.value.createdAt,
       updatedAt: decoded.value.updatedAt,
     },
@@ -1136,4 +1267,5 @@ export function decodeClipLocalState(
   };
 }
 
-export { ARM_LIMITS, PART_IDS, UNTRUSTED_DISPLAY_COPY_ROLE };
+export { ARM_LIMITS, PART_IDS } from './explanations';
+export { UNTRUSTED_DISPLAY_COPY_ROLE } from './contextual-help';
