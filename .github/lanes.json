@@ -20,7 +20,12 @@
       "src/renderer/tokens.css"
     ],
     "reader": ["src/renderer/reader/**"],
-    "canvas": ["src/renderer/canvas/**"],
+    "canvas": [
+      "src/renderer/canvas/**",
+      "src/renderer/reader/ReaderSidebar.tsx",
+      "src/renderer/reader/ReaderSidebar.test.tsx",
+      "src/renderer/reader/sidebar-collapse.css"
+    ],
     "practical": [
       "src/renderer/practical/**",
       "src/main/practical-*.ts",
