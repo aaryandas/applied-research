@@ -1,30 +1,36 @@
 # Sourced learning backend — AR-36
 
 The additive backend API in `src/backend/learning-api.ts` prepares a sequenced
-path and its first readable lesson from retrieved evidence. It is a backend
-integration seam, not a registered HTTP route or an accepted desktop journey.
-Existing learning/tutor contracts and their consumers remain compatible.
+path and its first readable lesson from retrieved evidence. AR-48 registers
+authenticated HTTP routes; it is still not an accepted desktop journey. Existing
+learning/tutor contracts and their consumers remain compatible.
 
 ## Invocation and producer connection
 
-`makeSourcedLearningApi({ learning, selectEvidence })` returns
+`makeSourcedLearningApi({ learning, selectEvidence, operations, diagnostics })` returns
 `request(sessionAccount, learningRequest): Effect<SourcedLearningResponse>`.
-Composition must derive the account from the authoritative authenticated session
-and run the effect in the HTTP request's existing cancellation scope. The API
+AR-48 HTTP composition derives the account from the authoritative authenticated session
+and runs the effect in the HTTP request's existing cancellation scope. The API
 validates and snapshots the request and copies its account before asynchronous
 work. It does not accept a body-supplied account or select sources from the
 caller's `operation.sources` as retrieval authority.
+
+`POST /v1/learning/sourced` is registered. Generic `POST /v1/learning/requests`
+remains. Durable outer idempotency keys account + client requestId + client-visible
+input hash and freezes retrieved evidence before paid generation so identical input
+replays without re-retrieval. See [sourced backend](sourced-backend.md).
 
 The mandatory `selectEvidence` dependency accepts `{ requestId, query, intent, maxPassages }` (currently 12 passages)
 and `{ account, signal }`. It returns `{ sources: AcquiredSource[], retrieval:
 RetrieveEvidenceResponse }` using the frozen AR-30 contract. The producer must
 perform server-authorized discovery/acquisition/retrieval; client-supplied
-permission declarations are not authority. The AR-35 producer and backend HTTP
-composition are not connected in this branch. No fixture adapter ships in
-application code. The producer call has a ten-second bound, with its signal
-aborted on timeout or cancellation. The response is validated against that same
-passage bound. Valid no-evidence/failure outcomes retain their public retrieval
-message even when no acquired sources are returned.
+permission declarations are not authority. The AR-35 producer is composed in AR-48 as `makeLearningEvidenceSelector` over
+account-acquired sources and live turbopuffer retrieval. No fixture adapter ships in
+application routes. Missing live index configuration fails closed rather than
+inventing vectors or falling back to keyword-only search. The producer call has a
+ten-second bound, with its signal aborted on timeout or cancellation. The response
+is validated against that same passage bound. Valid no-evidence/failure outcomes
+retain their public retrieval message even when no acquired sources are returned.
 
 The API validates acquired-source shapes and permissions, the exact requested
 query/intent/request identity, canonical hashes, revision identities and

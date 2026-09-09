@@ -10,6 +10,14 @@ const DIAGNOSTIC_MESSAGES = {
   'learning.execution-failed': 'Learning request execution failed.',
   'learning.quota-failed': 'Monthly quota lookup failed.',
   'provider.request-failed': 'Provider request failed.',
+  'sourced.retrieval-failed': 'Sourced retrieval failed.',
+  'sourced.support-failed': 'Sourced support checking failed.',
+  'sourced.idempotency-failed': 'Sourced request idempotency failed.',
+  'sourcing.discovery-failed': 'Source discovery failed.',
+  'sourcing.acquisition-failed': 'Source acquisition failed.',
+  'sourcing.embedding-failed': 'Source embedding failed.',
+  'sourcing.index-failed': 'Source index operation failed.',
+  'sourcing.budget-failed': 'Source provider budget failed.',
 } as const;
 
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_MESSAGES;

@@ -5,10 +5,14 @@ import {
 } from '../contracts/learning-api.js';
 import {
   API_ORIGIN,
+  EMBEDDING_EVAL_LIMIT_MICROUSD,
   MAX_CONCURRENT_PROVIDER_REQUESTS,
   MAX_PROVIDER_DURATION_MS,
   MONTHLY_LIMIT_MICROUSD,
+  TURBOPUFFER_OREGON_REGIONS,
+  type TurbopufferRegion,
 } from './policy.js';
+import { OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD } from './sourcing/openalex/budget.js';
 
 export class ConfigurationError extends Data.TaggedError('ConfigurationError')<{
   readonly message: string;
@@ -28,6 +32,12 @@ export interface BackendConfig {
   model: LearningModel;
   providerTimeoutMs: number;
   providerConcurrency: number;
+  openAlexApiKey: string | null;
+  openAlexMonthlyLimitMicrousd: number | null;
+  turbopufferApiKey: string | null;
+  turbopufferRegion: TurbopufferRegion | null;
+  sourceIndexLive: boolean;
+  embeddingEvalLimitMicrousd: number;
 }
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
@@ -50,15 +60,65 @@ function port(value: string | undefined): number {
   return parsed;
 }
 
-function monthlyLimit(value: string | undefined): number {
-  if (value === undefined) return MONTHLY_LIMIT_MICROUSD;
+function usdMicrousd(value: string, name: string): number {
   if (!/^\d+(?:\.\d{1,6})?$/.test(value)) {
     throw new ConfigurationError({
-      message: 'AI_MONTHLY_LIMIT_USD must be a decimal amount.',
+      message: `${name} must be a decimal amount.`,
     });
   }
   const [whole = '0', fraction = ''] = value.split('.');
-  const microusd = Number(whole) * 1_000_000 + Number(fraction.padEnd(6, '0'));
+  return Number(whole) * 1_000_000 + Number(fraction.padEnd(6, '0'));
+}
+
+function optionalSecret(
+  environment: NodeJS.ProcessEnv,
+  name: string,
+): string | null {
+  const value = environment[name];
+  if (value === undefined || value === '') return null;
+  return value;
+}
+
+function turbopufferRegion(
+  value: string | undefined,
+): TurbopufferRegion | null {
+  if (value === undefined || value === '') return null;
+  if (!(TURBOPUFFER_OREGON_REGIONS as readonly string[]).includes(value)) {
+    throw new ConfigurationError({
+      message:
+        'TURBOPUFFER_REGION must be an approved Oregon region (aws-us-west-2 or gcp-us-west1).',
+    });
+  }
+  return value as TurbopufferRegion;
+}
+
+function embeddingEvalLimit(value: string | undefined): number {
+  if (value === undefined) return EMBEDDING_EVAL_LIMIT_MICROUSD;
+  const microusd = usdMicrousd(value, 'EMBEDDING_EVAL_LIMIT_USD');
+  if (microusd !== EMBEDDING_EVAL_LIMIT_MICROUSD) {
+    throw new ConfigurationError({
+      message:
+        'EMBEDDING_EVAL_LIMIT_USD must remain at the approved value of 0.25.',
+    });
+  }
+  return microusd;
+}
+
+function openAlexMonthlyLimit(value: string | undefined): number | null {
+  if (value === undefined || value === '') return null;
+  const microusd = usdMicrousd(value, 'OPENALEX_MONTHLY_LIMIT_USD');
+  if (microusd < OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD) {
+    throw new ConfigurationError({
+      message:
+        'OPENALEX_MONTHLY_LIMIT_USD is below the verified per-search ceiling; OpenAlex stays disabled.',
+    });
+  }
+  return microusd;
+}
+
+function monthlyLimit(value: string | undefined): number {
+  if (value === undefined) return MONTHLY_LIMIT_MICROUSD;
+  const microusd = usdMicrousd(value, 'AI_MONTHLY_LIMIT_USD');
   if (microusd !== MONTHLY_LIMIT_MICROUSD) {
     throw new ConfigurationError({
       message: 'AI_MONTHLY_LIMIT_USD must remain at the approved value of 20.',
@@ -141,6 +201,39 @@ export function loadBackendConfig(
       message: 'BETTER_AUTH_SECRET must contain at least 32 characters.',
     });
   }
+  const openAlexApiKey = optionalSecret(environment, 'OPENALEX_API_KEY');
+  const openAlexMonthlyLimitMicrousd = openAlexMonthlyLimit(
+    environment.OPENALEX_MONTHLY_LIMIT_USD,
+  );
+  if ((openAlexApiKey === null) !== (openAlexMonthlyLimitMicrousd === null)) {
+    throw new ConfigurationError({
+      message:
+        'OPENALEX_API_KEY and OPENALEX_MONTHLY_LIMIT_USD must be configured together. Missing allowance fails closed.',
+    });
+  }
+  const sourceIndexLive = exactBoolean(
+    environment.SOURCE_INDEX_LIVE,
+    'SOURCE_INDEX_LIVE',
+  );
+  const turbopufferApiKey = optionalSecret(environment, 'TURBOPUFFER_API_KEY');
+  const region = turbopufferRegion(environment.TURBOPUFFER_REGION);
+  const embeddingEvalLimitMicrousd = embeddingEvalLimit(
+    environment.EMBEDDING_EVAL_LIMIT_USD,
+  );
+  if (sourceIndexLive) {
+    if (!turbopufferApiKey || !region) {
+      throw new ConfigurationError({
+        message:
+          'SOURCE_INDEX_LIVE requires TURBOPUFFER_API_KEY and an approved Oregon TURBOPUFFER_REGION.',
+      });
+    }
+    if (embeddingEvalLimitMicrousd <= 0) {
+      throw new ConfigurationError({
+        message:
+          'Live source indexing fails closed without an embedding evaluation budget.',
+      });
+    }
+  }
   return {
     port: port(environment.PORT),
     databaseUrl: loadDatabaseUrl(environment),
@@ -157,5 +250,11 @@ export function loadBackendConfig(
     model: model(environment.AI_MODEL),
     providerTimeoutMs: MAX_PROVIDER_DURATION_MS,
     providerConcurrency: MAX_CONCURRENT_PROVIDER_REQUESTS,
+    openAlexApiKey,
+    openAlexMonthlyLimitMicrousd,
+    turbopufferApiKey: sourceIndexLive ? turbopufferApiKey : null,
+    turbopufferRegion: sourceIndexLive ? region : null,
+    sourceIndexLive,
+    embeddingEvalLimitMicrousd,
   };
 }

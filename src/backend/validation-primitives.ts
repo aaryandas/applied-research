@@ -9,7 +9,7 @@ export const SOURCE_FORMATS: readonly SourceFormat[] = [
   'pdf',
 ];
 
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/;
+export const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,99}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export type InvalidValue = (message: string) => never;

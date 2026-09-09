@@ -2,9 +2,9 @@
 
 ## Implemented boundary
 
-`src/backend/sourcing/index/adapter.ts` exposes `indexBatch`, `deleteRevision`, `search`, and the shared-contract-compatible `retrieveEvidence`. This is a backend adapter checkpoint with synthetic vectors and injected HTTP responses. It is not wired into backend routes, desktop entry flows, acquisition jobs, or a live corpus. AR-30 owns shared sourcing contracts; AR-33 owns acquisition, extraction and chunk production. Their contracts remain unchanged.
+`src/backend/sourcing/index/adapter.ts` exposes `indexBatch`, `deleteRevision`, `search`, and the shared-contract-compatible `retrieveEvidence`. AR-48 optionally composes this adapter behind authenticated discover/acquire/sourced HTTP when `SOURCE_INDEX_LIVE=true`. Desktop entry, workspace saves and onboarding remain other owners. AR-30 owns shared sourcing contracts; AR-33 owns acquisition, extraction and chunk production. Their contracts remain unchanged.
 
-Construction accepts a backend-owned corpus ID, a generation manifest and a `CorpusAuthority`. There is deliberately no production key, region setting, default network transport or native embedding path. Omitting `fixture` returns `live-configuration-required` without network access. The fixture URL uses `gcp-us-central1`; this is an API-shape specimen, not an approved deployment region. The only Authorization value is a synthetic fixture marker. Do not pass a live HTTP client to the fixture seam.
+Construction accepts a backend-owned corpus ID, a generation manifest and a `CorpusAuthority`. Fixture and live transports are mutually exclusive. Omitting both returns `live-configuration-required` without network access. The fixture URL uses `gcp-us-central1` as an API-shape specimen. Live composition uses founder-approved Oregon regions (`aws-us-west-2`, `gcp-us-west1`) and a real API key only when `SOURCE_INDEX_LIVE=true`. Do not pass a live HTTP client to the fixture seam.
 
 The manifest pins external embedding provider, model, model version and dimensions together with schema, corpus and chunking versions. Configuration is copied at construction. Query embeddings return the same manifest; write batches carry it alongside caller-produced passage vectors. Any mismatch rejects. A changed manifest or corpus ID derives a new namespace rather than rewriting a prior generation. Vector validation requires a dense, finite, nonzero f32-representable vector of the exact dimension (at most 4,096). Tests use three-dimensional synthetic vectors; no embedding quality is established.
 
@@ -29,11 +29,29 @@ Revocation must be persisted by the authoritative producer **before** calling `d
 
 `search` returns a per-operation status alongside the unchanged public retrieval response: `ready` for success and no-evidence, `partial` when valid evidence is returned but some provider rows were suppressed, otherwise the failure reason. `index-lag` maps to a retryable public `unavailable`; cancellation, timeout and rate limiting keep their existing shared outcomes. Transport failures keep their underlying error as `cause` on the internal `IndexOperationError` for backend diagnostics; only the reason reaches results. `indexBatch` and `deleteRevision` return bounded reasons directly. A provider `rows_remaining` acknowledgement never means deletion completed. These statuses are available to future backend/UI composition; no desktop status view is implemented by this ticket.
 
-## Live acceptance remains blocked
+## Live acceptance remains coordinator-gated
 
-Before enabling live calls, the founder must select and verify an external embedding provider/model/version/dimension, backend-aligned turbopuffer region, approved initial corpus and monthly/per-operation embedding/index budgets. The existing provider-development allowance does not authorize a turbopuffer subscription. No account was created, service purchased, provider credential read, corpus uploaded or live query made by this implementation.
+The founder approved turbopuffer Launch ($16/mo minimum) in Oregon `aws-us-west-2` and Qwen
+`qwen/qwen3-embedding-8b` at 1024 dimensions with an initial embedding evaluation
+MAX $0.25 TOTAL. Coordinator probe spend is already reconciled: remaining **249996 µUSD**.
+Coordinator provisions the backend key separately. `SOURCE_INDEX_LIVE` defaults to false.
+This revision does not run paid embed/index calls, deploy, or enable production AI. The
+published Launch minimum is not an unlimited embedding budget or a hard application cap;
+the shared eval ledger fails closed when missing.
 
-Recommendation for the next decision checkpoint: evaluate one explicitly pinned external embedding model against a small founder-approved, publicly indexable educational/scholarly corpus; compare lexical-only, vector-only and fused relevance before increasing scope. Confirm the actual backend location and account plan first. The published Launch plan currently has a $16/month minimum, which needs separate approval; per-operation ceilings and retry reservations must be implemented and verified before enabling a live transport. This recommendation is not a model, region or spending decision. Real write/query failures, cost accounting, latency, retrieval quality, connected entry flows, Cursor recording and independent Fable review remain acceptance work.
+Ready live smoke (do not run without coordinator authorization):
+
+```
+SOURCE_INDEX_EVAL=true \
+  OPENROUTER_API_KEY=<backend-openrouter-key> \
+  TURBOPUFFER_API_KEY=<backend-turbopuffer-key> \
+  TURBOPUFFER_REGION=aws-us-west-2 \
+  SOURCE_INDEX_EVAL_NAMESPACE=ar-eval-shared-025 \
+  EMBEDDING_EVAL_LIMIT_USD=0.25 \
+  npm run test:source-index-eval
+```
+
+See [sourced backend](sourced-backend.md) for route composition, budgets and corpus limits.
 
 ## Official API references
 

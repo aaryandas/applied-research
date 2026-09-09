@@ -1,6 +1,7 @@
 import { selectedCitation } from './support-validation.js';
 import { Effect } from 'effect';
 import type { PublicAccount } from '../../contracts/learning-api.js';
+import { parseLearningRequest, RequestValidationError } from '../validation.js';
 import { sha256Text } from '../validation-primitives.js';
 import type { EvidenceGenerationRequest } from './evidence.js';
 import { generatedLessonSource } from './lesson-source.js';
@@ -10,6 +11,9 @@ import type {
   SourcedLearningOptions,
   SourcedLearningResponse,
 } from './types.js';
+
+export const SOURCED_LESSON_QUESTION =
+  'Teach the next learning step identified in evidenceContext.targetStep. Give a readable explanation in short paragraphs using only supplied source evidence. Separate explanation from exact quotes. Omit unsupported central claims and identify coverage gaps.';
 
 export interface SourcedGenerationContext {
   options: SourcedLearningOptions;
@@ -79,6 +83,7 @@ export function generateSourcedPath(
           phase: 'path',
           generatedAt: pathResult.provenance.createdAt,
           sourceScopes: request.evidenceContext.sourceScopes,
+          diagnostics: options.diagnostics,
         },
       ),
     );
@@ -103,16 +108,45 @@ export function generateSourcedLesson(
   const first = progress.path?.steps[0];
   if (!first) return Effect.succeed(progress);
   return Effect.gen(function* () {
+    let lessonRequest;
+    try {
+      lessonRequest = parseLearningRequest({
+        apiVersion: request.apiVersion,
+        requestId: `lesson_${sha256Text(request.requestId)}`,
+        model: request.model,
+        operation: {
+          kind: 'source-grounded-tutor',
+          question: SOURCED_LESSON_QUESTION,
+          sources: request.operation.sources,
+          learnerContext: request.operation.learnerContext,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof RequestValidationError)) throw error;
+      return {
+        ...progress,
+        outcome: 'partial',
+        gaps: [
+          ...progress.gaps,
+          {
+            kind: 'generation',
+            message:
+              'The first lesson could not be generated. Supported path steps remain available.',
+          },
+        ],
+      } satisfies SourcedLearningResponse;
+    }
     const lessonResult = yield* timing.measure(
       'generationMs',
       options.learning.request(account, {
-        ...request,
-        requestId: `lesson_${sha256Text(request.requestId)}`,
-        operation: {
-          kind: 'source-grounded-tutor',
-          question: `Teach the learning step “${first.title}”: ${first.objective}. Give a readable explanation in short paragraphs using only supplied source evidence. Separate explanation from exact quotes. Omit unsupported central claims and identify coverage gaps.`,
-          sources: request.operation.sources,
-          learnerContext: request.operation.learnerContext,
+        ...lessonRequest,
+        evidenceContext: {
+          ...request.evidenceContext,
+          targetStep: {
+            id: first.id,
+            title: first.title,
+            objective: first.objective,
+          },
         },
       }),
     );
@@ -149,11 +183,17 @@ export function generateSourcedLesson(
         ],
       } satisfies SourcedLearningResponse;
     const lesson = lessonResult.contribution;
-    const paragraphs = lesson.body.split(/\n\s*\n/).map((text, index) => ({
-      id: `paragraph-${index + 1}`,
-      text,
-      citations: lesson.citations,
-    }));
+    const paragraphs = lesson.body.split(/\n\s*\n/).flatMap((text, index) => {
+      const trimmed = text.trim();
+      if (!trimmed) return [];
+      return [
+        {
+          id: `paragraph-${index + 1}`,
+          text: trimmed,
+          citations: lesson.citations,
+        },
+      ];
+    });
     const support = yield* timing.measure(
       'verificationMs',
       assessClaims(options, paragraphs, progress.evidence, {
@@ -162,6 +202,7 @@ export function generateSourcedLesson(
         phase: 'lesson',
         generatedAt: lessonResult.provenance.createdAt,
         sourceScopes: request.evidenceContext.sourceScopes,
+        diagnostics: options.diagnostics,
       }),
     );
     const supportedParagraphs = paragraphs.filter((paragraph) =>

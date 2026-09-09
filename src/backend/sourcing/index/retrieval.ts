@@ -19,6 +19,7 @@ import { isDenseArray } from '../../validation-primitives.js';
 import { abortable } from './deadline.js';
 import { generationId, passageId, sourceKey } from './identity.js';
 import { IndexOperationError } from './results.js';
+import { resolveIndexTransport } from './resolve-transport.js';
 import { send } from './transport.js';
 import {
   currentRevision,
@@ -339,8 +340,7 @@ export async function retrieve(
   invocation: SourcingInvocation,
 ): Promise<RetrieveEvidenceResponse> {
   const request = parseRequest(input);
-  const fixture = options.fixture;
-  if (!fixture) throw new IndexOperationError('live-configuration-required');
+  const transport = resolveIndexTransport(options);
   const sources = eligibleSources(options, request, invocation.account.id);
   if (!sources.length)
     return {
@@ -349,7 +349,7 @@ export async function retrieve(
       message: SOURCING_PUBLIC_MESSAGES.noEvidence,
     };
   const embedding = await abortable(
-    () => fixture.embedQuery(request.query, invocation.signal),
+    () => transport.embedQuery(request.query, invocation.signal),
     invocation.signal,
   );
   const generation = generationId(options.generation);
@@ -364,7 +364,7 @@ export async function retrieve(
     include_attributes: RETURNED_ATTRIBUTES,
   };
   const value = await send(
-    fixture.request,
+    transport.request,
     `${url}/query`,
     JSON.stringify({
       consistency: { level: 'strong' },
@@ -374,6 +374,7 @@ export async function retrieve(
       ],
     }),
     invocation.signal,
+    transport.apiKey,
     () => {
       for (const source of sources) {
         const current = currentRevision(

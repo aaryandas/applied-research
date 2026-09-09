@@ -17,6 +17,12 @@ const config: BackendConfig = {
   model: 'google/gemini-3.8-flash',
   providerTimeoutMs: 1_000,
   providerConcurrency: 1,
+  openAlexApiKey: null,
+  openAlexMonthlyLimitMicrousd: null,
+  turbopufferApiKey: null,
+  turbopufferRegion: null,
+  sourceIndexLive: false,
+  embeddingEvalLimitMicrousd: 250_000,
 };
 
 describe('managed backend runtime', () => {

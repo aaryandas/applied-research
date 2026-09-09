@@ -16,7 +16,9 @@ import type {
   RetrieveEvidenceResponse,
   SourcingIntent,
 } from '../../contracts/sourcing.js';
+import type { Diagnostics } from '../diagnostics.js';
 import type { LearningService } from '../learning.js';
+import type { SourceOperationStore } from '../sourcing/operations.js';
 import type { SourcingInvocation } from '../sourcing/service.js';
 
 /** Composition supplies the reviewed AR-35 producer; caller-provided sources are not authority. */
@@ -50,6 +52,9 @@ export interface SupportReview {
 }
 export interface SourcedLearningOptions {
   now?: (() => number) | undefined;
+  diagnostics?: Diagnostics | undefined;
+  operations?: SourceOperationStore | undefined;
+  clock?: (() => Date) | undefined;
   learning: LearningService;
   selectEvidence(
     query: LearningEvidenceQuery,

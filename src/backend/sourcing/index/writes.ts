@@ -3,6 +3,7 @@ import type { SourcingInvocation } from '../service.js';
 import { isDenseArray } from '../../validation-primitives.js';
 import { generationId, passageId, sourceKey } from './identity.js';
 import { IndexOperationError } from './results.js';
+import { resolveIndexTransport } from './resolve-transport.js';
 import { send } from './transport.js';
 import {
   currentRevision,
@@ -95,13 +96,12 @@ export async function writeBatch(
   batch: IndexBatch,
   invocation: SourcingInvocation,
 ): Promise<IndexWriteResult> {
-  const fixture = options.fixture;
-  if (!fixture) throw new IndexOperationError('live-configuration-required');
+  const transport = resolveIndexTransport(options);
   const rows = prepareRows(batch, options, invocation.account.id);
   const ids = new Set(rows.map(({ id }) => id));
   const generation = generationId(options.generation);
   const receipt = await send(
-    fixture.request,
+    transport.request,
     url,
     JSON.stringify({
       upsert_rows: rows,
@@ -112,6 +112,7 @@ export async function writeBatch(
       },
     }),
     invocation.signal,
+    transport.apiKey,
     () => {
       for (const passage of batch.passages) {
         const current = currentRevision(
@@ -141,13 +142,12 @@ export async function deleteRevision(
   version: SourceRevisionIdentity,
   invocation: SourcingInvocation,
 ): Promise<IndexWriteResult> {
-  const fixture = options.fixture;
-  if (!fixture) throw new IndexOperationError('live-configuration-required');
+  const transport = resolveIndexTransport(options);
   const entry = currentRevision(options, invocation.account.id, version);
   if (!entry || entry.state === 'eligible')
     throw new IndexOperationError('not-eligible');
   const receipt = await send(
-    fixture.request,
+    transport.request,
     url,
     JSON.stringify({
       delete_by_filter: [
@@ -160,6 +160,7 @@ export async function deleteRevision(
       ],
     }),
     invocation.signal,
+    transport.apiKey,
     () => {
       const current = currentRevision(options, invocation.account.id, version);
       if (

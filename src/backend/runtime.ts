@@ -11,13 +11,32 @@ import { createHttpHandler } from './http.js';
 import type { HttpDependencies } from './http.js';
 import { makeLearningService } from './learning.js';
 import type { LearningService } from './learning.js';
+import { makeSourcedLearningApi } from './learning-api.js';
+import type { SourcedLearningApi } from './learning-api.js';
+import { BACKEND_MIGRATIONS } from './migrate.js';
 import { makeOpenRouterProvider } from './provider.js';
 import type { Diagnostics } from './diagnostics.js';
 import { consoleDiagnostics } from './diagnostics.js';
+import { createGuardedHttpsClient } from './sourcing/acquisition/guarded-http.js';
+import { SourceAcquisitionAdapter } from './sourcing/acquisition/acquire.js';
+import {
+  makePostgresEmbeddingBudget,
+  makePostgresOpenAlexBudget,
+} from './sourcing/budgets.js';
+import { makeSourcingService } from './sourcing/composition.js';
+import { makeOpenRouterEmbeddingClient } from './sourcing/embedding.js';
+import { makeLearningEvidenceSelector } from './sourcing/learning-evidence.js';
+import { makeOpenAlexDiscoveryAdapter } from './sourcing/openalex/adapter.js';
+import { OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD } from './sourcing/openalex/budget.js';
+import { makePostgresSourceOperations } from './sourcing/operations.js';
+import { makePostgresSourcePersistence } from './sourcing/persistence.js';
+import type { SourcingService } from './sourcing/service.js';
 
 interface BackendServicesValue {
   readonly auth: AuthService;
   readonly learning: LearningService;
+  readonly sourcing: SourcingService;
+  readonly sourcedLearning: SourcedLearningApi;
   readonly ready: () => Promise<boolean>;
 }
 
@@ -65,16 +84,89 @@ function makeBackendLayer(
         now: () => new Date(),
         diagnostics,
       });
+      const runEffect = <A, E>(
+        effect: Effect.Effect<A, E>,
+        signal?: AbortSignal,
+      ): Promise<A> =>
+        Effect.runPromise(effect, signal ? { signal } : undefined);
+      const persistence = makePostgresSourcePersistence(database);
+      const operations = makePostgresSourceOperations(database);
+      const acquisition = new SourceAcquisitionAdapter({
+        http: createGuardedHttpsClient(),
+        clock: { now: () => new Date() },
+      });
+      const openAlex =
+        config.openAlexApiKey && config.openAlexMonthlyLimitMicrousd
+          ? makeOpenAlexDiscoveryAdapter({
+              apiKey: config.openAlexApiKey,
+              maximumSearchCostMicrousd:
+                OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD,
+              budget: makePostgresOpenAlexBudget(
+                database,
+                config.openAlexMonthlyLimitMicrousd,
+              ),
+              runEffect,
+              request,
+            })
+          : undefined;
+      const embedding = config.sourceIndexLive
+        ? makeOpenRouterEmbeddingClient({
+            apiKey: config.openRouterApiKey,
+            request,
+          })
+        : undefined;
+      const embeddingBudget = config.sourceIndexLive
+        ? makePostgresEmbeddingBudget(
+            database,
+            config.embeddingEvalLimitMicrousd,
+          )
+        : undefined;
+      const liveIndex =
+        embedding &&
+        embeddingBudget &&
+        config.turbopufferApiKey &&
+        config.turbopufferRegion
+          ? {
+              request,
+              apiKey: config.turbopufferApiKey,
+              region: config.turbopufferRegion,
+              embedQuery: embedding.embedQuery.bind(embedding),
+            }
+          : undefined;
+      const sourcing = makeSourcingService({
+        persistence,
+        operations,
+        acquisition,
+        openAlex,
+        liveIndex,
+        embedding,
+        embeddingBudget,
+        diagnostics,
+        runEffect,
+      });
+      const sourcedLearning = makeSourcedLearningApi({
+        learning,
+        diagnostics,
+        operations,
+        clock: () => new Date(),
+        selectEvidence: makeLearningEvidenceSelector(
+          persistence,
+          sourcing,
+          runEffect,
+        ),
+      });
       return {
         auth,
         learning,
+        sourcing,
+        sourcedLearning,
         ready: async () => {
           try {
             const migration = await database.pool.query(
-              'SELECT 1 FROM backend_migration WHERE name = $1',
-              ['0001_authenticated_backend'],
+              'SELECT name FROM backend_migration WHERE name = ANY($1::text[])',
+              [BACKEND_MIGRATIONS],
             );
-            return migration.rowCount === 1;
+            return migration.rowCount === BACKEND_MIGRATIONS.length;
           } catch (cause) {
             diagnostics.report('database.readiness-failed', cause);
             return false;
@@ -161,6 +253,8 @@ export async function startBackend(
         auth: services.auth,
         electronAuthCallbackScript,
         learning: services.learning,
+        sourcing: services.sourcing,
+        sourcedLearning: services.sourcedLearning,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
         runEffect: (effect, signal) =>
