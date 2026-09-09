@@ -1,7 +1,6 @@
 import { electronClient } from '@better-auth/electron/client';
 import { createAuthClient } from 'better-auth/client';
 import type { BetterAuthClientPlugin } from 'better-auth/client';
-import { net } from 'electron';
 import type { AuthStorage } from './auth-storage';
 import {
   DESKTOP_AUTH_API_ORIGIN,
@@ -73,7 +72,7 @@ async function boundedResponse(response: Response): Promise<Response> {
   });
 }
 
-export async function fetchWithElectronNet(
+export async function fetchAuth(
   input: string | URL | globalThis.Request,
   init?: RequestInit,
 ): Promise<Response> {
@@ -95,11 +94,15 @@ export async function fetchWithElectronNet(
         AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS),
       ])
     : AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS);
-  const response = await net.fetch(input instanceof URL ? input.href : input, {
-    ...init,
-    redirect: 'manual',
-    signal,
-  });
+  // Node fetch exposes Set-Cookie to the SDK; Chromium net.fetch filters it.
+  const response = await globalThis.fetch(
+    input instanceof URL ? input.href : input,
+    {
+      ...init,
+      redirect: 'manual',
+      signal,
+    },
+  );
   return boundedResponse(response);
 }
 
@@ -127,7 +130,7 @@ export function createDesktopAuthSdk(storage: AuthStorage): DesktopAuthSdk {
   const authClient = createAuthClient({
     baseURL: AUTH_BASE_URL,
     fetchOptions: {
-      customFetchImpl: fetchWithElectronNet,
+      customFetchImpl: fetchAuth,
       redirect: 'manual',
       timeout: AUTH_REQUEST_TIMEOUT_MS,
     },

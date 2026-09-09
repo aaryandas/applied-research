@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   electronTestControl,
   ipcMain,
-  net,
   protocol,
   safeStorage,
   shell,
@@ -15,10 +14,12 @@ import {
 import {
   createDesktopAuthSdk,
   electronOauthStateRegistry,
-  fetchWithElectronNet,
+  fetchAuth,
 } from './auth-sdk';
 import { AUTH_STORAGE_KEYS, createAuthStorage } from './auth-storage';
 import { createDesktopAuthController } from './desktop-auth';
+
+const fetchMock = vi.fn<typeof globalThis.fetch>();
 
 const STATE = 'AbCdEfGhIjKlMn01';
 const SDK_OAUTH_STATE_REGISTRY = Symbol.for('better-auth:electron');
@@ -41,7 +42,8 @@ function authResponse(body: unknown, setCookie?: string): Response {
 beforeEach(() => {
   Reflect.set(process, 'type', 'browser');
   electronTestControl.setEncryptionAvailable(true);
-  net.fetch.mockReset();
+  fetchMock.mockReset();
+  vi.stubGlobal('fetch', fetchMock);
   shell.openExternal.mockClear();
   safeStorage.decryptString.mockClear();
   safeStorage.encryptString.mockClear();
@@ -51,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   if (originalProcessType === undefined)
     Reflect.deleteProperty(process, 'type');
   else Reflect.set(process, 'type', originalProcessType);
@@ -109,7 +112,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
         `com.aaryandas.appliedresearch://auth/callback#token=${firstToken}`,
       ),
     ).resolves.toBe(false);
-    net.fetch
+    fetchMock
       .mockResolvedValueOnce(
         authResponse(
           {
@@ -141,7 +144,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
         `com.aaryandas.appliedresearch://auth/callback#token=${secondToken}`,
       ),
     ).resolves.toBe(true);
-    expect(net.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/auth/electron/token'),
       expect.any(Object),
     );
@@ -168,7 +171,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
     const [state] = electronOauthStateRegistry.states();
     expect(state).toMatch(/^[A-Za-z0-9]{16}$/);
 
-    net.fetch.mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       authResponse(
         {
           token: 'public-response-token',
@@ -206,7 +209,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
     const storage = createAuthStorage(temporaryStoragePath());
     storage.acceptEpoch(1);
     const sdk = createDesktopAuthSdk(storage);
-    net.fetch
+    fetchMock
       .mockResolvedValueOnce(
         authResponse(
           {
@@ -239,7 +242,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
   it('cancels an overflowing SDK response body and refuses redirects', async () => {
     const cancel = vi.fn();
     const sdk = createDesktopAuthSdk(createAuthStorage(temporaryStoragePath()));
-    net.fetch
+    fetchMock
       .mockResolvedValueOnce(
         new Response(
           new ReadableStream<Uint8Array>({
@@ -265,21 +268,21 @@ describe('installed Better Auth Electron SDK adapter', () => {
 
   it('bounds declared response sizes and preserves bounded empty responses', async () => {
     const cancel = vi.fn();
-    net.fetch.mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       new Response(new ReadableStream<Uint8Array>({ cancel }), {
         headers: { 'content-length': String(256 * 1024 + 1) },
       }),
     );
     await expect(
-      fetchWithElectronNet(
+      fetchAuth(
         'https://api-production-e7aa.up.railway.app/api/auth/get-session',
       ),
     ).rejects.toThrow('too large');
     expect(cancel).toHaveBeenCalledOnce();
 
-    net.fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(
-      fetchWithElectronNet(
+      fetchAuth(
         new Request(
           'https://api-production-e7aa.up.railway.app/api/auth/sign-out',
         ),
@@ -287,16 +290,14 @@ describe('installed Better Auth Electron SDK adapter', () => {
     ).resolves.toMatchObject({ status: 204 });
   });
 
-  it('rejects non-authentication request targets before Electron dispatch', async () => {
+  it('rejects non-authentication request targets before network dispatch', async () => {
     await expect(
-      fetchWithElectronNet('https://untrusted.example/api/auth/get-session'),
+      fetchAuth('https://untrusted.example/api/auth/get-session'),
     ).rejects.toThrow('target');
     await expect(
-      fetchWithElectronNet(
-        'https://api-production-e7aa.up.railway.app/v1/account',
-      ),
+      fetchAuth('https://api-production-e7aa.up.railway.app/v1/account'),
     ).rejects.toThrow('target');
-    expect(net.fetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('maps SDK mutation and session errors to narrow outcomes', async () => {
@@ -308,7 +309,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
       SDK_OAUTH_STATE_REGISTRY,
       new Map([[STATE, 'verifier']]),
     );
-    net.fetch
+    fetchMock
       .mockResolvedValueOnce(
         Response.json({ message: 'Rejected.' }, { status: 400 }),
       )
@@ -372,7 +373,7 @@ describe('installed Better Auth Electron SDK adapter', () => {
       SDK_OAUTH_STATE_REGISTRY,
       new Map([[STATE, 'verifier']]),
     );
-    net.fetch.mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       authResponse(
         { token: 'response', user: { id: 'account-1', name: 'Builder' } },
         'better-auth.session_token=session-secret; Path=/; HttpOnly',
