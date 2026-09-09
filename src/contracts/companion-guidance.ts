@@ -542,3 +542,10 @@ export function decodeCompanionGuidanceReply(
     },
   };
 }
+
+export interface CompanionGuidanceBridge {
+  requestCompanionGuidance(
+    request: CompanionGuidanceRequest,
+  ): Promise<CompanionGuidanceReply>;
+  cancelCompanionGuidance(request: CompanionGuidanceCancelRequest): void;
+}

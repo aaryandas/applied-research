@@ -3,6 +3,10 @@ import {
   LEARNING_ONBOARDING_RESUME_CHANNELS,
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
+import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+} from '../contracts/companion-guidance';
 
 export const ONBOARDING_BRIDGE_CHANNELS = {
   getLearnerProfile: LEARNING_ONBOARDING_CHANNELS.getProfile,
@@ -36,7 +40,13 @@ export const CONTEXTUAL_HELP_BRIDGE_CHANNELS = {
   listExplanationPlacements: CONTEXTUAL_HELP_CHANNELS.listPlacements,
 } as const;
 
+export const COMPANION_GUIDANCE_BRIDGE_CHANNELS = {
+  requestCompanionGuidance: COMPANION_GUIDANCE_REQUEST_CHANNEL,
+  cancelCompanionGuidance: COMPANION_GUIDANCE_CANCEL_CHANNEL,
+} as const;
+
 export const SHARED_DESKTOP_OPERATION_CHANNELS = [
   ...Object.values(ONBOARDING_BRIDGE_CHANNELS),
   ...Object.values(CONTEXTUAL_HELP_BRIDGE_CHANNELS),
+  ...Object.values(COMPANION_GUIDANCE_BRIDGE_CHANNELS),
 ] as const;

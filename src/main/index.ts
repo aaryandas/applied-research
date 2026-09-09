@@ -23,6 +23,10 @@ import {
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
 import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+} from '../contracts/companion-guidance';
+import {
   admitDesktopTestEnvironment,
   desktopE2EAdditionalArguments,
 } from './desktop-test-environment';
@@ -30,6 +34,10 @@ import { LearningOnboardingOperations } from './learning-onboarding';
 import { makeAuthenticatedOnboardingTransport } from './learning-onboarding-transport';
 import { ContextualHelpOperations } from './contextual-help-operations';
 import { makeContextualHelpTransport } from './contextual-help-transport';
+import { createCompanionGuidanceOperations } from './guidance-operations';
+import type { CompanionGuidanceRevokeReason } from './guidance-operations';
+import { resolveCompanionGuidanceContext } from './guidance-context';
+import { makeCompanionGuidanceTransport } from './guidance-transport';
 import { assertTrustedRendererEvent } from './trusted-ipc';
 import {
   DESKTOP_AUTH_SCHEME_REGISTRATION,
@@ -326,16 +334,67 @@ async function createWindow(): Promise<void> {
       return { status: 'ready', objectUrl: media.objectUrl(artifactId) };
     },
   });
-  const revokeWorkspaceOperations = (): void => {
+  let selectionEpoch = 0;
+  const guidance = createCompanionGuidanceOperations({
+    authenticated: () => authenticated,
+    activeProject: () =>
+      selectedWorkspaceId ? { projectId: selectedWorkspaceId } : null,
+    selectionEpoch: () => selectionEpoch,
+    resolve: (request, signal) =>
+      resolveCompanionGuidanceContext(
+        request,
+        {
+          readWorkspace: async (projectId) => {
+            try {
+              return store.getLearningWorkspace(projectId);
+            } catch {
+              return null;
+            }
+          },
+          loadOwnedAttempt: async (projectId, attemptId) => {
+            const bound = practicalOperations.boundAttempt();
+            if (
+              bound &&
+              bound.activity.projectId === projectId &&
+              bound.attemptId === attemptId
+            ) {
+              return bound;
+            }
+            return null;
+          },
+          readImportedFile: async () => null,
+          boundToolSession: () => null,
+        },
+        signal,
+      ),
+    post: makeCompanionGuidanceTransport({
+      request: (url, init) => net.fetch(url, init),
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
+  });
+  const revokeWorkspaceOperations = (
+    reason: CompanionGuidanceRevokeReason = 'teardown',
+  ): void => {
+    selectionEpoch += 1;
+    guidance.revoke(reason);
     sourceOperations.revoke();
     onboardingOperations.revoke();
     contextualHelp.revoke();
     practicalOperations.replaceWorkspace();
     closeTool();
   };
-  window.on('close', revokeWorkspaceOperations);
-  window.webContents.on('render-process-gone', revokeWorkspaceOperations);
-  window.webContents.on('will-navigate', revokeWorkspaceOperations);
+  window.on('close', () => {
+    revokeWorkspaceOperations('teardown');
+  });
+  window.webContents.on('render-process-gone', () => {
+    revokeWorkspaceOperations('teardown');
+  });
+  window.webContents.on('will-navigate', () => {
+    revokeWorkspaceOperations('teardown');
+  });
   function handle(
     channel: string,
     operation: (value: unknown) => unknown,
@@ -348,13 +407,19 @@ async function createWindow(): Promise<void> {
   handle(SOURCE_CHANNELS.activate, (value) => {
     const plan = planWorkspaceActivate(selectedWorkspaceId, value);
     if (plan.revokeOperations) {
+      selectionEpoch += 1;
+      guidance.revoke('project-replaced');
       onboardingOperations.revoke();
       practicalOperations.replaceWorkspace();
       closeTool();
     }
     sourceOperations.activate(value);
     selectedWorkspaceId = plan.nextId;
-    return contextualHelp.activate(value);
+    const help = contextualHelp.activate(value);
+    if (typeof plan.nextId === 'string') {
+      guidance.activate(plan.nextId);
+    }
+    return help;
   });
   handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
   handle(SOURCE_CHANNELS.discover, (value) => sourceOperations.discover(value));
@@ -469,11 +534,25 @@ async function createWindow(): Promise<void> {
   handle(CONTEXTUAL_HELP_CHANNELS.listPlacements, (value) =>
     contextualHelp.listPlacements(value),
   );
+  handle(COMPANION_GUIDANCE_REQUEST_CHANNEL, (value) => guidance.request(value));
+  handle(COMPANION_GUIDANCE_CANCEL_CHANNEL, (value) => guidance.cancel(value));
+  const rememberPracticalAttempt = (load: () => { status: string }): unknown => {
+    const previous = practicalOperations.boundAttempt()?.attemptId ?? null;
+    const result = load();
+    const next = practicalOperations.boundAttempt()?.attemptId ?? null;
+    if (previous && previous !== next) {
+      selectionEpoch += 1;
+      guidance.revoke('attempt-replaced');
+    }
+    return result;
+  };
   handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
     practicalOperations.recordPracticalResult(value),
   );
   handle(LOAD_PRACTICAL_ATTEMPT_CHANNEL, (value) =>
-    practicalOperations.loadPracticalAttempt(value),
+    rememberPracticalAttempt(() =>
+      practicalOperations.loadPracticalAttempt(value),
+    ),
   );
   handle(SELECT_PRACTICAL_FILE_CHANNEL, (value) =>
     practicalOperations.selectPracticalFile(value),
@@ -494,7 +573,9 @@ async function createWindow(): Promise<void> {
     practicalOperations.cancelPracticalExport(),
   );
   handle(LOAD_PRACTICAL_JOURNEY_CHANNEL, (value) =>
-    practicalOperations.loadPracticalJourney(value),
+    rememberPracticalAttempt(() =>
+      practicalOperations.loadPracticalJourney(value),
+    ),
   );
   handle(RECORD_PRACTICAL_PROGRESS_CHANNEL, (value) =>
     practicalOperations.recordPracticalProgress(value),
@@ -548,12 +629,12 @@ async function createWindow(): Promise<void> {
   handle(AUTH_CHANNELS.signOut, () => {
     authenticated = false;
     selectedWorkspaceId = null;
-    revokeWorkspaceOperations();
+    revokeWorkspaceOperations('sign-out');
     return authController.signOut();
   });
   const unsubscribeAccountState = authController.subscribe((state) => {
     authenticated = state.session === 'signed-in';
-    if (!authenticated) revokeWorkspaceOperations();
+    if (!authenticated) revokeWorkspaceOperations('sign-out');
     if (!window.isDestroyed()) {
       window.webContents.send(AUTH_CHANNELS.accountState, state);
     }
@@ -623,7 +704,11 @@ async function createWindow(): Promise<void> {
   });
   handle(CHANNELS.stop, () => pending?.abort());
   handle(CHANNELS.external, (value) => shell.openExternal(webUrl(value)));
-  handle(CHANNELS.closeTool, closeTool);
+  handle(CHANNELS.closeTool, () => {
+    selectionEpoch += 1;
+    guidance.revoke('tool-closed');
+    closeTool();
+  });
   handle(CHANNELS.resizeTool, (value) => {
     const bounds = toolBounds(value);
     const { width, height } = window.getContentBounds();

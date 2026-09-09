@@ -8,6 +8,9 @@ import type {
   LearningOnboardingBridge,
 } from '../contracts/learning-onboarding';
 import type { ContextualHelpBridge } from '../contracts/contextual-help-desktop';
+import type { CompanionGuidanceBridge } from '../contracts/companion-guidance';
+import type { CompanionSessionOptions } from '../contracts/companion';
+import { createCompanionGuidanceHost } from './companion/guidance-adapter';
 import { projectRetainedExplanationToCanvas } from '../contracts/explanation-canvas';
 import type {
   RetainedExplanationCanvasPlacement,
@@ -65,7 +68,8 @@ interface ShellProps {
       SourceDesktopBridge &
         PracticalWorkspaceBridge &
         LearningOnboardingBridge &
-        ContextualHelpBridge & {
+        ContextualHelpBridge &
+          CompanionGuidanceBridge & {
           saveReadingResume(value: ContinueLearningCard): Promise<void>;
         }
     >;
@@ -101,6 +105,29 @@ export function Shell({
     state: SourceWorkspaceActivationState;
   } | null>(null);
   const activationEpoch = useRef(0);
+  const activationRef = useRef(activation);
+  activationRef.current = activation;
+  const guidanceHost = useMemo(() => {
+    if (
+      typeof bridge.requestCompanionGuidance !== 'function' ||
+      typeof bridge.cancelCompanionGuidance !== 'function'
+    ) {
+      return null;
+    }
+    return createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance: bridge.requestCompanionGuidance,
+        cancelCompanionGuidance: bridge.cancelCompanionGuidance,
+      },
+      activate: (projectId) => {
+        const current = activationRef.current;
+        if (current?.projectId === projectId) return current.state;
+        return { projectGeneration: 0, requestGeneration: 0 };
+      },
+      createRequestId: () => crypto.randomUUID(),
+    });
+  }, [bridge]);
+  useEffect(() => () => guidanceHost?.dispose(), [guidanceHost]);
   const { selection, openExplanationId, explainSelection, openRetainedExplanation } =
     useContextualSelection();
   const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
@@ -286,6 +313,8 @@ export function Shell({
     };
     applyActivation(workspace.project.id);
     const revoke = (): void => {
+      guidanceHost?.invalidate();
+      guidanceHost?.stop();
       projectLifetime.stopPractical();
       void bridge.cancelPracticalFileSelection?.();
       void bridge.cancelPracticalExport?.();
@@ -303,9 +332,13 @@ export function Shell({
       window.removeEventListener('beforeunload', revoke);
       void bridge.activateSourceWorkspace?.(null);
     };
-  }, [bridge, projectLifetime, workspace.project.id]);
+  }, [bridge, guidanceHost, projectLifetime, workspace.project.id]);
   const liveActivation =
     activation?.projectId === workspace.project.id ? activation.state : null;
+  useEffect(() => {
+    if (!guidanceHost || !liveActivation) return;
+    void guidanceHost.bindProject(workspace.project.id);
+  }, [guidanceHost, liveActivation, workspace.project.id]);
   const practicalBridge = isPracticalWorkspaceBridge(bridge)
     ? {
         recordPracticalResult: bridge.recordPracticalResult,
@@ -824,6 +857,16 @@ export function Shell({
                 registerFlush={registerPracticalFlush}
                 registerRevocation={registerRevocation}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
+                {...(guidanceHost
+                  ? {
+                      requestGuidance: (
+                        input: Parameters<
+                          CompanionSessionOptions['requestGuidance']
+                        >[0],
+                        signal: AbortSignal,
+                      ) => guidanceHost.requestFromSession(input, signal),
+                    }
+                  : {})}
               />
             ) : (
               <PracticalWork

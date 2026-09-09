@@ -5,6 +5,10 @@ import {
   LEARNING_ONBOARDING_RESUME_CHANNELS,
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
+import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+} from '../contracts/companion-guidance';
 import { SOURCE_CHANNELS } from '../contracts/source-desktop';
 import { DESKTOP_E2E_WINDOW_ARGUMENT } from '../contracts/desktop';
 
@@ -43,6 +47,8 @@ describe('preload named desktop bridge', () => {
       requestContextualHelp: (input: unknown) => Promise<unknown>;
       loadTrustedSceneCapture: (input: unknown) => Promise<unknown>;
       activateSourceWorkspace: (projectId: string) => Promise<unknown>;
+      requestCompanionGuidance: (input: unknown) => Promise<unknown>;
+      cancelCompanionGuidance: (input: unknown) => void;
     };
     expect(desktop.info.testEnvironment).toBeNull();
     await desktop.getLearnerProfile();
@@ -55,6 +61,8 @@ describe('preload named desktop bridge', () => {
       captureId: 'c',
     });
     await desktop.activateSourceWorkspace('project');
+    await desktop.requestCompanionGuidance({ requestId: 'r' });
+    desktop.cancelCompanionGuidance({ requestId: 'r' });
     const channels = vi
       .mocked(ipcRenderer.invoke)
       .mock.calls.map((call) => call[0]);
@@ -66,6 +74,8 @@ describe('preload named desktop bridge', () => {
       CONTEXTUAL_HELP_CHANNELS.request,
       CONTEXTUAL_HELP_CHANNELS.loadCapture,
       SOURCE_CHANNELS.activate,
+      COMPANION_GUIDANCE_REQUEST_CHANNEL,
+      COMPANION_GUIDANCE_CANCEL_CHANNEL,
     ]);
   });
 

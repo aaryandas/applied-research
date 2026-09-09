@@ -9,6 +9,10 @@ import {
   LEARNING_ONBOARDING_RESUME_CHANNELS,
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
+import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+} from '../contracts/companion-guidance';
 
 describe('named desktop bridge mapping', () => {
   it('binds all ten onboarding operations and five resume channels', () => {
@@ -46,6 +50,12 @@ describe('named desktop bridge mapping', () => {
       placeRetainedExplanation: CONTEXTUAL_HELP_CHANNELS.place,
       listExplanationPlacements: CONTEXTUAL_HELP_CHANNELS.listPlacements,
     });
-    expect(SHARED_DESKTOP_OPERATION_CHANNELS).toHaveLength(26);
+    expect(SHARED_DESKTOP_OPERATION_CHANNELS).toHaveLength(28);
+    expect(SHARED_DESKTOP_OPERATION_CHANNELS).toEqual(
+      expect.arrayContaining([
+        COMPANION_GUIDANCE_REQUEST_CHANNEL,
+        COMPANION_GUIDANCE_CANCEL_CHANNEL,
+      ]),
+    );
   });
 });

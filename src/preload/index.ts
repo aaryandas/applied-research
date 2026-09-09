@@ -41,6 +41,11 @@ import {
   CONTEXTUAL_HELP_CHANNELS,
   type ContextualHelpBridge,
 } from '../contracts/contextual-help-desktop';
+import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+  type CompanionGuidanceBridge,
+} from '../contracts/companion-guidance';
 
 const desktop: DesktopBridge &
   LearningRecordsBridge &
@@ -48,7 +53,8 @@ const desktop: DesktopBridge &
   SourceDesktopBridge &
   LearningOnboardingBridge &
   LearningOnboardingResumeBridge &
-  ContextualHelpBridge = {
+  ContextualHelpBridge &
+  CompanionGuidanceBridge = {
   generateSourcedLearning: (input) =>
     ipcRenderer.invoke(SOURCE_CHANNELS.generate, input),
   activateSourceWorkspace: (projectId) =>
@@ -203,5 +209,10 @@ const desktop: DesktopBridge &
     ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.place, input),
   listExplanationPlacements: (input) =>
     ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.listPlacements, input),
+  requestCompanionGuidance: (input) =>
+    ipcRenderer.invoke(COMPANION_GUIDANCE_REQUEST_CHANNEL, input),
+  cancelCompanionGuidance: (input) => {
+    void ipcRenderer.invoke(COMPANION_GUIDANCE_CANCEL_CHANNEL, input);
+  },
 };
 contextBridge.exposeInMainWorld('desktop', desktop);

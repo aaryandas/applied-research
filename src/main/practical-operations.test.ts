@@ -411,6 +411,14 @@ it('records, previews, and cancels native selection through the selected live wo
     status: 'committed',
     acknowledgement: { revision: 1, changed: true },
   });
+  expect(ops.boundAttempt()).toBeNull();
+  expect(
+    ops.loadPracticalAttempt({ activity, attemptId }),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: { attemptId, activity: { projectId: activity.projectId } },
+  });
+  expect(ops.boundAttempt()?.attemptId).toBe(attemptId);
   const imported = await ops.selectPracticalFile(scope);
   expect(imported.status).toBe('imported');
   if (imported.status !== 'imported') throw new Error('expected import');
@@ -451,4 +459,36 @@ it('records, previews, and cancels native selection through the selected live wo
   expect(await pending).toEqual({ status: 'cancelled' });
   finish(picked);
   await new Promise((resolve) => setImmediate(resolve));
+});
+
+it('clears the bound attempt when the selected workspace is replaced', () => {
+  const { store, activity, attemptId } = openStore();
+  const ops = new PracticalDesktopOperations({
+    store,
+    isSelectedWorkspace: (projectId) => projectId === activity.projectId,
+    windowAlive: () => true,
+    chooseOpenFile: async () => null,
+    chooseSaveFile: async () => null,
+  });
+  expect(
+    ops.recordPracticalResult({
+      activity,
+      attemptId,
+      expectedRevision: 0,
+      draft: {
+        prediction: '',
+        attempt: '',
+        reportedResult: { kind: 'user-reported-text', text: '' },
+        selectedEvidence: null,
+        reflection: { authorKind: 'human', text: '' },
+      },
+    }),
+  ).toMatchObject({ status: 'committed' });
+  expect(ops.loadPracticalAttempt({ activity, attemptId })).toMatchObject({
+    status: 'loaded',
+    attempt: { attemptId },
+  });
+  expect(ops.boundAttempt()?.attemptId).toBe(attemptId);
+  ops.replaceWorkspace();
+  expect(ops.boundAttempt()).toBeNull();
 });

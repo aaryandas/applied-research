@@ -1,6 +1,7 @@
 import type { PracticalWorkspaceBridge } from './practical-records';
 import type { SourceDesktopBridge } from './source-desktop';
 import type { ContextualHelpBridge } from './contextual-help-desktop';
+import type { CompanionGuidanceBridge } from './companion-guidance';
 import type {
   LearningOnboardingBridge,
   LearningOnboardingResumeBridge,
@@ -78,6 +79,7 @@ declare global {
       SourceDesktopBridge &
       LearningOnboardingBridge &
       LearningOnboardingResumeBridge &
-      ContextualHelpBridge;
+      ContextualHelpBridge &
+      CompanionGuidanceBridge;
   }
 }
