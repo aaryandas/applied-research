@@ -268,6 +268,11 @@ export function createRenderDeliveryService(options: {
       const outcome = await options.engine.render(
         recipeJson,
         job.controller.signal,
+        {
+          accountId: job.accountId,
+          requestId: job.requestId,
+          attemptId: job.attemptId,
+        },
       );
       if (job.controller.signal.aborted || closed) {
         if (outcome.status === 'succeeded') {

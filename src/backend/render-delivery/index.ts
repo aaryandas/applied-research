@@ -12,9 +12,23 @@ export {
   resolveTrustedRenderRuntime,
   trustedDockerContextName,
 } from './runtime-config.js';
+export {
+  backendEvidenceOriginOwnership,
+  failClosedOriginOwnership,
+} from './ownership.js';
+export {
+  createRemoteRenderEngine,
+  type RemoteRenderEngineOptions,
+  type WorkerTransport,
+} from './remote-engine.js';
+export {
+  createHttpsWorkerTransport,
+  parseWorkerOrigin,
+} from './remote-transport.js';
 export type {
   PublicRenderJob,
   PublicRetainedClip,
   RenderEngine,
   RenderEngineOutcome,
+  RenderExecutionContext,
 } from './types.js';

@@ -129,8 +129,18 @@ export type RenderEngineOutcome =
       >;
     };
 
+export interface RenderExecutionContext {
+  readonly accountId: string;
+  readonly requestId: string;
+  readonly attemptId: string;
+}
+
 export interface RenderEngine {
-  render(json: string, signal?: AbortSignal): Promise<RenderEngineOutcome>;
+  render(
+    json: string,
+    signal?: AbortSignal,
+    context?: RenderExecutionContext,
+  ): Promise<RenderEngineOutcome>;
   release(jobId: string): Promise<void>;
   close(): Promise<void>;
 }
