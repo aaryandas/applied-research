@@ -1815,7 +1815,10 @@ describe('learning onboarding operations', () => {
           const generatedPractice = body.lesson.practice;
           if (request.operation.target?.practice && generatedPractice) {
             body.lesson.practice = {
-              ...request.operation.target.practice,
+              ...generatedPractice,
+              ...(request.operation.target.practice as Partial<
+                typeof generatedPractice
+              >),
               citations: generatedPractice.citations,
             };
           }
