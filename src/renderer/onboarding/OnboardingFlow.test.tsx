@@ -1624,3 +1624,66 @@ it('surfaces persistHandle failures instead of swallowing unmount saves', async 
     /already saved this draft/,
   );
 });
+
+it('refuses persistHandle while a follow-up request is running', async () => {
+  const persistHandle = createRef<OnboardingDraftPersist>();
+  let finish: ((value: unknown) => void) | undefined;
+  const prompt = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      persistHandle={persistHandle}
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(async () => ({
+            status: 'saved',
+            record: savedProfile(),
+          })),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          saveLearningInterview: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 1 }),
+          })),
+          savePastedSource: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 2 }),
+          })),
+          getPastedSource: vi.fn(async () => null),
+          requestInterviewPrompt: prompt,
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fillDiagnostic();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Request a follow-up question' }),
+  );
+  await waitFor(() => expect(prompt).toHaveBeenCalled());
+  expect(await persistHandle.current!.persistDraft()).toBe('failed');
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /Cancel it before leaving/,
+  );
+  finish?.({
+    outcome: 'unavailable',
+    requestId: 'prompt-01',
+    message: 'ignored',
+    retryable: true,
+  });
+  expect(await screen.findByText(LOCAL_FOLLOWUP_QUESTION)).toBeVisible();
+});

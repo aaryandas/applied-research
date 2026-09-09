@@ -1947,4 +1947,111 @@ describe('learning onboarding operations', () => {
         ?.sourceState,
     ).toBe('ready');
   });
+
+  it('refuses overlay identity mismatches, unmatched locators, and duplicate accepts', async () => {
+    const { store, operations } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as {
+          requestId: string;
+          operation: {
+            kind: string;
+            acceptedProposal?: { id: string; revision: number };
+          };
+        };
+        if (request.operation.kind === 'adjust-accepted-course') {
+          const body = adjustmentSuccess(request.requestId);
+          body.adjustment.acceptedProposal =
+            request.operation.acceptedProposal!;
+          return bytes(body);
+        }
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const seeded = await seededInterview(operations, store);
+    const proposed = await operations.proposeCourse({
+      projectId: seeded.project.id,
+      requestId: 'request-01',
+      interviewRevision: seeded.interview.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    if (proposed.outcome !== 'success') throw new Error('propose');
+    const accepted = await operations.acceptCourse({
+      projectId: seeded.project.id,
+      requestId: 'accept-01',
+      proposal: { id: proposed.value.id, revision: proposed.value.revision },
+    });
+    if (accepted.outcome !== 'success') throw new Error('accept');
+    await expect(
+      operations.proposeAcceptedCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'adjust-stale',
+        acceptedProposal: {
+          id: 'zzzzzzzz-zzzz-4zzz-8zzz-zzzzzzzzzzzz',
+          revision: 1,
+        },
+        interviewRevision: seeded.interview.revision,
+        notes: 'notes',
+        progress: { practicalAttempts: [] },
+        consent: 'acquire-learning-evidence',
+      }),
+    ).resolves.toMatchObject({ outcome: 'stale-revision' });
+    await expect(
+      operations.proposeAcceptedCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'adjust-locator',
+        acceptedProposal: {
+          id: proposed.value.id,
+          revision: proposed.value.revision,
+        },
+        interviewRevision: seeded.interview.revision,
+        notes: 'notes',
+        progress: {
+          practicalAttempts: [
+            {
+              attemptId: 'e1234567-1234-4234-8234-123456789012',
+              recordedRevision: 1,
+              remoteStepId: 'step-999',
+            },
+          ],
+        },
+        consent: 'acquire-learning-evidence',
+      }),
+    ).resolves.toMatchObject({ outcome: 'conflict' });
+    const adjusted = await operations.proposeAcceptedCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'adjust-ok',
+      acceptedProposal: {
+        id: proposed.value.id,
+        revision: proposed.value.revision,
+      },
+      interviewRevision: seeded.interview.revision,
+      notes: 'notes for overlay',
+      progress: { practicalAttempts: [] },
+      consent: 'acquire-learning-evidence',
+    });
+    if (adjusted.outcome !== 'success') throw new Error('adjust');
+    await expect(
+      operations.acceptCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'accept-adjust-stale',
+        adjustment: { id: 'yyyyyyyy-yyyy-4yyy-8yyy-yyyyyyyyyyyy', revision: 1 },
+      }),
+    ).resolves.toMatchObject({ outcome: 'stale-revision' });
+    const first = await operations.acceptCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'accept-adjust-dup',
+      adjustment: { id: adjusted.value.id, revision: adjusted.value.revision },
+    });
+    expect(first.outcome).toBe('success');
+    const duplicate = await operations.acceptCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'accept-adjust-dup',
+      adjustment: { id: adjusted.value.id, revision: adjusted.value.revision },
+    });
+    expect(duplicate.outcome).toBe('success');
+    if (duplicate.outcome !== 'success' || first.outcome !== 'success') {
+      throw new Error('dup');
+    }
+    expect(duplicate.value.pathId).toBe(first.value.pathId);
+  });
 });

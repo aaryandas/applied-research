@@ -210,3 +210,170 @@ it('keeps notes on unavailable review and does not invent a diagnostic outcome',
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   await waitFor(() => expect(propose).toHaveBeenCalledTimes(2));
 });
+
+it('cancels an in-flight review and ignores a late overlay', async () => {
+  let finish: ((value: unknown) => void) | undefined;
+  const propose = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const cancel = vi.fn(async () => {});
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => snapshot()),
+          proposeAcceptedCourseAdjustment: propose,
+          cancelLearningOnboarding: cancel,
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Request reviewed adjustment' });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Request reviewed adjustment' }),
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel review' }));
+  expect(cancel).toHaveBeenCalled();
+  finish?.({
+    outcome: 'success',
+    requestId: 'adjust-01',
+    value: proposal,
+  });
+  expect(await screen.findByText(/review request was cancelled/)).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Accept overlay' }),
+  ).not.toBeInTheDocument();
+});
+
+it('reports thrown review errors without inventing an overlay', async () => {
+  const propose = vi.fn(async () => {
+    throw new Error('planner exploded');
+  });
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => snapshot()),
+          proposeAcceptedCourseAdjustment: propose,
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Request reviewed adjustment' }),
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'planner exploded',
+  );
+});
+
+it('refuses review when the accepted course has no saved interview', async () => {
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => ({
+            ...snapshot(),
+            interview: null,
+          })),
+          proposeAcceptedCourseAdjustment: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Request reviewed adjustment' }),
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /no saved interview/,
+  );
+});
+
+it('keeps coverage-pending review from becoming an accepted overlay', async () => {
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => snapshot()),
+          proposeAcceptedCourseAdjustment: vi.fn(async () => ({
+            outcome: 'coverage-pending' as const,
+            requestId: 'adjust-01',
+            message: 'ignored',
+            retryable: false,
+          })),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Request reviewed adjustment' }),
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /Sources are still being verified/,
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Accept overlay' }),
+  ).not.toBeInTheDocument();
+});
+
+it('retries accept after a failed overlay apply without rewriting notes', async () => {
+  const accept = vi
+    .fn()
+    .mockResolvedValueOnce({
+      outcome: 'save-failed' as const,
+      requestId: 'accept-adjust-01',
+      message: 'disk',
+      retryable: true,
+    })
+    .mockResolvedValueOnce({
+      outcome: 'success' as const,
+      requestId: 'accept-adjust-01',
+      value: {
+        adjustment: { id: proposal.id, revision: proposal.revision },
+        pathId: 'path-001a',
+        pathRevision: 1,
+      },
+    });
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => ({
+            ...snapshot(),
+            adjustment: proposal,
+          })),
+          proposeAcceptedCourseAdjustment: vi.fn(),
+          acceptCourseAdjustment: accept,
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Accept overlay' }),
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /could not be saved/,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(
+    await screen.findByText(/Ready lessons were not replaced/),
+  ).toBeVisible();
+  expect(accept).toHaveBeenCalledTimes(2);
+});
