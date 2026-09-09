@@ -54,6 +54,11 @@ async function checkPull(pr) {
       { id: issue.id, url: pr.html_url, title: pr.title },
     );
   }
+  if (pr.draft || issue.state.name !== 'In Review')
+    return {
+      state: 'failure',
+      description: `${identifier}: needs a ready PR and In Review before cloud verification`,
+    };
   const files = await paginate(`pulls/${pr.number}/files`);
   const attestations = (
     await Promise.all([
@@ -82,7 +87,12 @@ async function checkPull(pr) {
 
 const pulls = event.pull_request
   ? [await github(`pulls/${event.pull_request.number}`)]
-  : await paginate('pulls?state=open');
+  : (await paginate('pulls?state=open&base=main')).filter(
+      (pr) =>
+        pr.user?.type === 'User' &&
+        pr.head.repo?.full_name === repository &&
+        ticketIdentifier(pr),
+    );
 const results = await Promise.allSettled(
   pulls.map(async (pr) => {
     let result;
@@ -94,5 +104,5 @@ const results = await Promise.allSettled(
     await publishStatus(pr.head.sha, { context: 'Linear gate', ...result });
   }),
 );
-if (results.some((result) => result.status === 'rejected'))
-  throw new Error('Some Linear statuses could not be published');
+const failed = results.find((result) => result.status === 'rejected');
+if (failed) throw failed.reason;

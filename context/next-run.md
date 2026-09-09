@@ -111,3 +111,19 @@ Every implementer prompt states: ticket, lane label, base branch and revision, t
 ## What the coordinator does all day
 
 Reads PRs in the queue, merges the ones with a green gate and a PASS, resolves conflicts by asking the owning lane to rebase, requires the blocking macOS integration suite after each merge, and keeps the decisions issue current. It does not allocate slots, does not route reviews, and does not click dialogs in other agents' terminals.
+
+### Reconciliation API budget
+
+The Luna dispatcher still ticks every five minutes. Linear and Sonar fallback
+sweeps run every fifteen minutes; PR, CI-completion and explicit dispatch events
+remain the fast path. Scheduled Linear sweeps ignore bot, fork and unlinked PRs.
+Drafts and tickets outside In Review do not fetch GitHub acceptance evidence.
+Within each reconciliation, all statuses from one completed trusted run share one
+run lookup and one receipt archive download; each context and PR SHA still needs
+its own valid same-run receipt. Nothing is cached across workflow invocations.
+The ten-PR fixture uses thirteen requests to validate unchanged statuses from one
+prior run. When histories differ, the conservative fallback estimate is about
+400 GitHub calls per hour for ten active PRs across Linear and Sonar, before event
+traffic and coverage retrieval. Monitor the actual rate budget as the queue grows.
+A primary or secondary rate-limit response stops further requests in that process
+and fails the run; a later scheduled run retries without a polling loop.

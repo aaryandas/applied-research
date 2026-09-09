@@ -6,7 +6,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, edited]
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [linear-verification-completed]

@@ -44,8 +44,17 @@ async function fixture(t, options = {}) {
     ...options.receipt,
   };
   const filename = `${gateResult.context.toLowerCase().replace(/[^a-z0-9]+/g, '-')}--${sha}.json`;
+  const receiptFiles = [filename];
   writeFileSync(join(directory, filename), JSON.stringify(receipt));
-  execFileSync('zip', ['-q', join(directory, 'receipt.zip'), filename], {
+  for (const extraSha of options.extraShas ?? []) {
+    const extraName = filename.replace(sha, extraSha);
+    receiptFiles.push(extraName);
+    writeFileSync(
+      join(directory, extraName),
+      JSON.stringify({ ...receipt, sha: extraSha }),
+    );
+  }
+  execFileSync('zip', ['-q', join(directory, 'receipt.zip'), ...receiptFiles], {
     cwd: directory,
   });
   const archive = readFileSync(join(directory, 'receipt.zip'));
@@ -67,12 +76,34 @@ async function fixture(t, options = {}) {
     RUNNER_TEMP: directory,
   });
   const posts = [];
+  const requests = [];
   t.mock.method(globalThis, 'fetch', async (url, init) => {
+    requests.push(String(url));
+    if (options.secondaryLimit)
+      return Response.json(
+        { message: 'You have exceeded a secondary rate limit.' },
+        {
+          status: 403,
+          headers: { 'x-ratelimit-remaining': '42' },
+        },
+      );
+
+    if (
+      options.rateLimited ||
+      (options.archiveRateLimited && String(url).endsWith('/zip'))
+    )
+      return new Response('{}', {
+        status: 403,
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': '1800000000',
+        },
+      });
     if (init?.method === 'POST') {
       posts.push(JSON.parse(init.body));
       return Response.json({});
     }
-    if (String(url).endsWith(`/commits/${sha}/status`))
+    if (/\/commits\/[a-f0-9]{40}\/status$/.test(String(url)))
       return Response.json({ statuses: [previous] });
     if (String(url).endsWith('/actions/runs/123'))
       return Response.json({ ...run, ...options.run });
@@ -101,11 +132,37 @@ async function fixture(t, options = {}) {
     }
     rmSync(directory, { recursive: true, force: true });
   });
-  const { publishStatus } = await import(
+  const { publishStatus, github } = await import(
     `./workflow-api.mjs?test=${directory}`
   );
-  return { publishStatus, posts, directory };
+  return { publishStatus, github, posts, requests, directory };
 }
+
+test('one reconciliation downloads each immutable run receipt archive only once', async (t) => {
+  const { publishStatus, requests } = await fixture(t);
+  await publishStatus(sha, result);
+  await publishStatus(sha, result);
+  assert.equal(
+    requests.filter((url) => url.endsWith('/actions/runs/123')).length,
+    1,
+  );
+  assert.equal(
+    requests.filter((url) => url.includes('/actions/runs/123/artifacts'))
+      .length,
+    1,
+  );
+  assert.equal(
+    requests.filter((url) => url.endsWith('/actions/artifacts/321/zip')).length,
+    1,
+  );
+});
+
+test('GitHub rate exhaustion is explicit and stops further requests in this reconciliation', async (t) => {
+  const { github, requests } = await fixture(t, { rateLimited: true });
+  await assert.rejects(github('pulls'), /GitHub rate limit exhausted/);
+  await assert.rejects(github('pulls'), /GitHub rate limit exhausted/);
+  assert.equal(requests.length, 1);
+});
 
 test('a later reconciliation reuses an identical status only while its original receipt remains trusted', async (t) => {
   const { publishStatus, posts, directory } = await fixture(t);
@@ -148,4 +205,49 @@ test('an exhausted hosted-Sonar error remains a single trusted status across lat
   await publishStatus(sha, exhausted);
   await publishStatus(sha, exhausted);
   assert.equal(posts.length, 0);
+});
+
+test('ten unchanged PRs sharing a trusted reconciliation use thirteen GitHub requests', async (t) => {
+  const shas = Array.from({ length: 10 }, (_, index) =>
+    (index + 1).toString(16).repeat(40),
+  );
+  const { publishStatus, requests, posts } = await fixture(t, {
+    extraShas: shas,
+  });
+  await Promise.all(shas.map((head) => publishStatus(head, result)));
+  assert.equal(requests.length, 13);
+  assert.equal(posts.length, 0);
+});
+
+for (const [event, expectedPosts] of [
+  ['workflow_run', 0],
+  ['workflow_dispatch', 1],
+]) {
+  test(`Sonar ${event} feature-branch run metadata preserves the trust boundary`, async (t) => {
+    const sonar = { ...result, context: 'Sonar gate' };
+    const { publishStatus, posts } = await fixture(t, {
+      result: sonar,
+      run: { event, head_branch: 'codex/feature' },
+    });
+    await publishStatus(sha, sonar);
+    assert.equal(posts.length, expectedPosts);
+  });
+}
+
+test('archive rate exhaustion does not fall through to a replacement status', async (t) => {
+  const { publishStatus, posts } = await fixture(t, {
+    archiveRateLimited: true,
+  });
+  await assert.rejects(
+    publishStatus(sha, result),
+    /GitHub rate limit exhausted/,
+  );
+  assert.equal(posts.length, 0);
+});
+
+test('secondary exhaustion without retry-after stops subsequent GitHub requests', async (t) => {
+  const { github, requests } = await fixture(t, { secondaryLimit: true });
+  await assert.rejects(github('pulls'), /GitHub rate limit exhausted/);
+  await assert.rejects(github('pulls'), /GitHub rate limit exhausted/);
+  assert.equal(requests.length, 1);
 });
