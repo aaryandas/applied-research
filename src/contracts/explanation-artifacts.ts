@@ -260,6 +260,10 @@ function includes<T>(values: readonly T[], value: unknown): value is T {
   return candidates.includes(value);
 }
 
+function isHelpIntent(value: unknown): value is ContextualHelpIntent {
+  return value === 'text' || value === 'visual';
+}
+
 function isPoint3(value: unknown): value is Point3 {
   return (
     isContractRecord(value) &&
@@ -775,9 +779,37 @@ function decodeAiResponse(
   };
 }
 
+function readyResultMatchesIntent(
+  intent: ContextualHelpIntent,
+  result: RetainedExplanationResult,
+): boolean {
+  if (intent === 'text') return result.kind === 'text-answer';
+  return result.kind === 'scene' || result.kind === 'clip';
+}
+
+function readyResultMatchesSupportedPlan(
+  plan: ExplanationPlan,
+  result: RetainedExplanationResult,
+): boolean {
+  if (plan.status !== 'supported') return true;
+  return result.kind !== 'text-answer' && result.family === plan.family;
+}
+
+function retainedResultAgreesWithIntentAndPlan(
+  intent: ContextualHelpIntent,
+  plan: ExplanationPlan | null,
+  result: RetainedExplanationResult | null,
+): boolean {
+  if (result === null) return true;
+  if (!readyResultMatchesIntent(intent, result)) return false;
+  if (plan === null) return true;
+  return readyResultMatchesSupportedPlan(plan, result);
+}
+
 function decodeAttempt(
   value: unknown,
   explanationId: string,
+  parentIntent: ContextualHelpIntent,
 ): ContractDecode<ExplanationAttempt> {
   const decoded = decodeExactRecord(value, [
     'attemptId',
@@ -801,9 +833,9 @@ function decodeAttempt(
     return failed('identity');
   }
   if (decoded.value.explanationId !== explanationId) return failed('origin');
-  if (decoded.value.intent !== 'text' && decoded.value.intent !== 'visual') {
-    return failed('unsupported');
-  }
+  const intent = decoded.value.intent;
+  if (!isHelpIntent(intent)) return failed('unsupported');
+  if (intent !== parentIntent) return failed('origin');
   if (!includes(ATTEMPT_STATUSES, decoded.value.status))
     return failed('unsupported');
   if (!isIsoTimestamp(decoded.value.requestedAt)) return failed('revision');
@@ -849,13 +881,16 @@ function decodeAttempt(
   }
   if (decoded.value.status === 'ready' && result === null)
     return failed('shape');
+  if (!retainedResultAgreesWithIntentAndPlan(intent, plan, result)) {
+    return failed('origin');
+  }
   if (aiResponse.value && provenance === null) return failed('provenance');
   return {
     ok: true,
     value: {
       attemptId: decoded.value.attemptId,
       explanationId,
-      intent: decoded.value.intent,
+      intent,
       status: decoded.value.status,
       requestedAt: decoded.value.requestedAt,
       completedAt: decoded.value.completedAt,
@@ -893,9 +928,8 @@ export function decodeRetainedExplanation(
   ) {
     return failed('identity');
   }
-  if (decoded.value.intent !== 'text' && decoded.value.intent !== 'visual') {
-    return failed('unsupported');
-  }
+  const intent = decoded.value.intent;
+  if (!isHelpIntent(intent)) return failed('unsupported');
   const origin = decodeLearningOrigin(decoded.value.origin);
   if (!origin.ok) return origin;
   if (
@@ -914,7 +948,7 @@ export function decodeRetainedExplanation(
   const attempts: ExplanationAttempt[] = [];
   const seen = new Set<string>();
   for (const item of decoded.value.attempts) {
-    const attempt = decodeAttempt(item, decoded.value.explanationId);
+    const attempt = decodeAttempt(item, decoded.value.explanationId, intent);
     if (!attempt.ok) return attempt;
     if (seen.has(attempt.value.attemptId)) return failed('identity');
     seen.add(attempt.value.attemptId);
@@ -924,7 +958,13 @@ export function decodeRetainedExplanation(
   if (usefulAttemptId !== null) {
     if (!isContractUuid(usefulAttemptId)) return failed('identity');
     const useful = attempts.find((item) => item.attemptId === usefulAttemptId);
-    if (!useful || useful.status !== 'ready' || useful.result === null) {
+    if (
+      !useful ||
+      useful.status !== 'ready' ||
+      useful.result === null ||
+      useful.intent !== intent ||
+      !retainedResultAgreesWithIntentAndPlan(intent, useful.plan, useful.result)
+    ) {
       return failed('origin');
     }
   }
@@ -935,7 +975,7 @@ export function decodeRetainedExplanation(
       explanationId: decoded.value.explanationId,
       projectId: decoded.value.projectId,
       origin: origin.value,
-      intent: decoded.value.intent,
+      intent,
       attempts,
       usefulAttemptId,
       createdAt: decoded.value.createdAt,

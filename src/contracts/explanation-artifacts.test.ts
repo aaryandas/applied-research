@@ -307,6 +307,111 @@ describe('retained artifacts and measurement authority', () => {
     }
   });
 
+  it('rejects mixed parent/attempt intent and mismatched ready result families', () => {
+    const textResult = {
+      kind: 'text-answer',
+      body: 'The shares are normalized weights.',
+      nextAction: 'Change one weight.',
+    };
+    const sceneResult = {
+      kind: 'scene',
+      family: 'two-link-arm',
+      assetVersion: 'original-geometry-1',
+      initialParameters: { ...DEFAULT_ARM },
+    };
+    const unsupportedPlan = {
+      status: 'unsupported',
+      reason: 'capability',
+      textualContinuation: 'Ask about the surrounding paragraph instead.',
+      practicalContinuation: 'Try the next worked example in Practical.',
+    };
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'text',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [readyAttempt],
+      }).reason,
+    ).toBe('origin');
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'visual',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [{ ...readyAttempt, intent: 'text', result: textResult }],
+      }).reason,
+    ).toBe('origin');
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'visual',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [{ ...readyAttempt, result: textResult }],
+      }).reason,
+    ).toBe('origin');
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'visual',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [{ ...readyAttempt, plan: armPlan() }],
+      }).reason,
+    ).toBe('origin');
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'visual',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [{ ...readyAttempt, plan: armPlan(), result: sceneResult }],
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeRetainedExplanation({
+        contractVersion: EXPLANATION_ARTIFACT_CONTRACT_VERSION,
+        explanationId,
+        projectId,
+        origin: { sourceRevisionId, highlightId },
+        intent: 'text',
+        usefulAttemptId: previousAttemptId,
+        createdAt,
+        updatedAt: createdAt,
+        attempts: [
+          {
+            ...readyAttempt,
+            intent: 'text',
+            plan: unsupportedPlan,
+            result: textResult,
+          },
+        ],
+      }).ok,
+    ).toBe(true);
+  });
+
   it('rejects renderer filesystem paths, oversized clips and attribution strings as proof', () => {
     expect(
       decodeOpaqueMediaReference({
