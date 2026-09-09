@@ -8,6 +8,19 @@ import { MANIM_IMAGE } from './docker.js';
 import { VIDEO_METADATA, OK_PROCESS } from './test-support.js';
 import type { ProcessRequest, ProcessResult } from './process.js';
 
+if (typeof process.getuid !== 'function') {
+  Object.defineProperty(process, 'getuid', {
+    configurable: true,
+    value: () => 1000,
+  });
+}
+if (typeof process.getgid !== 'function') {
+  Object.defineProperty(process, 'getgid', {
+    configurable: true,
+    value: () => 1000,
+  });
+}
+
 const workers: AnimationRenderWorker[] = [];
 const roots: string[] = [];
 const json = JSON.stringify(LINEAR_EXAMPLE);

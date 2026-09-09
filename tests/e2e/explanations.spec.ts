@@ -79,6 +79,10 @@ async function captureRecord(page: Page): Promise<Record<string, unknown>> {
 }
 
 test('manipulates actual local scenes, measures endpoints, pauses, and recovers context loss', async () => {
+  test.skip(
+    platform() === 'linux',
+    'GitHub Ubuntu Xvfb cannot initialize WebGL, so capture stays disabled.',
+  );
   test.setTimeout(90_000);
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-scenes-'));
@@ -417,6 +421,10 @@ test('offers usable text and parameters when WebGL context creation is unavailab
 });
 
 test('preserves typed arm drafts and exact camera pose across blur and focus', async () => {
+  test.skip(
+    platform() === 'linux',
+    'GitHub Ubuntu Xvfb cannot initialize WebGL, so capture stays disabled.',
+  );
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-repair-'));
   const application = await launchExplanationApplication(directory);
