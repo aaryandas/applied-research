@@ -34,6 +34,10 @@ While status automation is being repaired, the coordinator may manually reconcil
 4. **Keep provenance through integration.** Bind source, launch, review, recording and CI evidence to exact revisions and actual owners. A merge or new commit requires reassessing the affected evidence.
 5. **Make status reflect work.** Reconcile started work conservatively while automation is repaired. Partial demos, unavailable runtimes and blocked authentication remain explicit gaps, never completion signals.
 
+## Linear gate duplicate-attachment incident
+
+Parallel Linear gate jobs on [PR70](https://github.com/aaryandas/applied-research/pull/70)/[PR71](https://github.com/aaryandas/applied-research/pull/71) both called `attachmentLinkURL`; the loser failed `INPUT_ERROR` 400 duplicate URL. Draft/In Development classification was already the expected green lifecycle and is not a status defect. The repair is idempotent re-query of the intended issue/URL ([incident](linear-gate-duplicate-attachment-2026-09-09.md)). Cursor CI Autofix [PR69](https://github.com/aaryandas/applied-research/pull/69) was rejected for skipping tests; that automation stays paused. Original main Sonar skip after macOS failure [34361091356](https://github.com/aaryandas/applied-research/actions/runs/34361091356) remains a real failure, not a waiver.
+
 ## Current consumer leases
 
 AR47 owns Opening, new onboarding UI/main modules, LearnerProfile files and migration `0005_learning_onboarding.sql`; the coordinator owns journal/shared store/App/Shell/preload application of its precise integration patches. AR50 keeps migration0004. AR51 owns migration0006_contextual_retention for retained explanations; AR56 reserves0007 for entry origins if needed. AR58 owns six new backend boundary test files; AR48 retains existing backend production and tests. Final AR52 `bca886a` and AR53 `32d3344` passed independent Cloud review and are integrated at `f32b548`; consumer implementation may proceed.

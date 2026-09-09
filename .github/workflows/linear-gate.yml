@@ -3,6 +3,7 @@ name: Linear gate
 # Ticket lookup and lifecycle classification. Expected In Development on a
 # draft PR is not a code defect; merge eligibility still requires In Review
 # in the trusted queue. This job does not move Linear status.
+# Same-PR concurrency reduces duplicate attachmentLinkURL work. A cancelled run is not a passing Linear gate; the newest invocation must finish classification. Serialization is not the idempotency proof.
 
 on:
   pull_request:
@@ -11,6 +12,10 @@ on:
 permissions:
   contents: read
   pull-requests: read
+
+concurrency:
+  group: linear-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   gate:
