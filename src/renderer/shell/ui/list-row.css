@@ -1,0 +1,85 @@
+/* Owns: .ui-list, .ui-list-row and its __lead, __body, __trail parts. */
+
+/* A reset stack of rows. Works on ul/ol/nav/div alike. */
+.ui-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One row. Full-bleed hit target so the whole strip is clickable, not just the label. */
+.ui-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  /* 44px pointer floor; the padding alone already clears it for a one-line row. */
+  min-height: calc(var(--space-8) + var(--space-3));
+  padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius-control);
+  color: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-press),
+    color var(--duration-press),
+    border-color var(--duration-press);
+}
+
+.ui-list-row:not(:disabled):not([aria-disabled='true']):hover {
+  background: var(--surface-subtle);
+}
+
+/* Selection is an attribute, never a class: nav rows use aria-current, listbox and
+   tab rows use aria-selected, and everything else uses data-selected. Each is
+   guarded against its explicit "false" value, which React does render. */
+.ui-list-row[aria-current]:not([aria-current='false']),
+.ui-list-row[aria-selected='true'],
+.ui-list-row[data-selected]:not([data-selected='false']) {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* The accent is the cool/AI colour, so it marks the row rather than colouring its label,
+   exactly as the approved .topic-items button[aria-current=page] > .icon does. */
+.ui-list-row[aria-current]:not([aria-current='false']) .ui-list-row__lead,
+.ui-list-row[aria-selected='true'] .ui-list-row__lead,
+.ui-list-row[data-selected]:not([data-selected='false']) .ui-list-row__lead {
+  color: var(--accent);
+}
+
+.ui-list-row:disabled,
+.ui-list-row[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Leading icon or marker. The line box centres it against the first line of body
+   text, so it stays aligned if the row's type size changes. */
+.ui-list-row__lead {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  min-height: 1.5em;
+  color: var(--muted);
+}
+
+/* Primary text. Wraps — including mid-word for unbroken titles — rather than
+   overflowing the row. */
+.ui-list-row__body {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Trailing count or chevron, pushed to the far end. Pair with .ui-numeric for counts. */
+.ui-list-row__trail {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+}

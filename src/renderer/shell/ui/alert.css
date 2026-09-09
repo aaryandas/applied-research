@@ -1,0 +1,76 @@
+/*
+ * Inline message bar. Pair with a live region: either put `role="alert"` on the
+ * `.ui-alert` element itself, or leave it on the message inside — both are styled.
+ *
+ * Tone is carried by text colour and border colour only; the background stays
+ * `--surface` in every variant so the hover on a nested retry or dismiss control
+ * always reads. `--danger` is the one alarm colour. `--human` is the
+ * human-authorship colour and is deliberately absent here.
+ *
+ * Add `.ui-focusable` to the controls; the focus ring lives in `base.css`.
+ */
+
+.ui-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ui-alert__body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A message that carries its own `role="alert"` inside the bar takes the bar's
+ * tone, outranking the class it already has from its surface. Scoped to
+ * `.ui-alert`; a bare `[role='alert']` selector would restyle every live region
+ * in the app.
+ */
+.ui-alert [role='alert'] {
+  color: inherit;
+}
+
+/* Informational. Present, but does not ask to be read first. */
+.ui-alert--notice {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+/* Degraded, not broken: the feature is unreachable and will come back. */
+.ui-alert--offline {
+  color: var(--muted);
+  border-color: var(--line-strong);
+}
+
+/* Caution carries weight, not hue — the palette keeps colour for failure. */
+.ui-alert--warning {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+/* Failure. `--error` and `--danger` name the same tone. */
+.ui-alert--error,
+.ui-alert--danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/*
+ * Trailing controls. Both are buttons, so they are `.ui-button` — a retry is
+ * `.ui-button .ui-button--quiet`, a dismiss is `.ui-button .ui-button--icon` with an
+ * `aria-label`. Re-declaring a box, a hover and a disabled treatment here is how the
+ * app ended up with 17 buttons; this part contributes placement and nothing else.
+ */
+.ui-alert__dismiss {
+  flex-shrink: 0;
+  color: inherit;
+}

@@ -1,0 +1,60 @@
+/* Owns: type roles — .ui-eyebrow, .ui-title, .ui-heading, .ui-prose, .ui-meta, .ui-numeric. */
+
+/*
+ * Navigation, coordinates and section labels.
+ * Contract "Type and surfaces": Martian Mono 12px / 1.4, uppercase, tracking .08em.
+ * Uppercasing lives here and nowhere else in this file — citation and provenance prose
+ * keeps its source casing, so it uses .ui-meta.
+ */
+.ui-eyebrow {
+  font: 400 var(--text-xs) / 1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/*
+ * The display voice, reserved for project title and brief.
+ * Contract: Fraunces, opsz 144, SOFT 40, WONK 1, 40px in the assembled specimen.
+ * Display sizes are not tokenised (tokens.css carries --text-xs|sm|base|reading only),
+ * so the specimen size is a literal here as it is in the shipping rules.
+ */
+.ui-title {
+  font: 400 40px/1.1 var(--font-display);
+  font-variation-settings:
+    'opsz' 144,
+    'SOFT' 40,
+    'WONK' 1;
+  letter-spacing: -0.01em;
+}
+
+/* Reading-face section heading. Contract: Newsreader 22px / 1.3, 500. */
+.ui-heading {
+  font: 500 22px/1.3 var(--font-reading);
+  font-optical-sizing: auto;
+}
+
+/*
+ * Reading and human writing. Contract: 18px / 1.55, 400, optical sizing enabled,
+ * 68ch maximum measure where width permits.
+ */
+.ui-prose {
+  max-width: var(--reading-measure);
+  font: 400 var(--text-reading) / 1.55 var(--font-reading);
+  font-optical-sizing: auto;
+}
+
+/*
+ * Small muted metadata: captions, credits, counts, coordinates and citation prose.
+ * Deliberately sets no text-transform, so a citation keeps its source casing.
+ */
+.ui-meta {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Counts and readouts that must not jitter as digits change. */
+.ui-numeric {
+  font-variant-numeric: tabular-nums;
+}

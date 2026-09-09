@@ -1,0 +1,65 @@
+/* Owns: .ui-panel and its __header, __body, __footer parts and --flush variant. */
+
+/* The bordered surface. Consolidates .entry-card (styles.css), .atlas-dialog
+   (styles.css) and the approved .board-card / .idea-card (prototype/styles.css):
+   --surface fill, one --line hairline, panel corners. Column layout with a
+   min-height:0 body so a .ui-scroll body scrolls instead of stretching the panel. */
+.ui-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  /* clip, not hidden: the shared focus ring sits 4px outside its control (base.css), so a
+     .ui-focusable row in a --flush body would have its ring cut off by the panel edge.
+     overflow-clip-margin covers 4px offset + 2px ring. */
+  overflow: clip;
+  overflow-clip-margin: 6px;
+}
+
+/* Lifted off the page: dragged cards, floating bars, dialogs. */
+.ui-panel--raised {
+  box-shadow: var(--shadow);
+}
+
+/* Title row. No hairline: the Structure decision groups with spacing, and the approved
+   prototype draws no border-bottom anywhere. Does not shrink when the body scrolls. */
+.ui-panel__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--text-base);
+}
+
+/* Content. min-width/min-height 0 so wide or tall content can scroll
+   (add .ui-scroll from base.css) rather than forcing the panel open. */
+.ui-panel__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-6);
+}
+
+/* Action row. 44px keeps the row at the minimum pointer target. */
+.ui-panel__footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: calc(var(--space-8) + var(--space-3));
+  padding: var(--space-3) var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* Edge-to-edge body: media, tables, embedded views. Direct child only, so a
+   nested panel keeps its own padding. */
+.ui-panel--flush > .ui-panel__body {
+  padding: 0;
+}

@@ -1,0 +1,91 @@
+/* Owns: .ui-field, .ui-field__label, .ui-input, .ui-textarea, .ui-field__hint, .ui-field__error. */
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ui-field__label {
+  color: var(--muted);
+  font: 400 var(--text-sm) / 1.5 var(--font-ui);
+}
+
+/* The control box. Human keystrokes carry the human caret: --accent is the AI
+   colour and human/AI attribution is a product invariant, not a palette choice. */
+.ui-input,
+.ui-textarea {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  caret-color: var(--human);
+  font: inherit;
+  transition: border-color var(--duration-press);
+}
+
+/* Height comes from the control's own rows attribute, not a magic min-height. */
+.ui-textarea {
+  resize: vertical;
+}
+
+.ui-input::placeholder,
+.ui-textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.ui-input:hover:not(:disabled, [aria-disabled='true'], [readonly]),
+.ui-textarea:hover:not(:disabled, [aria-disabled='true'], [readonly]) {
+  border-color: var(--ink);
+}
+
+/* Focus: add .ui-focusable. The ring is defined once, in base.css — repeating
+   its outline here would be a second copy to keep in sync. */
+
+.ui-input:disabled,
+.ui-textarea:disabled,
+.ui-input[aria-disabled='true'],
+.ui-textarea[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-input[readonly],
+.ui-textarea[readonly] {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.ui-input[aria-invalid='true'],
+.ui-textarea[aria-invalid='true'],
+.ui-field--invalid .ui-input,
+.ui-field--invalid .ui-textarea {
+  border-color: var(--danger);
+}
+
+.ui-field--invalid .ui-field__label {
+  color: var(--danger);
+}
+
+.ui-field__hint {
+  color: var(--muted);
+  font: 400 var(--text-xs) / 1.5 var(--font-ui);
+}
+
+.ui-field__error {
+  color: var(--danger);
+  font: 400 var(--text-xs) / 1.5 var(--font-ui);
+}
+
+/* Human writing: reading face, reading measure, human ink, human caret. */
+.ui-textarea--reading {
+  max-width: var(--reading-measure);
+  color: var(--human-ink);
+  caret-color: var(--human);
+  font: 400 var(--text-reading) / 1.55 var(--font-reading);
+  font-optical-sizing: auto;
+}

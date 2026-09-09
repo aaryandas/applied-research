@@ -1,0 +1,94 @@
+/* One button. Collapses the 17 live variants — .primary/.secondary/.text-button/.icon-button
+   in styles.css, .settings-button, .practical-button, and the per-surface `<scope> button`
+   rules in reader.css, canvas.css, explanations.css and shell.css — into one box, one hover
+   and one disabled treatment.
+
+   Compose .ui-focusable for the focus ring; this file never declares one.
+   :disabled and [aria-disabled='true'] are styled identically so a control that must stay
+   focusable while it is busy (Settings uses aria-disabled for exactly that) looks disabled
+   without leaving the tab order. */
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: calc(var(--space-8) + var(--space-2));
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: 400 var(--text-base)/1.5 var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-press),
+    color var(--duration-press),
+    border-color var(--duration-press);
+}
+
+/* The one hover. Pressed toggles keep their own fill instead. */
+.ui-button:not(:disabled):not([aria-disabled='true']):not(
+    [aria-pressed='true']
+  ):hover {
+  background: var(--surface-subtle);
+}
+
+.ui-button:not(:disabled):not([aria-disabled='true']):active {
+  transform: translateY(1px);
+}
+
+/* The one disabled treatment. */
+.ui-button:disabled,
+.ui-button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ui-button--primary {
+  padding-inline: var(--space-6);
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 500;
+}
+
+.ui-button--primary:not(:disabled):not([aria-disabled='true']):not(
+    [aria-pressed='true']
+  ):hover {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.ui-button--secondary {
+  padding-inline: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+
+/* README calls this variant --text; this lane's brief calls it --quiet. Same rule under
+   both names until one of them is retired. */
+.ui-button--quiet,
+.ui-button--text {
+  padding-inline: var(--space-2);
+  color: var(--muted);
+}
+
+.ui-button--icon {
+  flex-shrink: 0;
+  width: calc(var(--space-8) + var(--space-2));
+  padding: var(--space-2);
+}
+
+.ui-button--small {
+  gap: var(--space-1);
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
