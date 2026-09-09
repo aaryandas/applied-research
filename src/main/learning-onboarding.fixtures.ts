@@ -1,6 +1,7 @@
 /** Labeled synthetic onboarding envelopes. Not live provider or corpus evidence. */
 import type {
   CourseProposalSuccess,
+  InterviewPromptSuccess,
   LearningOnboardingRequest,
   SelectedLessonSuccess,
   UntrustedHumanLearnerContext,
@@ -272,7 +273,7 @@ export const generatedLesson = {
   practice: null,
 };
 
-const quota = {
+export const quota = {
   month: '2026-09',
   limitMicrousd: 20_000_000,
   committedMicrousd: 0,
@@ -363,6 +364,43 @@ export function courseSuccess(requestId: string): CourseProposalSuccess {
       masteryEstablished: false,
     },
     provenance: [provenance],
+    quota,
+  };
+}
+
+export function revisedCourseSuccess(requestId: string): CourseProposalSuccess {
+  const base = courseSuccess(requestId);
+  return {
+    ...base,
+    syllabus: {
+      ...base.syllabus,
+      title: 'Transformers with deeper attention work',
+    },
+    personalization: {
+      ...base.personalization,
+      summary: 'Revised plan spends more time on attention proofs.',
+    },
+  };
+}
+
+export function interviewPromptSuccess(
+  requestId: string,
+): InterviewPromptSuccess {
+  return {
+    outcome: 'success',
+    requestId,
+    scope: 'interview-prompt',
+    prompt: {
+      id: 'followup-01',
+      text: 'How would you debug a vanishing gradient in this setup?',
+      provenance,
+    },
+    assessment: {
+      author: 'ai',
+      summary: 'The diagnostic showed uncertainty about applying attention.',
+      observedGaps: ['No evidence of PEFT practice yet.'],
+      masteryEstablished: false,
+    },
     quota,
   };
 }
