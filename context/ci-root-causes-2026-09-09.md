@@ -1,5 +1,15 @@
 # CI root causes and delivery propagation
 
+## Current result
+
+Frozen candidate `a0c0b9b0550a9846988afe12cc01b299a9b88931` passes [CI34349980151](https://github.com/aaryandas/applied-research/actions/runs/34349980151): macOS and Ubuntu formatting, lint, types, coverage, build, desktop smoke, packaging and packaged smoke all pass. macOS has164 test files /1,805 tests,90.28% branch coverage,15 desktop tests and15 packaged tests. The required gate, dedicated desktop feedback, actual Manim evidence, Lane guard and Linear gate pass. Thresholds remain unchanged. Historical failures below explain the repairs; they are not the current candidate verdict.
+
+The current Windows report has five failing tests: Practical file-selection refusal, three POSIX executable-mode runtime assertions and one Practical guidance-unavailable assertion. These are reporting-only under the existing shipping policy and remain owner follow-ups; they must not be mislabeled as only the older coverage/MSVC failures.
+
+AR50 follow-up `9b504c5a89510d36c24fba447b89ad6a010ca7eb` makes the two selected-file preview lifecycle tests resolve their deferred journey under React `act` and settle the selected context before one explicit Ask. The original combined-suite failure clicked before resolver registration and never reached its intended preview assertion. The repair preserves exactly one owned preview call and rejection of late results after replacement/unmount. It changes no production code, timeout, skip or retry policy. This newly integrated test repair still needs its own exact-head checks and independent review; it does not claim the separate Windows guidance assertion is fixed.
+
+PR44 at `c1f5d6a` repairs normal persisted-launch recovery and unproven409 replay. Two bounded follow-ups now concern original GitHub run-attempt identity and transient reads after a successful launch. Its owner and independent critic are active; automatic activation remains off. Green application CI is distinct from approval of the delivery workflow or completion of the connected application.
+
 This summary reconciles the 9 September 2026 candidate, dependency, and feature CI audits with current coordinator assignments. Main at `fa3e59aca35ac10d8917dd75b73da19bdb036ba8` has passing CI and hosted Sonar. That establishes the main baseline; it does not validate unmerged candidate or producer changes.
 
 macOS is the blocking application platform. Windows failures remain diagnostic work, not a reason to describe macOS as failing. Lane, Linear, and independent-review evidence are separate delivery requirements: their failures do not establish an application defect, but must be resolved before eligibility. A successful review _job_ without a substantive verdict is not approval.
