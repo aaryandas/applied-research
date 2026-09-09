@@ -20,13 +20,9 @@ export const CLIP_RENDER_FAMILIES = [
 ] as const;
 export type ClipRenderFamily = (typeof CLIP_RENDER_FAMILIES)[number];
 
-export interface PlannerRenderPath extends PathOrigin {
-  readonly lessonId: string;
-}
-
 export interface PlannerRenderOrigin {
   readonly sourceRevisionId: string;
-  readonly path: PlannerRenderPath;
+  readonly path?: PathOrigin;
   readonly highlightId?: string;
   readonly entry?: EntryRevisionReference;
 }
@@ -47,6 +43,27 @@ export interface PlannerRenderReceipt {
 
 export function isClipRenderFamily(value: unknown): value is ClipRenderFamily {
   return value === 'linear-transform' || value === 'weighted-combination';
+}
+
+export function originRevisionIsAdmitted(
+  origin: PlannerRenderOrigin,
+  locators: readonly { readonly revisionId: string }[],
+): boolean {
+  return locators.some(
+    (locator) => locator.revisionId === origin.sourceRevisionId,
+  );
+}
+
+export function citedSourcesAreAdmitted(
+  plan: ExplanationPlan,
+  locators: readonly { readonly sourceId: string }[],
+): boolean {
+  if (plan.status !== 'supported') return true;
+  if (plan.sourceSupport.kind !== 'cited-source') return true;
+  const admitted = new Set(locators.map((locator) => locator.sourceId));
+  return plan.sourceSupport.citations.every((citation) =>
+    admitted.has(citation.sourceId),
+  );
 }
 
 export function decodePlannerRenderContext(
@@ -72,25 +89,16 @@ export function decodePlannerRenderOrigin(
   const decoded = decodeLearningOrigin(value);
   if (!decoded.ok) return decoded;
   const sourceRevisionId = decoded.value.sourceRevisionId;
+  if (sourceRevisionId === undefined) return failed('origin');
   const path = decoded.value.path;
-  if (
-    sourceRevisionId === undefined ||
-    path === undefined ||
-    path.lessonId === undefined
-  ) {
-    return failed('origin');
+  if (path !== undefined && !isPositiveRevision(path.pathRevision)) {
+    return failed('revision');
   }
-  if (!isPositiveRevision(path.pathRevision)) return failed('revision');
   return {
     ok: true,
     value: {
       sourceRevisionId,
-      path: {
-        pathId: path.pathId,
-        pathRevision: path.pathRevision,
-        topicId: path.topicId,
-        lessonId: path.lessonId,
-      },
+      ...(path === undefined ? {} : { path }),
       ...(decoded.value.highlightId === undefined
         ? {}
         : { highlightId: decoded.value.highlightId }),
@@ -141,6 +149,9 @@ export function decodePlannerRenderReceipt(
     if (!locator.ok) return locator;
     sourceLocators.push(locator.value);
   }
+  if (!originRevisionIsAdmitted(origin.value, sourceLocators)) {
+    return failed('origin');
+  }
   return {
     ok: true,
     value: {
@@ -164,6 +175,15 @@ export function constructRenderReceipt(input: {
   if (input.plan.status !== 'supported') return undefined;
   if (!isClipRenderFamily(input.plan.family)) return undefined;
   if (input.sourceLocators.length < 1 || input.sourceLocators.length > 4) {
+    return undefined;
+  }
+  if (
+    !originRevisionIsAdmitted(
+      input.renderContext.origin,
+      input.sourceLocators,
+    ) ||
+    !citedSourcesAreAdmitted(input.plan, input.sourceLocators)
+  ) {
     return undefined;
   }
   return {

@@ -142,6 +142,38 @@ describe('decodePlannerHttpResponse', () => {
       outcome: 'success',
       renderReceipt: { plannerRequestId: requestId },
     });
+    const highlightReceipt = decodePlannerHttpResponse(
+      {
+        outcome: 'success',
+        requestId,
+        plan: clipPlan,
+        provenance,
+        quota,
+        renderReceipt: {
+          version: RENDER_RECEIPT_VERSION,
+          plannerRequestId: requestId,
+          projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          origin: {
+            sourceRevisionId: origin.sourceRevisionId,
+            highlightId: '99999999-9999-4999-8999-999999999999',
+          },
+          sourceLocators: provenance.sourceRevisions,
+          family: 'weighted-combination',
+        },
+      },
+      requestId,
+    );
+    expect(highlightReceipt.ok).toBe(true);
+    if (!highlightReceipt.ok) return;
+    expect(highlightReceipt.value).toMatchObject({
+      outcome: 'success',
+      renderReceipt: {
+        origin: {
+          sourceRevisionId: origin.sourceRevisionId,
+          highlightId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    });
   });
 
   it('classifies non-success planner outcomes', () => {

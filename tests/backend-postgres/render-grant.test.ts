@@ -118,12 +118,18 @@ function plannerEnvelope(
   requestId: string,
   sourceRevisionId: string,
   question = 'Explain this passage visually.',
+  origin: ReturnType<typeof renderContext>['origin'] = renderContext(
+    sourceRevisionId,
+  ).origin,
 ): ExplanationPlannerRequest {
   return {
     apiVersion: LEARNING_API_VERSION,
     requestId,
     model: 'google/gemini-3.8-flash',
-    renderContext: renderContext(sourceRevisionId),
+    renderContext: {
+      projectId,
+      origin,
+    },
     operation: {
       kind: 'explanation-planner',
       question,
@@ -567,6 +573,36 @@ describe('PostgreSQL planner render grant', () => {
       );
     }
 
+    const highlightId = '66666666-6666-4666-8666-666666666666';
+    const highlightRequestId = '77777777-7777-4777-8777-777777777777';
+    const highlighted = await Effect.runPromise(
+      service.request(
+        owner,
+        plannerEnvelope(highlightRequestId, fullRevisionId, undefined, {
+          sourceRevisionId: fullRevisionId,
+          highlightId,
+        }),
+      ),
+    );
+    expect(highlighted.outcome).toBe('success');
+    expect(physicalCalls).toBe(4);
+    if (highlighted.outcome === 'success') {
+      expect(highlighted.renderReceipt?.origin).toEqual({
+        sourceRevisionId: fullRevisionId,
+        highlightId,
+      });
+    }
+    const highlightGrant = await lookup(owner.id, highlightRequestId);
+    expect(highlightGrant.ok).toBe(true);
+    if (highlightGrant.ok) {
+      expect(highlightGrant.origin).toEqual({
+        projectId,
+        sourceVersionId: fullRevisionId,
+        questionId: null,
+        lessonId: null,
+      });
+    }
+
     await delivery.close();
     const generationAfter = await pool.query<{
       committed_microusd: string;
@@ -579,9 +615,9 @@ describe('PostgreSQL planner render grant', () => {
        FROM shared_budget WHERE name = 'generation-eval'`,
     );
     expect(generationAfter.rows[0]).toEqual({
-      committed_microusd: '21',
+      committed_microusd: '28',
       limit_microusd: String(GENERATION_EVAL_LIMIT_MICROUSD),
-      dispatch_committed: 3,
+      dispatch_committed: 4,
       dispatch_limit: GENERATION_EVAL_DISPATCH_LIMIT,
     });
 

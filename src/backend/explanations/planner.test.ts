@@ -90,7 +90,7 @@ describe('explanation planner request', () => {
     const context = {
       projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       origin: {
-        sourceRevisionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        sourceRevisionId: revisionId,
         path: {
           pathId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
           pathRevision: 1,
@@ -104,11 +104,56 @@ describe('explanation planner request', () => {
       renderContext: context,
     });
     expect(parsed.renderContext).toEqual(context);
+    const highlight = {
+      projectId: context.projectId,
+      origin: {
+        sourceRevisionId: context.origin.sourceRevisionId,
+        highlightId: '99999999-9999-4999-8999-999999999999',
+      },
+    };
+    expect(
+      parseExplanationPlannerRequest({
+        ...plannerRequest(),
+        renderContext: highlight,
+      }).renderContext,
+    ).toEqual(highlight);
+    expect(
+      parseExplanationPlannerRequest({
+        ...plannerRequest(),
+        renderContext: {
+          projectId: context.projectId,
+          origin: {
+            sourceRevisionId: context.origin.sourceRevisionId,
+            path: {
+              pathId: context.origin.path.pathId,
+              pathRevision: 1,
+              topicId: context.origin.path.topicId,
+            },
+          },
+        },
+      }).renderContext?.origin.path,
+    ).toEqual({
+      pathId: context.origin.path.pathId,
+      pathRevision: 1,
+      topicId: context.origin.path.topicId,
+    });
     expect(() =>
       parseExplanationPlannerRequest({
         ...plannerRequest(),
         requestId: 'planner-req-01',
         renderContext: context,
+      }),
+    ).toThrow(RequestValidationError);
+    expect(() =>
+      parseExplanationPlannerRequest({
+        ...plannerRequest(),
+        renderContext: {
+          ...context,
+          origin: {
+            ...context.origin,
+            sourceRevisionId: '88888888-8888-4888-8888-888888888888',
+          },
+        },
       }),
     ).toThrow(RequestValidationError);
     const body = JSON.parse(buildPlannerBody(parsed));
@@ -412,6 +457,44 @@ describe('explanation planner service accounting', () => {
         family: 'weighted-combination',
         origin: renderContext.origin,
       });
+    }
+    const highlightService = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: {
+          complete: () =>
+            Effect.succeed({
+              plan: clipPlan,
+              providerRequestId: 'or-planner-highlight',
+              actualMicrousd: 7,
+              model: 'google/gemini-3.8-flash' as const,
+            }),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const highlightGranted = await Effect.runPromise(
+      highlightService.request(account, {
+        ...plannerRequest(),
+        requestId: '12000000-0000-4000-8000-000000000001',
+        renderContext: {
+          projectId: renderContext.projectId,
+          origin: {
+            sourceRevisionId: revisionId,
+            highlightId: '99999999-9999-4999-8999-999999999999',
+          },
+        },
+      }),
+    );
+    expect(highlightGranted.outcome).toBe('success');
+    if (highlightGranted.outcome === 'success') {
+      expect(highlightGranted.renderReceipt?.origin).toEqual({
+        sourceRevisionId: revisionId,
+        highlightId: '99999999-9999-4999-8999-999999999999',
+      });
+      expect(highlightGranted.renderReceipt?.origin.path).toBeUndefined();
     }
     const ordinary = await Effect.runPromise(
       makeExplanationPlannerService({

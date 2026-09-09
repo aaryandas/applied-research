@@ -196,6 +196,14 @@ export function parseExplanationPlannerRequest(
   if (totalCharacters > MAX_SOURCE_CHARACTERS) {
     invalid('Canonical source context is too large.', requestId);
   }
+  if (
+    renderContext !== undefined &&
+    !sources.some(
+      (source) => source.revisionId === renderContext.origin.sourceRevisionId,
+    )
+  ) {
+    invalid('Render origin is not an admitted source revision.', requestId);
+  }
   return {
     apiVersion: LEARNING_API_VERSION,
     requestId,

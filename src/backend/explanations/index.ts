@@ -31,9 +31,11 @@ export { decodePlannerHttpResponse } from './response-decode.js';
 export {
   CLIP_RENDER_FAMILIES,
   RENDER_RECEIPT_VERSION,
+  citedSourcesAreAdmitted,
   constructRenderReceipt,
   decodePlannerRenderContext,
   decodePlannerRenderReceipt,
+  originRevisionIsAdmitted,
 } from './render-context.js';
 export {
   interpretStoredPlannerGrant,

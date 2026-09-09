@@ -63,6 +63,26 @@ describe('installed recipe projection', () => {
     });
   });
 
+  it('projects a source-only origin as a null lesson without inventing one', () => {
+    const projected = installedRecipeJsonFromPlan({
+      plan: weighted,
+      requestId,
+      projectId,
+      origin: {
+        sourceRevisionId: origin.sourceRevisionId,
+        highlightId: '99999999-9999-4999-8999-999999999999',
+      },
+    });
+    expect(projected.ok).toBe(true);
+    if (!projected.ok) return;
+    expect(JSON.parse(projected.json).origin).toEqual({
+      projectId,
+      sourceVersionId: origin.sourceRevisionId,
+      questionId: null,
+      lessonId: null,
+    });
+  });
+
   it('accepts excerpt and full-source origins without comparing SHA to a parent', () => {
     const full = installedRecipeJsonFromPlan({
       plan: weighted,

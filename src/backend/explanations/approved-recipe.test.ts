@@ -109,6 +109,31 @@ describe('interpretStoredPlannerGrant', () => {
     });
   });
 
+  it('derives a null lesson from a source-only highlight receipt', () => {
+    const highlightOrigin = {
+      sourceRevisionId,
+      highlightId: '99999999-9999-4999-8999-999999999999',
+    };
+    const grant = interpretStoredPlannerGrant({
+      requestId,
+      publicResponse: {
+        ...success,
+        renderReceipt: {
+          ...success.renderReceipt,
+          origin: highlightOrigin,
+        },
+      },
+    });
+    expect(grant.ok).toBe(true);
+    if (!grant.ok) return;
+    expect(grant.origin).toEqual({
+      projectId,
+      sourceVersionId: sourceRevisionId,
+      questionId: null,
+      lessonId: null,
+    });
+  });
+
   it('denies missing, failed, legacy, unsupported and malformed receipts', () => {
     expect(
       interpretStoredPlannerGrant({
@@ -152,6 +177,21 @@ describe('interpretStoredPlannerGrant', () => {
       interpretStoredPlannerGrant({
         requestId,
         publicResponse: { ...success, renderReceipt: { version: 'nope' } },
+      }),
+    ).toMatchObject({ ok: false, reason: 'invalid-request' });
+    expect(
+      interpretStoredPlannerGrant({
+        requestId,
+        publicResponse: {
+          ...success,
+          renderReceipt: {
+            ...success.renderReceipt,
+            origin: {
+              sourceRevisionId: '88888888-8888-4888-8888-888888888888',
+              path: origin.path,
+            },
+          },
+        },
       }),
     ).toMatchObject({ ok: false, reason: 'invalid-request' });
   });

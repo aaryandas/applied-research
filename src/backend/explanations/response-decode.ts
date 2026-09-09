@@ -19,7 +19,10 @@ import {
   type ContractDecode,
 } from '../../contracts/contextual-contract-guards.js';
 import { decodeExplanationPlan } from './plan-decode.js';
-import { decodePlannerRenderReceipt } from './render-context.js';
+import {
+  citedSourcesAreAdmitted,
+  decodePlannerRenderReceipt,
+} from './render-context.js';
 import type { ExplanationPlanHttpResponse } from './types.js';
 
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
@@ -271,6 +274,15 @@ export function decodePlannerHttpResponse(
       receipt.value.family !== plan.value.family
     ) {
       return failed('shape');
+    }
+    if (
+      !provenance.value.sourceRevisions.some(
+        (locator) =>
+          locator.revisionId === receipt.value.origin.sourceRevisionId,
+      ) ||
+      !citedSourcesAreAdmitted(plan.value, provenance.value.sourceRevisions)
+    ) {
+      return failed('origin');
     }
     return {
       ok: true,

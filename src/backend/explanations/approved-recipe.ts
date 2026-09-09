@@ -3,7 +3,11 @@ import type { DatabaseService } from '../database.js';
 import { learningRequest as learningRequestTable } from '../schema.js';
 import type { ApprovedRenderLookup } from '../render-delivery/types.js';
 import { installedRecipeJsonFromPlan } from './installed-recipe.js';
-import { isClipRenderFamily } from './render-context.js';
+import {
+  citedSourcesAreAdmitted,
+  isClipRenderFamily,
+  originRevisionIsAdmitted,
+} from './render-context.js';
 import { decodePlannerHttpResponse } from './response-decode.js';
 
 const MISSING = 'The planner request was not found.';
@@ -26,19 +30,34 @@ export function interpretStoredPlannerGrant(input: {
   if (decoded.value.outcome !== 'success') {
     return { ok: false, reason: 'invalid-request', message: NOT_RETAINED };
   }
-  const receipt = decoded.value.renderReceipt;
+  const stored = decoded.value;
+  const receipt = stored.renderReceipt;
   if (!receipt) {
     return { ok: false, reason: 'unsupported', message: NO_GRANT };
   }
   if (
-    decoded.value.plan.status !== 'supported' ||
-    !isClipRenderFamily(decoded.value.plan.family) ||
-    receipt.family !== decoded.value.plan.family
+    stored.plan.status !== 'supported' ||
+    !isClipRenderFamily(stored.plan.family) ||
+    receipt.family !== stored.plan.family
   ) {
     return { ok: false, reason: 'unsupported', message: NO_GRANT };
   }
+  const admittedRevisions = stored.provenance.sourceRevisions;
+  if (
+    !originRevisionIsAdmitted(receipt.origin, admittedRevisions) ||
+    !receipt.sourceLocators.every((locator) =>
+      admittedRevisions.some(
+        (admitted) => admitted.revisionId === locator.revisionId,
+      ),
+    )
+  ) {
+    return { ok: false, reason: 'invalid-request', message: MALFORMED };
+  }
+  if (!citedSourcesAreAdmitted(stored.plan, receipt.sourceLocators)) {
+    return { ok: false, reason: 'unsupported', message: NO_GRANT };
+  }
   const projected = installedRecipeJsonFromPlan({
-    plan: decoded.value.plan,
+    plan: stored.plan,
     requestId: input.requestId,
     projectId: receipt.projectId,
     origin: receipt.origin,
@@ -53,7 +72,7 @@ export function interpretStoredPlannerGrant(input: {
       projectId: receipt.projectId,
       sourceVersionId: receipt.origin.sourceRevisionId,
       questionId: null,
-      lessonId: receipt.origin.path.lessonId,
+      lessonId: receipt.origin.path?.lessonId ?? null,
     },
   };
 }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,14 +11,6 @@ import {
 import { recipeSha256, WORKER_PROTOCOL } from './remote-protocol.js';
 import { createRenderDeliveryService } from './service.js';
 import type { WorkerJobStatus } from './remote-protocol.js';
-import {
-  createRenderDaemon,
-  type DaemonEngine,
-} from '../../render-worker/daemon-server.js';
-import {
-  MAX_RESIDENT_DAEMON_JOBS,
-  WORKER_PROTOCOL as DAEMON_PROTOCOL,
-} from '../../render-worker/daemon-protocol.js';
 
 const ACCOUNT = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -28,6 +20,7 @@ const ACCOUNT = {
 const PROJECT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const PINNED =
   'manimcommunity/manim:v0.21.0@sha256:89ab433ce59134a4dcf351deb2511e067ab354393c0bb7d1859f3e8f0b2406a3';
+const MAX_RESIDENT_JOBS = 8;
 const roots: string[] = [];
 
 function mp4Bytes(): Buffer {
@@ -91,21 +84,94 @@ function verified(bytes: Buffer) {
   };
 }
 
-function daemonTransport(
-  daemon: ReturnType<typeof createRenderDaemon>,
-): WorkerTransport {
+function artifactTransport(bytes: Buffer): WorkerTransport {
+  const artifacts = new Map<string, Buffer>();
   return {
-    submit: (input) =>
-      daemon.submit(
-        input.ownerScope,
-        input.requestId,
-        input.recipeJson,
-        input.recipeHash,
-      ),
-    status: (owner, id) => daemon.status(owner, id),
-    cancel: (owner, id) => daemon.cancel(owner, id),
-    artifact: (owner, id) => daemon.artifact(owner, id),
-    release: (owner, id) => daemon.release(owner, id),
+    async submit() {
+      const status = {
+        ...queued('succeeded'),
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        bytes: bytes.length,
+        verified: verified(bytes),
+      };
+      artifacts.set(status.executionId, bytes);
+      return status;
+    },
+    async status(_owner, executionId) {
+      const found = artifacts.get(executionId);
+      if (!found) {
+        return { ...queued('unavailable'), executionId, reason: 'unavailable' };
+      }
+      return {
+        ...queued('succeeded'),
+        executionId,
+        sha256: createHash('sha256').update(found).digest('hex'),
+        bytes: found.length,
+        verified: verified(found),
+      };
+    },
+    async cancel(_owner, executionId) {
+      return { ...queued('cancelled'), executionId };
+    },
+    async artifact(_owner, executionId) {
+      const found = artifacts.get(executionId);
+      if (!found) return null;
+      return {
+        sha256: createHash('sha256').update(found).digest('hex'),
+        bytes: found,
+      };
+    },
+    async release(_owner, executionId) {
+      artifacts.delete(executionId);
+      return 'released';
+    },
+  };
+}
+
+function residentTransport(options: {
+  submitStatus: () => WorkerJobStatus;
+  releaseAck?: () => 'released' | 'unavailable';
+}): WorkerTransport {
+  const resident = new Map<string, WorkerJobStatus>();
+  return {
+    async submit() {
+      if (resident.size >= MAX_RESIDENT_JOBS) {
+        return { ...queued('failed'), reason: 'capacity' };
+      }
+      const status = options.submitStatus();
+      resident.set(status.executionId, status);
+      return status;
+    },
+    async status(_owner, executionId) {
+      return (
+        resident.get(executionId) ?? {
+          ...queued('unavailable'),
+          executionId,
+          reason: 'unavailable',
+        }
+      );
+    },
+    async cancel(_owner, executionId) {
+      const current = resident.get(executionId);
+      if (!current) {
+        return { ...queued('unavailable'), executionId, reason: 'unavailable' };
+      }
+      const cancelled = {
+        ...current,
+        status: 'cancelled' as const,
+        reason: 'cancelled',
+      };
+      resident.set(executionId, cancelled);
+      return cancelled;
+    },
+    async artifact() {
+      return null;
+    },
+    async release(_owner, executionId) {
+      const ack = options.releaseAck?.() ?? 'released';
+      if (ack === 'released') resident.delete(executionId);
+      return ack;
+    },
   };
 }
 
@@ -139,28 +205,13 @@ afterEach(async () => {
 
 describe('remote render engine', () => {
   it('downloads remote bytes into API staging and retains without worker paths', async () => {
-    const workerRoot = await mkdtemp(join(tmpdir(), 'ar-remote-worker-'));
     const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
     const storeRoot = await mkdtemp(join(tmpdir(), 'ar-remote-store-'));
-    roots.push(workerRoot, staging, storeRoot);
+    roots.push(staging, storeRoot);
     const bytes = mp4Bytes();
-    const workerPath = join(workerRoot, 'secret.mp4');
-    await writeFile(workerPath, bytes);
-    const daemon = createRenderDaemon({
-      engine: {
-        render: async () => ({
-          status: 'succeeded',
-          jobId: randomUUID(),
-          artifactPath: workerPath,
-          artifact: verified(bytes),
-        }),
-        release: async () => undefined,
-        close: async () => undefined,
-      } satisfies DaemonEngine,
-      readArtifact: async () => bytes,
-    });
+    const workerPath = '/secret-worker/secret.mp4';
     const engine = createRemoteRenderEngine({
-      transport: daemonTransport(daemon),
+      transport: artifactTransport(bytes),
       stagingDirectory: staging,
       wait: async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
@@ -386,31 +437,19 @@ describe('remote render engine', () => {
     ).toEqual({ status: 'failed', reason: 'capacity' });
     void conflictEngine;
     void capacityStatus;
-    const workerRoot = await mkdtemp(join(tmpdir(), 'ar-remote-worker-'));
-    roots.push(workerRoot);
-    const bytes = mp4Bytes();
-    const workerPath = join(workerRoot, 'secret.mp4');
-    await writeFile(workerPath, bytes);
-    const daemon = createRenderDaemon({
-      engine: {
-        render: async () => ({
-          status: 'succeeded',
-          jobId: randomUUID(),
-          artifactPath: workerPath,
-          artifact: verified(bytes),
-        }),
-        release: async () => undefined,
-        close: async () => undefined,
-      } satisfies DaemonEngine,
-      readArtifact: async () => bytes,
-    });
     const delivery = createRenderDeliveryService({
       engine: createRemoteRenderEngine({
-        transport: daemonTransport(daemon),
-        stagingDirectory: staging,
-        wait: async () => {
-          await new Promise<void>((resolve) => setImmediate(resolve));
+        transport: {
+          submit: async () => {
+            throw new Error('submit');
+          },
+          status: vi.fn(),
+          cancel: vi.fn(),
+          artifact: vi.fn(),
+          release: vi.fn(),
         },
+        stagingDirectory: staging,
+        wait: async () => undefined,
       }),
       store: createArtifactStore(staging),
       resolveApprovedRecipe: async () => ({
@@ -748,24 +787,16 @@ describe('remote render engine', () => {
   it('releases failed and cancelled resident jobs so a ninth admission can run', async () => {
     const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
     roots.push(staging);
-    const daemon = createRenderDaemon({
-      engine: {
-        render: async () => ({ status: 'failed', reason: 'runtime' }),
-        release: async () => undefined,
-        close: async () => undefined,
-      } satisfies DaemonEngine,
-      readArtifact: async () => {
-        throw new Error('no artifact');
-      },
-    });
     const engine = createRemoteRenderEngine({
-      transport: daemonTransport(daemon),
+      transport: residentTransport({
+        submitStatus: () => ({ ...queued('failed'), reason: 'runtime' }),
+      }),
       stagingDirectory: staging,
       wait: async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
       },
     });
-    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+    for (let index = 0; index < MAX_RESIDENT_JOBS; index += 1) {
       expect(
         await engine.render(recipeJson(), undefined, executionContext()),
       ).toEqual({ status: 'failed', reason: 'runtime' });
@@ -777,42 +808,23 @@ describe('remote render engine', () => {
     );
     expect(ninth).toEqual({ status: 'failed', reason: 'runtime' });
     await engine.close();
-    await daemon.close();
   });
 
   it('does not admit a ninth job until failed cleanup is acknowledged', async () => {
     const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
     roots.push(staging);
-    const daemon = createRenderDaemon({
-      engine: {
-        render: async () => ({ status: 'failed', reason: 'runtime' }),
-        release: async () => undefined,
-        close: async () => undefined,
-      } satisfies DaemonEngine,
-      readArtifact: async () => {
-        throw new Error('no artifact');
-      },
-    });
-    const inner = daemonTransport(daemon);
     let acknowledge: 'released' | 'unavailable' = 'unavailable';
-    const transport: WorkerTransport = {
-      submit: (input) => inner.submit(input),
-      status: (owner, id, signal) => inner.status(owner, id, signal),
-      cancel: (owner, id, signal) => inner.cancel(owner, id, signal),
-      artifact: (owner, id, signal) => inner.artifact(owner, id, signal),
-      release: async (owner, id, signal) => {
-        if (acknowledge === 'unavailable') return 'unavailable';
-        return inner.release(owner, id, signal);
-      },
-    };
     const engine = createRemoteRenderEngine({
-      transport,
+      transport: residentTransport({
+        submitStatus: () => ({ ...queued('failed'), reason: 'runtime' }),
+        releaseAck: () => acknowledge,
+      }),
       stagingDirectory: staging,
       wait: async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
       },
     });
-    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+    for (let index = 0; index < MAX_RESIDENT_JOBS; index += 1) {
       expect(
         await engine.render(recipeJson(), undefined, executionContext()),
       ).toEqual({ status: 'failed', reason: 'runtime' });
@@ -828,32 +840,20 @@ describe('remote render engine', () => {
     );
     expect(recovered).toEqual({ status: 'failed', reason: 'runtime' });
     await engine.close();
-    await daemon.close();
   });
 
   it('releases cancelled resident jobs so a ninth admission can run', async () => {
     const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
     roots.push(staging);
     let admitFailures = false;
-    const daemon = createRenderDaemon({
-      engine: {
-        render: async (_json, signal) => {
-          if (!admitFailures) {
-            await hangUntilAbort(signal).catch(() => undefined);
-            return { status: 'cancelled' };
-          }
-          return { status: 'failed', reason: 'runtime' };
-        },
-        release: async () => undefined,
-        close: async () => undefined,
-      } satisfies DaemonEngine,
-      readArtifact: async () => {
-        throw new Error('no artifact');
-      },
-    });
     let current: AbortController | undefined;
     const engine = createRemoteRenderEngine({
-      transport: daemonTransport(daemon),
+      transport: residentTransport({
+        submitStatus: () =>
+          admitFailures
+            ? { ...queued('failed'), reason: 'runtime' }
+            : queued('queued'),
+      }),
       stagingDirectory: staging,
       wait: async (_ms, signal) => {
         current?.abort();
@@ -861,7 +861,7 @@ describe('remote render engine', () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
       },
     });
-    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+    for (let index = 0; index < MAX_RESIDENT_JOBS; index += 1) {
       current = new AbortController();
       expect(
         await engine.render(recipeJson(), current.signal, executionContext()),
@@ -873,7 +873,6 @@ describe('remote render engine', () => {
       await engine.render(recipeJson(), undefined, executionContext()),
     ).toEqual({ status: 'failed', reason: 'runtime' });
     await engine.close();
-    await daemon.close();
   });
 
   it('cancels and releases a lost submit only after a bounded recover handle exists', async () => {
@@ -962,8 +961,8 @@ describe('remote render engine', () => {
 });
 
 describe('worker protocol identity', () => {
-  it('keeps the API and daemon protocol identifiers aligned', () => {
-    expect(WORKER_PROTOCOL).toBe(DAEMON_PROTOCOL);
+  it('keeps the API worker protocol identifier stable', () => {
+    expect(WORKER_PROTOCOL).toBe('ar-render-worker/1');
     expect(recipeSha256('{"a":1}')).toHaveLength(64);
   });
 });

@@ -32,7 +32,7 @@ When omitted or `null`, the request remains an ordinary non-render plan. No
 fake grant is minted.
 
 When present, `requestId` must be a UUID (the stable render id). The server
-freezes **full** origin/path/revision into `plannerInputHash` and, on a
+freezes the actual optional origin fields into `plannerInputHash` and, on a
 validated supported clip plan, writes a versioned receipt beside the plan and
 the exact admitted source locators.
 
@@ -71,10 +71,33 @@ Cookie: session=<better-auth-session>
 `buildPlannerBody` still sends only `{ apiVersion, requestId, operation }` to
 the model. `renderContext` is hashed, never prompted.
 
-Required frozen origin for a grant: `sourceRevisionId` plus `path` with
-`pathId`, `pathRevision`, `topicId`, and `lessonId`. Optional `highlightId` /
-`entry` freeze when present. Extra authority keys (`accountId`, `projectId`
-inside origin, recipe, URLs) are rejected.
+Required frozen origin for a grant: `sourceRevisionId` bound to an admitted
+planner source locator. `path` / `path.lessonId` are optional; source-only
+Reader highlights keep that sparse LearningOrigin and must not invent a lesson
+UUID. Optional `highlightId` / `entry` freeze when present. Extra authority
+keys (`accountId`, `projectId` inside origin, recipe, URLs) are rejected.
+
+```json
+{
+  "projectId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "origin": {
+    "sourceRevisionId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "highlightId": "99999999-9999-4999-8999-999999999999"
+  }
+}
+```
+
+Grant validation, before a receipt is minted and again before the engine:
+
+- frozen `sourceRevisionId` must appear among admitted request locators /
+  receipt `sourceLocators` / provenance `sourceRevisions`;
+- cited-source `sourceId`s must be among those admitted sources;
+- enclosing stored plan family must match the receipt family.
+
+Excerpt-origin and full-source-origin grants are both valid. Do **not**
+compare excerpt SHA to a parent canonical SHA, and do not require a citation
+`revisionId` to equal a parent canonical revision. Bind to the revision the
+planner actually used. Mismatch yields no fake grant.
 
 ## 2. Versioned render receipt (`public_response`)
 
@@ -141,11 +164,12 @@ success + supported clip + valid receipt, and derives installed recipe / title
 local context are bound to that prior request, not a new global project ACL.
 
 Recipe `id` = planner `requestId`. Recipe origin maps frozen
-`sourceRevisionId` → `sourceVersionId` and `path.lessonId` → `lessonId`;
-`questionId` is always `null`. AR-51 remaps excerpt citations to parent
-offsets: do **not** compare whole local plan JSON or excerpt SHA to a parent
-canonical SHA. Excerpt-origin and full-source-origin grants are both valid
-when the frozen `sourceRevisionId` is the revision the planner actually used.
+`sourceRevisionId` → `sourceVersionId` and `path.lessonId` → `lessonId` when a
+lesson is present, otherwise `lessonId` is `null`; `questionId` is always
+`null`. AR-51 remaps excerpt citations to parent offsets: do **not** compare
+whole local plan JSON or excerpt SHA to a parent canonical SHA. Excerpt-origin
+and full-source-origin grants are both valid when the frozen
+`sourceRevisionId` is the revision the planner actually used.
 
 Missing, foreign, failed, unsupported, legacy, or malformed receipts fail
 before the engine. Same id + same grant replays one concurrent dispatch.
@@ -158,9 +182,10 @@ and `GET /v1/render/artifacts/:mediaId` keep existing account guards.
 
 ## 4. AR-51 / AR-54 consumer obligations
 
-- **AR-51:** send `renderContext` constructed by MAIN’s resolved authority;
-  preserve `plannerRequestId` (`request.requestId`) through the callback and
-  local retention; do not drop it before clip submit.
+- **AR-51:** send `renderContext` constructed by MAIN’s resolved authority,
+  including source-only Reader highlights without inventing a lesson; preserve
+  `plannerRequestId` (`request.requestId`) through the callback and local
+  retention; do not drop it before clip submit.
 - **AR-54:** submit `{ requestId: plannerRequestId }` only; keep desktop
   `attemptId` separate; validate published media against the current origin /
   attempt, not a newly minted render identity.
