@@ -1,7 +1,9 @@
 .onboarding-sheet {
   width: min(52rem, calc(100% - 3rem));
   margin: 2.5rem auto 3rem;
-  padding: 1.75rem 1.85rem 1.6rem;
+  padding: clamp(1rem, 3vw, 1.85rem);
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: var(--paper);
   color: var(--ink);
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
@@ -36,6 +38,7 @@
 
 .onboarding-field {
   display: grid;
+  min-width: 0;
   gap: 0.4rem;
   margin: 0 0 1rem;
   font-family: var(--font-ui);
@@ -46,12 +49,21 @@
 .onboarding-field input,
 .onboarding-field select {
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 0.7rem 0.8rem;
   font: inherit;
   color: var(--ink);
   background: color-mix(in srgb, var(--paper) 92%, white);
+}
+
+.onboarding-field textarea {
+  field-sizing: content;
+  min-height: 6rem;
+  max-height: 18rem;
+  resize: vertical;
+  overflow-y: auto;
 }
 
 .onboarding-topics,
@@ -80,10 +92,16 @@
 }
 
 .onboarding-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
   justify-content: flex-end;
+  padding-block: 0.85rem;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
 }
 
 .onboarding-attribution {
