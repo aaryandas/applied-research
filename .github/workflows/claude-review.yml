@@ -44,6 +44,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The workflow token posts the review comment; no Claude GitHub App install is needed.
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Cursor cloud agents push with actor cursor[bot]. The action rejects bots
+          # unless listed here; without this, every Cursor-pushed synchronize fails
+          # the review check before Claude runs. Do not use '*' on this public repo.
+          allowed_bots: cursor
           path_to_claude_code_executable: ${{ steps.claude.outputs.path }}
           # The allowlist lets Claude read the PR and post its verdict with gh.
           claude_args: >-
