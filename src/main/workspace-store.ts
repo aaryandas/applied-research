@@ -6,7 +6,12 @@ import type {
 } from './practical-files';
 import type {
   ImportPracticalFileResult,
+  ListPracticalAttemptsResult,
   LoadPracticalAttemptResult,
+  LoadPracticalJourneyResult,
+  PracticalFilePreviewResult,
+  PracticalHumanPlanResult,
+  PracticalProgressResult,
 } from '../contracts/practical-records';
 import type { PracticalCommitResult } from '../contracts/practical-work';
 import { decodeAcquiredSourceAcceptance } from './source-adoption-validation';
@@ -233,6 +238,31 @@ export class WorkspaceStore {
   }
   loadPracticalAttempt(value: unknown): LoadPracticalAttemptResult {
     return this.practical.loadPracticalAttempt(value);
+  }
+  listPracticalAttempts(value: unknown): ListPracticalAttemptsResult {
+    return this.practical.listPracticalAttempts(value);
+  }
+  previewPracticalFile(value: unknown): PracticalFilePreviewResult {
+    return this.practical.previewPracticalFile(value);
+  }
+  loadPracticalJourney(value: unknown): LoadPracticalJourneyResult {
+    return this.practical.loadPracticalJourney(value);
+  }
+  retainAcceptedBrief(
+    value: unknown,
+  ):
+    | { status: 'retained'; briefId: string; briefRevision: number }
+    | { status: 'failed' } {
+    return this.practical.retainAcceptedBrief(value);
+  }
+  recordPracticalProgress(value: unknown): PracticalProgressResult {
+    return this.practical.recordPracticalProgress(value);
+  }
+  recordPracticalWorkChoice(value: unknown): { status: 'saved' | 'failed' } {
+    return this.practical.recordPracticalWorkChoice(value);
+  }
+  savePracticalHumanPlan(value: unknown): PracticalHumanPlanResult {
+    return this.practical.savePracticalHumanPlan(value);
   }
   importPracticalFile(
     scope: unknown,

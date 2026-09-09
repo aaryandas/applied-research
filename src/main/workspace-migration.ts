@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_922_800_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_930_000_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -166,6 +166,37 @@ const EXPECTED_TABLE_COLUMNS = {
     'content_sha256',
     'content',
     'imported_at',
+  ],
+  practical_accepted_briefs: [
+    'id',
+    'project_id',
+    'activity_json',
+    'brief_revision',
+    'brief_json',
+    'provenance_json',
+    'recorded_at',
+  ],
+  practical_attempt_journey: [
+    'attempt_id',
+    'project_id',
+    'brief_id',
+    'brief_revision',
+    'work_choice_json',
+    'human_plan_json',
+    'human_plan_revision',
+    'updated_at',
+  ],
+  practical_milestone_progress: [
+    'attempt_id',
+    'checkpoint_id',
+    'project_id',
+    'source_kind',
+    'source_revision',
+    'status',
+    'note',
+    'evidence_selection_id',
+    'revision',
+    'recorded_at',
   ],
   __drizzle_migrations: ['id', 'hash', 'created_at'],
 } as const;

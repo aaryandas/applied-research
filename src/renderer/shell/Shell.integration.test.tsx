@@ -17,6 +17,7 @@ import type {
 import type { LearningRecordsBridge } from '../../contracts/learning-records';
 import { fixture } from '../reader/reader.test.fixtures';
 import { Shell } from '../Shell';
+import { practicalWorkspaceMethods } from '../practical/workspace-bridge.fixture';
 
 beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({
@@ -90,32 +91,56 @@ async function setup() {
       outcome: 'coverage-pending',
       requestId: input.requestId,
     }),
-    loadPracticalAttempt: async () => ({ status: 'loaded', attempt: saved }),
-    recordPracticalResult: vi.fn<
-      PracticalWorkspaceBridge['recordPracticalResult']
-    >(async (input) => {
-      saved = {
-        activity: input.activity,
-        attemptId: input.attemptId,
-        currentRevision: input.expectedRevision + 1,
-        draft: input.draft,
-        revisions: [],
-        returnedEvidence: [],
-      };
-      return {
-        status: 'committed',
-        acknowledgement: {
-          projectId: input.activity.projectId,
-          recordId: input.attemptId,
-          revision: input.expectedRevision + 1,
-          revisionId: null,
-          committedAt: '2026-09-09T00:00:00Z',
-          changed: true,
+    ...practicalWorkspaceMethods({
+      loadPracticalAttempt: async () => ({ status: 'loaded', attempt: saved }),
+      loadPracticalJourney: async () => ({
+        status: 'loaded',
+        attempt: saved,
+        attempts: saved
+          ? [
+              {
+                attemptId: saved.attemptId,
+                currentRevision: saved.currentRevision,
+                updatedAt: '2026-09-09T00:00:00Z',
+                fileCount: 0,
+              },
+            ]
+          : [],
+        journey: {
+          workChoice: null,
+          humanPlan: null,
+          humanPlanRevision: 0,
+          brief: null,
+          milestones: [],
         },
-      };
+      }),
+      recordPracticalResult: vi.fn<
+        PracticalWorkspaceBridge['recordPracticalResult']
+      >(async (input) => {
+        saved = {
+          activity: input.activity,
+          attemptId: input.attemptId,
+          currentRevision: input.expectedRevision + 1,
+          draft: input.draft,
+          revisions: [],
+          returnedEvidence: [],
+        };
+        return {
+          status: 'committed',
+          acknowledgement: {
+            projectId: input.activity.projectId,
+            recordId: input.attemptId,
+            revision: input.expectedRevision + 1,
+            revisionId: null,
+            committedAt: '2026-09-09T00:00:00Z',
+            changed: true,
+          },
+        };
+      }),
+      selectPracticalFile: async () => ({ status: 'cancelled' }),
+      cancelPracticalFileSelection: vi.fn(async () => {}),
+      recordPracticalWorkChoice: async () => ({ status: 'saved' }),
     }),
-    selectPracticalFile: async () => ({ status: 'cancelled' }),
-    cancelPracticalFileSelection: vi.fn(async () => {}),
   };
   const workspace = await records.bridge.getLearningWorkspace('project');
   workspace.project.id = 'a1234567-1234-4234-8234-123456789012';

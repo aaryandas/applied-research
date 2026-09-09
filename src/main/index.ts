@@ -1,13 +1,20 @@
-import { decodeRecord } from './workspace-decoder';
 import { SourceDesktopOperations } from './source-desktop';
 import { makeAuthenticatedSourceTransport } from './source-transport';
 import { SOURCE_CHANNELS } from '../contracts/source-desktop';
-import { PracticalFileSelection } from './practical-file-selection';
+import { PracticalDesktopOperations } from './practical-operations';
 import { RECORD_PRACTICAL_RESULT_CHANNEL } from '../contracts/practical-work';
 import {
   LOAD_PRACTICAL_ATTEMPT_CHANNEL,
   SELECT_PRACTICAL_FILE_CHANNEL,
   CANCEL_PRACTICAL_FILE_CHANNEL,
+  LIST_PRACTICAL_ATTEMPTS_CHANNEL,
+  PREVIEW_PRACTICAL_FILE_CHANNEL,
+  EXPORT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_EXPORT_CHANNEL,
+  LOAD_PRACTICAL_JOURNEY_CHANNEL,
+  RECORD_PRACTICAL_PROGRESS_CHANNEL,
+  RECORD_PRACTICAL_WORK_CHOICE_CHANNEL,
+  SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL,
   PRACTICAL_FILE_EXTENSIONS,
 } from '../contracts/practical-records';
 import {
@@ -196,28 +203,11 @@ async function createWindow(): Promise<void> {
   }
   let authenticated = false;
   let selectedWorkspaceId: string | null = null;
-  const isSelectedPractical = (value: unknown): boolean => {
-    const input = decodeRecord(value, 'practical operation');
-    return (
-      decodeRecord(input.activity, 'practical activity').projectId ===
-      selectedWorkspaceId
-    );
-  };
-  const sourceOperations = new SourceDesktopOperations({
+  const practicalOperations = new PracticalDesktopOperations({
     store,
-    authenticated: () => authenticated,
-    transport: makeAuthenticatedSourceTransport({
-      request: globalThis.fetch,
-      sessionCookie: () =>
-        authController.state().session === 'signed-in'
-          ? authSdk.getCookie()
-          : '',
-    }),
-    openOriginal: (url) => shell.openExternal(url),
-  });
-  const fileSelection = new PracticalFileSelection({
-    records: store,
-    chooseFile: async (signal) => {
+    isSelectedWorkspace: (projectId) => projectId === selectedWorkspaceId,
+    windowAlive: () => !window.isDestroyed(),
+    chooseOpenFile: async (signal) => {
       if (signal.aborted || window.isDestroyed()) return null;
       const result = await dialog.showOpenDialog(window, {
         properties: ['openFile'],
@@ -232,10 +222,51 @@ async function createWindow(): Promise<void> {
         return null;
       return result.filePaths.length === 1 ? result.filePaths[0]! : null;
     },
+    chooseSaveFile: async (displayName, signal) => {
+      if (signal.aborted || window.isDestroyed()) return null;
+      const result = await dialog.showSaveDialog(window, {
+        defaultPath: displayName,
+        filters: [
+          {
+            name: 'Returned evidence',
+            extensions: [...PRACTICAL_FILE_EXTENSIONS],
+          },
+        ],
+      });
+      if (signal.aborted || window.isDestroyed() || result.canceled)
+        return null;
+      return result.filePath || null;
+    },
+  });
+  const PRACTICAL_CHANNELS = [
+    RECORD_PRACTICAL_RESULT_CHANNEL,
+    LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+    SELECT_PRACTICAL_FILE_CHANNEL,
+    CANCEL_PRACTICAL_FILE_CHANNEL,
+    LIST_PRACTICAL_ATTEMPTS_CHANNEL,
+    PREVIEW_PRACTICAL_FILE_CHANNEL,
+    EXPORT_PRACTICAL_FILE_CHANNEL,
+    CANCEL_PRACTICAL_EXPORT_CHANNEL,
+    LOAD_PRACTICAL_JOURNEY_CHANNEL,
+    RECORD_PRACTICAL_PROGRESS_CHANNEL,
+    RECORD_PRACTICAL_WORK_CHOICE_CHANNEL,
+    SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL,
+  ] as const;
+  const sourceOperations = new SourceDesktopOperations({
+    store,
+    authenticated: () => authenticated,
+    transport: makeAuthenticatedSourceTransport({
+      request: globalThis.fetch,
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
+    openOriginal: (url) => shell.openExternal(url),
   });
   const revokeWorkspaceOperations = (): void => {
     sourceOperations.revoke();
-    fileSelection.cancel();
+    practicalOperations.replaceWorkspace();
     closeTool();
   };
   window.on('close', revokeWorkspaceOperations);
@@ -255,7 +286,7 @@ async function createWindow(): Promise<void> {
     });
   }
   handle(SOURCE_CHANNELS.activate, (value) => {
-    fileSelection.cancel();
+    practicalOperations.replaceWorkspace();
     closeTool();
     sourceOperations.activate(value);
     selectedWorkspaceId = typeof value === 'string' ? value : null;
@@ -268,17 +299,41 @@ async function createWindow(): Promise<void> {
     sourceOperations.openOriginal(value),
   );
   handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
-    isSelectedPractical(value)
-      ? store.recordPracticalResult(value)
-      : { status: 'failed' },
+    practicalOperations.recordPracticalResult(value),
   );
   handle(LOAD_PRACTICAL_ATTEMPT_CHANNEL, (value) =>
-    isSelectedPractical(value)
-      ? store.loadPracticalAttempt(value)
-      : { status: 'failed' },
+    practicalOperations.loadPracticalAttempt(value),
   );
-  handle(SELECT_PRACTICAL_FILE_CHANNEL, (value) => fileSelection.select(value));
-  handle(CANCEL_PRACTICAL_FILE_CHANNEL, () => fileSelection.cancel());
+  handle(SELECT_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.selectPracticalFile(value),
+  );
+  handle(CANCEL_PRACTICAL_FILE_CHANNEL, () =>
+    practicalOperations.cancelPracticalFileSelection(),
+  );
+  handle(LIST_PRACTICAL_ATTEMPTS_CHANNEL, (value) =>
+    practicalOperations.listPracticalAttempts(value),
+  );
+  handle(PREVIEW_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.previewPracticalFile(value),
+  );
+  handle(EXPORT_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.exportPracticalFile(value),
+  );
+  handle(CANCEL_PRACTICAL_EXPORT_CHANNEL, () =>
+    practicalOperations.cancelPracticalExport(),
+  );
+  handle(LOAD_PRACTICAL_JOURNEY_CHANNEL, (value) =>
+    practicalOperations.loadPracticalJourney(value),
+  );
+  handle(RECORD_PRACTICAL_PROGRESS_CHANNEL, (value) =>
+    practicalOperations.recordPracticalProgress(value),
+  );
+  handle(RECORD_PRACTICAL_WORK_CHOICE_CHANNEL, (value) =>
+    practicalOperations.recordPracticalWorkChoice(value),
+  );
+  handle(SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL, (value) =>
+    practicalOperations.savePracticalHumanPlan(value),
+  );
   handle(CHANNELS.list, () => {
     const listing = store.listWithDiagnostics();
     for (const unreadable of listing.unreadableProjects) {
@@ -321,6 +376,7 @@ async function createWindow(): Promise<void> {
   handle(AUTH_CHANNELS.cancelSignIn, () => authController.cancelSignIn());
   handle(AUTH_CHANNELS.signOut, () => {
     authenticated = false;
+    selectedWorkspaceId = null;
     revokeWorkspaceOperations();
     return authController.signOut();
   });
@@ -406,6 +462,10 @@ async function createWindow(): Promise<void> {
     )
       throw new Error('Tool panel is outside the window.');
     guest?.setBounds(bounds);
+    if (guest && bounds.width > 0 && bounds.height > 0) {
+      guest.setVisible(true);
+      guest.webContents.invalidate();
+    }
   });
   handle(CHANNELS.openTool, async (value) => {
     const url = webUrl(value);
@@ -473,10 +533,7 @@ async function createWindow(): Promise<void> {
     revokeWorkspaceOperations();
     for (const channel of [
       ...Object.values(SOURCE_CHANNELS),
-      RECORD_PRACTICAL_RESULT_CHANNEL,
-      LOAD_PRACTICAL_ATTEMPT_CHANNEL,
-      SELECT_PRACTICAL_FILE_CHANNEL,
-      CANCEL_PRACTICAL_FILE_CHANNEL,
+      ...PRACTICAL_CHANNELS,
     ])
       ipcMain.removeHandler(channel);
     unsubscribeAccountState();
