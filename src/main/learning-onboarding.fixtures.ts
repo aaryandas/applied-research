@@ -1,5 +1,6 @@
 /** Labeled synthetic onboarding envelopes. Not live provider or corpus evidence. */
 import type {
+  AcceptedCourseAdjustmentSuccess,
   CourseProposalSuccess,
   InterviewPromptSuccess,
   LearningOnboardingRequest,
@@ -423,6 +424,51 @@ export function selectedLessonSuccess(
         title: 'Tokenizer practice',
       },
       practice: { ...tokenizerBrief, citations: [citation] },
+    },
+    sources: [acquiredSource],
+    bibliography: [bibliographySource],
+    evidence: [evidence],
+    gaps: [],
+    provenance: [provenance],
+    quota,
+  };
+}
+
+export function adjustmentSuccess(
+  requestId: string,
+): AcceptedCourseAdjustmentSuccess {
+  const adjusted = {
+    ...tokenizerBrief,
+    intendedOutcome: 'Produce a tokenizer and a documented unknown-token rule.',
+  };
+  return {
+    outcome: 'success',
+    requestId,
+    scope: 'accepted-course-adjustment',
+    adjustment: {
+      acceptedProposal: { id: 'proposal-placeholder', revision: 1 },
+      summary: {
+        author: 'ai',
+        summary:
+          'Returned tokenizer work still misses the unknown-token rule; deepen that pending practice.',
+        observedGaps: ['Unknown-token handling is still unproven.'],
+        masteryEstablished: false,
+      },
+      focus: {
+        before: 'Learn transformers from original sources.',
+        after: 'Tokenizer unknown-token handling before LoRA.',
+      },
+      depth: { before: 'balanced', after: 'deep' },
+      patches: [
+        {
+          remoteStepId: 'step-002',
+          field: 'practice',
+          before: tokenizerBrief.intendedOutcome,
+          after: adjusted.intendedOutcome,
+          practice: adjusted,
+        },
+      ],
+      citations: [citation],
     },
     sources: [acquiredSource],
     bibliography: [bibliographySource],

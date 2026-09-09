@@ -1,8 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type {
   AcceptedOnboarding,
   AcceptedStepMapping,
   CoursePracticeBrief,
+  CourseAdjustmentProposal,
   CourseProposal,
   InterviewRecord,
   LearnerProfile,
@@ -11,8 +12,11 @@ import type {
   OnboardingPersonalization,
   OpaqueRevisionRef,
 } from '../contracts/learning-onboarding';
+import type {
+  AcceptedCourseAdjustmentSuccess,
+  CourseProposalSuccess,
+} from '../contracts/learning-onboarding-api';
 import type { PathOrigin } from '../contracts/learning-records';
-import type { CourseProposalSuccess } from '../contracts/learning-onboarding-api';
 import type {
   WorkspaceDatabase,
   WorkspaceTransaction,
@@ -21,6 +25,7 @@ import {
   acceptedStepMappings,
   learnerProfile,
   learningAcceptances,
+  learningAdjustments,
   learningInterviews,
   learningProposals,
   learningResume,
@@ -32,6 +37,17 @@ export type StoredProposal = {
   interviewRevision: number;
   envelope: CourseProposalSuccess;
   projection: CourseProposal;
+};
+
+export type StoredAdjustment = {
+  adjustmentId: string;
+  revision: number;
+  acceptedProposalId: string;
+  acceptedProposalRevision: number;
+  envelope: AcceptedCourseAdjustmentSuccess;
+  projection: CourseAdjustmentProposal;
+  acceptedAt: string | null;
+  requestId: string | null;
 };
 
 export type StoredMappingRow = AcceptedStepMapping & {
@@ -405,6 +421,80 @@ export class LearningOnboardingRecords {
     }
   }
 
+  getAdjustment(projectId: string): StoredAdjustment | null {
+    const row = this.database
+      .select()
+      .from(learningAdjustments)
+      .where(eq(learningAdjustments.projectId, projectId))
+      .get();
+    if (!row) return null;
+    return {
+      adjustmentId: row.adjustmentId,
+      revision: row.revision,
+      acceptedProposalId: row.acceptedProposalId,
+      acceptedProposalRevision: row.acceptedProposalRevision,
+      envelope: parseJson(row.envelopeJson),
+      projection: parseJson(row.projectionJson),
+      acceptedAt: row.acceptedAt,
+      requestId: row.requestId,
+    };
+  }
+
+  getAdjustmentByRequest(requestId: string): {
+    projectId: string;
+    stored: StoredAdjustment;
+  } | null {
+    const row = this.database
+      .select()
+      .from(learningAdjustments)
+      .where(eq(learningAdjustments.requestId, requestId))
+      .get();
+    if (!row) return null;
+    return {
+      projectId: row.projectId,
+      stored: {
+        adjustmentId: row.adjustmentId,
+        revision: row.revision,
+        acceptedProposalId: row.acceptedProposalId,
+        acceptedProposalRevision: row.acceptedProposalRevision,
+        envelope: parseJson(row.envelopeJson),
+        projection: parseJson(row.projectionJson),
+        acceptedAt: row.acceptedAt,
+        requestId: row.requestId,
+      },
+    };
+  }
+
+  saveAdjustment(
+    projectId: string,
+    stored: StoredAdjustment,
+  ): StoredAdjustment {
+    const updatedAt = new Date().toISOString();
+    const values = {
+      projectId,
+      adjustmentId: stored.adjustmentId,
+      revision: stored.revision,
+      acceptedProposalId: stored.acceptedProposalId,
+      acceptedProposalRevision: stored.acceptedProposalRevision,
+      envelopeJson: JSON.stringify(stored.envelope),
+      projectionJson: JSON.stringify(stored.projection),
+      acceptedAt: stored.acceptedAt,
+      requestId: stored.requestId,
+      updatedAt,
+    };
+    const current = this.getAdjustment(projectId);
+    if (current) {
+      this.database
+        .update(learningAdjustments)
+        .set(values)
+        .where(eq(learningAdjustments.projectId, projectId))
+        .run();
+    } else {
+      this.database.insert(learningAdjustments).values(values).run();
+    }
+    return stored;
+  }
+
   listMappings(projectId: string): StoredMappingRow[] {
     return this.database
       .select()
@@ -427,14 +517,41 @@ export class LearningOnboardingRecords {
       }));
   }
 
+  updatePendingPractice(
+    projectId: string,
+    remoteStepId: string,
+    practice: CoursePracticeBrief,
+    practiceDigest: string,
+  ): boolean {
+    const result = this.database
+      .update(acceptedStepMappings)
+      .set({
+        practiceDigest,
+        practiceBriefJson: JSON.stringify(practice),
+      })
+      .where(
+        and(
+          eq(acceptedStepMappings.projectId, projectId),
+          eq(acceptedStepMappings.remoteStepId, remoteStepId),
+        ),
+      )
+      .run();
+    return result.changes > 0;
+  }
+
   snapshot(projectId: string): LearningOnboardingSnapshot {
     const interview = this.getInterview(projectId);
     const proposal = this.getProposal(projectId);
     const accepted = this.getAcceptance(projectId);
+    const storedAdjustment = this.getAdjustment(projectId);
     return {
       interview,
       proposal: accepted ? null : (proposal?.projection ?? null),
       accepted,
+      adjustment:
+        accepted && storedAdjustment && storedAdjustment.acceptedAt === null
+          ? storedAdjustment.projection
+          : null,
     };
   }
 

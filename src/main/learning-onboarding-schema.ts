@@ -75,6 +75,19 @@ export const acceptedStepMappings = sqliteTable(
   (table) => [primaryKey({ columns: [table.projectId, table.remoteStepId] })],
 );
 
+export const learningAdjustments = sqliteTable('learning_adjustments', {
+  projectId: text('project_id').primaryKey(),
+  adjustmentId: text('adjustment_id').notNull(),
+  revision: integer('revision').notNull(),
+  acceptedProposalId: text('accepted_proposal_id').notNull(),
+  acceptedProposalRevision: integer('accepted_proposal_revision').notNull(),
+  envelopeJson: text('envelope_json').notNull(),
+  projectionJson: text('projection_json').notNull(),
+  acceptedAt: text('accepted_at'),
+  requestId: text('request_id'),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const learningResume = sqliteTable('learning_resume', {
   id: integer('id').primaryKey(),
   projectId: text('project_id').notNull(),
@@ -97,6 +110,7 @@ export const learningOnboardingSchema = {
   learningProposals,
   learningAcceptances,
   acceptedStepMappings,
+  learningAdjustments,
   learningResume,
 };
 

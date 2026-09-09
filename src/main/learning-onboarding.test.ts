@@ -16,6 +16,7 @@ import {
   quota,
   revisedCourseSuccess,
   selectedLessonSuccess,
+  adjustmentSuccess,
 } from './learning-onboarding.fixtures';
 import { LearningOnboardingRecords } from './learning-onboarding-records';
 import { applyLearningOnboardingTables } from './learning-onboarding-schema';
@@ -1777,5 +1778,169 @@ describe('learning onboarding operations', () => {
       projectGoal: project.goal,
     });
     expect(await operations.getContinueLearning()).toBeNull();
+  });
+
+  it('reviews an accepted course overlay without replacing ready lessons or path identity', async () => {
+    const { store, operations, records } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as {
+          requestId: string;
+          operation: {
+            kind: string;
+            acceptedProposal?: { id: string; revision: number };
+            human?: {
+              answers?: { promptId: string }[];
+              profileRevision?: number;
+            };
+            target?: { practice?: Record<string, unknown> | null };
+          };
+        };
+        if (request.operation.kind === 'adjust-accepted-course') {
+          expect(
+            request.operation.human?.answers?.some(
+              (answer) => answer.promptId === 'adjustment-notes-01',
+            ),
+          ).toBe(true);
+          const body = adjustmentSuccess(request.requestId);
+          body.adjustment.acceptedProposal =
+            request.operation.acceptedProposal!;
+          body.adjustment.focus = {
+            before: 'Learn transformers from original sources.',
+            after: 'Tokenizer unknown-token handling before LoRA.',
+          };
+          return bytes(body);
+        }
+        if (request.operation.kind === 'generate-selected-lesson') {
+          const body = selectedLessonSuccess(request.requestId);
+          if (request.operation.target?.practice) {
+            body.lesson.practice = {
+              ...request.operation.target.practice,
+              citations: body.lesson.practice.citations,
+            } as typeof body.lesson.practice;
+          }
+          return bytes(body);
+        }
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const { project, interview, profile } = await seededInterview(
+      operations,
+      store,
+    );
+    const proposed = await operations.proposeCourse({
+      projectId: project.id,
+      requestId: 'request-01',
+      interviewRevision: interview.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    if (proposed.outcome !== 'success') throw new Error('propose');
+    const accepted = await operations.acceptCourse({
+      projectId: project.id,
+      requestId: 'accept-01',
+      proposal: { id: proposed.value.id, revision: proposed.value.revision },
+    });
+    if (accepted.outcome !== 'success') throw new Error('accept');
+    const path = accepted.value.workspace.paths[0]!;
+    const firstLesson = path.current.topics[0]!.lessons[0]!;
+    expect(firstLesson.sourceState).toBe('ready');
+    const laterProfile = await operations.saveLearnerProfile({
+      expectedRevision: profile.revision,
+      draft: {
+        background: profile.background,
+        learningGoals: 'Ship a tokenizer before LoRA.',
+        priorKnowledge: profile.priorKnowledge,
+      },
+    });
+    expect(laterProfile.status).toBe('saved');
+    const adjusted = await operations.proposeAcceptedCourseAdjustment({
+      projectId: project.id,
+      requestId: 'adjust-01',
+      acceptedProposal: {
+        id: proposed.value.id,
+        revision: proposed.value.revision,
+      },
+      interviewRevision: interview.revision,
+      notes: 'Tokenizer practice still failed on unknown tokens.',
+      progress: {
+        practicalAttempts: [
+          {
+            attemptId: 'e1234567-1234-4234-8234-123456789012',
+            recordedRevision: 1,
+            remoteStepId: 'step-002',
+          },
+        ],
+      },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(adjusted.outcome).toBe('success');
+    if (adjusted.outcome !== 'success') throw new Error('adjust');
+    expect(adjusted.value.focus?.after).toContain('Tokenizer');
+    expect(adjusted.value.patches[0]?.before).not.toBe(
+      adjusted.value.patches[0]?.after,
+    );
+    expect(adjusted.value.summary.masteryEstablished).toBe(false);
+    const snapshot = await operations.getLearningOnboarding({
+      projectId: project.id,
+    });
+    expect(snapshot.accepted?.pathId).toBe(path.id);
+    expect(snapshot.proposal).toBeNull();
+    expect(snapshot.adjustment?.id).toBe(adjusted.value.id);
+    const applied = await operations.acceptCourseAdjustment({
+      projectId: project.id,
+      requestId: 'accept-adjust-01',
+      adjustment: { id: adjusted.value.id, revision: adjusted.value.revision },
+    });
+    expect(applied.outcome).toBe('success');
+    if (applied.outcome !== 'success') throw new Error('apply');
+    expect(applied.value.pathId).toBe(path.id);
+    expect(applied.value.pathRevision).toBe(path.currentRevision);
+    const mapping = records
+      .listMappings(project.id)
+      .find((row) => row.remoteStepId === 'step-002');
+    expect(mapping?.practice?.intendedOutcome).toContain('unknown-token');
+    const ready = records
+      .listMappings(project.id)
+      .find((row) => row.remoteStepId === 'step-001');
+    expect(ready?.localLessonId).toBe(firstLesson.id);
+    const workspace = store.getLearningWorkspace(project.id);
+    expect(workspace.paths[0]?.id).toBe(path.id);
+    expect(workspace.paths[0]?.current.topics[0]?.lessons[0]?.id).toBe(
+      firstLesson.id,
+    );
+    const after = await operations.getLearningOnboarding({
+      projectId: project.id,
+    });
+    expect(after.accepted?.proposal).toEqual({
+      id: proposed.value.id,
+      revision: proposed.value.revision,
+    });
+    expect(after.adjustment).toBeNull();
+    expect((await operations.getLearnerProfile())?.learningGoals).toBe(
+      'Ship a tokenizer before LoRA.',
+    );
+    const pending = path.current.topics[0]!.lessons[1]!;
+    expect(pending.sourceState).toBe('pending');
+    const generated = await operations.ensureLesson({
+      projectId: project.id,
+      requestId: 'request-02',
+      target: {
+        pathId: path.id,
+        pathRevision: path.currentRevision,
+        topicId: path.current.topics[0]!.id,
+        lessonId: pending.id,
+      },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(generated.outcome).toBe('success');
+    if (generated.outcome !== 'success') throw new Error('generate');
+    expect(generated.value.lesson.lessonId).toBe(pending.id);
+    expect(generated.value.workspace.paths[0]?.id).toBe(path.id);
+    expect(
+      generated.value.workspace.paths[0]?.current.topics[0]?.lessons[0]?.id,
+    ).toBe(firstLesson.id);
+    expect(
+      generated.value.workspace.paths[0]?.current.topics[0]?.lessons[1]
+        ?.sourceState,
+    ).toBe('ready');
   });
 });
