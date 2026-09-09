@@ -1,31 +1,27 @@
 import { createHash } from 'node:crypto';
-import { Effect } from 'effect';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Effect, Fiber } from 'effect';
+import { describe, expect, it, vi } from 'vitest';
 import { LEARNING_API_VERSION } from '../../contracts/learning-api.js';
-import {
-  AccountingFailure,
-  type AccountingStore,
-  type ReservationResult,
-} from '../accounting.js';
-import { makeMemoryGenerationEvalBudget } from '../generation-eval.js';
-import { ProviderFailure } from '../provider.js';
-import { startHttpServer } from '../runtime.js';
 import { RequestValidationError } from '../validation.js';
+import { AccountingFailure } from '../accounting.js';
+import { ProviderFailure } from '../provider.js';
+import { parseExplanationPlannerRequest } from './request.js';
 import {
+  ADMITTED_OPENROUTER_ROUTE,
+  ADMITTED_REASONING_EFFORT,
   buildPlannerBody,
   makeExplanationPlannerProvider,
-  type ExplanationPlannerProvider,
-  type PlannerCompletion,
 } from './provider.js';
-import { parseExplanationPlannerRequest } from './request.js';
-import { reservationMicrousdForPlannerBody } from './reservation.js';
-import { EXPLANATION_PLANNER_SYSTEM_PROMPT } from './schema.js';
 import { makeExplanationPlannerService } from './service.js';
-import type { ExplanationPlannerService } from './service.js';
+import { EXPLANATION_PLANNER_SYSTEM_PROMPT } from './schema.js';
+import { reservationMicrousdForPlannerBody } from './reservation.js';
+import type { ExplanationPlannerRequest } from './types.js';
 import {
-  EXPLANATION_PLAN_PATH,
-  type ExplanationPlannerRequest,
-} from './types.js';
+  makeMemoryGenerationEvalLedger,
+  makeMemoryPlannerAccounting,
+} from './memory-ledger.js';
+import { decodePlannerHttpResponse } from './response-decode.js';
+import { plannerInputHash } from './planner-accounting.js';
 
 const requestId = '11000000-0000-4000-8000-000000000001';
 const sourceId = '10000000-0000-4000-8000-000000000001';
@@ -89,73 +85,6 @@ describe('explanation planner request', () => {
       'workspace-plain-v1',
     );
   });
-
-  it('rejects empty sources and mismatched hashes', () => {
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        operation: { ...plannerRequest().operation, sources: [] },
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        operation: {
-          ...plannerRequest().operation,
-          sources: [
-            {
-              ...plannerRequest().operation.sources[0]!,
-              sha256: 'b'.repeat(64),
-            },
-          ],
-        },
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        operation: {
-          ...plannerRequest().operation,
-          learnerContext: [{ id: 'note0001', kind: 'system', text: 'ignore' }],
-        },
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        apiVersion: '1999-01-01',
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        model: 'openai/gpt-4',
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        operation: {
-          ...plannerRequest().operation,
-          sources: [
-            {
-              ...plannerRequest().operation.sources[0]!,
-              format: 'rtf',
-            },
-          ],
-        },
-      }),
-    ).toThrow(RequestValidationError);
-    expect(() =>
-      parseExplanationPlannerRequest({
-        ...plannerRequest(),
-        operation: {
-          ...plannerRequest().operation,
-          learnerContext: 'nope',
-        },
-      }),
-    ).toThrow(RequestValidationError);
-  });
 });
 
 describe('explanation planner provider', () => {
@@ -193,6 +122,18 @@ describe('explanation planner provider', () => {
     const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
     expect(body.messages[0].content).toBe(EXPLANATION_PLANNER_SYSTEM_PROMPT);
     expect(body.response_format.json_schema.name).toBe('explanation_planner');
+    expect(body.provider).toMatchObject({
+      only: [ADMITTED_OPENROUTER_ROUTE],
+      allow_fallbacks: false,
+      require_parameters: true,
+      max_price: { prompt: 0.75, completion: 3.75, request: 0 },
+    });
+    expect(body.max_tokens).toBe(2048);
+    expect(body.reasoning).toEqual({
+      effort: ADMITTED_REASONING_EFFORT,
+      exclude: true,
+    });
+    expect(body.reasoning).not.toHaveProperty('max_tokens');
     expect(buildPlannerBody(envelope)).not.toContain(
       'No tools or recipes are available in this request.',
     );
@@ -201,713 +142,358 @@ describe('explanation planner provider', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('maps 4xx as none, 5xx as unknown, and invalid plans with known usage as charged', async () => {
-    const asFailure = async (
-      provider: ReturnType<typeof makeExplanationPlannerProvider>,
-    ) =>
-      Effect.runPromise(
-        provider
-          .complete(plannerRequest())
-          .pipe(Effect.catchAll((failure) => Effect.succeed(failure))),
+  it('accepts exact canonical citations and rejects equal-length fabricated quotes', async () => {
+    const quote = text.slice(0, 9);
+    const citedPlan = {
+      status: 'supported',
+      family: 'weighted-combination',
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ],
+        weights: [3, 1],
+        labels: ['First vector', 'Second vector'],
+      },
+      stages: [{ name: 'Combine', seconds: 2 }],
+      caption: 'Weighted sum of two vectors',
+      copy: {
+        role: 'untrusted-display-copy',
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [
+          {
+            sourceId,
+            revisionId,
+            start: 0,
+            end: 9,
+            quote,
+          },
+        ],
+      },
+      rationale: {
+        role: 'untrusted-display-copy',
+        text: 'Shows a weighted combination.',
+      },
+    };
+    const request = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          id: 'or-planner-1',
+          model: 'google/gemini-3.8-flash',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: JSON.stringify(citedPlan) },
+            },
+          ],
+          usage: { cost: 0.000001 },
+        }),
       );
-    expect(
-      await asFailure(
-        makeExplanationPlannerProvider({
-          apiKey: 'test-key',
-          request: async () => new Response('no', { status: 400 }),
-        }),
-      ),
-    ).toMatchObject({ charge: { kind: 'none' } });
-    expect(
-      await asFailure(
-        makeExplanationPlannerProvider({
-          apiKey: 'test-key',
-          request: async () => new Response('no', { status: 503 }),
-        }),
-      ),
-    ).toMatchObject({ charge: { kind: 'unknown' } });
-    expect(
-      await asFailure(
-        makeExplanationPlannerProvider({
-          apiKey: 'test-key',
-          request: async () =>
-            new Response(
-              JSON.stringify({
-                id: 'or-bad',
-                model: 'google/gemini-3.8-flash',
-                choices: [
-                  {
-                    finish_reason: 'stop',
-                    message: { content: '{"status":"maybe"}' },
-                  },
-                ],
-                usage: { cost: 0.000002 },
-              }),
-            ),
-        }),
-      ),
-    ).toMatchObject({
-      charge: { kind: 'known', actualMicrousd: 2 },
     });
-    expect(
-      await asFailure(
-        makeExplanationPlannerProvider({
-          apiKey: 'test-key',
-          request: async () => new Response('not-json', { status: 200 }),
+    const provider = makeExplanationPlannerProvider({
+      apiKey: 'test-key',
+      request,
+    });
+    const completion = await Effect.runPromise(
+      provider.complete(plannerRequest()),
+    );
+    expect(completion.plan).toMatchObject({
+      status: 'supported',
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [{ sourceId, revisionId, quote }],
+      },
+    });
+
+    const forged = {
+      ...citedPlan,
+      sourceSupport: {
+        kind: 'cited-source',
+        citations: [
+          {
+            sourceId,
+            revisionId,
+            start: 0,
+            end: 9,
+            quote: 'WRONGQUOT',
+          },
+        ],
+      },
+    };
+    const forgedRequest = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          id: 'or-planner-2',
+          model: 'google/gemini-3.8-flash',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: JSON.stringify(forged) },
+            },
+          ],
+          usage: { cost: 0.000002 },
         }),
-      ),
-    ).toMatchObject({ charge: { kind: 'unknown' } });
+      );
+    });
+    const forgedProvider = makeExplanationPlannerProvider({
+      apiKey: 'test-key',
+      request: forgedRequest,
+    });
+    await expect(
+      Effect.runPromise(forgedProvider.complete(plannerRequest())),
+    ).rejects.toThrow('The AI provider response could not be validated.');
   });
 });
 
 describe('explanation planner service accounting', () => {
-  it('reserves and settles through the injected accounting store', async () => {
-    const reserve = vi.fn(() =>
-      Effect.succeed({
-        kind: 'reserved' as const,
-        quota: {
-          month: '2026-09',
-          limitMicrousd: 20,
-          committedMicrousd: 0,
-          reservedMicrousd: 10,
-          remainingMicrousd: 10,
-        },
-      }),
-    );
-    const settle = vi.fn(() =>
-      Effect.succeed({
-        month: '2026-09',
-        limitMicrousd: 20,
-        committedMicrousd: 1,
-        reservedMicrousd: 0,
-        remainingMicrousd: 19,
-      }),
-    );
-    const service = await Effect.runPromise(
-      makeExplanationPlannerService({
-        accounting: {
-          reserve,
-          settle,
-          quota: () =>
-            Effect.succeed({
-              month: '2026-09',
-              limitMicrousd: 20,
-              committedMicrousd: 1,
-              reservedMicrousd: 0,
-              remainingMicrousd: 19,
-            }),
-        },
-        provider: {
-          complete: () =>
-            Effect.succeed({
-              plan: {
-                status: 'unsupported' as const,
-                reason: 'unrelated-topic' as const,
-                textualContinuation: 'Use a text explanation.',
-                practicalContinuation: 'Try a worked example.',
-              },
-              providerRequestId: 'or-planner-1',
-              actualMicrousd: 1,
-              model: 'google/gemini-3.8-flash',
-            }),
-        },
-        config: {
-          aiEnabled: true,
-          monthlyLimitMicrousd: 20,
-          model: 'google/gemini-3.8-flash',
-          providerTimeoutMs: 45_000,
-          providerConcurrency: 2,
-        },
-        now: () => new Date('2026-09-09T08:00:00.000Z'),
-      }),
-    );
-    const result = await Effect.runPromise(
-      service.request(
-        { id: 'acct', name: 'Test', image: null },
-        plannerRequest(),
-      ),
-    );
-    expect(result.outcome).toBe('success');
-    if (result.outcome === 'success') {
-      expect(result.provenance.promptVersion).toBe(
-        'explanation-planner-v1-2026-09-09',
-      );
-    }
-    expect(reserve).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          operation: expect.objectContaining({ kind: 'explanation-planner' }),
-        }),
-      }),
-    );
-    expect(settle).toHaveBeenCalled();
-  });
-
-  it('admits through the shared generation-eval dispatch budget', async () => {
-    const generationEval = makeMemoryGenerationEvalBudget({
-      dispatchLimit: 1,
-      limitMicrousd: 2_000_000,
-    });
-    const quota = {
-      month: '2026-09',
-      limitMicrousd: 20,
-      committedMicrousd: 0,
-      reservedMicrousd: 0,
-      remainingMicrousd: 20,
-    };
-    const service = await Effect.runPromise(
-      makeExplanationPlannerService({
-        accounting: {
-          reserve: () => Effect.succeed({ kind: 'reserved' as const, quota }),
-          settle: () => Effect.succeed(quota),
-          quota: () => Effect.succeed(quota),
-        },
-        provider: {
-          complete: () =>
-            Effect.succeed({
-              plan: {
-                status: 'unsupported' as const,
-                reason: 'unrelated-topic' as const,
-                textualContinuation: 'Use a text explanation.',
-                practicalContinuation: 'Try a worked example.',
-              },
-              providerRequestId: 'or-planner-eval',
-              actualMicrousd: 1,
-              model: 'google/gemini-3.8-flash',
-            }),
-        },
-        generationEval,
-        config: {
-          aiEnabled: true,
-          monthlyLimitMicrousd: 20,
-          model: 'google/gemini-3.8-flash',
-          providerTimeoutMs: 45_000,
-          providerConcurrency: 2,
-        },
-        now: () => new Date('2026-09-09T08:00:00.000Z'),
-      }),
-    );
-    const first = await Effect.runPromise(
-      service.request(
-        { id: 'acct', name: 'Test', image: null },
-        plannerRequest(),
-      ),
-    );
-    expect(first.outcome).toBe('success');
-    const secondRequest = {
-      ...plannerRequest(),
-      requestId: '11000000-0000-4000-8000-000000000002',
-    };
-    const second = await Effect.runPromise(
-      service.request({ id: 'acct', name: 'Test', image: null }, secondRequest),
-    );
-    expect(second.outcome).toBe('quota-exceeded');
-    const snap = await Effect.runPromise(generationEval.inspect());
-    expect(snap.dispatchCommitted).toBe(1);
-  });
-
-  const quota = {
-    month: '2026-09',
-    limitMicrousd: 20,
-    committedMicrousd: 0,
-    reservedMicrousd: 0,
-    remainingMicrousd: 20,
+  const account = { id: 'acct', name: 'Test', image: null };
+  const config = {
+    aiEnabled: true,
+    monthlyLimitMicrousd: 20_000_000,
+    model: 'google/gemini-3.8-flash' as const,
+    providerTimeoutMs: 45_000,
+    providerConcurrency: 2,
   };
-  const unsupportedPlan = {
+  const plan = {
     status: 'unsupported' as const,
     reason: 'unrelated-topic' as const,
     textualContinuation: 'Use a text explanation.',
     practicalContinuation: 'Try a worked example.',
   };
 
-  async function serviceFor(
-    overrides: Partial<{
-      accounting: Partial<{
-        reserve: () => ReturnType<AccountingStore['reserve']>;
-        settle: () => ReturnType<AccountingStore['settle']>;
-      }>;
-      provider: ExplanationPlannerProvider;
-      generationEval: ReturnType<typeof makeMemoryGenerationEvalBudget>;
-      config: Partial<{
-        aiEnabled: boolean;
-        providerTimeoutMs: number;
-        providerConcurrency: number;
-      }>;
-      now: () => Date;
-    }> = {},
-  ) {
-    return Effect.runPromise(
-      makeExplanationPlannerService({
-        accounting: {
-          reserve:
-            overrides.accounting?.reserve ??
-            (() => Effect.succeed({ kind: 'reserved' as const, quota })),
-          settle: overrides.accounting?.settle ?? (() => Effect.succeed(quota)),
-          quota: () => Effect.succeed(quota),
-        },
-        provider: overrides.provider ?? {
-          complete: () =>
-            Effect.succeed({
-              plan: unsupportedPlan,
-              providerRequestId: 'or-planner',
-              actualMicrousd: 1,
-              model: 'google/gemini-3.8-flash',
-            }),
-        },
-        ...(overrides.generationEval
-          ? { generationEval: overrides.generationEval }
-          : {}),
-        config: {
-          aiEnabled: overrides.config?.aiEnabled ?? true,
-          monthlyLimitMicrousd: 20,
-          model: 'google/gemini-3.8-flash',
-          providerTimeoutMs: overrides.config?.providerTimeoutMs ?? 45_000,
-          providerConcurrency: overrides.config?.providerConcurrency ?? 2,
-        },
-        now: overrides.now ?? (() => new Date('2026-09-09T08:00:00.000Z')),
+  it('persists the validated plan and replays it with zero additional dispatch', async () => {
+    const accounting = makeMemoryPlannerAccounting();
+    const generation = makeMemoryGenerationEvalLedger();
+    const complete = vi.fn(() =>
+      Effect.succeed({
+        plan,
+        providerRequestId: 'or-planner-1',
+        actualMicrousd: 0,
+        model: 'google/gemini-3.8-flash' as const,
       }),
     );
-  }
-
-  it('does not dispatch when AI is disabled or pricing is stale', async () => {
-    const disabled = await serviceFor({ config: { aiEnabled: false } });
-    await expect(
-      Effect.runPromise(
-        disabled.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
-      outcome: 'unavailable',
-      accounting: 'none',
-    });
-    const stale = await serviceFor({
-      now: () => new Date('2027-01-01T00:00:00.000Z'),
-    });
-    await expect(
-      Effect.runPromise(
-        stale.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({ outcome: 'unavailable', accounting: 'none' });
-  });
-
-  it('maps monthly reservation outcomes without a second provider caller', async () => {
-    const cases: Array<{
-      reservation: ReservationResult;
-      expected: Record<string, unknown>;
-    }> = [
-      {
-        reservation: {
-          kind: 'duplicate',
-          response: {
-            outcome: 'unavailable',
-            requestId,
-            message: 'unused',
-            retryable: false,
-            accounting: 'none',
-          },
-        },
-        expected: { outcome: 'unavailable', accounting: 'none' },
-      },
-      {
-        reservation: { kind: 'in-progress', quota },
-        expected: {
-          outcome: 'unavailable',
-          accounting: 'reservation-retained',
-        },
-      },
-      {
-        reservation: { kind: 'account-busy', quota },
-        expected: { outcome: 'unavailable', accounting: 'none' },
-      },
-      {
-        reservation: { kind: 'conflict' },
-        expected: { outcome: 'invalid-request' },
-      },
-      {
-        reservation: { kind: 'quota', quota },
-        expected: { outcome: 'quota-exceeded' },
-      },
-    ];
-    for (const { reservation, expected } of cases) {
-      const planner = await serviceFor({
-        accounting: {
-          reserve: () => Effect.succeed(reservation),
-        },
-      });
-      const result = await Effect.runPromise(
-        planner.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting,
+        generation,
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const first = await Effect.runPromise(
+      service.request(account, plannerRequest()),
+    );
+    expect(first.outcome).toBe('success');
+    if (first.outcome === 'success') {
+      expect(first.plan).toEqual(plan);
+      expect(first.provenance.promptVersion).toBe(
+        'explanation-planner-v1-2026-09-09',
       );
-      expect(result).toMatchObject(expected);
     }
+    expect(JSON.stringify(accounting.settlements[0]?.response)).not.toContain(
+      'Planner settlement placeholder.',
+    );
+    expect(JSON.stringify(first)).not.toContain('two-link-arm');
+    const replay = await Effect.runPromise(
+      service.request(account, plannerRequest()),
+    );
+    expect(replay).toMatchObject({ outcome: 'success', plan });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(generation.physicalDispatchCount()).toBe(1);
+    expect(decodePlannerHttpResponse(replay, requestId).ok).toBe(true);
   });
 
-  it('retains the reservation when accounting.reserve fails', async () => {
-    const planner = await serviceFor({
-      accounting: {
-        reserve: () =>
-          Effect.fail(new AccountingFailure({ message: 'ledger locked' })),
-      },
-    });
-    await expect(
-      Effect.runPromise(
-        planner.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
-      outcome: 'unavailable',
+  it('rejects a stored placeholder instead of treating it as success', () => {
+    expect(
+      decodePlannerHttpResponse(
+        {
+          outcome: 'unavailable',
+          requestId,
+          message: 'Planner settlement placeholder.',
+          retryable: false,
+          accounting: 'charged',
+        },
+        requestId,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('keeps charged or uncertain accounting when a dispatched attempt is cancelled', async () => {
+    const accounting = makeMemoryPlannerAccounting();
+    const generation = makeMemoryGenerationEvalLedger();
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting,
+        generation,
+        provider: { complete: () => Effect.never },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const fiber = Effect.runFork(service.request(account, plannerRequest()));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    expect(accounting.settlements.at(-1)?.response).toMatchObject({
+      outcome: 'cancelled',
       accounting: 'reservation-retained',
     });
+    expect(generation.physicalDispatchCount()).toBe(1);
   });
 
-  it('releases monthly spend when generation-eval is exhausted and retains in-progress eval', async () => {
-    const exhausted = await serviceFor({
-      generationEval: makeMemoryGenerationEvalBudget({
-        dispatchLimit: 0,
-        limitMicrousd: 2_000_000,
-      }),
-    });
-    await expect(
-      Effect.runPromise(
-        exhausted.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({ outcome: 'quota-exceeded' });
-    const inProgress = makeMemoryGenerationEvalBudget();
-    const first = await serviceFor({ generationEval: inProgress });
-    const held = await Effect.runPromise(
-      inProgress.admit({
-        requestId: plannerRequest().requestId,
-        inputHash: 'other-hash',
-        maximumChargeMicrousd: 1,
-        now: new Date('2026-09-09T08:00:00.000Z'),
-      }),
-    );
-    expect(held.kind === 'reserved' || held.kind === 'conflict').toBe(true);
-    const conflicted = await Effect.runPromise(
-      first.request(
-        { id: 'acct', name: 'Test', image: null },
-        plannerRequest(),
+  it('does not dispatch again after a charged provider failure', async () => {
+    const accounting = makeMemoryPlannerAccounting();
+    const generation = makeMemoryGenerationEvalLedger();
+    const complete = vi.fn(() =>
+      Effect.fail(
+        new ProviderFailure({
+          message: 'synthetic provider failure',
+          charge: { kind: 'known', actualMicrousd: 7 },
+          cancelled: false,
+        }),
       ),
     );
-    expect(['quota-exceeded', 'unavailable']).toContain(conflicted.outcome);
-  });
-
-  it('settles known, unknown, and cancelled provider failures', async () => {
-    const known = await serviceFor({
-      provider: {
-        complete: () =>
-          Effect.fail(
-            new ProviderFailure({
-              message: 'bad plan',
-              charge: { kind: 'known', actualMicrousd: 3 },
-              cancelled: false,
-            }),
-          ),
-      },
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting,
+        generation,
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const first = await Effect.runPromise(
+      service.request(account, plannerRequest()),
+    );
+    expect(first).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'charged',
+      retryable: false,
     });
-    await expect(
-      Effect.runPromise(
-        known.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
+    const replay = await Effect.runPromise(
+      service.request(account, plannerRequest()),
+    );
+    expect(replay).toMatchObject({
       outcome: 'unavailable',
       accounting: 'charged',
     });
-    const unknown = await serviceFor({
-      provider: {
-        complete: () =>
-          Effect.fail(
-            new ProviderFailure({
-              message: 'drop',
-              charge: { kind: 'unknown' },
-              cancelled: false,
-            }),
-          ),
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(generation.physicalDispatchCount()).toBe(1);
+  });
+
+  it.each([
+    {
+      reservation: { kind: 'conflict' as const },
+      outcome: 'invalid-request',
+    },
+    {
+      reservation: {
+        kind: 'in-progress' as const,
+        quota: {
+          month: '2026-09',
+          limitMicrousd: 20,
+          committedMicrousd: 0,
+          reservedMicrousd: 1,
+          remainingMicrousd: 19,
+        },
       },
-    });
-    await expect(
-      Effect.runPromise(
-        unknown.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
       outcome: 'unavailable',
-      accounting: 'reservation-retained',
-    });
-    const cancelled = await serviceFor({
-      provider: {
-        complete: () =>
-          Effect.fail(
-            new ProviderFailure({
-              message: 'cancelled',
-              charge: { kind: 'none' },
-              cancelled: true,
-            }),
-          ),
+    },
+    {
+      reservation: {
+        kind: 'account-busy' as const,
+        quota: {
+          month: '2026-09',
+          limitMicrousd: 20,
+          committedMicrousd: 0,
+          reservedMicrousd: 1,
+          remainingMicrousd: 19,
+        },
       },
-    });
-    await expect(
-      Effect.runPromise(
-        cancelled.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
-      outcome: 'cancelled',
-      accounting: 'released',
-    });
-  });
-
-  it('times out as an unknown cancelled charge', async () => {
-    const planner = await serviceFor({
-      config: { providerTimeoutMs: 5 },
-      provider: {
-        complete: () =>
-          Effect.async<PlannerCompletion, ProviderFailure>(() => undefined),
-      },
-    });
-    const result = await Effect.runPromise(
-      planner.request(
-        { id: 'acct', name: 'Test', image: null },
-        plannerRequest(),
-      ),
-    );
-    expect(result.outcome).toBe('cancelled');
-    if (result.outcome === 'cancelled') {
-      expect(result.accounting).toBe('reservation-retained');
-    }
-  });
-
-  it('retains spend when settlement fails after a successful plan', async () => {
-    const planner = await serviceFor({
-      accounting: {
-        settle: () =>
-          Effect.fail(new AccountingFailure({ message: 'settle down' })),
-      },
-    });
-    await expect(
-      Effect.runPromise(
-        planner.request(
-          { id: 'acct', name: 'Test', image: null },
-          plannerRequest(),
-        ),
-      ),
-    ).resolves.toMatchObject({
       outcome: 'unavailable',
-      accounting: 'reservation-retained',
-    });
-  });
-});
-
-describe('POST /v1/learning/explanation-plans', () => {
-  const stops: Array<() => Promise<void>> = [];
-  afterEach(async () => {
-    await Promise.all(stops.splice(0).map((stop) => stop()));
-  });
-
-  it('requires a session', async () => {
-    const quota = {
-      month: '2026-09',
-      limitMicrousd: 20,
-      committedMicrousd: 0,
-      reservedMicrousd: 0,
-      remainingMicrousd: 20,
-    };
-    const planner = await Effect.runPromise(
-      makeExplanationPlannerService({
-        accounting: {
-          reserve: () => Effect.succeed({ kind: 'reserved' as const, quota }),
-          settle: () => Effect.succeed(quota),
-          quota: () => Effect.succeed(quota),
-        },
-        provider: {
-          complete: () => {
-            throw new Error('unauthenticated callers must not dispatch');
-          },
-        },
-        config: {
-          aiEnabled: true,
-          monthlyLimitMicrousd: 20,
-          model: 'google/gemini-3.8-flash',
-          providerTimeoutMs: 45_000,
-          providerConcurrency: 2,
-        },
-        now: () => new Date('2026-09-09T08:00:00.000Z'),
-      }),
-    );
-    const backend = await startHttpServer(
-      {
-        auth: {
-          authenticate: async () => null,
-          handle: async (_request, response) => {
-            response.end();
-          },
-        },
-        electronAuthCallbackScript: Buffer.from('/* synthetic callback */'),
-        learning: {
-          quota: () => Effect.succeed(quota),
-          request: () =>
-            Effect.succeed({
-              outcome: 'invalid-request',
-              requestId: 'unused-learning',
-              message: 'unused',
-            }),
-        },
-        explanationPlanner: planner,
-        ready: async () => true,
-        runEffect: (effect, signal) =>
-          Effect.runPromise(effect, signal ? { signal } : undefined),
-      },
-      0,
-    );
-    stops.push(backend.stop);
-    const response = await fetch(
-      `http://127.0.0.1:${backend.port}${EXPLANATION_PLAN_PATH}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(plannerRequest()),
-      },
-    );
-    expect(response.status).toBe(401);
-    expect(await response.json()).toMatchObject({
-      outcome: 'unauthenticated',
-    });
-  });
-
-  async function startPlanner(options?: {
-    authenticate?: () => Promise<{
-      id: string;
-      name: string;
-      image: null;
-    } | null>;
-    planner?: ExplanationPlannerService;
-  }) {
-    const quota = {
-      month: '2026-09',
-      limitMicrousd: 20,
-      committedMicrousd: 0,
-      reservedMicrousd: 0,
-      remainingMicrousd: 20,
-    };
-    const planner =
-      options?.planner ??
-      (await Effect.runPromise(
+    },
+  ])(
+    'returns $outcome without a provider call for $reservation.kind',
+    async ({ reservation, outcome }) => {
+      const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+      const service = await Effect.runPromise(
         makeExplanationPlannerService({
           accounting: {
-            reserve: () => Effect.succeed({ kind: 'reserved' as const, quota }),
-            settle: () => Effect.succeed(quota),
-            quota: () => Effect.succeed(quota),
-          },
-          provider: {
-            complete: () =>
+            reserve: () => Effect.succeed(reservation),
+            settle: () =>
               Effect.succeed({
-                plan: {
-                  status: 'unsupported' as const,
-                  reason: 'unrelated-topic' as const,
-                  textualContinuation: 'Use a text explanation.',
-                  practicalContinuation: 'Try a worked example.',
-                },
-                providerRequestId: 'or-planner-http',
-                actualMicrousd: 1,
-                model: 'google/gemini-3.8-flash',
+                month: '2026-09',
+                limitMicrousd: 20,
+                committedMicrousd: 0,
+                reservedMicrousd: 0,
+                remainingMicrousd: 20,
               }),
           },
-          config: {
-            aiEnabled: true,
-            monthlyLimitMicrousd: 20,
-            model: 'google/gemini-3.8-flash',
-            providerTimeoutMs: 45_000,
-            providerConcurrency: 2,
-          },
-          now: () => new Date('2026-09-09T08:00:00.000Z'),
+          generation: makeMemoryGenerationEvalLedger(),
+          provider: { complete },
+          config,
+          now: () => new Date(createdAt),
         }),
-      ));
-    const backend = await startHttpServer(
-      {
-        auth: {
-          authenticate:
-            options?.authenticate ??
-            (async () => ({ id: 'acct', name: 'Test', image: null })),
-          handle: async (_request, response) => {
-            response.end();
-          },
-        },
-        electronAuthCallbackScript: Buffer.from('/* synthetic callback */'),
-        learning: {
-          quota: () => Effect.succeed(quota),
-          request: () =>
-            Effect.succeed({
-              outcome: 'invalid-request',
-              requestId: 'unused-learning',
-              message: 'unused',
-            }),
-        },
-        explanationPlanner: planner,
-        ready: async () => true,
-        runEffect: (effect, signal) =>
-          Effect.runPromise(effect, signal ? { signal } : undefined),
-      },
-      0,
-    );
-    stops.push(backend.stop);
-    return `http://127.0.0.1:${backend.port}`;
-  }
+      );
+      expect(
+        (await Effect.runPromise(service.request(account, plannerRequest())))
+          .outcome,
+      ).toBe(outcome);
+      expect(complete).not.toHaveBeenCalled();
+    },
+  );
 
-  it('rejects invalid JSON, unsupported tutor envelopes, and missing planner', async () => {
-    const origin = await startPlanner();
-    const invalidJson = await fetch(`${origin}${EXPLANATION_PLAN_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{',
-    });
-    expect(invalidJson.status).toBe(400);
-    expect(await invalidJson.json()).toMatchObject({
-      outcome: 'invalid-request',
-    });
-    const unsupported = await fetch(`${origin}${EXPLANATION_PLAN_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...plannerRequest(),
-        operation: {
-          kind: 'source-grounded-tutor',
-          question: 'Explain',
-          sources: plannerRequest().operation.sources,
-          learnerContext: [],
-        },
+  it('releases the monthly reservation when the shared generation allowance is exhausted', async () => {
+    const accounting = makeMemoryPlannerAccounting();
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting,
+        generation: makeMemoryGenerationEvalLedger({ dispatches: 0 }),
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
       }),
+    );
+    const result = await Effect.runPromise(
+      service.request(account, plannerRequest()),
+    );
+    expect(result).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'released',
     });
-    expect(unsupported.status).toBe(422);
-    const missing = await startHttpServer(
-      {
-        auth: {
-          authenticate: async () => ({ id: 'acct', name: 'Test', image: null }),
-          handle: async (_request, response) => {
-            response.end();
-          },
-        },
-        electronAuthCallbackScript: Buffer.from('/* synthetic callback */'),
-        learning: {
-          quota: () =>
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch when remote learning is disabled', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete },
+        config: { ...config, aiEnabled: false },
+        now: () => new Date(createdAt),
+      }),
+    );
+    expect(
+      (await Effect.runPromise(service.request(account, plannerRequest())))
+        .outcome,
+    ).toBe('unavailable');
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('retains the reservation when monthly reserve fails', async () => {
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: {
+          reserve: () =>
+            Effect.fail(new AccountingFailure({ message: 'synthetic' })),
+          settle: () =>
             Effect.succeed({
               month: '2026-09',
               limitMicrousd: 20,
@@ -915,213 +501,383 @@ describe('POST /v1/learning/explanation-plans', () => {
               reservedMicrousd: 0,
               remainingMicrousd: 20,
             }),
-          request: () =>
-            Effect.succeed({
-              outcome: 'invalid-request',
-              requestId: 'unused',
-              message: 'unused',
-            }),
         },
-        ready: async () => true,
-        runEffect: (effect, signal) =>
-          Effect.runPromise(effect, signal ? { signal } : undefined),
-      },
-      0,
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete: vi.fn() },
+        config,
+        now: () => new Date(createdAt),
+      }),
     );
-    stops.push(missing.stop);
-    const response = await fetch(
-      `http://127.0.0.1:${missing.port}${EXPLANATION_PLAN_PATH}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(plannerRequest()),
-      },
-    );
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    expect(
+      await Effect.runPromise(service.request(account, plannerRequest())),
+    ).toMatchObject({
       outcome: 'unavailable',
-      accounting: 'none',
-    });
-  });
-
-  it('dispatches an authenticated plan and retains spend after a thrown effect', async () => {
-    const origin = await startPlanner();
-    const success = await fetch(`${origin}${EXPLANATION_PLAN_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(plannerRequest()),
-    });
-    expect(success.status).toBe(200);
-    expect(await success.json()).toMatchObject({
-      outcome: 'success',
-      plan: { status: 'unsupported' },
-    });
-    const failedOrigin = await startPlanner({
-      planner: {
-        request: () => {
-          throw new Error('synthetic planner dispatch failure');
-        },
-      } as never,
-    });
-    const retained = await fetch(`${failedOrigin}${EXPLANATION_PLAN_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(plannerRequest()),
-    });
-    expect(retained.status).toBe(503);
-    expect(await retained.json()).toMatchObject({
-      outcome: 'unavailable',
-      retryable: false,
       accounting: 'reservation-retained',
     });
   });
 
-  it('returns 503 when session lookup throws', async () => {
-    const origin = await startPlanner({
-      authenticate: async () => {
-        throw new Error('session store down');
-      },
-    });
-    const response = await fetch(`${origin}${EXPLANATION_PLAN_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(plannerRequest()),
-    });
-    expect(response.status).toBe(503);
-  });
-
-  it('maps planner outcomes onto HTTP statuses', async () => {
-    const cases: Array<{ result: Record<string, unknown>; status: number }> = [
-      {
-        result: {
-          outcome: 'invalid-request',
-          requestId,
-          message: 'The request is invalid.',
-        },
-        status: 400,
-      },
-      {
-        result: {
-          outcome: 'quota-exceeded',
-          requestId,
-          message: 'The monthly AI allowance is exhausted.',
-          quota: {
-            month: '2026-09',
-            limitMicrousd: 20,
-            committedMicrousd: 20,
-            reservedMicrousd: 0,
-            remainingMicrousd: 0,
-          },
-        },
-        status: 429,
-      },
-      {
-        result: {
-          outcome: 'cancelled',
-          requestId,
-          message: 'The learning request was cancelled.',
-          retryable: false,
-          accounting: 'reservation-retained',
-        },
-        status: 409,
-      },
-      {
-        result: {
-          outcome: 'unsupported',
-          requestId,
-          message: 'This learning operation is not supported.',
-        },
-        status: 422,
-      },
-      {
-        result: {
-          outcome: 'unauthenticated',
-          requestId,
-          message: 'Sign in to use remote learning.',
-        },
-        status: 401,
-      },
-      {
-        result: {
-          outcome: 'unavailable',
-          requestId,
-          message: 'Remote learning is temporarily unavailable.',
-          retryable: false,
-          accounting: 'charged',
-        },
-        status: 503,
-      },
-    ];
-    for (const { result, status } of cases) {
-      const origin = await startPlanner({
-        planner: {
-          request: () => Effect.succeed(result as never),
-        },
-      });
-      const response = await fetch(`${origin}${EXPLANATION_PLAN_PATH}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(plannerRequest()),
-      });
-      expect(response.status).toBe(status);
-    }
-  });
-});
-
-describe('explanation planner HTTP abort', () => {
-  it('returns cancelled when the parent signal is already aborted', async () => {
-    const { Readable } = await import('node:stream');
-    const { handleExplanationPlanRoute } = await import('./http.js');
-    const body = JSON.stringify(plannerRequest());
-    const request = Readable.from([
-      body,
-    ]) as import('node:http').IncomingMessage;
-    request.method = 'POST';
-    request.headers = {
-      'content-type': 'application/json',
-      'content-length': String(Buffer.byteLength(body)),
-    };
-    let status = 0;
-    let payload = '';
-    const response = {
-      writableEnded: false,
-      destroyed: false,
-      headersSent: false,
-      writeHead(code: number) {
-        status = code;
-        return this;
-      },
-      end(chunk?: string) {
-        payload = chunk ?? '';
-      },
-    } as unknown as import('node:http').ServerResponse;
-    const parent = new AbortController();
-    parent.abort();
-    const handled = await handleExplanationPlanRoute(
-      EXPLANATION_PLAN_PATH,
-      request,
-      response,
-      {
-        auth: {
-          authenticate: async () => {
-            throw new Error('must not authenticate after abort');
-          },
-          handle: async (_incoming, outgoing) => {
-            outgoing.end();
-          },
-        },
-        runEffect: async () => {
-          throw new Error('must not dispatch after abort');
-        },
-      },
-      parent.signal,
+  it('does not dispatch when generation-eval already recorded the physical call', async () => {
+    const generation = makeMemoryGenerationEvalLedger();
+    const envelope = plannerRequest();
+    const inputHash = plannerInputHash(envelope);
+    const reservationMicrousd = reservationMicrousdForPlannerBody(
+      buildPlannerBody(envelope),
     );
-    expect(handled).toBe(true);
-    expect(status).toBe(409);
-    expect(JSON.parse(payload)).toMatchObject({
-      outcome: 'cancelled',
-      requestId,
+    await Effect.runPromise(
+      generation.admit({
+        requestId,
+        inputHash,
+        reservationMicrousd,
+      }),
+    );
+    await Effect.runPromise(
+      generation.settle({
+        requestId,
+        inputHash,
+        dispatched: true,
+        charge: { kind: 'known', actualMicrousd: 0 },
+        cancelled: false,
+      }),
+    );
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation,
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const result = await Effect.runPromise(service.request(account, envelope));
+    expect(result.outcome).toBe('unavailable');
+    expect(complete).not.toHaveBeenCalled();
+    expect(generation.physicalDispatchCount()).toBe(1);
+  });
+
+  it('returns invalid-request when generation-eval reports a live conflict', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: {
+          admit: () => Effect.succeed({ kind: 'conflict' as const }),
+          settle: () => Effect.void,
+          physicalDispatchCount: () => 0,
+        },
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({ outcome: 'invalid-request' });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('returns reservation-retained when generation-eval reports in-progress', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: {
+          admit: () => Effect.succeed({ kind: 'in-progress' as const }),
+          settle: () => Effect.void,
+          physicalDispatchCount: () => 0,
+        },
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'reservation-retained',
+    });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('retains the monthly reservation when generation-eval admit fails', async () => {
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: {
+          admit: () =>
+            Effect.fail(new AccountingFailure({ message: 'synthetic' })),
+          settle: () => Effect.void,
+          physicalDispatchCount: () => 0,
+        },
+        provider: { complete: vi.fn() },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'reservation-retained',
+      retryable: false,
+    });
+  });
+
+  it('keeps reservation-retained when monthly settle fails after paid work', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: {
+          reserve: () =>
+            Effect.succeed({
+              kind: 'reserved' as const,
+              quota: {
+                month: '2026-09',
+                limitMicrousd: 20,
+                committedMicrousd: 0,
+                reservedMicrousd: 1,
+                remainingMicrousd: 19,
+              },
+            }),
+          settle: () =>
+            Effect.fail(new AccountingFailure({ message: 'write failed' })),
+        },
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'reservation-retained',
+      retryable: false,
+    });
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('still returns the paid plan when generation settle fails after a known charge', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: {
+          admit: () => Effect.succeed({ kind: 'admit' as const }),
+          settle: () =>
+            Effect.fail(new AccountingFailure({ message: 'gen settle' })),
+          physicalDispatchCount: () => 0,
+        },
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({ outcome: 'success', plan });
+  });
+
+  it('classifies provider charge none, unknown, and cancelled-known without retryable-none', async () => {
+    const noneService = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: {
+          complete: () =>
+            Effect.fail(
+              new ProviderFailure({
+                message: 'rejected before dispatch accounting',
+                charge: { kind: 'none' },
+                cancelled: false,
+              }),
+            ),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(noneService.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
       accounting: 'released',
+      retryable: true,
+    });
+
+    const unknownService = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: {
+          complete: () =>
+            Effect.fail(
+              new ProviderFailure({
+                message: 'uncertain charge',
+                charge: { kind: 'unknown' },
+                cancelled: false,
+              }),
+            ),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(
+        unknownService.request(account, {
+          ...plannerRequest(),
+          requestId: '11000000-0000-4000-8000-000000000011',
+        }),
+      ),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'reservation-retained',
+      retryable: false,
+    });
+
+    const cancelledKnown = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: {
+          complete: () =>
+            Effect.fail(
+              new ProviderFailure({
+                message: 'cancelled after a known charge',
+                charge: { kind: 'known', actualMicrousd: 4 },
+                cancelled: true,
+              }),
+            ),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(
+        cancelledKnown.request(account, {
+          ...plannerRequest(),
+          requestId: '11000000-0000-4000-8000-000000000012',
+        }),
+      ),
+    ).resolves.toMatchObject({
+      outcome: 'cancelled',
+      accounting: 'charged',
+      retryable: false,
+    });
+  });
+
+  it('rejects a stored placeholder instead of replaying it as success', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: {
+          reserve: () =>
+            Effect.succeed({
+              kind: 'duplicate' as const,
+              response: {
+                outcome: 'unavailable' as const,
+                requestId,
+                message: 'Planner settlement placeholder.',
+                retryable: false,
+                accounting: 'charged' as const,
+              },
+            }),
+          settle: () =>
+            Effect.succeed({
+              month: '2026-09',
+              limitMicrousd: 20,
+              committedMicrousd: 0,
+              reservedMicrousd: 0,
+              remainingMicrousd: 20,
+            }),
+        },
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'reservation-retained',
+    });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch when model pricing is stale', async () => {
+    const complete = vi.fn(() => Effect.succeed({ plan, ...completionRest }));
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete },
+        config,
+        now: () => new Date('2026-12-01T00:00:00.000Z'),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'none',
+    });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable none when the provider semaphore is exhausted', async () => {
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete: () => Effect.never },
+        config: { ...config, providerConcurrency: 1 },
+        now: () => new Date(createdAt),
+      }),
+    );
+    const fiber = Effect.runFork(service.request(account, plannerRequest()));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const busy = await Effect.runPromise(
+      service.request(account, {
+        ...plannerRequest(),
+        requestId: '11000000-0000-4000-8000-000000000013',
+      }),
+    );
+    expect(busy).toMatchObject({
+      outcome: 'unavailable',
+      accounting: 'none',
+    });
+    await Effect.runPromise(Fiber.interrupt(fiber));
+  });
+
+  it('classifies a provider timeout as cancelled with uncertain accounting', async () => {
+    const complete = vi.fn(() => Effect.never);
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: { complete },
+        config: { ...config, providerTimeoutMs: 1 },
+        now: () => new Date(createdAt),
+      }),
+    );
+    await expect(
+      Effect.runPromise(service.request(account, plannerRequest())),
+    ).resolves.toMatchObject({
+      outcome: 'cancelled',
+      accounting: 'reservation-retained',
+      retryable: false,
     });
   });
 });
+
+const completionRest = {
+  providerRequestId: 'or-planner-1',
+  actualMicrousd: 0,
+  model: 'google/gemini-3.8-flash' as const,
+};

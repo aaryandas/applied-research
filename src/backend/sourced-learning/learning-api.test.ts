@@ -126,6 +126,8 @@ const step = {
   objective: 'Understand component-wise addition.',
   activity: 'Add (1, 2) and (3, 4) on paper and explain each component.',
   citations: [citation],
+  role: 'concept' as const,
+  practice: null,
 };
 const path = {
   kind: 'learning-path',

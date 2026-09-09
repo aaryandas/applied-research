@@ -29,7 +29,9 @@ import type {
 import type { Diagnostics } from '../diagnostics.js';
 import { silentDiagnostics } from '../diagnostics.js';
 import type { LearningService } from '../learning.js';
+import type { ProviderLearningRequest } from '../provider.js';
 import { SOURCED_LESSON_QUESTION } from '../sourced-learning/generation.js';
+import { generationRequestWithEvidence } from '../sourced-learning/evidence.js';
 import { generatedLessonSource } from '../sourced-learning/lesson-source.js';
 import type {
   LearningEvidenceQuery,
@@ -447,7 +449,7 @@ export function makeOnboardingService(
 
   async function completeLearning(
     account: PublicAccount,
-    inner: LearningRequest,
+    inner: ProviderLearningRequest,
     signal: AbortSignal,
   ): Promise<LearningResponse> {
     return options.runEffect(options.learning.request(account, inner), signal);
@@ -846,22 +848,32 @@ export function makeOnboardingService(
       }
     | LearningOnboardingResponse
   > {
-    const inner: LearningRequest = {
-      apiVersion: LEARNING_API_VERSION,
-      requestId: phaseRequestId(request.requestId, 'lesson'),
-      model: request.model,
-      operation: {
-        kind: 'source-grounded-tutor',
-        question:
-          `${SOURCED_LESSON_QUESTION} Target step "${step.title}". Objective: ${step.objective}. Role: ${step.role}.`.slice(
-            0,
-            2_000,
-          ),
-        sources: generationSources(selected),
-        learnerContext,
+    const inner = generationRequestWithEvidence(
+      {
+        apiVersion: LEARNING_API_VERSION,
+        requestId: phaseRequestId(request.requestId, 'lesson'),
+        model: request.model,
+        operation: {
+          kind: 'source-grounded-tutor',
+          question: SOURCED_LESSON_QUESTION,
+          sources: generationSources(selected),
+          learnerContext,
+        },
+      },
+      selected,
+    );
+    const lessonRequest: ProviderLearningRequest = {
+      ...inner,
+      evidenceContext: {
+        ...inner.evidenceContext,
+        targetStep: {
+          id: step.stepId,
+          title: step.title,
+          objective: step.objective,
+        },
       },
     };
-    const response = await completeLearning(account, inner, signal);
+    const response = await completeLearning(account, lessonRequest, signal);
     record(response);
     const mapped = mapLearningOutcome(request, response);
     if (mapped) return applyPaidAccounting(mapped, getPaid());
@@ -875,7 +887,7 @@ export function makeOnboardingService(
       lesson: generatedLessonFromTutor({
         step,
         contribution: response.contribution,
-        requestId: inner.requestId,
+        requestId: lessonRequest.requestId,
         generatedAt: response.provenance.createdAt,
       }),
       quota: response.quota,

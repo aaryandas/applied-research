@@ -16,6 +16,10 @@ import {
   type OnboardingService,
 } from './onboarding/index.js';
 import {
+  handleCompanionGuidanceRoute,
+  matchCompanionGuidanceRoute,
+} from './companion/index.js';
+import {
   handleExplanationPlanRoute,
   type ExplanationPlannerService,
 } from './explanations/index.js';
@@ -267,6 +271,15 @@ export function createHttpHandler(
       } finally {
         disconnect.dispose();
       }
+      return;
+    }
+    if (matchCompanionGuidanceRoute(url.pathname, request.method)) {
+      await handleCompanionGuidanceRoute(request, response, {
+        auth: dependencies.auth,
+        learning: dependencies.learning,
+        runEffect: dependencies.runEffect,
+        diagnostics: dependencies.diagnostics,
+      });
       return;
     }
     const disconnect = observeDisconnect(request, response);

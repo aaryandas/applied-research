@@ -133,6 +133,12 @@ generated lesson identity and backend phase timings. It does not save local
 records or generate an entire course. Main-owned explicit acceptance remains
 required. Details live in [sourced backend](sourced-backend.md).
 
+Authenticated `POST /v1/learning/explanation-plans` joins the AR-51 planner
+producer through existing `learning_request.public_response` JSONB and the
+shared generation-eval ledger. Authenticated `POST /v1/learning/companion`
+reuses the production `LearningService` session and accounting; AR-56 owns
+main/UI mounting. Neither route adds a second provider client or spend ledger.
+
 ## Trusted source adoption checkpoint
 
 [AR-37 source adoption](source-adoption.md) adds main-only acquisition/generation

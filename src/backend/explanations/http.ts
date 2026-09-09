@@ -58,13 +58,16 @@ function unauthenticated(
   };
 }
 
-function unavailable(requestId: string | null): ExplanationPlanHttpResponse {
+function unavailable(
+  requestId: string | null,
+  accounting: 'none' | 'reservation-retained' = 'none',
+): ExplanationPlanHttpResponse {
   return {
     outcome: 'unavailable',
     requestId,
     message: 'The authenticated service is temporarily unavailable.',
-    retryable: true,
-    accounting: 'none',
+    retryable: accounting === 'none',
+    accounting,
   };
 }
 
@@ -117,10 +120,6 @@ export async function handleExplanationPlanRoute(
       });
       return true;
     }
-    if (!dependencies.explanationPlanner) {
-      writeJson(response, 503, unavailable(parsed.requestId));
-      return true;
-    }
     let account: PublicAccount | null;
     try {
       account = await dependencies.auth.authenticate(request.headers);
@@ -136,6 +135,20 @@ export async function handleExplanationPlanRoute(
       writeJson(response, 401, unauthenticated(parsed.requestId));
       return true;
     }
+    if (timeout.signal.aborted) {
+      writeJson(response, 409, {
+        outcome: 'cancelled',
+        requestId: parsed.requestId,
+        message: 'The learning request was cancelled.',
+        retryable: true,
+        accounting: 'released',
+      });
+      return true;
+    }
+    if (!dependencies.explanationPlanner) {
+      writeJson(response, 503, unavailable(parsed.requestId));
+      return true;
+    }
     try {
       const result = await dependencies.runEffect(
         dependencies.explanationPlanner.request(account, parsed),
@@ -147,13 +160,11 @@ export async function handleExplanationPlanRoute(
         'learning.execution-failed',
         cause,
       );
-      writeJson(response, 503, {
-        outcome: 'unavailable',
-        requestId: parsed.requestId,
-        message: 'The authenticated service is temporarily unavailable.',
-        retryable: false,
-        accounting: 'reservation-retained',
-      });
+      writeJson(
+        response,
+        503,
+        unavailable(parsed.requestId, 'reservation-retained'),
+      );
     }
     return true;
   } finally {

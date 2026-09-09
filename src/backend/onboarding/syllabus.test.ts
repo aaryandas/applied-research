@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { LearningPathContribution } from '../../contracts/learning-api.js';
+import type { CoursePracticeBrief } from '../../contracts/learning-onboarding-api.js';
+import { COURSE_PRACTICE_BRIEF_KIND } from '../../contracts/learning-onboarding-api.js';
 import type { AcquiredSource } from '../../contracts/sourcing.js';
 import {
   assembleOnboardingSyllabus,
   citationsForParagraph,
   diagnosticPersonalization,
-  lessonRoleFromContent,
-  practiceToolFor,
 } from './syllabus.js';
 
 const citation = {
@@ -17,15 +17,56 @@ const citation = {
   quote: 'Softmax.',
 };
 
+function practiceBrief(
+  extra: Partial<CoursePracticeBrief> = {},
+): CoursePracticeBrief {
+  return {
+    kind: COURSE_PRACTICE_BRIEF_KIND,
+    author: 'ai',
+    masteryEstablished: false,
+    intendedOutcome:
+      extra.intendedOutcome ??
+      'Reproduce the numbered CS231n softmax method in NumPy.',
+    setup:
+      extra.setup ??
+      'Open a local NumPy environment with the cited classifier passage visible.',
+    tool: extra.tool ?? {
+      kind: 'learner-external',
+      toolName: 'Python with NumPy',
+      intendedUse:
+        'Implement the cited classifier or network using only the numbered source method.',
+    },
+    instructions:
+      extra.instructions ??
+      'Implement the cited classifier using only the numbered source method.',
+    observableCheckpoints: extra.observableCheckpoints ?? [
+      'The NumPy implementation matches the cited softmax update.',
+      'The cited classifier method is visible in the learner-produced artifact.',
+    ],
+    expectedArtifact:
+      extra.expectedArtifact ??
+      'A NumPy script that implements the cited softmax classifier without extra layers.',
+    reflectionPrompt:
+      extra.reflectionPrompt ??
+      'Which cited constraint actually limited the softmax implementation?',
+    sourceIds: extra.sourceIds ?? ['source-numpy01'],
+  };
+}
+
 function step(
   title: string,
-  extra: Partial<LearningPathContribution['steps'][number]> = {},
+  extra: Partial<LearningPathContribution['steps'][number]> & {
+    role?: 'concept' | 'setup' | 'practice' | 'capstone';
+    practice?: CoursePracticeBrief | null;
+  } = {},
 ): LearningPathContribution['steps'][number] {
   return {
     title,
     objective: extra.objective ?? `Objective for ${title}`,
     activity: extra.activity ?? `Activity for ${title}`,
     citations: extra.citations ?? [citation],
+    ...(extra.role ? { role: extra.role } : {}),
+    ...(extra.practice !== undefined ? { practice: extra.practice } : {}),
   };
 }
 
@@ -92,99 +133,58 @@ function acquired(title: string, kind = 'chapter'): AcquiredSource {
 }
 
 describe('onboarding syllabus projection', () => {
-  it('assigns roles from step content rather than position', () => {
-    expect(
-      lessonRoleFromContent(
-        step('Hardware fractions'),
-        'hardware fractions objective',
-      ),
-    ).toBe('concept');
-    expect(
-      lessonRoleFromContent(
-        step('Implement the cited softmax classifier'),
-        'implement softmax numpy',
-      ),
-    ).toBe('practice');
-    expect(
-      lessonRoleFromContent(
-        step('Capstone: synthesize the cited network'),
-        'capstone synthesize network',
-      ),
-    ).toBe('capstone');
-    expect(
-      lessonRoleFromContent(
-        step('Summary of notation'),
-        'summary of notation last step',
-      ),
-    ).toBe('concept');
+  it('uses explicit generated roles and does not infer capstone from source titles', () => {
+    const path: LearningPathContribution = {
+      kind: 'learning-path',
+      title: 'Unrelated quadrature notes',
+      steps: [
+        step('Hardware fractions', { role: 'concept', practice: null }),
+        step('Compare two cited editions', {
+          role: 'concept',
+          practice: null,
+        }),
+      ],
+    };
+    const syllabus = assembleOnboardingSyllabus({
+      path,
+      acquired: [acquired('Numerical integration')],
+      prior: null,
+    });
+    const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
+    expect(lessons.map((lesson) => lesson.role)).toEqual([
+      'concept',
+      'concept',
+    ]);
+    expect(syllabus.capstone).toBeNull();
+    expect(lessons.every((lesson) => lesson.practice === null)).toBe(true);
   });
 
-  it('selects topic-specific tools and does not default every topic to Python', () => {
-    expect(
-      practiceToolFor(
-        'numpy softmax neural network cs231n',
-        'Implement the cited softmax classifier',
-      ),
-    ).toMatchObject({
-      kind: 'learner-external',
-      toolName: 'Python with NumPy',
-    });
-    expect(
-      practiceToolFor(
-        'quantum angular momentum photon hamiltonian',
-        'Work the cited identities',
-      ),
-    ).toMatchObject({
-      kind: 'learner-external',
-      toolName: 'Paper, pencil, and a scientific calculator',
-    });
-    expect(
-      practiceToolFor('desmos graphing plot', 'Graph the cited curve'),
-    ).toEqual({ kind: 'app-hosted-catalog', toolId: 'desmos-graphing' });
-    expect(
-      practiceToolFor(
-        'softmax numpy neural plot',
-        'Plot a softmax curve in numpy',
-      ).kind,
-    ).toBe('learner-external');
-    const genericTool = practiceToolFor(
-      'history of the printing press',
-      'Compare two cited editions',
-    );
-    expect(genericTool).toMatchObject({
-      kind: 'learner-external',
-      toolName: 'Local tools required by Compare two cited editions',
-    });
-    if (genericTool.kind === 'learner-external') {
-      expect(genericTool.toolName).not.toBe('Python and a local editor');
-    }
-  });
-
-  it('attaches citations only when the quote appears in the paragraph', () => {
-    expect(
-      citationsForParagraph('Softmax. Apply the cited method.', [citation]),
-    ).toEqual([citation]);
-    expect(
-      citationsForParagraph('This paragraph has no source quote.', [citation]),
-    ).toEqual([]);
-  });
-
-  it('marks capstone substantial from the generated brief, not from position', () => {
+  it('marks capstone substantial only from a task-specific generated brief', () => {
     const path: LearningPathContribution = {
       kind: 'learning-path',
       title: 'CS231n softmax',
       steps: [
-        step('Softmax as a classifier'),
+        step('Softmax as a classifier', { role: 'concept', practice: null }),
         step('Implement the cited softmax classifier', {
-          objective: 'Reproduce the numbered CS231n softmax method in NumPy.',
-          activity:
-            'Implement the cited classifier using only the numbered source method.',
+          role: 'practice',
+          practice: practiceBrief(),
         }),
         step('Capstone: synthesize the cited network', {
+          role: 'capstone',
           objective:
             'Combine the cited layers into one learner-produced classifier artifact.',
-          activity:
-            'Produce an end-to-end NumPy artifact that demonstrates the cited method.',
+          practice: practiceBrief({
+            intendedOutcome:
+              'Combine the cited layers into one learner-produced classifier artifact.',
+            instructions:
+              'Produce an end-to-end NumPy artifact that demonstrates the cited method.',
+            expectedArtifact:
+              'An end-to-end NumPy classifier that composes the cited layers without extra architecture.',
+            observableCheckpoints: [
+              'The artifact composes the cited layers in source order.',
+              'The cited softmax method is the only classifier used.',
+            ],
+          }),
         }),
       ],
     };
@@ -204,31 +204,63 @@ describe('onboarding syllabus projection', () => {
     });
     expect(syllabus.capstone?.stepId).toBe(lessons[2]?.stepId);
     expect(syllabus.capstone?.substantial).toBe(true);
-    expect(lessons[0]?.role).not.toBe('capstone');
   });
 
-  it('uses citation fallbacks, setup/geogebra/julia tools, and diagnostic gaps', async () => {
-    expect(
-      lessonRoleFromContent(
-        step('Install the local toolchain'),
-        'setup environment install',
-      ),
-    ).toBe('setup');
-    expect(
-      practiceToolFor(
-        'geogebra geometry compass',
-        'Construct the cited triangle',
-      ),
-    ).toEqual({ kind: 'app-hosted-catalog', toolId: 'geogebra-graphing' });
-    expect(
-      practiceToolFor(
-        'julia pluto computational thinking',
-        'Reproduce the cited notebook',
-      ),
-    ).toMatchObject({
-      kind: 'learner-external',
-      toolName: 'Julia and a local Pluto notebook',
+  it('does not manufacture a generic capstone brief to satisfy substantial checks', () => {
+    const path: LearningPathContribution = {
+      kind: 'learning-path',
+      title: 'CS231n softmax',
+      steps: [
+        step('Softmax as a classifier', { role: 'concept', practice: null }),
+        step('Capstone: synthesize the cited network', {
+          role: 'capstone',
+          practice: null,
+        }),
+      ],
+    };
+    const syllabus = assembleOnboardingSyllabus({
+      path,
+      acquired: [acquired('Numerical integration')],
+      prior: null,
     });
+    const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
+    expect(lessons[1]?.role).toBe('concept');
+    expect(lessons[1]?.practice).toBeNull();
+    expect(syllabus.capstone).toBeNull();
+  });
+
+  it('does not keep a practice role when the generated brief is missing', () => {
+    const path: LearningPathContribution = {
+      kind: 'learning-path',
+      title: 'CS231n softmax',
+      steps: [
+        step('Softmax as a classifier', { role: 'concept', practice: null }),
+        step('Implement the cited softmax classifier', {
+          role: 'practice',
+          practice: null,
+        }),
+      ],
+    };
+    const syllabus = assembleOnboardingSyllabus({
+      path,
+      acquired: [acquired('CS231n neural networks and NumPy softmax')],
+      prior: null,
+    });
+    const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
+    expect(lessons[1]?.role).toBe('concept');
+    expect(lessons[1]?.practice).toBeNull();
+  });
+
+  it('attaches citations only when the quote appears in the paragraph', () => {
+    expect(
+      citationsForParagraph('Softmax. Apply the cited method.', [citation]),
+    ).toEqual([citation]);
+    expect(
+      citationsForParagraph('This paragraph has no source quote.', [citation]),
+    ).toEqual([]);
+  });
+
+  it('uses citation fallbacks and diagnostic gaps without claiming mastery', () => {
     const unmatched = assembleOnboardingSyllabus({
       path: {
         kind: 'learning-path',
@@ -247,8 +279,13 @@ describe('onboarding syllabus projection', () => {
                 quote: 'Nope',
               },
             ],
+            role: 'concept',
+            practice: null,
           },
-          step('Setup the comparison environment'),
+          step('Setup the comparison environment', {
+            role: 'setup',
+            practice: null,
+          }),
         ],
       },
       acquired: [acquired('Floating-point hardware fractions')],

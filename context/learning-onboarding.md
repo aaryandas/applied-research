@@ -116,7 +116,12 @@ security tests unchanged. Proposal id for revise/selected-lesson is the
 client `requestId` of the successful `propose-course` (revision starts at 1).
 Do not change installed foundations, model (`google/gemini-3.8-flash`), or
 dependencies. `AI_ENABLED` remains false until root applies the reviewed
-bounded generation-eval configuration. Importing the API module from
+bounded generation-eval configuration. Generated lesson titles and objectives
+are untrusted `evidenceContext.targetStep` values; the trusted tutor question
+is the fixed sourced-lesson instruction. Syllabus lesson roles and capstone
+briefs must be explicit provider output. Source-title keywords and generic
+fill-in briefs are not proof of a substantial capstone. Importing the API
+module from
 `src/backend` is enough for `tsconfig.backend.json`. Separately recorded
 vector-index configuration proof on the candidate is not app acceptance.
 

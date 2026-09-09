@@ -409,4 +409,36 @@ describe('backend HTTP journeys', () => {
     await new Promise((resolve) => setTimeout(resolve, 75));
     expect(learningStarted).toBe(false);
   });
+
+  it('registers companion guidance on the authenticated learning session', async () => {
+    const active = await server();
+    const unauthenticated = await fetch(
+      `${active.origin}/v1/learning/companion`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      },
+    );
+    expect(unauthenticated.status).toBe(401);
+    const body = await unauthenticated.json();
+    expect(body).toMatchObject({ outcome: 'unauthenticated' });
+    expect(JSON.stringify(body)).not.toMatch(/synthetic|password|secret/i);
+
+    const authenticated = await fetch(
+      `${active.origin}/v1/learning/companion`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'session=user-a',
+        },
+        body: '{}',
+      },
+    );
+    expect(authenticated.status).toBe(400);
+    expect(await authenticated.json()).toMatchObject({
+      outcome: 'invalid-request',
+    });
+  });
 });

@@ -6,10 +6,12 @@ import type {
   UntrustedHumanLearnerContext,
 } from '../../contracts/learning-onboarding-api.js';
 import {
+  COURSE_PRACTICE_BRIEF_KIND,
   LEARNING_ONBOARDING_API_VERSION,
   LEARNING_ONBOARDING_PATH,
   ONBOARDING_CONTEXT_TRUST,
 } from '../../contracts/learning-onboarding-api.js';
+import type { CoursePracticeBrief } from '../../contracts/learning-onboarding-api.js';
 import { createLearningOnboardingValidation } from '../../contracts/learning-onboarding-validation.js';
 import type {
   AcquiredSource,
@@ -194,46 +196,88 @@ function admittedEvidence(requestId: string): SelectedLearningEvidence {
   };
 }
 
+function cpythonBrief(): CoursePracticeBrief {
+  return {
+    kind: COURSE_PRACTICE_BRIEF_KIND,
+    author: 'ai',
+    masteryEstablished: false,
+    intendedOutcome:
+      'Measure the cited 0.1 + 0.2 rounding case in CPython against the tutorial sentence.',
+    setup:
+      'Open a CPython REPL with the cited floating-point tutorial visible.',
+    tool: {
+      kind: 'learner-external',
+      toolName: 'CPython REPL',
+      intendedUse:
+        'Reproduce the cited binary-fraction rounding case in the same language as the tutorial.',
+    },
+    instructions:
+      'Print 0.1 + 0.2 and place the cited hardware-fraction sentence beside the output.',
+    observableCheckpoints: [
+      'The REPL output shows 0.1 + 0.2 is not 0.3.',
+      'The cited binary-fraction sentence appears next to the measured result.',
+    ],
+    expectedArtifact:
+      'A CPython transcript of 0.1 + 0.2 annotated with the cited tutorial sentence.',
+    reflectionPrompt:
+      'Which cited hardware-fraction constraint explains the measured rounding?',
+    sourceIds: [SOURCE_ID],
+  };
+}
+
 function pathSteps(titlePrefix: string) {
   const activity =
     'Cite the binary-fraction sentence, then reproduce 0.1 + 0.2.';
   const objective = 'Use the cited hardware-fraction constraint, not folklore.';
+  const brief = cpythonBrief();
   return [
     {
       title: `${titlePrefix} hardware fractions`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'concept' as const,
+      practice: null,
     },
     {
       title: `${titlePrefix} setup the comparison environment`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'setup' as const,
+      practice: null,
     },
     {
       title: `${titlePrefix} decimal examples`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'concept' as const,
+      practice: null,
     },
     {
       title: `${titlePrefix} rounding error`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'concept' as const,
+      practice: null,
     },
     {
       title: `${titlePrefix} implement local reproduction`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'practice' as const,
+      practice: brief,
     },
     {
       title: `${titlePrefix} capstone measurement`,
       objective,
       activity,
       citations: [CITATION],
+      role: 'capstone' as const,
+      practice: brief,
     },
   ];
 }
@@ -262,6 +306,8 @@ function provider(titlePrefix = 'Cited'): ProviderService {
                     activity:
                       'Answer in your own words. Do not invent sources or citations.',
                     citations: [],
+                    role: 'concept',
+                    practice: null,
                   },
                 ]
               : pathSteps(prefix),

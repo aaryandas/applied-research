@@ -15,8 +15,10 @@ import type { LearningService } from './learning.js';
 import { makeSourcedLearningApi } from './learning-api.js';
 import type { SourcedLearningApi } from './learning-api.js';
 import {
+  adaptGenerationEvalLedger,
   makeExplanationPlannerProvider,
   makeExplanationPlannerService,
+  makePostgresPlannerAccounting,
   type ExplanationPlannerService,
 } from './explanations/index.js';
 import {
@@ -198,7 +200,8 @@ function makeBackendLayer(
         diagnostics,
       });
       const explanationPlanner = yield* makeExplanationPlannerService({
-        accounting,
+        accounting: makePostgresPlannerAccounting(database),
+        generation: adaptGenerationEvalLedger(generationEval),
         provider: makeExplanationPlannerProvider({
           apiKey: config.openRouterApiKey,
           request,
@@ -206,7 +209,6 @@ function makeBackendLayer(
         config,
         now: () => new Date(),
         diagnostics,
-        generationEval,
       });
       return {
         auth,
