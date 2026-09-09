@@ -132,9 +132,24 @@ player is the clip consumer.
 
 ## 6. What remains blocked after this PR
 
-- Trusted Docker context + pinned image on an amd64 or ARM host (see
-  `src/backend/render-delivery/DEPLOYMENT.md`)
+- Trusted Docker context + pinned ARM image on GitHub-hosted `ubuntu-24.04-arm`
+  (proposed job in `manim-evidence.yml`; AR-41 must publish and run it)
 - AR-53 public type names
 - AR-48 route composition
 - Electron CSP/protocol registration
 - Reader/Canvas artifact node
+- A separate cloud desktop recording of retained Reader/Canvas playback after
+  AR-48/AR-53 integration
+
+## 7. Proposed Manim evidence workflow (AR-41)
+
+Exact file: `manim-evidence.yml` in this directory.
+
+Copy destination: `.github/workflows/manim-evidence.yml`.
+
+Lane request: none. `.github/**` is already on the shared allowlist, so
+`lane:explanations` may carry it, but AR-54 is not activating the workflow.
+AR-41 / the coordinator owns publication, first run, and artifact retention.
+
+Do not edit `ci.yml`, `verify.yml`, `sonar.yml`, `linear-gate.yml`,
+`claude-review.yml`, or lane-guard as part of this patch.

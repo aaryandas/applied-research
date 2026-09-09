@@ -93,3 +93,16 @@ GPU SKU. Operator time to install Docker, pin the image, and confirm
 
 Until those exist, this slice is internally testable and not production render
 capacity.
+
+## First evidence host (no purchase)
+
+Do not buy a VM for AR-54 acceptance. GitHub's standard public
+`ubuntu-24.04-arm` runner already has Docker client/server. The reviewable job
+is `context/design-handoff/ar54-integration-patches/manim-evidence.yml`. AR-41
+owns copying it to `.github/workflows/manim-evidence.yml`. This implementer
+must not activate it.
+
+That job is bounded CI rendering of the six synthetic recipes. It is not an
+always-on production service, authenticated desktop delivery, or completed
+AR-54 acceptance. The Cursor Cloud VM remains amd64 without Docker; do not
+install Docker there, swap an amd64 digest, use QEMU, or use the founder's Mac.
