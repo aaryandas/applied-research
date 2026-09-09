@@ -12,6 +12,12 @@ export interface CanvasShellControls {
   fitMap: () => void;
 }
 
+/** Named writers Canvas may use. Movement stays on onMove. */
+export type CanvasRecordsWriter = Pick<
+  LearningRecordsBridge,
+  'saveReadingNote' | 'saveQuestion' | 'saveInsight' | 'getLearningWorkspace'
+>;
+
 export interface WorkspaceCanvasProps {
   workspace: LearningWorkspace;
   view: CanvasView;
@@ -25,6 +31,13 @@ export interface WorkspaceCanvasProps {
   onShellControls?: (controls: CanvasShellControls | null) => void;
   status?: 'ready' | 'loading' | 'error';
   onRetry?: () => void;
+  /**
+   * Optional writing adapter. Live authoring controls stay hidden until both
+   * this and onWorkspace are supplied. Root wires the shared bridge.
+   */
+  records?: CanvasRecordsWriter;
+  /** Shared workspace callback. Do not keep a renderer-only success node. */
+  onWorkspace?: (workspace: LearningWorkspace) => void;
 }
 
 /** A local placement failure, not a new producer/IPC error contract. */
