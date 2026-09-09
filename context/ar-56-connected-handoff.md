@@ -6,14 +6,14 @@ No competing AR56 PR. Do not push `codex/ar-walkthrough-integration`. Root alone
 
 ## Frozen inputs (exact heads; no later tips)
 
-| Input | SHA |
-| --- | --- |
-| First published assembly | `66f74f4f9700ae3f67f59558b23b4bbc0234fa42` |
-| Candidate (merged for coverage + Practical disposal tests) | `6d71d13e4f1015679932526583fe4fe73f4d653a` |
-| AR47 independently reviewed (merged; not the old `7fd` tip alone) | `fe8bbefc1f9e80fce3d930315ecb1fa927a7effa` |
-| AR49 Canvas/sidebar (already in 66f) | `55b7ec4e46f271e885672b8c6c923fbf9af67c02` |
-| AR51 fetched (availability, **not** acceptance) | `f7f733f647954d6bd89858591306abf58c6a0b3d` |
-| Companion available, isolated critic | `5fcb5cba43157d8743d598fc8c28352865c7c769` `codex/ar-55-companion-cloud` |
+| Input                                                             | SHA                                                                      |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| First published assembly                                          | `66f74f4f9700ae3f67f59558b23b4bbc0234fa42`                               |
+| Candidate (merged for coverage + Practical disposal tests)        | `6d71d13e4f1015679932526583fe4fe73f4d653a`                               |
+| AR47 independently reviewed (merged; not the old `7fd` tip alone) | `fe8bbefc1f9e80fce3d930315ecb1fa927a7effa`                               |
+| AR49 Canvas/sidebar (already in 66f)                              | `55b7ec4e46f271e885672b8c6c923fbf9af67c02`                               |
+| AR51 fetched (availability, **not** acceptance)                   | `f7f733f647954d6bd89858591306abf58c6a0b3d`                               |
+| Companion available, isolated critic                              | `5fcb5cba43157d8743d598fc8c28352865c7c769` `codex/ar-55-companion-cloud` |
 
 AR47 isolated coverage follow-up is separate; this branch does not edit its owned onboarding/profile feature tests. AR50 owns `tests/e2e/desktop.spec.ts` packaged Matrix Lab lifecycle and guest-related main blocks. AR48 owns existing backend `http.ts` / `runtime.ts`. Producer profile/paste bugs stay on AR47. Panel Ask↔Visual intent/cancel identity stays on AR51.
 
@@ -27,11 +27,11 @@ The 66f **89.11%** figure was against a **narrowed corpus** (producer internals 
 
 Journal and `LATEST_WORKSPACE_MIGRATION` are cumulative. `table_xinfo` is kept (generated columns are visible). Dual pre/post-0007 `entry_revision_context` allowlist removed.
 
-| idx | tag | `when` | owner |
-| --- | --- | --- | --- |
-| 5 | `0005_learning_onboarding` | **1788937200000** | AR47 |
-| 6 | `0006_contextual_retention` | **1788948000000** | AR51 |
-| 7 | `0007_entry_origins` | **1788951600000** | AR56 |
+| idx | tag                         | `when`            | owner |
+| --- | --------------------------- | ----------------- | ----- |
+| 5   | `0005_learning_onboarding`  | **1788937200000** | AR47  |
+| 6   | `0006_contextual_retention` | **1788948000000** | AR51  |
+| 7   | `0007_entry_origins`        | **1788951600000** | AR56  |
 
 `LATEST_WORKSPACE_MIGRATION = 1_788_951_600_000`. Production new stores include origin columns. `applyReservedEntryOriginMigration()` remains a test-only helper for deliberately pre-0007 fixtures. `retained_explanations` expected columns include the four generated fields between `origin_json` and `useful_attempt_id`. Explanation tables stay on `ExplanationRecords` against the store-owned ORM. `explanation-test-harness.ts` uses `store.explanations` and must not re-run raw 0006.
 
