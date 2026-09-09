@@ -65,7 +65,8 @@ try {
   assert.equal(receipt.unavailable.reason, 'runtime');
   assert.equal(receipt.unavailable.diagnostics.stderr, 'Executable not found');
   await broken.close();
-  // A real Docker CLI pointed at a nonexistent private socket, without changing any context/daemon.
+  // Point only at a nonexistent private socket. Docker rejects --context together
+  // with --host ("conflicting options") before any daemon connection is attempted.
   const offlineSocket = `unix://${root}/absent.sock`;
   const disconnected = await AnimationRenderWorker.create({
     ...workerRuntime,
@@ -75,11 +76,13 @@ try {
         request.command === runtime.docker
           ? {
               ...request,
-              args: dockerCliArgs(runtime.dockerContext, [
+              args: [
                 '--host',
                 offlineSocket,
-                ...request.args.slice(2),
-              ]),
+                ...(request.args[0] === '--context'
+                  ? request.args.slice(2)
+                  : request.args),
+              ],
             }
           : request,
       ),

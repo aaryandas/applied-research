@@ -162,7 +162,7 @@ describe('trusted worker runtime argv', () => {
     expect(workerCreateOptions(runtime)).toEqual(runtime);
   });
 
-  it('prefixes every probe Docker CLI invocation with the selected context', () => {
+  it('prefixes remaining-container and cleanup Docker CLI with the selected context', () => {
     const context = 'ci-github-linux';
     const probes = [
       dockerCliArgs(context, [
@@ -173,20 +173,46 @@ describe('trusted worker runtime argv', () => {
         '--format',
         '{{.Names}}',
       ]),
-      dockerCliArgs(context, [
-        '--host',
-        'unix:///tmp/absent.sock',
-        'run',
-        '--rm',
-        'img',
-      ]),
       dockerCliArgs(context, ['rm', '--force', 'ar-manim-job']),
     ];
     for (const args of probes) {
       expect(args[0]).toBe('--context');
       expect(args[1]).toBe(context);
+      expect(args).not.toContain('--host');
       expect(args).not.toContain('orbstack');
     }
+  });
+
+  it('points the missing-socket probe at --host only, without --context', () => {
+    const original = dockerCliArgs('ci-github-linux', [
+      'run',
+      '--rm',
+      '--name',
+      'ar-manim-job',
+    ]);
+    const offlineSocket = 'unix:///tmp/absent.sock';
+    const combined = dockerCliArgs('ci-github-linux', [
+      '--host',
+      offlineSocket,
+      ...original.slice(2),
+    ]);
+    const offline = [
+      '--host',
+      offlineSocket,
+      ...(original[0] === '--context' ? original.slice(2) : original),
+    ];
+    expect(original[0]).toBe('--context');
+    expect(combined[0]).toBe('--context');
+    expect(combined).toContain('--host');
+    expect(offline).toEqual([
+      '--host',
+      offlineSocket,
+      'run',
+      '--rm',
+      '--name',
+      'ar-manim-job',
+    ]);
+    expect(offline).not.toContain('--context');
   });
 });
 
@@ -227,11 +253,13 @@ describe.skipIf(!posixHost)(
           run: async (request: ProcessRequest) =>
             run({
               ...request,
-              args: dockerCliArgs(runtime.dockerContext, [
+              args: [
                 '--host',
                 `unix://${temporaryRoot}/absent.sock`,
-                ...request.args.slice(2),
-              ]),
+                ...(request.args[0] === '--context'
+                  ? request.args.slice(2)
+                  : request.args),
+              ],
             }),
         },
       ];
@@ -256,6 +284,12 @@ describe.skipIf(!posixHost)(
         expect(dockerArgs.length).toBeGreaterThan(0);
         for (const args of dockerArgs) {
           expect(args[1]).toBe('ci-github-linux');
+          expect(args).not.toContain('--host');
+        }
+        const hostOnly = seen.filter((args) => args[0] === '--host');
+        expect(hostOnly.length).toBeGreaterThan(0);
+        for (const args of hostOnly) {
+          expect(args).not.toContain('--context');
         }
         expect(seen.some((args) => args.includes('orbstack'))).toBe(false);
       } finally {
