@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { acquireUniversitySource } from './acquire.js';
-import { toAcquiredSource, toRetrieveEvidenceResponse } from './adapter.js';
+import { publicLicenseDescriptor, toAcquiredSource } from './adapter.js';
+import { extractAdmittedUniversitySource } from './extract.js';
+import { UNIVERSITY_CANONICALIZATION_VERSION } from './types.js';
 import {
+  DELFT_CREDITS_SHA256,
   DELFT_INTRODUCTION_SHA256,
   MIT_ABSTRACTION_SOURCE_SHA256,
   MIT_LICENSE_SHA256,
@@ -12,10 +15,14 @@ import { extractMystMarkdown } from './extractors/myst.js';
 import { extractPlutoStaticSource } from './extractors/pluto.js';
 import { FIXTURE_URLS } from './fixtures.js';
 import { sha256Utf8 } from './hashes.js';
-import { sourcePassagesFromExtraction } from './passages.js';
+import {
+  canonicalRevisionFromExtraction,
+  sourcePassagesFromExtraction,
+} from './passages.js';
 import type {
   UniversityByteTransport,
   UniversityExtractionResult,
+  AttributionRecord,
 } from './types.js';
 
 async function pinnedBytes(): Promise<{
@@ -165,66 +172,78 @@ describe('pinned university acquisition', () => {
     expect(acquired.outcome).toBe('extraction-ready');
     if (acquired.outcome !== 'extraction-ready') return;
     expect(acquired.sourceBytesSha256).toBe(DELFT_INTRODUCTION_SHA256);
+    expect(acquired.licenseBytesSha256).toBe(DELFT_CREDITS_SHA256);
     expect(acquired.indexing).toBe('not-indexed');
+    expect(acquired.document.text).toContain('[^6]:');
+    expect(acquired.document.text).toContain('Photons have no mass');
   });
 
-  it('adapts attributed passages onto the existing retrieval validator without indexing', async () => {
-    const acquired = await acquireUniversitySource({
+  it('hands acquired revisions and exact canonical passages into existing indexing', async () => {
+    const mit = await acquireUniversitySource({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: await pinnedTransport(),
+      signal: new AbortController().signal,
+      clock,
+    });
+    expect(mit.outcome).toBe('extraction-ready');
+    if (mit.outcome !== 'extraction-ready') return;
+    const mitRevision = canonicalRevisionFromExtraction(mit);
+    const mitSource = toAcquiredSource(mit, {
+      status: 'unknown',
+      reason: 'This source is extraction-ready and is not production indexed.',
+    });
+    expect(mitSource.content.state).toBe('acquired');
+    expect(mitSource.content.revision).toEqual(mitRevision);
+    expect(mitSource.usePolicy.indexing.status).toBe('unknown');
+    expect(mitRevision.canonicalizationVersion).toBe(
+      UNIVERSITY_CANONICALIZATION_VERSION,
+    );
+    expect(mitRevision.sha256).toBe(sha256Utf8(mitRevision.canonicalText));
+    expect(mitRevision.canonicalText).toContain(
+      'function insert(new, A, i, j)',
+    );
+    expect(mitRevision.canonicalText).not.toContain('@bind');
+    expect(mitRevision.canonicalText).not.toContain(
+      'PLUTO_PROJECT_TOML_CONTENTS',
+    );
+    const mitPassages = sourcePassagesFromExtraction(mit);
+    expect(mitPassages.length).toBeGreaterThan(0);
+    for (const passage of mitPassages) {
+      expect(
+        mitRevision.canonicalText.slice(
+          passage.locator.start,
+          passage.locator.end,
+        ),
+      ).toBe(passage.locator.quote);
+    }
+
+    const delft = await acquireUniversitySource({
       candidateId: UNIVERSITY_CANDIDATE_IDS.delftQuantization,
       transport: await pinnedTransport(),
       signal: new AbortController().signal,
       clock,
     });
-    expect(acquired.outcome).toBe('extraction-ready');
-    if (acquired.outcome !== 'extraction-ready') return;
-    const source = toAcquiredSource(acquired, {
+    expect(delft.outcome).toBe('extraction-ready');
+    if (delft.outcome !== 'extraction-ready') return;
+    const delftRevision = canonicalRevisionFromExtraction(delft);
+    const delftSource = toAcquiredSource(delft, {
       status: 'unknown',
       reason: 'This source is extraction-ready and is not production indexed.',
     });
-    expect(source.usePolicy.indexing.status).toBe('unknown');
-    expect(source.content.revision.format).toBe('markdown');
-    const passages = sourcePassagesFromExtraction(acquired);
-    expect(passages.length).toBeGreaterThan(0);
-    const quote = passages[0]?.locator.quote ?? '';
-    expect(
-      source.content.revision.canonicalText.slice(
-        passages[0]?.locator.start ?? 0,
-        passages[0]?.locator.end ?? 0,
-      ),
-    ).toBe(quote);
-    const evidence = toRetrieveEvidenceResponse({
-      result: acquired,
-      indexing: {
-        status: 'permitted',
-        basis: 'license',
-        evidenceUrl:
-          acquired.attribution.licenseEvidenceUrl ??
-          acquired.attribution.originalUrl,
-      },
-      retrievedAt: '2026-09-09T09:20:00.000Z',
-      request: {
-        apiVersion: '2026-09-08',
-        requestId: 'request-01',
-        intent: 'learning',
-        query: 'quantization of angular momentum',
-        sourceRevisions: [
-          {
-            sourceId: source.content.revision.sourceId,
-            revisionId: source.content.revision.revisionId,
-            sha256: source.content.revision.sha256,
-            canonicalizationVersion:
-              source.content.revision.canonicalizationVersion,
-          },
-        ],
-        maxPassages: 8,
-      },
-    });
-    expect(evidence.outcome).toBe('success');
-    if (evidence.outcome !== 'success') return;
-    expect(evidence.evidence[0]?.provenance.rankingMethod).toBe(
-      'exact-canonical-offset-handoff',
-    );
-    expect(evidence.evidence[0]?.sourceQuality).toBe('unknown');
+    expect(delftSource.content.revision.sha256).toBe(delftRevision.sha256);
+    expect(delftRevision.canonicalText).toContain('[^6]:');
+    expect(delftRevision.canonicalText).toContain('Photons have no mass');
+    expect(delftRevision.canonicalText).toContain('\\hbar');
+    const delftPassages = sourcePassagesFromExtraction(delft);
+    expect(delftPassages.length).toBeGreaterThan(0);
+    for (const passage of delftPassages) {
+      expect(
+        delftRevision.canonicalText.slice(
+          passage.locator.start,
+          passage.locator.end,
+        ),
+      ).toBe(passage.locator.quote);
+    }
   });
 
   it('does not turn directory metadata into extraction-ready passages', async () => {
@@ -236,6 +255,80 @@ describe('pinned university acquisition', () => {
     });
     expect(result.outcome).toBe('directory-only');
     expect(isExtractionReady(result)).toBe(false);
+  });
+
+  it('refuses HTML media as a complete university lesson', async () => {
+    const files = await pinnedBytes();
+    const mit = pinnedUniversitySource(UNIVERSITY_CANDIDATE_IDS.mitAbstraction);
+    if (mit === null) throw new Error('Missing MIT pin.');
+    const result = await acquireUniversitySource({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: {
+        async fetch(url, signal) {
+          if (signal.aborted) return { outcome: 'cancelled' };
+          const bytes =
+            url === mit.source.url ? files.mitSource : files.mitLicense;
+          return {
+            outcome: 'success',
+            requestedUrl: url,
+            acquiredUrl: url,
+            mediaType: url === mit.source.url ? 'text/html' : 'text/plain',
+            bytes,
+            redirectCount: 0,
+          };
+        },
+      },
+      signal: new AbortController().signal,
+      clock,
+    });
+    expect(result.outcome).toBe('unsupported');
+    if (result.outcome !== 'unsupported') return;
+    expect(result.message).toContain('HTML was not admitted');
+  });
+
+  it('dispatches extractors without inventing a pin and reports malformed Pluto', () => {
+    expect(
+      extractAdmittedUniversitySource({
+        candidateId: 'univ_not_pinned',
+        bytes: new Uint8Array(),
+      }),
+    ).toMatchObject({ outcome: 'unsupported', reason: 'no-pinned-extractor' });
+    expect(
+      extractAdmittedUniversitySource({
+        candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+        bytes: new TextEncoder().encode('not a notebook'),
+      }),
+    ).toMatchObject({ outcome: 'unsupported' });
+    expect(
+      extractAdmittedUniversitySource({
+        candidateId: UNIVERSITY_CANDIDATE_IDS.delftQuantization,
+        bytes: new TextEncoder().encode('```\nunclosed'),
+      }),
+    ).toMatchObject({ outcome: 'malformed-content' });
+  });
+
+  it('does not invent a public license from empty attribution components', () => {
+    const empty: AttributionRecord = {
+      authors: [],
+      copyrightHolders: [],
+      title: 'Empty',
+      edition: null,
+      sourceCommit: null,
+      originalUrl: 'https://example.edu/empty',
+      acquisitionUrl: null,
+      licenseComponents: [],
+      licenseEvidenceUrl: null,
+      licenseEvidenceSha256: null,
+      exceptions: [],
+      transformationSummary: [],
+      compatibleExportObligations: [],
+    };
+    expect(publicLicenseDescriptor(empty)).toEqual({
+      status: 'known',
+      name: 'Unknown',
+      spdxId: null,
+      url: null,
+    });
   });
 });
 

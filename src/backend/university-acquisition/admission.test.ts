@@ -136,4 +136,77 @@ describe('university byte admission', () => {
       'sourceBytesSha256' in result ? result.sourceBytesSha256 : '',
     );
   });
+
+  it('fails closed on unknown ids, timeouts, unsupported MIME, and license cancel', async () => {
+    const unknown = await admitUniversityBytes({
+      candidateId: 'univ_not_a_source',
+      transport: await fixtureTransport(),
+      signal: new AbortController().signal,
+    });
+    expect(unknown.outcome).toBe('invalid-source');
+    const timedOut = await admitUniversityBytes({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: await fixtureTransport({
+        sourceResult: { outcome: 'timed-out' },
+      }),
+      signal: new AbortController().signal,
+    });
+    expect(timedOut.outcome).toBe('timed-out');
+    const unsupported = await admitUniversityBytes({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: await fixtureTransport({
+        sourceResult: { outcome: 'unsupported', mediaType: 'application/pdf' },
+      }),
+      signal: new AbortController().signal,
+    });
+    expect(unsupported.outcome).toBe('unsupported');
+    const mit = pinnedUniversitySource(UNIVERSITY_CANDIDATE_IDS.mitAbstraction);
+    if (mit === null) throw new Error('Missing MIT pin.');
+    const source = await readFile(FIXTURE_URLS.mitAbstraction);
+    const cancelledLicense = await admitUniversityBytes({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: {
+        async fetch(url) {
+          if (url === mit.source.url) return success(mit.source.url, source);
+          return { outcome: 'cancelled' };
+        },
+      },
+      signal: new AbortController().signal,
+    });
+    expect(cancelledLicense.outcome).toBe('cancelled');
+  });
+
+  it('records BCcampus success without minting a canonical hash', async () => {
+    const result = await admitUniversityBytes({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.bccampusSql,
+      transport: {
+        fetch: async (url) =>
+          success(url, new TextEncoder().encode('<html>not original</html>')),
+      },
+      signal: new AbortController().signal,
+    });
+    expect(result.outcome).toBe('acquisition-pending');
+    expect(result).not.toHaveProperty('sourceBytesSha256');
+  });
+
+  it('cancels when the signal is aborted after the source fetch', async () => {
+    const mit = pinnedUniversitySource(UNIVERSITY_CANDIDATE_IDS.mitAbstraction);
+    if (mit === null) throw new Error('Missing MIT pin.');
+    const source = await readFile(FIXTURE_URLS.mitAbstraction);
+    const controller = new AbortController();
+    const result = await admitUniversityBytes({
+      candidateId: UNIVERSITY_CANDIDATE_IDS.mitAbstraction,
+      transport: {
+        async fetch(url) {
+          if (url === mit.source.url) {
+            controller.abort();
+            return success(mit.source.url, source);
+          }
+          return { outcome: 'unavailable' };
+        },
+      },
+      signal: controller.signal,
+    });
+    expect(result.outcome).toBe('cancelled');
+  });
 });

@@ -106,4 +106,79 @@ Cover image
       ).toBeTruthy();
     }
   });
+
+  it('fails closed on invalid slices, unclosed fences, and empty selections', () => {
+    expect(
+      extractMystMarkdown(bytesOf('ok\n'), {
+        slice: { startLine: 8, endLine: 9 },
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'malformed-content', reason: 'invalid-slice' });
+    expect(
+      extractMystMarkdown(bytesOf('```python\nprint(1)\n'), {
+        slice: null,
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'malformed-content', reason: 'unclosed-fence' });
+    expect(
+      extractMystMarkdown(bytesOf('$$\nE=mc^2\n'), {
+        slice: null,
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'malformed-content' });
+    expect(
+      extractMystMarkdown(bytesOf(':::{note}\nHi\n'), {
+        slice: null,
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'malformed-content' });
+    expect(
+      extractMystMarkdown(bytesOf('\n\n'), {
+        slice: null,
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'unsupported', reason: 'empty-selection' });
+    expect(
+      extractMystMarkdown(Uint8Array.of(0xff), {
+        slice: null,
+        includeFootnotes: [],
+      }),
+    ).toMatchObject({ outcome: 'malformed-content', reason: 'utf8' });
+  });
+
+  it('keeps labeled targets, tilde fences, index omissions, and missing footnotes as gaps', () => {
+    const source = `(eq-label)=
+# Kept
+
+~~~julia
+1 + 1
+~~~
+
+\`\`\`{index}
+hidden
+\`\`\`
+
+\`\`\`{math}
+:label: only-label
+\`\`\`
+
+See [^missing].
+
+:::{note}
+Ignored directive
+:::
+`;
+    const extracted = extractMystMarkdown(bytesOf(source), {
+      slice: null,
+      includeFootnotes: ['missing'],
+    });
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.text).toContain('# Kept');
+    expect(extracted.document.text).toContain('1 + 1');
+    expect(extracted.document.text).not.toContain('hidden');
+    expect(extracted.document.gaps.map((gap) => gap.kind)).toEqual(
+      expect.arrayContaining(['unresolved-crossref', 'unknown-directive']),
+    );
+  });
 });

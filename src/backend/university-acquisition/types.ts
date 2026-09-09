@@ -5,8 +5,6 @@ import type { SourceKind } from '../../contracts/sourcing.js';
 export const UNIVERSITY_CANONICALIZATION_VERSION = 'univ-canon-v1';
 export const PLUTO_EXTRACTION_METHOD = 'pluto-static-v1';
 export const MYST_EXTRACTION_METHOD = 'myst-static-v1';
-export const UNIVERSITY_RETRIEVAL_VERSION = 'univ-hand-v1';
-export const UNIVERSITY_HANDOFF_RANKING = 'exact-canonical-offset-handoff';
 
 export const UNIVERSITY_PUBLIC_MESSAGES = {
   cancelled: 'The university source acquisition was cancelled.',

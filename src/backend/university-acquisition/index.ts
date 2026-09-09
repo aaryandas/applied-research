@@ -3,7 +3,6 @@ export { admitUniversityBytes } from './admission.js';
 export {
   publicLicenseDescriptor,
   toAcquiredSource,
-  toRetrieveEvidenceResponse,
   type ProducerIndexingGrant,
 } from './adapter.js';
 export {
@@ -38,9 +37,7 @@ export {
   MYST_EXTRACTION_METHOD,
   PLUTO_EXTRACTION_METHOD,
   UNIVERSITY_CANONICALIZATION_VERSION,
-  UNIVERSITY_HANDOFF_RANKING,
   UNIVERSITY_PUBLIC_MESSAGES,
-  UNIVERSITY_RETRIEVAL_VERSION,
   type UniversityByteTransport,
   type UniversityExtractionResult,
 } from './types.js';

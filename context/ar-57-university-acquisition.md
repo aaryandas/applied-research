@@ -6,12 +6,12 @@ desktop processes, schema, lockfile, CI, and other context pages were not
 edited.
 
 This checkpoint is **extraction-ready**, not production indexed. No embeddings,
-provider calls, crawls, or desktop wiring were performed.
+provider calls, crawls, retrieval queries, or desktop wiring were performed.
 
 ## What a learner can do after later composition
 
 Discover the reviewed MIT Computational Thinking abstraction lesson and the TU
-Delft quantization slice, inspect original URLs/commits, and retrieve
+Delft quantization slice, inspect original URLs/commits, and later retrieve
 canonical passages that preserve Markdown, TeX, code whitespace, and tables.
 BCcampus SQL remains an honest acquisition-pending directory row. MIT 6.100L,
 Yale PHYS 200, and CMU OLI psychology are factual external-reading links, not
@@ -40,10 +40,11 @@ and is not blanket-indexed.
   obligations, authors, commit, URLs, license evidence hashes, exceptions, and
   the transformation summary. A public single-license descriptor is a lossy
   mapping only; keep `AttributionRecord` downstream.
-- `toRetrieveEvidenceResponse` validates exact UTF-16 quotes through the
-  existing `parseRetrieveEvidenceResponse` seam. It does not write vectors.
-  `provider: turbopuffer` is required by the current shared union, not proof of
-  a live index. Ranking method is `exact-canonical-offset-handoff`.
+- Handoff into existing indexing/retrieval is `toAcquiredSource`,
+  `canonicalRevisionFromExtraction`, and `sourcePassagesFromExtraction`. This
+  lane does not mint `RetrieveEvidenceResponse`, stamp `provider: turbopuffer`,
+  or overwrite `request.sourceRevisions`. Actual retrieval is owned by the
+  primary integration coordinator.
 
 Pinned Cloud re-fetch (9 September 2026 UTC):
 
@@ -57,6 +58,44 @@ Pinned Cloud re-fetch (9 September 2026 UTC):
 
 BCcampus original URL returned HTTP 403 Cloudflare (`cf-mitigated: challenge`).
 Challenge HTML was not stored or hashed. No canonical edition exists.
+
+## Callable composition signatures
+
+Route these sources through existing source composition with these exports
+from `src/backend/university-acquisition/index.ts`. Do not add a university
+retrieval producer.
+
+```ts
+createGuardedUniversityTransport(
+  http: GuardedHttpsClient,
+): UniversityByteTransport
+
+acquireUniversitySource(options: {
+  candidateId: string;
+  transport: UniversityByteTransport;
+  signal: AbortSignal;
+  clock: { now(): Date };
+}): Promise<UniversityExtractionResult>
+
+toAcquiredSource(
+  result: Extract<UniversityExtractionResult, { outcome: 'extraction-ready' }>,
+  indexing:
+    | { status: 'permitted'; basis: 'license'; evidenceUrl: string }
+    | { status: 'unknown'; reason: string },
+): AcquiredSource
+
+canonicalRevisionFromExtraction(
+  result: Extract<UniversityExtractionResult, { outcome: 'extraction-ready' }>,
+): AcquiredCanonicalSourceRevision
+
+sourcePassagesFromExtraction(
+  result: Extract<UniversityExtractionResult, { outcome: 'extraction-ready' }>,
+): readonly SourcePassage[]
+```
+
+Happy-path candidate ids: `univ_mit_ct_abstr`, `univ_tudelft_qm_em`.
+Canonicalization version: `univ-canon-v1`. Indexing remains `not-indexed`
+until the coordinator sets a producer grant and runs existing retrieval.
 
 ## Minimal shared integration request (coordinator lease)
 
@@ -82,20 +121,16 @@ Do not merge these here. Exact patches for later shared owners:
    and MIT code, exceptions, and export obligations survive Reader/export.
    This lane does not integrate Reader or export.
 
-4. **Retrieval provider union**: add an exact-canonical handoff provider or
-   document that `turbopuffer` plus
-   `rankingMethod: exact-canonical-offset-handoff` is temporary. Do not treat
-   handoff evidence as an ANN hit.
-
-5. **Indexing grant**: composition may set indexing `permitted` only after
+4. **Indexing grant**: composition may set indexing `permitted` only after
    this extraction-ready result, current rights, and the remaining 249996
    microUSD embedding gate. Do not append MIT/Delft/BCcampus rows to the PSF
-   `CURATED_SOURCE_MANIFEST`.
+   `CURATED_SOURCE_MANIFEST`. Do not treat local university passages as
+   retrieval hits.
 
-6. **Locator position**: optional `PassageLocator.position` cell/line/byte
+5. **Locator position**: optional `PassageLocator.position` cell/line/byte
    variant. Sidecar `SourceLocator` already stores those fields.
 
-7. **Lane guard / code map**: add `src/backend/university-acquisition/**` if
+6. **Lane guard / code map**: add `src/backend/university-acquisition/**` if
    a future lane split requires it. `lane:backend` already covers
    `src/backend/**`.
 

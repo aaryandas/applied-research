@@ -8,6 +8,7 @@ import {
 } from './catalog.js';
 import { EXTERNAL_COURSE_DIRECTORY, externalCourseEntry } from './directory.js';
 import { MIT_ABSTRACTION_SOURCE_SHA256 } from './attribution.js';
+import * as universityAcquisition from './index.js';
 
 describe('university source catalog states', () => {
   it('keeps candidate metadata, rights, extraction and indexing separate', () => {
@@ -46,5 +47,9 @@ describe('university source catalog states', () => {
       expect(pinnedUniversitySource(entry.id)).toBeNull();
       expect(externalCourseEntry(entry.id)?.sourceId).toBe(entry.sourceId);
     }
+    expect(universityAcquisition.UNIVERSITY_CANONICALIZATION_VERSION).toBe(
+      'univ-canon-v1',
+    );
+    expect(universityAcquisition.EXTERNAL_COURSE_DIRECTORY).toHaveLength(3);
   });
 });

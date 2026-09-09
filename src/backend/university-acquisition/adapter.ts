@@ -1,21 +1,7 @@
-import {
-  SOURCING_PUBLIC_MESSAGES,
-  type AcquiredSource,
-  type RetrieveEvidenceRequest,
-  type RetrieveEvidenceResponse,
-} from '../../contracts/sourcing.js';
-import {
-  parseRetrieveEvidenceResponse,
-  SourcingContractValidationError,
-} from '../sourcing/contract-validation.js';
+import type { AcquiredSource } from '../../contracts/sourcing.js';
 import { universityCandidate } from './catalog.js';
+import { canonicalRevisionFromExtraction } from './passages.js';
 import {
-  canonicalRevisionFromExtraction,
-  sourcePassagesFromExtraction,
-} from './passages.js';
-import {
-  UNIVERSITY_HANDOFF_RANKING,
-  UNIVERSITY_RETRIEVAL_VERSION,
   freezeUniversityValue,
   type AttributionRecord,
   type UniversityExtractionResult,
@@ -72,66 +58,6 @@ export function toAcquiredSource(
     },
     content: { state: 'acquired', revision },
   });
-}
-
-export function toRetrieveEvidenceResponse(options: {
-  result: Extract<UniversityExtractionResult, { outcome: 'extraction-ready' }>;
-  request: RetrieveEvidenceRequest;
-  indexing: ProducerIndexingGrant;
-  retrievedAt: string;
-}): RetrieveEvidenceResponse {
-  const source = toAcquiredSource(options.result, options.indexing);
-  const revision = source.content.revision;
-  const passages = sourcePassagesFromExtraction(options.result).slice(
-    0,
-    options.request.maxPassages,
-  );
-  const evidence = passages.map((passage, index) => ({
-    evidenceId: passage.passageId,
-    locator: passage.locator,
-    sourceVersion: passage.sourceVersion,
-    retrieverScore: 1,
-    sourceQuality: 'unknown' as const,
-    provenance: {
-      query: options.request.query,
-      intent: options.request.intent,
-      provider: 'turbopuffer' as const,
-      retrievalVersion: UNIVERSITY_RETRIEVAL_VERSION,
-      rankingMethod: UNIVERSITY_HANDOFF_RANKING,
-      rank: index + 1,
-      retrievedAt: options.retrievedAt,
-    },
-  }));
-  const response: RetrieveEvidenceResponse = {
-    outcome: 'success',
-    requestId: options.request.requestId,
-    evidence,
-  };
-  try {
-    return parseRetrieveEvidenceResponse(response, {
-      request: {
-        ...options.request,
-        sourceRevisions: [
-          {
-            sourceId: revision.sourceId,
-            revisionId: revision.revisionId,
-            sha256: revision.sha256,
-            canonicalizationVersion: revision.canonicalizationVersion,
-          },
-        ],
-      },
-      canonicalTextFor: () => revision.canonicalText,
-      indexingFor: () => options.indexing,
-    });
-  } catch (error) {
-    if (!(error instanceof SourcingContractValidationError)) throw error;
-    return freezeUniversityValue({
-      outcome: 'unavailable',
-      requestId: options.request.requestId,
-      message: SOURCING_PUBLIC_MESSAGES.unavailable,
-      retryable: false,
-    });
-  }
 }
 
 export function publicLicenseDescriptor(attribution: AttributionRecord): {

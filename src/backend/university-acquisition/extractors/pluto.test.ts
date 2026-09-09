@@ -131,4 +131,151 @@ md"## Same"
       extractPlutoStaticSource(Uint8Array.of(0xff, 0xfe, 0x00)),
     ).toMatchObject({ outcome: 'malformed-content' });
   });
+
+  it('fails closed on missing, malformed, unknown, and unordered Cell-order lists', () => {
+    expect(extractPlutoStaticSource(notebook('not a notebook'))).toMatchObject({
+      outcome: 'unsupported',
+      reason: 'not-pluto',
+    });
+    expect(
+      extractPlutoStaticSource(
+        notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"one"
+`),
+      ),
+    ).toMatchObject({
+      outcome: 'malformed-content',
+      reason: 'missing-cell-order',
+    });
+    expect(
+      extractPlutoStaticSource(
+        notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"one"
+
+# ╔═╡ Cell order:
+# garbage
+`),
+      ),
+    ).toMatchObject({
+      outcome: 'malformed-content',
+      reason: 'malformed-cell-order',
+    });
+    expect(
+      extractPlutoStaticSource(
+        notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"one"
+
+# ╔═╡ Cell order:
+# ╟─${UUID_B}
+`),
+      ),
+    ).toMatchObject({
+      outcome: 'malformed-content',
+      reason: 'unknown-cell-order-id',
+    });
+    expect(
+      extractPlutoStaticSource(
+        notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"one"
+
+# ╔═╡ ${UUID_B}
+md"two"
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+`),
+      ),
+    ).toMatchObject({ outcome: 'malformed-content', reason: 'unordered-cell' });
+  });
+
+  it('omits widgets and macros and reports media gaps from static Markdown', () => {
+    const bytes = notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"""
+## Kept heading
+![diagram](https://example.com/a.png)
+<img src="https://example.com/b.png">
+https://youtu.be/abcdefghijk
+![unfinished
+"""
+
+# ╔═╡ ${UUID_B}
+@bind x Slider(1:10)
+
+# ╔═╡ ${UUID_C}
+@macrocall foo()
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+# ╠═${UUID_B}
+# ╠═${UUID_C}
+`);
+    const extracted = extractPlutoStaticSource(bytes);
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.text).toContain('## Kept heading');
+    expect(extracted.document.text).not.toContain('Slider');
+    expect(extracted.document.gaps.map((gap) => gap.kind)).toEqual(
+      expect.arrayContaining([
+        'unsupported-media',
+        'widget',
+        'executable-macro',
+      ]),
+    );
+  });
+
+  it('does not treat TOML-only notebooks as a complete lesson', () => {
+    const extracted = extractPlutoStaticSource(
+      notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_TOML}
+PLUTO_PROJECT_TOML_CONTENTS = """
+[deps]
+"""
+
+# ╔═╡ Cell order:
+# ╟─${UUID_TOML}
+`),
+    );
+    expect(extracted).toMatchObject({
+      outcome: 'unsupported',
+      reason: 'no-static-cells',
+    });
+  });
+
+  it('preserves unclosed-string refusal and escaped delimiters in Markdown cells', () => {
+    const unclosed = extractPlutoStaticSource(
+      notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"unterminated
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+`),
+    );
+    expect(unclosed.outcome).not.toBe('success');
+    const escaped = extractPlutoStaticSource(
+      notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"quote \\"inside\\""
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+`),
+    );
+    expect(escaped.outcome).toBe('success');
+    if (escaped.outcome !== 'success') return;
+    expect(escaped.document.text).toContain('quote "inside"');
+  });
 });
