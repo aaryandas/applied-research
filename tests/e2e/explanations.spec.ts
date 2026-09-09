@@ -15,6 +15,7 @@ import {
 import { cpus, platform, release, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { SceneLocalState } from '../../src/contracts/explanation-artifacts';
 import {
   closeTestApplication,
   useElectronCloseHandling,
@@ -146,10 +147,7 @@ async function currentVisualExplanationId(page: Page): Promise<string> {
 async function loadSceneState(
   page: Page,
   explanationId: string,
-): Promise<{
-  camera: { position: unknown; target: unknown };
-  parameters: Record<string, unknown>;
-} | null> {
+): Promise<SceneLocalState | null> {
   return page.evaluate(async (id) => {
     const [project] = await window.desktop.listProjects();
     if (!project) throw new Error('missing project');
