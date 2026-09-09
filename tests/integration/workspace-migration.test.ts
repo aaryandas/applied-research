@@ -10,9 +10,16 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, expect, it } from 'vitest';
 import type { Project } from '../../src/contracts/workspace';
 import {
+  persistEntryOrigin,
+  hasEntryOriginColumns,
+} from '../../src/main/entry-origin-persistence';
+import {
+  applyReservedEntryOriginMigration,
   LATEST_WORKSPACE_MIGRATION,
   legacyBackupPath,
   migrateWorkspaceDatabase,
@@ -165,6 +172,48 @@ function interruptingMigrationFolder(): string {
     join(process.cwd(), 'drizzle/0004_practical_journey.sql'),
     join(directory, '0004_practical_journey.sql'),
   );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0005_learning_onboarding.sql'),
+    join(directory, '0005_learning_onboarding.sql'),
+  );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0006_contextual_retention.sql'),
+    join(directory, '0006_contextual_retention.sql'),
+  );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0007_entry_origins.sql'),
+    join(directory, '0007_entry_origins.sql'),
+  );
+  return directory;
+}
+
+function frozenJournalFolder(throughIdx: number): string {
+  const directory = mkdtempSync(join(tmpdir(), 'applied-frozen-migrations-'));
+  directories.push(directory);
+  const metadata = join(directory, 'meta');
+  mkdirSync(metadata);
+  const journal = JSON.parse(
+    readFileSync(join(process.cwd(), 'drizzle/meta/_journal.json'), 'utf8'),
+  ) as {
+    version: string;
+    dialect: string;
+    entries: Array<{ idx: number; tag: string }>;
+  };
+  writeFileSync(
+    join(metadata, '_journal.json'),
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.idx <= throughIdx),
+    }),
+  );
+  for (const entry of journal.entries.filter(
+    (item) => item.idx <= throughIdx,
+  )) {
+    copyFileSync(
+      join(process.cwd(), 'drizzle', `${entry.tag}.sql`),
+      join(directory, `${entry.tag}.sql`),
+    );
+  }
   return directory;
 }
 
@@ -587,4 +636,133 @@ it('rejects malformed legacy attribution and normalized schemas', () => {
   expect(() => new WorkspaceStore(normalizedPath)).toThrow(
     'incomplete or unsupported',
   );
+});
+
+it('opens a production database with onboarding, explanations and entry origins', () => {
+  const path = temporaryDatabase();
+  const store = new WorkspaceStore(path);
+  try {
+    const project = store.create('Cumulative production schema');
+    expect(store.onboardingRecords().snapshot(project.id)).toEqual({
+      interview: null,
+      proposal: null,
+      accepted: null,
+    });
+    expect(store.explanations.listExplanations(project.id)).toEqual([]);
+    const parent = store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Parent',
+      body: 'Exact parent',
+      origin: null,
+    });
+    if (parent.status !== 'committed') throw new Error('parent failed');
+    const child = store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Child',
+      body: 'Origin child',
+      origin: { entry: { entryId: parent.record.id, revision: 1 } },
+    });
+    if (child.status !== 'committed') throw new Error('child failed');
+    expect(child.record.current.origin).toEqual({
+      entry: { entryId: parent.record.id, revision: 1 },
+    });
+  } finally {
+    store.close();
+  }
+  const reopened = new WorkspaceStore(path);
+  try {
+    expect(reopened.list()[0]?.goal).toBe('Cumulative production schema');
+  } finally {
+    reopened.close();
+  }
+});
+
+it('upgrades a populated 0004 workspace through 0007 and reopens it', () => {
+  const path = temporaryDatabase();
+  const folder = frozenJournalFolder(4);
+  const database = new Database(path);
+  database.exec(
+    'CREATE TABLE projects (id TEXT PRIMARY KEY, document TEXT NOT NULL)',
+  );
+  migrate(drizzle(database), { migrationsFolder: folder });
+  const now = '2026-09-09T12:00:00.000Z';
+  database
+    .prepare(
+      'INSERT INTO projects (id, goal, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    .run(projectId, 'Upgrade retained work', now, now);
+  expect(hasEntryOriginColumns(database)).toBe(false);
+  expect(tableNames(database)).not.toContain('learner_profile');
+  expect(tableNames(database)).not.toContain('retained_explanations');
+  database.close();
+
+  const store = new WorkspaceStore(path);
+  try {
+    expect(store.get(projectId).goal).toBe('Upgrade retained work');
+    expect(store.onboardingRecords().snapshot(projectId)).toEqual({
+      interview: null,
+      proposal: null,
+      accepted: null,
+    });
+    expect(store.explanations.listExplanations(projectId)).toEqual([]);
+    const parent = store.saveQuestion({
+      projectId,
+      expectedRevision: 0,
+      title: 'Upgraded parent',
+      body: 'Survived 0004',
+      origin: null,
+    });
+    if (parent.status !== 'committed') throw new Error('parent failed');
+    const child = store.saveReadingNote({
+      projectId,
+      expectedRevision: 0,
+      title: 'Upgraded child',
+      body: 'Exact parent revision',
+      origin: { entry: { entryId: parent.record.id, revision: 1 } },
+    });
+    if (child.status !== 'committed') throw new Error('child failed');
+    expect(child.record.current.origin).toEqual({
+      entry: { entryId: parent.record.id, revision: 1 },
+    });
+  } finally {
+    store.close();
+  }
+  const reopened = new WorkspaceStore(path);
+  try {
+    const restored = reopened
+      .getLearningWorkspace(projectId)
+      .entries.find((entry) => entry.current.title === 'Upgraded child');
+    expect(restored?.current.origin?.entry?.revision).toBe(1);
+  } finally {
+    reopened.close();
+  }
+});
+
+it('refuses origin.entry on a pre-0007 schema until 0007 SQL is applied', () => {
+  const path = temporaryDatabase();
+  const folder = frozenJournalFolder(4);
+  const database = new Database(path);
+  database.exec(
+    'CREATE TABLE projects (id TEXT PRIMARY KEY, document TEXT NOT NULL)',
+  );
+  migrate(drizzle(database), { migrationsFolder: folder });
+  expect(hasEntryOriginColumns(database)).toBe(false);
+  expect(() =>
+    persistEntryOrigin(database, {
+      entryId: '20000000-0000-4000-8000-000000000001',
+      revision: 1,
+      origin: {
+        entry: {
+          entryId: '20000000-0000-4000-8000-000000000002',
+          revision: 1,
+        },
+      },
+    }),
+  ).toThrow('origin.entry is not persisted yet');
+  applyReservedEntryOriginMigration(database);
+  applyReservedEntryOriginMigration(database);
+  expect(hasEntryOriginColumns(database)).toBe(true);
+  database.close();
 });

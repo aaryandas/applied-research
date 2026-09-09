@@ -1251,7 +1251,7 @@ it('rejects backend citations that do not exactly locate owned source text', () 
   store.close();
 });
 
-it('refuses entry origins until reserved 0007 is applied, then persists exact parent revisions', () => {
+it('persists exact parent entry revisions on a production store and reopens them', () => {
   const path = databasePath();
   const store = new WorkspaceStore(path);
   const project = store.create('Retain entry origins');
@@ -1265,19 +1265,6 @@ it('refuses entry origins until reserved 0007 is applied, then persists exact pa
     }),
   );
   const entryOrigin = { entry: { entryId: parent.id, revision: 1 } };
-  expect(() =>
-    store.saveReadingNote({
-      projectId: project.id,
-      expectedRevision: 0,
-      title: 'Child note',
-      body: 'Origin-only child',
-      origin: entryOrigin,
-    }),
-  ).toThrow('origin.entry is not persisted yet');
-  expect(store.getLearningWorkspace(project.id).entries).toHaveLength(1);
-
-  store.applyReservedEntryOriginMigration();
-  store.applyReservedEntryOriginMigration();
   const child = committed(
     store.saveReadingNote({
       projectId: project.id,

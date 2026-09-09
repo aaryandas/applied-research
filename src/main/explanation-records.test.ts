@@ -208,11 +208,22 @@ describe('explanation records', () => {
     ).toBe('visual');
   });
 
-  it('does not reopen WorkspaceStore after 0006 without the coordinator schema patch', () => {
+  it('reopens the production store on the same path without re-running 0006', () => {
     const harness = openExplanationHarness();
     cleanups.push(() => harness.close());
-    expect(() => new WorkspaceStore(harness.path)).toThrow(
-      /schema|column|table/i,
-    );
+    const first = explanation(harness);
+    harness.records.saveExplanation(first, new Map());
+    harness.release();
+    const reopened = new WorkspaceStore(harness.path);
+    try {
+      expect(
+        reopened.explanations.loadExplanation(
+          harness.projectId,
+          first.explanationId,
+        )?.origin.highlightId,
+      ).toBe(harness.highlightId);
+    } finally {
+      reopened.close();
+    }
   });
 });

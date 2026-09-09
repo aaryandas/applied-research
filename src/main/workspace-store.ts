@@ -1,5 +1,7 @@
 import { adoptSourcedLearning } from './source-learning-adoption';
 import { PracticalRecords } from './practical-records';
+import { LearningOnboardingRecords } from './learning-onboarding-records';
+import { ExplanationRecords } from './explanation-records';
 import type {
   PracticalFileContent,
   RetainedPracticalFile,
@@ -229,6 +231,8 @@ export class WorkspaceStore {
   private readonly database: Database.Database;
   private readonly orm: WorkspaceDatabase;
   private readonly practical: PracticalRecords;
+  private readonly onboarding: LearningOnboardingRecords;
+  readonly explanations: ExplanationRecords;
 
   acceptSourcedLearning(value: unknown): CommitResult<LearningPathRecord> {
     return this.database
@@ -290,6 +294,8 @@ export class WorkspaceStore {
       this.database.pragma('busy_timeout = 5000');
       this.orm = drizzle(this.database, { schema: workspaceSchema });
       this.practical = new PracticalRecords(this.orm);
+      this.onboarding = new LearningOnboardingRecords(this.orm);
+      this.explanations = new ExplanationRecords(this.orm);
     } catch (error_) {
       this.database.close();
       throw error_;
@@ -795,7 +801,11 @@ export class WorkspaceStore {
     this.database.close();
   }
 
-  /** Tests only: apply reserved 0007 on this open disposable store. Not IPC. */
+  onboardingRecords(): LearningOnboardingRecords {
+    return this.onboarding;
+  }
+
+  /** Tests only: apply 0007 SQL on a disposable pre-0007 connection. Not IPC. */
   applyReservedEntryOriginMigration(): void {
     applyReservedEntryOriginMigration(this.database);
   }

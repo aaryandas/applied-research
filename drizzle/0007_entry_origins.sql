@@ -1,7 +1,6 @@
--- AR-56 reserved LearningOrigin.entry persistence. Do not journal this file
--- until AR-47 0005_learning_onboarding and AR-51 0006_contextual_retention are
--- registered. Tests apply it on a disposable already-migrated database.
--- Coordinator serializes the journal/latest-version patch after 0005/0006.
+-- AR-56 LearningOrigin.entry persistence. Journaled after 0005 and 0006.
+-- Rebuilds entry_revision_context, copies existing columns, and sets the new
+-- parent fields NULL. Finishes with a foreign-key integrity guard.
 CREATE TABLE `entry_revision_context_next` (
   `entry_id` text NOT NULL,
   `project_id` text NOT NULL,
