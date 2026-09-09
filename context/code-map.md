@@ -2,28 +2,35 @@
 
 This map describes the implemented MVP. See [scope and limitations](mvp.md). Read [architecture](architecture.md) before adding process responsibilities.
 
-| Location                        | Responsibility                                                        |
-| ------------------------------- | --------------------------------------------------------------------- |
-| `src/main/index.ts`             | Electron application and window lifecycle, security configuration     |
-| `src/main/startup-error.ts`     | Allow-listed startup messages and privacy-safe typed diagnostics      |
-| `src/main/navigation.ts`        | Renderer navigation policy and adjacent unit tests                    |
-| `src/preload/index.ts`          | Named workspace/account/tutor/tool bridge and subscriptions           |
-| `src/contracts/desktop.ts`      | Shared serializable desktop bridge contract                           |
-| `src/contracts/desktop-auth.ts` | Public account/session states, fixed origin/scheme and auth channels  |
-| `src/contracts/learning-api.ts` | Authenticated backend request/response, provenance and quota contract |
-| `src/backend/`                  | Better Auth, PostgreSQL accounting and bounded OpenRouter server      |
-| `tests/backend-postgres/`       | Disposable real PostgreSQL migration/auth/accounting verification     |
-| `src/renderer/`                 | Canvas, companion, tool panel, matrix experiment, styles and UI tests |
-| `tests/e2e/`                    | Real Electron smoke tests                                             |
-| `scripts/test-packaged.mjs`     | Smoke test against the packaged application                           |
-| `drizzle/`                      | Authoritative reviewed SQLite migrations and migration journal        |
-| `scripts/release-assets.mjs`    | Release asset selection                                               |
-| `electron.vite.config.ts`       | Main, preload and renderer builds                                     |
-| `electron-builder.yml`          | Installer configuration and packaged file scope                       |
-| `.github/workflows/verify.yml`  | Shared cross-platform verification                                    |
-| `.github/workflows/`            | Pull request CI, candidate releases and optional Sonar analysis       |
-| `context/design-system/`        | Shared renderer tokens/fonts/art and standalone interaction specimens |
-| `context/repos/effect/`         | Read-only upstream reference; not application code                    |
+| Location                        | Responsibility                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `src/main/index.ts`             | Electron application and window lifecycle, security configuration               |
+| `src/main/startup-error.ts`     | Allow-listed startup messages and privacy-safe typed diagnostics                |
+| `src/main/navigation.ts`        | Renderer navigation policy and adjacent unit tests                              |
+| `src/preload/index.ts`          | Named workspace/account/tutor/tool bridge and subscriptions                     |
+| `src/contracts/desktop.ts`      | Shared serializable desktop bridge contract                                     |
+| `src/contracts/desktop-auth.ts` | Public account/session states, fixed origin/scheme and auth channels            |
+| `src/contracts/learning-api.ts` | Authenticated backend request/response, provenance and quota contract           |
+| `src/backend/`                  | Better Auth, PostgreSQL accounting and bounded OpenRouter server                |
+| `tests/backend-postgres/`       | Disposable real PostgreSQL migration/auth/accounting verification               |
+| `src/renderer/`                 | Canvas, companion, tool panel, matrix experiment, styles and UI tests           |
+| `tests/e2e/`                    | Real Electron smoke tests                                                       |
+| `scripts/test-packaged.mjs`     | Smoke test against the packaged application                                     |
+| `drizzle/`                      | Authoritative reviewed SQLite migrations and migration journal                  |
+| `scripts/release-assets.mjs`    | Release asset selection                                                         |
+| `scripts/dispatch*.mjs`         | Persistent ticket claims, readiness/capacity rules and isolated Astra execution |
+| `scripts/delivery-merge*.mjs`   | Serialized, revision-checked merge and release eligibility for Luna             |
+| `scripts/workflow-*.mjs`        | Trusted GitHub API helpers and pure evidence/verdict rules                      |
+| `scripts/linear-gate.mjs`       | Reconcile exact-commit Linear verification into a required GitHub status        |
+| `scripts/fable-review.mjs`      | Freeze independent review revision and publish validated Fable verdict          |
+| `scripts/merge-group-gates.mjs` | Carry constituent PR evidence into native merge-group checks when enabled       |
+| `context/automation-run.md`     | Active delivery automation commands, roles, claims and recovery protocol        |
+| `electron.vite.config.ts`       | Main, preload and renderer builds                                               |
+| `electron-builder.yml`          | Installer configuration and packaged file scope                                 |
+| `.github/workflows/verify.yml`  | Shared cross-platform verification                                              |
+| `.github/workflows/`            | Pull request CI, candidate releases and optional Sonar analysis                 |
+| `context/design-system/`        | Shared renderer tokens/fonts/art and standalone interaction specimens           |
+| `context/repos/effect/`         | Read-only upstream reference; not application code                              |
 
 Unit tests live beside their source. The MVP modules below own the implemented responsibilities.
 

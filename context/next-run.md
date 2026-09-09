@@ -1,5 +1,13 @@
 # Next-run workflow
 
+## Active evening run — September 8
+
+The founder now selects Astra High for implementation, Cursor cloud verification and Bugbot, Fable 5.1 independent review, and Luna for gated merges/deployment. Up to **ten claimed active tickets** may run concurrently. The target is 23:00 America/Chicago on September 8; the founder explicitly instructed continuing afterward until the active scope is complete. These instructions supersede the earlier coordinator/worker limits below. See [the executable automation runbook](automation-run.md) and [AR-41](https://linear.app/aaryan-das/issue/AR-41/activate-deterministic-astra-cursor-fable-luna-delivery-workflow).
+
+Code owns dispatch claims, capacity, prerequisite checkpoints, retry identity and merge eligibility. Linear connectors refresh snapshots and apply script-emitted transitions. Exact-commit verification evidence is mandatory: `VERIFICATION_SHA`, `VERIFICATION_RESULT: PASS`, and `VERIFICATION_VIDEO` in the issue comment. The trusted Linear gate reconciles automatically. Fable returns a structured verdict; required fixes prevent approval. Cursor's saved prompt resolves the actual triggering issue and linked PR instead of using unsupported placeholders. A merge is not deployment completion; retain release/backend evidence before Done.
+
+The initial implementation queue is AR-32, AR-33, AR-34, AR-35, AR-36, AR-37, AR-38, AR-40, AR-19 and AR-25. Reuse preserved acquisition and companion commits. Shared shell/bridge integration belongs to AR-37; authors hand off bounded public modules. AR-34 may implement against synthetic vectors, but its existing embedding/region/budget decisions still block live writes. Playbook remains deferred. The existing lower sections retain historical setup details only where consistent with this update.
+
 The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. The unit of work is a pull request against the integration branch. Linear status changes trigger machines. One coordinator merges and resolves ambiguity; nothing else is serialized on a person or a laptop.
 
 ## Roles

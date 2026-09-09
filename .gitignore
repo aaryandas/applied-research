@@ -22,6 +22,7 @@ test-results/
 .impeccable/
 .lavish/
 .scratch/
+.dispatch/
 # Historical research and comparison captures belong in the external knowledge base.
 /docs/archive/
 /docs/research/

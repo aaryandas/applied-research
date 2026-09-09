@@ -21,7 +21,40 @@
     ],
     "reader": ["src/renderer/reader/**"],
     "canvas": ["src/renderer/canvas/**"],
-    "practical": ["src/renderer/practical/**"],
+    "practical": [
+      "src/renderer/practical/**",
+      "src/main/practical-*.ts",
+      "src/contracts/practical*.ts"
+    ],
+    "companion": ["src/renderer/companion/**", "src/contracts/companion.ts"],
+    "research": ["src/renderer/research/**"],
+    "semantic-scholar": ["src/backend/sourcing/semantic-scholar/**"],
+    "acquisition": [
+      "src/backend/sourcing/acquisition/**",
+      "src/backend/sourcing/corpus/**"
+    ],
+    "source-index": ["src/backend/sourcing/index/**"],
+    "retrieval": ["src/backend/sourcing/retrieval/**"],
+    "learning-generation": [
+      "src/backend/sourced-learning/**",
+      "src/backend/provider.ts",
+      "src/backend/learning-api.ts"
+    ],
+    "source-adoption": [
+      "src/main/source-*.ts",
+      "src/main/index.ts",
+      "src/main/workspace-*.ts",
+      "src/main/learning-*.ts",
+      "src/main/trusted-learning-records.ts",
+      "src/preload/**",
+      "src/contracts/desktop.ts",
+      "src/contracts/source-*.ts",
+      "src/contracts/learning-records.ts",
+      "src/renderer/Shell.tsx",
+      "src/renderer/shell/**",
+      "drizzle/**",
+      "tests/integration/**"
+    ],
     "settings": ["src/renderer/settings/**"],
     "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
     "opening": [
