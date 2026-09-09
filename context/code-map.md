@@ -70,6 +70,8 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/main/workspace-schema.ts`: query-only Drizzle table mapping; checked-in SQL migrations remain authoritative for database constraints.
 - `src/main/tutor.ts`: bounded OpenRouter request, response/citation parsing and explicit unsupported/failure outcomes.
 - `src/renderer/EntryCard.tsx`: human drafts/autosave, AI citations and movable entries.
+- `src/contracts/companion.ts` and `src/renderer/companion/`: bounded in-process guidance requester/resolver lifecycle, explicit controls, local pointer decoration and semantic target reveal. Production shell/transport wiring remains AR-37-owned; Practical context producers remain AR-19-owned. See [companion scope](companion.md).
+- `tests/e2e/companion.spec.ts` and `tests/e2e/companion/`: isolated Electron consumer journey with synthetic adapters, separate from production-connected acceptance; includes fixture TypeScript checking and daylight/evening/state captures.
 - `src/renderer/FieldAtlas.tsx`: the reference arch mark and SVG control family, day/evening preference, and native modal focus/Escape behavior.
 - `src/renderer/App.tsx`: approved Opening, project loading through the named learning-records bridge, account Settings entry and shared appearance preference.
 - `src/renderer/Shell.tsx`, `shell.css`: persistent topic navigation, Reader/Canvas/Practical/Settings composition, automatic Canvas icon rail and thin detail-mode bar. Reader stays mounted to preserve reading position; successful Canvas moves refresh the shared workspace before remounting.
