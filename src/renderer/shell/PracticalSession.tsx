@@ -100,6 +100,9 @@ export function PracticalSession(
     };
   }, [owner]);
   useEffect(() => {
+    owner.setAttemptId(props.attemptId);
+  }, [owner, props.attemptId]);
+  useEffect(() => {
     if (!tool || !toolSessionId) return;
     const sessionId = toolSessionId;
     const stop = props.toolBridge.onToolState((native) => {

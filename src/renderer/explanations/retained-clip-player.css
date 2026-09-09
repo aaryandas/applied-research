@@ -1,0 +1,71 @@
+.retained-clip {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.retained-clip__stage {
+  position: relative;
+  background: #14181c;
+  border-radius: var(--radius-panel);
+  color: #eceae4;
+  overflow: hidden;
+}
+.retained-clip--enlarged .retained-clip__stage {
+  position: fixed;
+  inset: 12px;
+  z-index: 40;
+  margin: 0;
+  display: grid;
+  align-content: center;
+  background: #0c0f12;
+}
+.retained-clip video {
+  display: block;
+  width: 100%;
+  max-height: min(720px, 70vh);
+  background: #0c0f12;
+}
+.retained-clip--enlarged video {
+  max-height: 80vh;
+}
+.retained-clip__controls,
+.retained-clip__stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.retained-clip__controls button[aria-pressed='true'],
+.retained-clip__stages button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.retained-clip input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+.retained-clip__caption,
+.retained-clip__notation,
+.retained-clip__timings,
+.retained-clip__provenance {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.retained-clip__notation {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.retained-clip__provenance {
+  overflow-wrap: anywhere;
+}
+.retained-clip__error {
+  color: var(--danger);
+  font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .retained-clip__stage {
+    transition: none;
+  }
+}

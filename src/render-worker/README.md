@@ -29,7 +29,7 @@ Semantic stages are `[0, 2, 5]` seconds for linear transformation and `[0, 2, 5,
 
 ## Runtime boundary and limits
 
-The adapter invokes the already installed OrbStack context with structured `spawn` argv, `shell: false` and a provider-free child environment. It pins the approved image digest in `docker.ts`, prohibits pulling, mounts only the installed `presets/` directory read-only and one private job directory writable, requires a non-root POSIX host and runs as its UID/GID, disables networking, uses a read-only root filesystem, drops capabilities, enables no-new-privileges and init, and limits CPU (2), memory/swap (1 GiB), PIDs (128), temporary memory (128 MiB) and per-file size (96 MiB). Aggregate working output is monitored against 96 MiB every 200 ms. This monitor is an application limit, not a hard filesystem quota; the fixed presets, memory/file limits and 120-second render deadline also bound exposure. A deployment on another Docker runtime must verify these controls and supply its trusted context/tool paths.
+The adapter invokes a named Docker context with structured `spawn` argv, `shell: false` and a provider-free child environment. `AnimationRenderWorker.create` requires an explicit `dockerContext`; it does not infer `orbstack`, `default`, or any GitHub daemon name. Local Mac operators pass `orbstack` only as that explicit value. Evidence commands take `--docker`, `--docker-context`, `--ffmpeg` and `--ffprobe`; environment variables alone do not configure those calls. It pins the approved image digest in `docker.ts`, prohibits pulling, mounts only the installed `presets/` directory read-only and one private job directory writable, requires a non-root POSIX host and runs as its UID/GID, disables networking, uses a read-only root filesystem, drops capabilities, enables no-new-privileges and init, and limits CPU (2), memory/swap (1 GiB), PIDs (128), temporary memory (128 MiB) and per-file size (96 MiB). Aggregate working output is monitored against 96 MiB every 200 ms. This monitor is an application limit, not a hard filesystem quota; the fixed presets, memory/file limits and 120-second render deadline also bound exposure. A deployment on another Docker runtime must verify these controls and supply its trusted context/tool paths through `AnimationRenderWorker.create({ docker, dockerContext, ffmpeg, ffprobe })`. Authenticated delivery (`src/backend/render-delivery/`) separately requires `AR_MANIM_DOCKER_CONTEXT` and refuses OrbStack unless explicitly allowed for local Mac development. GitHub-hosted Ubuntu ARM evidence is a proposed AR-41 workflow, not an inferred worker default.
 
 Cancellation/deadline kills the CLI process group, including descendants, then forcibly removes the daemon-owned container by its unique name. The process result explicitly distinguishes not-started, started and unknown launch state. A confirmed pre-launch failure such as ENOENT returns `runtime` with an allowlisted diagnostic and needs no container removal. A runner exception or daemon disconnection after a launch attempt never proves the absence of a container; cleanup must still be confirmed. Queued cancellation resolves without launching. Late output cannot become a success after cancellation during render, probe, decoding or hashing. Failed/aborted jobs remove their directory. Safe cleanup diagnostics are retained even when cancellation was requested. A `cleanup` failure is distinct: the container runtime could not confirm removal; an operator must inspect the named `ar-manim-*` containers before treating that infrastructure as healthy. This is not a recovery daemon.
 
@@ -41,6 +41,7 @@ Use Node 24 and the repository's exact lockfile. No npm dependencies were added.
 
 ```sh
 AR_MANIM_EVIDENCE=$(mktemp -d -t ar-manim-evidence)
+chmod 0700 "$AR_MANIM_EVIDENCE"
 node src/render-worker/build.mjs "$AR_MANIM_EVIDENCE/compiled"
 node --test src/render-worker/evidence-paths.test.mjs
 node_modules/.bin/vitest run --project unit src/render-worker
@@ -49,17 +50,25 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s src/render-worker/pres
 
 `tsconfig.node.json` includes this source in the repository type gate. The isolated build copies only static presets beside the compiled worker. Do not mount the repository/Electron application into the image.
 
-In a coordinator-granted heavy/native slot:
+In a coordinator-granted heavy/native slot, after the host records a real Docker context name (do not invent `orbstack` or `default` in the worker):
 
 ```sh
-node src/render-worker/render-evidence.mjs "$AR_MANIM_EVIDENCE"
-node src/render-worker/runtime-probes.mjs "$AR_MANIM_EVIDENCE"
-node src/render-worker/capture-evidence.mjs "$AR_MANIM_EVIDENCE"
-node src/render-worker/color-evidence.mjs "$AR_MANIM_EVIDENCE"
+node src/render-worker/render-evidence.mjs "$AR_MANIM_EVIDENCE" \
+  --docker "$DOCKER" --docker-context "$DOCKER_CONTEXT" \
+  --ffmpeg "$FFMPEG" --ffprobe "$FFPROBE"
+node src/render-worker/runtime-probes.mjs "$AR_MANIM_EVIDENCE" \
+  --docker "$DOCKER" --docker-context "$DOCKER_CONTEXT" \
+  --ffmpeg "$FFMPEG" --ffprobe "$FFPROBE"
+node src/render-worker/capture-evidence.mjs "$AR_MANIM_EVIDENCE" \
+  --docker "$DOCKER" --docker-context "$DOCKER_CONTEXT" \
+  --ffmpeg "$FFMPEG" --ffprobe "$FFPROBE"
+node src/render-worker/color-evidence.mjs "$AR_MANIM_EVIDENCE" \
+  --docker "$DOCKER" --docker-context "$DOCKER_CONTEXT" \
+  --ffmpeg "$FFMPEG" --ffprobe "$FFPROBE"
 node src/render-worker/playback-evidence.mjs "$AR_MANIM_EVIDENCE"
 npm run check
 ```
 
-Every evidence command requires an explicit existing directory owned by the current user with mode `0700`; symlinks are rejected. Use the unique directory created above, or explicitly secure an existing operator-owned evidence directory before reuse. The capture/color tools use the absolute installed `/opt/homebrew/bin/ffmpeg` path; other deployments must supply an absolute `AR_FFMPEG_PATH`. They resolve the executable and require a regular executable file without group/public write permission, never search `PATH`. The playback child uses its unique private data directory for temporary files; production CLI children do not inherit `TMPDIR`. The six synthetic recipes cover shear, right-angle endpoint, zero map, unequal weights, zero share and zero result. Expected endpoints in the evidence runner are literal values, independent of the Python display code. Render receipts include SHA256 values of the actual compiled worker and preset files. The independent color probe checks at least 50 saturated green pixels in the plane box at seven samples across the weighted transition (including 6.0 seconds), plus measured final endpoints for all six clips. The weighted contact sheet includes the 6.0-second mid-move frame. Receipts separate actual queue time, compute (including startup/teardown), verification and media duration. Local copies have no network transfer time; later account-bound transfer/playback startup needs separate measurement. These runs test the founder's approximate 10-second clip / 20-second wait target on one machine and do not establish a service SLA.
+Every evidence command requires an explicit existing directory owned by the current user with mode `0700`; symlinks are rejected. Use the unique directory created above, or explicitly secure an existing operator-owned evidence directory before reuse. Render, probe, capture and color commands also require explicit `--docker`, `--docker-context`, `--ffmpeg` and `--ffprobe` argv; they do not read those settings from the environment. Capture/color still resolve FFmpeg through `ffmpegExecutable` (regular file, no group/public write, never `PATH`). The playback child uses its unique private data directory for temporary files; production CLI children do not inherit `TMPDIR`. The six synthetic recipes cover shear, right-angle endpoint, zero map, unequal weights, zero share and zero result. Expected endpoints in the evidence runner are literal values, independent of the Python display code. Render receipts include SHA256 values of the actual compiled worker and preset files plus the selected runtime identity. The independent color probe checks at least 50 saturated green pixels in the plane box at seven samples across the weighted transition (including 6.0 seconds), plus measured final endpoints for all six clips. The weighted contact sheet includes the 6.0-second mid-move frame. Receipts separate actual queue time, compute (including startup/teardown), verification and media duration. Local copies have no network transfer time; later account-bound transfer/playback startup needs separate measurement. These runs test the founder's approximate 10-second clip / 20-second wait target on one machine and do not establish a service SLA. Proposed GitHub-hosted Ubuntu 24.04 ARM evidence is in `context/design-handoff/ar54-integration-patches/manim-evidence.yml` for AR-41; it is not an active workflow in this slice.
 
 The isolated Electron harness has no preload/Node renderer access, denies network/permissions/popups and loads only generated local media. It records metadata, actual keyboard play/pause/scrub, named-stage jumps, paused-position resume and complete playback of both families. Its video and semantic contact sheets support independent Fable review. Automated focus/visibility observations do not prove real manual minimize behavior. Production Reader controls, active/hidden lifecycle and accessible user-facing integration remain the consumer's responsibility.

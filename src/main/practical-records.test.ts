@@ -263,6 +263,31 @@ function setup(withSource = false) {
     ],
   });
   if (savedPath.status !== 'committed') throw new Error('Fixture path failed');
+  const otherTopicId = randomUUID();
+  const otherLessonId = randomUUID();
+  const otherProject = store.create('A different activity');
+  const otherPath = store.savePathRevision({
+    projectId: otherProject.id,
+    expectedRevision: 0,
+    title: 'Other path',
+    topics: [
+      {
+        id: otherTopicId,
+        title: 'Other',
+        lessons: [
+          {
+            id: otherLessonId,
+            title: 'Other prediction',
+            objective: 'Explain a different case',
+            activity: 'Change a different input.',
+            source: { state: 'pending' },
+          },
+        ],
+      },
+    ],
+  });
+  if (otherPath.status !== 'committed')
+    throw new Error('Fixture other path failed');
   store.close();
   const input: RecordPracticalResultInput = {
     activity: {
@@ -313,7 +338,21 @@ function setup(withSource = false) {
     };
   }
   const connection = open();
-  return { ...connection, input, open, directory };
+  const otherActivity = {
+    projectId: otherProject.id,
+    origin: {
+      path: {
+        pathId: otherPath.record.id,
+        pathRevision: 1,
+        topicId: otherTopicId,
+        lessonId: otherLessonId,
+      },
+    },
+    title: 'Other prediction',
+    objective: 'Explain a different case',
+    instructions: 'Change a different input.',
+  };
+  return { ...connection, input, open, directory, otherActivity };
 }
 
 it('acknowledges exact human work only after durability and reopens the activity result offline', () => {
@@ -926,4 +965,606 @@ it('replays unchanged checkpoint progress and rejects a stale different status',
       status: 'user-reported-complete',
     }),
   ).toEqual({ status: 'conflict' });
+});
+
+it('replays an identical accepted brief and refuses a conflicting snapshot at the same revision', () => {
+  const { records, input } = setup();
+  const snapshot = syntheticAcceptedCourseBrief(input.activity, 1);
+  const first = records.retainAcceptedBrief(snapshot);
+  expect(first).toMatchObject({ status: 'retained', briefRevision: 1 });
+  if (first.status !== 'retained') throw new Error('Expected retain');
+  expect(records.retainAcceptedBrief(structuredClone(snapshot))).toEqual(first);
+  const conflicting = structuredClone(snapshot);
+  conflicting.binding.brief.intendedOutcome = 'A different outcome.';
+  expect(records.retainAcceptedBrief(conflicting)).toEqual({
+    status: 'failed',
+  });
+  const loaded = records.loadPracticalJourney({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(loaded).toMatchObject({
+    status: 'loaded',
+    journey: {
+      brief: {
+        briefId: first.briefId,
+        brief: { intendedOutcome: snapshot.binding.brief.intendedOutcome },
+      },
+    },
+  });
+});
+
+it('pins an existing attempt to the brief that existed when its journey was created', () => {
+  const { records, input } = setup();
+  const first = syntheticAcceptedCourseBrief(input.activity, 1);
+  const second = syntheticAcceptedCourseBrief(input.activity, 2);
+  expect(records.retainAcceptedBrief(first)).toMatchObject({
+    status: 'retained',
+    briefRevision: 1,
+  });
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      choice: {
+        kind: 'external-work',
+        label: 'Own notebook',
+        instructions: 'Work outside the app.',
+      },
+    }),
+  ).toEqual({ status: 'saved' });
+  expect(records.retainAcceptedBrief(second)).toMatchObject({
+    status: 'retained',
+    briefRevision: 2,
+  });
+  expect(
+    records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    journey: { brief: { briefRevision: 1 } },
+  });
+  const freshAttempt = randomUUID();
+  expect(
+    records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: freshAttempt,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: null,
+    journey: { brief: { briefRevision: 2 } },
+  });
+});
+
+it('updates checkpoint progress with owned evidence and refuses another attempt’s file', () => {
+  const { records, input, open, database } = setup();
+  const snapshot = syntheticAcceptedCourseBrief(input.activity);
+  expect(records.retainAcceptedBrief(snapshot).status).toBe('retained');
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  expect(
+    records.recordPracticalWorkChoice({
+      ...scope,
+      choice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
+    }).status,
+  ).toBe('saved');
+  const imported = records.importPracticalFile(scope, {
+    displayName: 'trial.txt',
+    bytes: Buffer.from('observed,12\n'),
+  });
+  if (imported.status !== 'imported') throw new Error('Expected import');
+  const checkpointId = briefCheckpointId(0);
+  expect(
+    records.recordPracticalProgress({
+      ...scope,
+      expectedRevision: 0,
+      checkpointId,
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'in-progress',
+      note: 'Started',
+      evidence: null,
+    }),
+  ).toMatchObject({ status: 'committed', revision: 1 });
+  expect(
+    records.recordPracticalProgress({
+      ...scope,
+      expectedRevision: 1,
+      checkpointId,
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'user-reported-complete',
+      note: 'I kept the file.',
+      evidence: {
+        kind: 'user-selected-file',
+        selectionId: imported.file.selectionId,
+      },
+    }),
+  ).toMatchObject({ status: 'committed', revision: 2 });
+  const otherAttempt = randomUUID();
+  const otherFile = records.importPracticalFile(
+    { activity: input.activity, attemptId: otherAttempt },
+    { displayName: 'other.txt', bytes: Buffer.from('other') },
+  );
+  if (otherFile.status !== 'imported') throw new Error('Expected other import');
+  expect(
+    records.recordPracticalProgress({
+      ...scope,
+      expectedRevision: 2,
+      checkpointId,
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'in-progress',
+      note: 'Should not bind foreign evidence',
+      evidence: {
+        kind: 'user-selected-file',
+        selectionId: otherFile.file.selectionId,
+      },
+    }),
+  ).toEqual({ status: 'failed' });
+  database.close();
+  const reopened = open().records.loadPracticalJourney(scope);
+  expect(reopened).toMatchObject({
+    status: 'loaded',
+    journey: {
+      milestones: [
+        {
+          checkpointId,
+          status: 'user-reported-complete',
+          note: 'I kept the file.',
+          revision: 2,
+          evidence: {
+            kind: 'user-selected-file',
+            selectionId: imported.file.selectionId,
+          },
+        },
+      ],
+    },
+  });
+});
+
+it('replays an unchanged human plan and binds progress only to the current plan revision', () => {
+  const { records, input, open, database } = setup();
+  const plan = {
+    outcome: 'Keep a comparable file',
+    setup: 'Change one input',
+    deliverable: 'trial.txt',
+    evaluation: 'The file opens',
+    reflectionPrompt: 'What next?',
+    milestones: [
+      {
+        id: randomUUID(),
+        title: 'Collect the output',
+        description: 'Save the file',
+        expectedResult: 'A nonempty file',
+      },
+    ],
+  };
+  const save = {
+    activity: input.activity,
+    attemptId: input.attemptId,
+    expectedRevision: 0,
+    plan,
+  };
+  expect(records.savePracticalHumanPlan(save)).toMatchObject({
+    status: 'saved',
+    revision: 1,
+  });
+  expect(
+    records.savePracticalHumanPlan({ ...save, expectedRevision: 1 }),
+  ).toMatchObject({
+    status: 'saved',
+    revision: 1,
+  });
+  expect(
+    records.savePracticalHumanPlan({
+      ...save,
+      expectedRevision: 1,
+      plan: { ...plan, outcome: 'A revised human outcome' },
+    }),
+  ).toMatchObject({ status: 'saved', revision: 2 });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      checkpointId: plan.milestones[0]!.id,
+      source: { kind: 'human-plan', planRevision: 1 },
+      status: 'in-progress',
+      note: 'Old plan',
+      evidence: null,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      checkpointId: randomUUID(),
+      source: { kind: 'human-plan', planRevision: 2 },
+      status: 'in-progress',
+      note: 'Unknown checkpoint',
+      evidence: null,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      checkpointId: plan.milestones[0]!.id,
+      source: { kind: 'human-plan', planRevision: 2 },
+      status: 'in-progress',
+      note: 'Current plan',
+      evidence: null,
+    }),
+  ).toMatchObject({ status: 'committed', revision: 1 });
+  database.close();
+  expect(
+    open().records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    journey: {
+      humanPlanRevision: 2,
+      humanPlan: { outcome: 'A revised human outcome' },
+      milestones: [{ note: 'Current plan', revision: 1 }],
+    },
+  });
+});
+
+it('refuses reusing one attempt identity across two valid activities', () => {
+  const { records, input, otherActivity } = setup();
+  expect(records.recordPracticalResult(input)).toMatchObject({
+    status: 'committed',
+    acknowledgement: { revision: 1 },
+  });
+  const colliding = {
+    activity: otherActivity,
+    attemptId: input.attemptId,
+  };
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      activity: otherActivity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.importPracticalFile(colliding, {
+      displayName: 'other.txt',
+      bytes: Buffer.from('should not import'),
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalWorkChoice({
+      ...colliding,
+      choice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.savePracticalHumanPlan({
+      ...colliding,
+      expectedRevision: 0,
+      plan: {
+        outcome: 'Should not save',
+        setup: '',
+        deliverable: '',
+        evaluation: '',
+        reflectionPrompt: '',
+        milestones: [],
+      },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.loadPracticalAttempt({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: { draft: input.draft, currentRevision: 1 },
+  });
+});
+
+it('fails closed when retained journey JSON is syntactically valid but semantically invalid', () => {
+  const { records, input, database } = setup();
+  const snapshot = syntheticAcceptedCourseBrief(input.activity);
+  expect(records.retainAcceptedBrief(snapshot).status).toBe('retained');
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      choice: {
+        kind: 'external-work',
+        label: 'Own notebook',
+        instructions: 'Work outside the app.',
+      },
+    }).status,
+  ).toBe('saved');
+  expect(
+    records.savePracticalHumanPlan({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      plan: {
+        outcome: 'Keep a file',
+        setup: '',
+        deliverable: '',
+        evaluation: '',
+        reflectionPrompt: '',
+        milestones: [],
+      },
+    }),
+  ).toMatchObject({ status: 'saved', revision: 1 });
+  const loaded = records.loadPracticalJourney({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(loaded.status).toBe('loaded');
+  database
+    .prepare(
+      'UPDATE practical_attempt_journey SET work_choice_json = ? WHERE attempt_id = ?',
+    )
+    .run(
+      JSON.stringify({ kind: 'supported-tool', toolId: 'not-a-catalog-tool' }),
+      input.attemptId,
+    );
+  expect(
+    records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  database
+    .prepare(
+      'UPDATE practical_attempt_journey SET work_choice_json = ?, human_plan_json = ? WHERE attempt_id = ?',
+    )
+    .run(
+      JSON.stringify({
+        kind: 'external-work',
+        label: 'Own notebook',
+        instructions: 'Work outside the app.',
+      }),
+      JSON.stringify({ outcome: 'missing keys' }),
+      input.attemptId,
+    );
+  expect(
+    records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  database
+    .prepare(
+      'UPDATE practical_accepted_briefs SET brief_json = ? WHERE project_id = ?',
+    )
+    .run(
+      JSON.stringify({
+        kind: 'source-supported-practice-brief',
+        author: 'human',
+        masteryEstablished: false,
+      }),
+      input.activity.projectId,
+    );
+  expect(
+    records.loadPracticalJourney({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+});
+
+it('previews retained JSON and CSV exactly and reports PDF as unsupported while keeping export bytes', async () => {
+  const { records, input, directory } = setup();
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  const jsonBytes = Buffer.from('{\n  "observed": 12\n}\n');
+  const json = records.importPracticalFile(scope, {
+    displayName: 'trial.json',
+    bytes: jsonBytes,
+  });
+  if (json.status !== 'imported') throw new Error('Expected json');
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: json.file.selectionId,
+    }),
+  ).toMatchObject({
+    status: 'ready',
+    mediaType: 'application/json',
+    completeness: 'complete',
+    text: '{\n  "observed": 12\n}\n',
+    byteLength: jsonBytes.length,
+  });
+  const csv = records.importPracticalFile(scope, {
+    displayName: 'trial.csv',
+    bytes: Buffer.from('trial,value\nA,12\n'),
+  });
+  if (csv.status !== 'imported') throw new Error('Expected csv');
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: csv.file.selectionId,
+    }),
+  ).toMatchObject({
+    status: 'ready',
+    mediaType: 'text/csv',
+    text: 'trial,value\nA,12\n',
+  });
+  const pdfBytes = Buffer.from('%PDF-1.4 retained-copy');
+  const pdf = records.importPracticalFile(scope, {
+    displayName: 'trial.pdf',
+    bytes: pdfBytes,
+  });
+  if (pdf.status !== 'imported') throw new Error('Expected pdf');
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: pdf.file.selectionId,
+    }),
+  ).toMatchObject({
+    status: 'unsupported-preview',
+    mediaType: 'application/pdf',
+  });
+  const destination = join(directory, 'exported.pdf');
+  const fileExport = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => destination,
+  });
+  expect(
+    await fileExport.export({
+      ...scope,
+      selectionId: pdf.file.selectionId,
+    }),
+  ).toMatchObject({ status: 'exported', byteLength: pdfBytes.length });
+  expect(readFileSync(destination)).toEqual(pdfBytes);
+});
+
+it('refuses an unadapted brief and lists attempts with opaque file counts', () => {
+  const { records, input } = setup();
+  expect(records.retainAcceptedBrief(null)).toEqual({ status: 'failed' });
+  expect(records.retainAcceptedBrief({ activity: input.activity })).toEqual({
+    status: 'failed',
+  });
+  expect(records.listPracticalAttempts({ activity: input.activity })).toEqual({
+    status: 'loaded',
+    attempts: [],
+  });
+  expect(
+    records.loadPracticalAttempt({
+      activity: input.activity,
+      attemptId: randomUUID(),
+    }),
+  ).toEqual({ status: 'loaded', attempt: null });
+  expect(records.previewPracticalFile(null)).toEqual({ status: 'failed' });
+  expect(
+    records.previewPracticalFile({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      selectionId: randomUUID(),
+    }),
+  ).toEqual({ status: 'unavailable' });
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.savePracticalHumanPlan({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      plan: { outcome: 'missing keys' },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(records.loadPracticalJourney(null)).toEqual({ status: 'failed' });
+
+  const snapshot = syntheticAcceptedCourseBrief(input.activity);
+  expect(records.retainAcceptedBrief(snapshot).status).toBe('retained');
+  const unbound = records.loadPracticalJourney({ activity: input.activity });
+  expect(unbound).toMatchObject({
+    status: 'loaded',
+    attempt: null,
+    journey: {
+      brief: {
+        briefRevision: 1,
+        brief: { intendedOutcome: snapshot.binding.brief.intendedOutcome },
+      },
+      workChoice: null,
+      humanPlan: null,
+      milestones: [],
+    },
+  });
+
+  const first = records.importPracticalFile(
+    { activity: input.activity, attemptId: input.attemptId },
+    { displayName: 'trial.txt', bytes: Buffer.from('trial-output=12\n') },
+  );
+  expect(first.status).toBe('imported');
+  const secondId = randomUUID();
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      attemptId: secondId,
+      expectedRevision: 0,
+    }).status,
+  ).toBe('committed');
+  const listed = records.listPracticalAttempts({ activity: input.activity });
+  expect(listed.status).toBe('loaded');
+  if (listed.status !== 'loaded') throw new Error('expected list');
+  expect(listed.attempts).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attemptId: input.attemptId,
+        currentRevision: 0,
+        fileCount: 1,
+      }),
+      expect.objectContaining({
+        attemptId: secondId,
+        currentRevision: 1,
+        fileCount: 0,
+      }),
+    ]),
+  );
+});
+
+it('exports fail closed for a missing file, a directory destination, and a stale generation after the path is chosen', async () => {
+  const { records, input, directory } = setup();
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  const imported = records.importPracticalFile(scope, {
+    displayName: 'trial.txt',
+    bytes: Buffer.from('trial-output=12\n'),
+  });
+  if (imported.status !== 'imported') throw new Error('Expected import');
+  const missing = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => join(directory, 'missing.txt'),
+  });
+  expect(await missing.export({ ...scope, selectionId: randomUUID() })).toEqual(
+    { status: 'failed' },
+  );
+  const ontoDirectory = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => directory,
+  });
+  expect(
+    await ontoDirectory.export({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toEqual({ status: 'failed' });
+
+  let generation = 1;
+  const destination = join(directory, 'stale.txt');
+  const stale = new PracticalFileExport({
+    records,
+    currentGeneration: () => generation,
+    isCurrent: (_value, captured) => captured === generation,
+    chooseSavePath: async () => {
+      generation += 1;
+      return destination;
+    },
+  });
+  expect(
+    await stale.export({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toEqual({ status: 'cancelled' });
+  expect(existsSync(destination)).toBe(false);
+  expect(stale.occupied).toBe(false);
 });

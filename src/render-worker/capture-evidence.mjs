@@ -2,8 +2,14 @@ import { evidenceDirectory, ffmpegExecutable } from './evidence-paths.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 const evidence = await evidenceDirectory(process.argv[2]);
-const executable = await ffmpegExecutable();
+const { resolveTrustedWorkerRuntime } = await import(
+  pathToFileURL(join(evidence, 'compiled/render-worker/trusted-runtime.js'))
+    .href
+);
+const runtime = await resolveTrustedWorkerRuntime(process.argv.slice(3));
+const executable = await ffmpegExecutable(runtime.ffmpeg);
 const captures = join(evidence, 'captures');
 await mkdir(captures, { recursive: true });
 function ffmpeg(args) {
