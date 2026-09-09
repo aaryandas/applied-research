@@ -40,14 +40,14 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - `Lane guard`.
 - `Linear gate`: the ticket is In Review. Needs the `LINEAR_API_KEY` repository secret (read plus attachment write).
 - Independent review comment with PASS.
-- Sonar: zero new violations on the diff against the Railway-hosted instance. False positives are listed by issue key in the PR for the founder, never suppressed.
+- Sonar: Community Build has no PR analysis, so the evidence is the post-merge `main` run of `sonar.yml` against the Railway-hosted instance, which must report zero new violations for the merged revision; if it fails, the coordinator repairs or reverts before the next merge. Never scan a PR worktree or any non-`main` checkout into `applied-research-hosted`; the hosted project has one analysis history and such a scan would overwrite the `main` baseline. A pre-merge diff scan, when wanted, goes to a local instance and the `applied-research-local` project only. False positives are listed by issue key in the PR for the founder, never suppressed.
 - Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
 
 ## Traps fixed in tooling
 
 - `npm run native:electron` now forces `@electron/rebuild`; `electron-builder install-app-deps` silently no-ops after `npm run check` flips SQLite to the Node ABI. Symptom was every Electron spec failing with "browser has been closed".
 - `scripts/test-packaged.mjs` lists the asar with a 64 MB buffer; the bundle is ~21k files.
-- `npm run sonar:scan:native` uses the official npm scanner against the local server.
+- `npm run sonar:scan:native` uses the official npm scanner against a local server and the `applied-research-local` project; it is optional developer tooling and must never be pointed at the hosted project.
 - Cursor Linear automations do **not** interpolate `{{ticket.identifier}}`, `{{pr.branch}}`, or `{{pr.head_sha}}`. Those tokens arrive in the prompt as literal text. The triggering issue is on the run as `sourceDetails.linearIssueId`; the frozen revision is on the ticket (attachments, comments, linked PR). The prompt below does not use mustache placeholders.
 - Since the 2026-09-08 consolidation (PR #10) `main` carries the whole application and is the integration branch for the second run. A Linear-triggered agent that starts on an older lane branch has no app; set the automation's starting branch to `main`.
 - Do not bulk-move many tickets into In Testing while a verifier is already running. On 2026-09-08, `scripts/linear-move.mjs` flipped several tickets at once: two AR-21 runs ERROR'd after the first assistant sentence (no tool calls, no dashboard events), and the other In Testing tickets never spawned a verifier. Serialise those transitions; wait for the previous walk-through to finish.
