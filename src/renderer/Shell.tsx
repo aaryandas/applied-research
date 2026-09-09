@@ -61,6 +61,9 @@ import type { WorkspaceSearchResult } from './shell/record-navigation';
 import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
 
+const EMPTY_CANVAS_EXPLANATIONS: RetainedExplanationCanvasProjection[] = [];
+const EMPTY_CANVAS_PLACEMENTS: RetainedExplanationCanvasPlacement[] = [];
+
 interface ShellProps {
   bridge: DesktopBridge &
     LearningRecordsBridge &
@@ -106,18 +109,29 @@ export function Shell({
   } | null>(null);
   const activationEpoch = useRef(0);
   const activationRef = useRef(activation);
-  activationRef.current = activation;
-  const guidanceHost = useMemo(() => {
+  useEffect(() => {
+    activationRef.current = activation;
+  }, [activation]);
+  const requestCompanionGuidance = bridge.requestCompanionGuidance;
+  const cancelCompanionGuidance = bridge.cancelCompanionGuidance;
+  const canRequestGuidance =
+    typeof requestCompanionGuidance === 'function' &&
+    typeof cancelCompanionGuidance === 'function';
+  const guidanceHostRef = useRef<ReturnType<
+    typeof createCompanionGuidanceHost
+  > | null>(null);
+  useEffect(() => {
     if (
-      typeof bridge.requestCompanionGuidance !== 'function' ||
-      typeof bridge.cancelCompanionGuidance !== 'function'
+      typeof requestCompanionGuidance !== 'function' ||
+      typeof cancelCompanionGuidance !== 'function'
     ) {
-      return null;
+      guidanceHostRef.current = null;
+      return;
     }
-    return createCompanionGuidanceHost({
+    const host = createCompanionGuidanceHost({
       bridge: {
-        requestCompanionGuidance: bridge.requestCompanionGuidance,
-        cancelCompanionGuidance: bridge.cancelCompanionGuidance,
+        requestCompanionGuidance,
+        cancelCompanionGuidance,
       },
       activate: (projectId) => {
         const current = activationRef.current;
@@ -126,8 +140,28 @@ export function Shell({
       },
       createRequestId: () => crypto.randomUUID(),
     });
-  }, [bridge]);
-  useEffect(() => () => guidanceHost?.dispose(), [guidanceHost]);
+    guidanceHostRef.current = host;
+    return () => {
+      host.dispose();
+      if (guidanceHostRef.current === host) guidanceHostRef.current = null;
+    };
+  }, [cancelCompanionGuidance, requestCompanionGuidance]);
+  const requestGuidanceFromHost = useCallback(
+    (
+      input: Parameters<CompanionSessionOptions['requestGuidance']>[0],
+      signal: AbortSignal,
+    ) => {
+      const host = guidanceHostRef.current;
+      if (!host) {
+        return Promise.resolve({
+          status: 'unavailable' as const,
+          message: 'Guidance is not available for this session.',
+        });
+      }
+      return host.requestFromSession(input, signal);
+    },
+    [],
+  );
   const {
     selection,
     openExplanationId,
@@ -135,42 +169,51 @@ export function Shell({
     openRetainedExplanation,
   } = useContextualSelection();
   const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
-  const [canvasExplanations, setCanvasExplanations] = useState<
-    RetainedExplanationCanvasProjection[]
-  >([]);
-  const [canvasExplanationPlacements, setCanvasExplanationPlacements] =
-    useState<RetainedExplanationCanvasPlacement[]>([]);
+  const [canvasOverlay, setCanvasOverlay] = useState<{
+    projectId: string;
+    explanations: RetainedExplanationCanvasProjection[];
+    placements: RetainedExplanationCanvasPlacement[];
+  } | null>(null);
   useEffect(() => {
-    if (!contextualBridge) {
-      setCanvasExplanations([]);
-      setCanvasExplanationPlacements([]);
-      return;
-    }
+    if (!contextualBridge) return;
+    const projectId = workspace.project.id;
     let cancelled = false;
     void Promise.all([
       contextualBridge.listRetainedExplanations({
-        projectId: workspace.project.id,
+        projectId,
       }),
       contextualBridge.listExplanationPlacements({
-        projectId: workspace.project.id,
+        projectId,
       }),
     ])
       .then(([explanations, placements]) => {
         if (cancelled) return;
-        setCanvasExplanations(
-          explanations.map(projectRetainedExplanationToCanvas),
-        );
-        setCanvasExplanationPlacements([...placements]);
+        setCanvasOverlay({
+          projectId,
+          explanations: explanations.map(projectRetainedExplanationToCanvas),
+          placements: [...placements],
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setCanvasExplanations([]);
-        setCanvasExplanationPlacements([]);
+        setCanvasOverlay({
+          projectId,
+          explanations: [],
+          placements: [],
+        });
       });
     return () => {
       cancelled = true;
     };
   }, [contextualBridge, workspace.project.id, destination]);
+  const canvasExplanations =
+    contextualBridge && canvasOverlay?.projectId === workspace.project.id
+      ? canvasOverlay.explanations
+      : EMPTY_CANVAS_EXPLANATIONS;
+  const canvasExplanationPlacements =
+    contextualBridge && canvasOverlay?.projectId === workspace.project.id
+      ? canvasOverlay.placements
+      : EMPTY_CANVAS_PLACEMENTS;
 
   const [projectLifetime] = useState(() => new WorkspaceOperationLifetime());
   const registerRevocation = useCallback(
@@ -317,8 +360,8 @@ export function Shell({
     };
     applyActivation(workspace.project.id);
     const revoke = (): void => {
-      guidanceHost?.invalidate();
-      guidanceHost?.stop();
+      guidanceHostRef.current?.invalidate();
+      guidanceHostRef.current?.stop();
       projectLifetime.stopPractical();
       void bridge.cancelPracticalFileSelection?.();
       void bridge.cancelPracticalExport?.();
@@ -336,13 +379,18 @@ export function Shell({
       window.removeEventListener('beforeunload', revoke);
       void bridge.activateSourceWorkspace?.(null);
     };
-  }, [bridge, guidanceHost, projectLifetime, workspace.project.id]);
+  }, [bridge, projectLifetime, workspace.project.id]);
   const liveActivation =
     activation?.projectId === workspace.project.id ? activation.state : null;
   useEffect(() => {
-    if (!guidanceHost || !liveActivation) return;
-    void guidanceHost.bindProject(workspace.project.id);
-  }, [guidanceHost, liveActivation, workspace.project.id]);
+    if (!liveActivation) return;
+    void guidanceHostRef.current?.bindProject(workspace.project.id);
+  }, [
+    cancelCompanionGuidance,
+    liveActivation,
+    requestCompanionGuidance,
+    workspace.project.id,
+  ]);
   const practicalBridge = isPracticalWorkspaceBridge(bridge)
     ? {
         recordPracticalResult: bridge.recordPracticalResult,
@@ -861,15 +909,8 @@ export function Shell({
                 registerFlush={registerPracticalFlush}
                 registerRevocation={registerRevocation}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
-                {...(guidanceHost
-                  ? {
-                      requestGuidance: (
-                        input: Parameters<
-                          CompanionSessionOptions['requestGuidance']
-                        >[0],
-                        signal: AbortSignal,
-                      ) => guidanceHost.requestFromSession(input, signal),
-                    }
+                {...(canRequestGuidance
+                  ? { requestGuidance: requestGuidanceFromHost }
                   : {})}
               />
             ) : (
