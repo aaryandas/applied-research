@@ -1812,11 +1812,12 @@ describe('learning onboarding operations', () => {
         }
         if (request.operation.kind === 'generate-selected-lesson') {
           const body = selectedLessonSuccess(request.requestId);
-          if (request.operation.target?.practice) {
+          const generatedPractice = body.lesson.practice;
+          if (request.operation.target?.practice && generatedPractice) {
             body.lesson.practice = {
               ...request.operation.target.practice,
-              citations: body.lesson.practice.citations,
-            } as typeof body.lesson.practice;
+              citations: generatedPractice.citations,
+            };
           }
           return bytes(body);
         }
