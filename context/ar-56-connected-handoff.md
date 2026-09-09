@@ -114,3 +114,12 @@ Public storage and navigation behavior, not helper internals:
 - W42: next integration phase once real onboarding/Practical evidence exists
 
 This checkpoint does not self-PASS, mark Done, or claim a full journey from fixture-only checks. macOS CI / Cloud desktop own packaged acceptance. No Sonar here. Global coverage thresholds remain 90%; AR50/58 own the existing deficit — do not weaken gates.
+
+## Check evidence (Cloud, Node 24.20.0)
+
+Recorded on `1918f1c9f1464288a8ac7dad568f8a898e8fc415` (code tip before this note):
+
+- `format:check`, `lint`, `typecheck`: pass
+- Vitest with coverage: **1504 passed**, 0 failed
+- Coverage: statements **89.95%**, branches **84.74%**, functions **90.06%**, lines **91.43%**. Thresholds remain 90% all. `npm run check` failed only on statements/branches vs those gates. Candidate had previously cited 84.79% branches.
+- Production `electron-vite` + backend build: pass when run separately; `npm run check` did not reach build after the coverage gate.
