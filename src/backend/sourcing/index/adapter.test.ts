@@ -1356,3 +1356,26 @@ it('reports partial retrieval as its own search status', async () => {
     response: { outcome: 'partial' },
   });
 });
+
+it('reports a request-level indexing decision that is not permitted as not-eligible', async () => {
+  const request = vi.fn<typeof fetch>();
+  // The adapter request type only admits 'permitted'; this exercises the runtime guard
+  // for a producer that bypasses the type, so the cast is deliberate.
+  const nonPermitted = {
+    status: 'unknown',
+    reason: 'No permission',
+  } as unknown as typeof permission;
+  expect(
+    await fixture(request).search(
+      {
+        ...retrievalRequest,
+        sourceRevisions: [{ ...version, indexing: nonPermitted }],
+      },
+      invocation,
+    ),
+  ).toMatchObject({
+    status: 'not-eligible',
+    response: { outcome: 'unavailable' },
+  });
+  expect(request).not.toHaveBeenCalled();
+});
