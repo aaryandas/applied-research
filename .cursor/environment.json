@@ -1,0 +1,5 @@
+{
+  "name": "Applied Research",
+  "install": "bash .cursor/install.sh",
+  "ports": [{ "name": "Vite renderer dev server", "port": 5173 }]
+}
