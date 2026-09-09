@@ -192,4 +192,24 @@ Delete the production assertion that Reader always shows **Explore a two-link ar
 
 ## 9. Canvas artifact mapping (AR-49/AR-56)
 
-When Canvas opens a retained explanation origin, resolve `explanationId` / highlight / entry revision from SQLite via `load`/`list`. Do not invent a similarly worded current passage. Shared identity ≠ two WebGL runtimes.
+Producer: `src/main/explanation-canvas.ts`.
+
+```ts
+import {
+  projectRetainedExplanationToCanvas,
+  explanationCanvasPlacement,
+} from './explanation-canvas';
+
+const projections = operations
+  .list({ projectId })
+  .map(projectRetainedExplanationToCanvas);
+```
+
+- `kind: 'retained-explanation'`. Same `explanationId` / `origin` as Reader. `authorKind: 'assistant'`. `activeRuntime: false` (Canvas must not start a second WebGL runtime).
+- Do **not** insert these as `workspace_records` human notes. Current `record_type` CHECK is `entry|source|path|topic|lesson`. Extend through a reviewed migration if Canvas must persist placement on that table; otherwise persist `RetainedExplanationCanvasPlacement` keyed by `explanationId` (sibling of 0006, not a new SQLite connection).
+- `moveLearningRecord` must not relabel an explanation as a note. Placement identity is `explanationId`.
+- Only the active surface (`destination === 'reader'` today) passes `active` into `RetainedScene` / `ExplanationExperience`.
+
+## 10. AR-54 clip join (do not implement playback)
+
+Main now calls `requestClip(context)` with `{ explanationId, attemptId, origin, plan, signal }` after reserving the attempt (`status: 'rendering'`). Do not invent `{ kind: 'ready' }` clips. Keep returning `{ kind: 'unavailable' }` until AR-54 mounts.

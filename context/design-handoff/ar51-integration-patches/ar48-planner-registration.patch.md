@@ -3,10 +3,14 @@
 Do not add a second unbounded OpenRouter caller. AR-51 already implements:
 
 - `src/backend/explanations/provider.ts` — `makeExplanationPlannerProvider({ apiKey, request })` using `MODEL_ADMISSION`, structured `explanation_planner` schema, planner system prompt
-- `src/backend/explanations/service.ts` — `makeExplanationPlannerService({ accounting, provider, config, now })` reserves/settles through the existing `AccountingStore`
+- `src/backend/explanations/service.ts` — `makeExplanationPlannerService({ accounting, generation, provider, config, now })` persists the **validated plan** on settle (not a tutor contribution or `'Planner settlement placeholder.'`)
 - `src/backend/explanations/http.ts` — `handleExplanationPlanRoute`
+- `src/backend/explanations/planner-accounting.ts` — `PlannerAccountingStore` / `plannerInputHash`
+- `src/backend/explanations/generation-eval.ts` — injected `GenerationEvalLedger` seam for the **same** $2 / 10 physical generation allowance
 
 Main posts to `POST /v1/learning/explanation-plans` with the session cookie. Tutor remains `POST /v1/learning/requests` (`source-grounded-tutor` only).
+
+Do **not** merge a second OpenRouter client. Do **not** create another money/dispatch cap.
 
 ## 1. `src/backend/http.ts`
 
@@ -35,13 +39,83 @@ if (planned) return;
 
 Use the same disconnect observer. Do not parse planner bodies with `parseLearningRequest`.
 
-## 2. `src/backend/runtime.ts`
+## 2. Typed accounting extension (required)
 
-In the existing Effect composition, construct the planner with the same admitted key/fetch/accounting as the tutor:
+`AccountingStore.settle` currently requires `LearningResponse`, whose success arm is a tutor/path `contribution`. Storing planner success as `unavailable` + `'Planner settlement placeholder.'` loses the paid plan on duplicate replay.
+
+Widen these types in `src/backend/accounting.ts` and `src/backend/schema.ts` (no unknown casts, no unvalidated JSON):
+
+```ts
+import type { ExplanationPlanHttpResponse } from './explanations/types.js';
+
+export type PublicPaidResponse =
+  LearningResponse | ExplanationPlanHttpResponse;
+
+export interface SettlementInput {
+  // ...
+  readonly response: PublicPaidResponse;
+}
+
+export type ReservationResult =
+  | { readonly kind: 'reserved'; readonly quota: MonthlyQuota }
+  | { readonly kind: 'duplicate'; readonly response: PublicPaidResponse }
+  | // existing arms unchanged
+```
+
+```ts
+publicResponse: jsonb('public_response').$type<PublicPaidResponse>(),
+```
+
+Provide a thin adapter (AR-48 owns postgres):
+
+```ts
+import type { PlannerAccountingStore } from './explanations/planner-accounting.js';
+import { plannerInputHash } from './explanations/planner-accounting.js';
+
+function makePlannerAccounting(store: AccountingStore): PlannerAccountingStore {
+  return {
+    reserve(input) {
+      return store.reserve({
+        accountId: input.accountId,
+        request: {
+          apiVersion: input.request.apiVersion,
+          requestId: input.request.requestId,
+          model: input.request.model,
+          operation: input.request.operation,
+        },
+        monthStart: input.monthStart,
+        now: input.now,
+        limitMicrousd: input.limitMicrousd,
+        reservationMicrousd: input.reservationMicrousd,
+      });
+    },
+    settle(input) {
+      return store.settle(input);
+    },
+  };
+}
+```
+
+Hash must be `plannerInputHash(request)` / the same canonical `{ apiVersion, requestId, model, operation }` JSON. Duplicate same account+requestId+hash **replays the stored plan** with no second charge. Conflicting input stays `conflict`. After widening, `LearningRequest.operation` should include `'explanation-planner'` so this adapter needs no assertion.
+
+On duplicate, AR-51 runtime-validates with `decodePlannerHttpResponse` and rejects placeholders.
+
+A later cancelled or failed settle for the same account+requestId **must keep a stored success plan** (`keepUsefulPlannerResponse`). Do not overwrite a useful paid plan with cancelled/unavailable.
+
+Prefer storing planner `promptVersion` `explanation-planner-v1-2026-09-09` on planner rows.
+
+**Do not** reuse tutor `buildProviderBody` / `reservationMicrousdFor`. AR-51 uses `reservationMicrousdForPlannerBody(buildPlannerBody(request))`.
+
+## 3. Same generation-eval ledger (required)
+
+Every planner **physical** OpenRouter call must admit against AR-48's durable global generation evaluation allowance: **2,000,000 µUSD and 10 physical dispatches** (`GENERATION_EVAL_ALLOWANCE_NAME = 'generation-eval'`). Replay of a settled requestId+inputHash is **zero additional dispatch**. Known / unknown / zero-charge / cancel-after-dispatch all count. Cancel before dispatch does not.
+
+AR-51 injects `GenerationEvalLedger` from `src/backend/explanations/generation-eval.ts`. Implement that interface on the **existing** shared budget (do not add a second ledger). If your landed types already match, pass them through; if they differ, keep one adapter.
 
 ```text
 const explanationPlanner = yield* makeExplanationPlannerService({
-  accounting: makePostgresAccounting(database),
+  accounting: makePlannerAccounting(makePostgresAccounting(database)),
+  generation: generationEvalLedger,
   provider: makeExplanationPlannerProvider({
     apiKey: config.openRouterApiKey,
     request,
@@ -52,17 +126,9 @@ const explanationPlanner = yield* makeExplanationPlannerService({
 });
 ```
 
-Import `makeExplanationPlannerProvider` / `makeExplanationPlannerService` from `./explanations/index.js`. Pass `explanationPlanner` into `HttpDependencies`. Same admitted model. No provider/model swap.
+`generationEvalLedger` is the same object tutor/path generation uses. Constructor seam is `accounting` + `generation` + admitted `provider`. No provider/model swap.
 
-## 3. Accounting operation kind (optional but recommended)
-
-`learning_request.operation` is unconstrained text. AR-51 hashes a structurally compatible `LearningRequest` with `operation.kind: 'explanation-planner'` via assertion so tutor and planner idempotency do not collide.
-
-Please add `'explanation-planner'` to `LearningOperation` / `parseLearningRequest` when you next touch `src/contracts/learning-api.ts` and `src/backend/validation.ts`. Until then the cast remains.
-
-Accounting rows currently store policy `PROMPT_VERSION` (`learning-v2-2026-09-09`). Returned planner provenance uses `explanation-planner-v1-2026-09-09`. Prefer storing the planner prompt version on planner reservations when you extend the schema.
-
-**Do not** reuse `buildProviderBody` / tutor `reservationMicrousdFor` for planner reservation: unknown kinds are treated as learning-path JSON. AR-51 uses `reservationMicrousdForPlannerBody(buildPlannerBody(request))`.
+a3fda5d on origin is an onboarding wire-parser commit, not generation-eval types. Do not require AR-51 to merge it. If generation-eval types land under a different SHA, switch the import; do not fork limits.
 
 ## 4. Desktop paste canonicalizer alias
 
@@ -72,7 +138,7 @@ Admit `workspace-plain-v1` as that alias (or allow stored `'1'` on the desktop p
 
 ## 5. Contract import for NodeNext
 
-`src/contracts/explanation-artifacts.ts` uses extensionless relative imports, so `tsc -p tsconfig.backend.json` (moduleResolution: NodeNext) cannot compile it. AR-51 therefore ships `src/backend/explanations/plan-decode.ts`, a NodeNext-safe decoder aligned with `decodeExplanationPlan`. Prefer switching the backend to the reviewed contract decoder once that file (or tsconfig.backend include/paths) admits `.js` specifiers. Do not add a second decode with looser families or executable fields.
+`src/contracts/explanation-artifacts.ts` uses extensionless relative imports, so `tsc -p tsconfig.backend.json` (moduleResolution: NodeNext) cannot compile it. AR-51 therefore ships `src/backend/explanations/plan-decode.ts`. Prefer switching the backend to the reviewed contract decoder once that file admits `.js` specifiers. Do not add a second decode with looser families or executable fields.
 
 ## 6. Out of scope for AR-48 here
 
@@ -80,3 +146,4 @@ Admit `workspace-plain-v1` as that alias (or allow stored `'1'` on the desktop p
 - No `askTutor` for contextual Ask
 - No planner JSON smuggled in tutor `body`
 - Clip/render-delivery remains AR-54
+- Do not edit AR-51 `backend/explanations/**` while applying this patch except to wire the constructor
