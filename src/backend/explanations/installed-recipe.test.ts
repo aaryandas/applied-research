@@ -58,7 +58,7 @@ describe('installed recipe projection', () => {
         projectId,
         sourceVersionId: origin.sourceRevisionId,
         questionId: null,
-        lessonId: origin.path.lessonId,
+        lessonId: origin.path?.lessonId,
       },
     });
   });

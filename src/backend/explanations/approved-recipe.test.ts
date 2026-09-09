@@ -186,10 +186,13 @@ describe('interpretStoredPlannerGrant', () => {
           ...success,
           renderReceipt: {
             ...success.renderReceipt,
-            origin: {
-              sourceRevisionId: '88888888-8888-4888-8888-888888888888',
-              path: origin.path,
-            },
+            sourceLocators: [
+              locator,
+              {
+                ...locator,
+                revisionId: '88888888-8888-4888-8888-888888888888',
+              },
+            ],
           },
         },
       }),

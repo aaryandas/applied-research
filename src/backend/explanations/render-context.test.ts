@@ -202,4 +202,146 @@ describe('planner render context', () => {
       }),
     ).toBeUndefined();
   });
+
+  it('rejects malformed receipts and still freezes optional entry origin', () => {
+    const entryOrigin = {
+      sourceRevisionId,
+      entry: {
+        entryId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
+        revision: 1,
+      },
+    };
+    expect(
+      decodePlannerRenderContext({ projectId, origin: entryOrigin }),
+    ).toEqual({
+      ok: true,
+      value: { projectId, origin: entryOrigin },
+    });
+    expect(
+      decodePlannerRenderContext({
+        projectId: 'not-a-uuid',
+        origin,
+      }).ok,
+    ).toBe(false);
+    expect(decodePlannerRenderContext({ origin }).ok).toBe(false);
+
+    const receipt = {
+      version: RENDER_RECEIPT_VERSION,
+      plannerRequestId: requestId,
+      projectId,
+      origin,
+      sourceLocators: [locator],
+      family: 'weighted-combination' as const,
+    };
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, version: 'nope' },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        {
+          ...receipt,
+          plannerRequestId: '22222222-2222-4222-8222-222222222222',
+        },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, projectId: 'not-a-uuid' },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, family: 'spatial-assembly' },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, origin: { path: origin.path } },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, sourceLocators: locator },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, sourceLocators: [] },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        {
+          ...receipt,
+          sourceLocators: [locator, locator, locator, locator, locator],
+        },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      decodePlannerRenderReceipt(
+        { ...receipt, sourceLocators: [{ revisionId: foreignRevisionId }] },
+        requestId,
+        decodeLocator,
+      ).ok,
+    ).toBe(false);
+    expect(
+      constructRenderReceipt({
+        requestId,
+        renderContext: { projectId, origin },
+        plan: clipPlan,
+        sourceLocators: [],
+      }),
+    ).toBeUndefined();
+    expect(
+      constructRenderReceipt({
+        requestId,
+        renderContext: { projectId, origin },
+        plan: clipPlan,
+        sourceLocators: [locator, locator, locator, locator, locator],
+      }),
+    ).toBeUndefined();
+    expect(
+      constructRenderReceipt({
+        requestId,
+        renderContext: { projectId, origin },
+        plan: {
+          status: 'supported',
+          family: 'spatial-assembly',
+          parameters: { separation: 0.4, selectedPart: 'base' },
+          stages: [{ name: 'Assemble', seconds: 2 }],
+          caption: 'Assembly',
+          copy: clipPlan.copy,
+          sourceSupport: clipPlan.sourceSupport,
+          rationale: clipPlan.rationale,
+        },
+        sourceLocators: [locator],
+      }),
+    ).toBeUndefined();
+    expect(
+      constructRenderReceipt({
+        requestId,
+        renderContext: undefined,
+        plan: clipPlan,
+        sourceLocators: [locator],
+      }),
+    ).toBeUndefined();
+  });
 });
