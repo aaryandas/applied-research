@@ -8,6 +8,7 @@ import {
   LEARNING_ONBOARDING_PUBLIC_MESSAGES,
 } from '../contracts/learning-onboarding-api';
 import { LearningOnboardingValidationError } from '../contracts/learning-onboarding-validation';
+import type { LearningOnboardingRequest } from '../contracts/learning-onboarding-api';
 import { LearningOnboardingOperations } from './learning-onboarding';
 import {
   bytes,
@@ -17,6 +18,8 @@ import {
   revisedCourseSuccess,
   selectedLessonSuccess,
   adjustmentSuccess,
+  reviewedBaseFromRequest,
+  tokenizerBrief,
 } from './learning-onboarding.fixtures';
 import { LearningOnboardingRecords } from './learning-onboarding-records';
 import { applyLearningOnboardingTables } from './learning-onboarding-schema';
@@ -1781,39 +1784,34 @@ describe('learning onboarding operations', () => {
   });
 
   it('reviews an accepted course overlay without replacing ready lessons or path identity', async () => {
+    let generateHumanAnswers: { promptId: string }[] | undefined;
+    let generateReviewed: unknown;
+    let adjustNotes: string | null | undefined;
     const { store, operations, records } = setup({
       post: async (raw) => {
-        const request = JSON.parse(raw) as {
-          requestId: string;
-          operation: {
-            kind: string;
-            acceptedProposal?: { id: string; revision: number };
-            human?: {
-              answers?: { promptId: string }[];
-              profileRevision?: number;
-            };
-            target?: { practice?: Record<string, unknown> | null };
-          };
-        };
+        const request = JSON.parse(raw) as LearningOnboardingRequest;
         if (request.operation.kind === 'adjust-accepted-course') {
           expect(
-            request.operation.human?.answers?.some(
+            request.operation.human.answers.some(
               (answer) => answer.promptId === 'adjustment-notes-01',
             ),
-          ).toBe(true);
+          ).toBe(false);
+          adjustNotes = request.operation.notes;
           const body = adjustmentSuccess(request.requestId);
-          body.adjustment.acceptedProposal =
-            request.operation.acceptedProposal!;
+          body.adjustment.acceptedProposal = request.operation.acceptedProposal;
           body.adjustment.focus = {
             before: 'Learn transformers from original sources.',
             after: 'Tokenizer unknown-token handling before LoRA.',
           };
+          body.adjustment.reviewedBase = reviewedBaseFromRequest(request);
           return bytes(body);
         }
         if (request.operation.kind === 'generate-selected-lesson') {
+          generateHumanAnswers = request.operation.human.answers;
+          generateReviewed = request.operation.model.reviewedCourse;
           const body = selectedLessonSuccess(request.requestId);
           const generatedPractice = body.lesson.practice;
-          if (request.operation.target?.practice && generatedPractice) {
+          if (request.operation.target.practice && generatedPractice) {
             body.lesson.practice = {
               ...generatedPractice,
               ...(request.operation.target.practice as Partial<
@@ -1866,18 +1864,15 @@ describe('learning onboarding operations', () => {
       interviewRevision: interview.revision,
       notes: 'Tokenizer practice still failed on unknown tokens.',
       progress: {
-        practicalAttempts: [
-          {
-            attemptId: 'e1234567-1234-4234-8234-123456789012',
-            recordedRevision: 1,
-            remoteStepId: 'step-002',
-          },
-        ],
+        practicalAttempts: [],
       },
       consent: 'acquire-learning-evidence',
     });
     expect(adjusted.outcome).toBe('success');
     if (adjusted.outcome !== 'success') throw new Error('adjust');
+    expect(adjustNotes).toBe(
+      'Tokenizer practice still failed on unknown tokens.',
+    );
     expect(adjusted.value.focus?.after).toContain('Tokenizer');
     expect(adjusted.value.patches[0]?.before).not.toBe(
       adjusted.value.patches[0]?.after,
@@ -1919,6 +1914,10 @@ describe('learning onboarding operations', () => {
       revision: proposed.value.revision,
     });
     expect(after.adjustment).toBeNull();
+    expect(after.acceptedAdjustment).toEqual({
+      id: adjusted.value.id,
+      revision: adjusted.value.revision,
+    });
     expect((await operations.getLearnerProfile())?.learningGoals).toBe(
       'Ship a tokenizer before LoRA.',
     );
@@ -1937,6 +1936,19 @@ describe('learning onboarding operations', () => {
     });
     expect(generated.outcome).toBe('success');
     if (generated.outcome !== 'success') throw new Error('generate');
+    expect(generateHumanAnswers?.map((answer) => answer.promptId)).toEqual([
+      'background-01',
+      'intended-use-01',
+      'prior-know-01',
+      'diagnostic-01',
+    ]);
+    expect(generateReviewed).toMatchObject({
+      acceptedAdjustment: {
+        id: adjusted.value.id,
+        revision: adjusted.value.revision,
+      },
+      focus: 'Tokenizer unknown-token handling before LoRA.',
+    });
     expect(generated.value.lesson.lessonId).toBe(pending.id);
     expect(generated.value.workspace.paths[0]?.id).toBe(path.id);
     expect(
@@ -1951,17 +1963,11 @@ describe('learning onboarding operations', () => {
   it('refuses overlay identity mismatches, unmatched locators, and duplicate accepts', async () => {
     const { store, operations } = setup({
       post: async (raw) => {
-        const request = JSON.parse(raw) as {
-          requestId: string;
-          operation: {
-            kind: string;
-            acceptedProposal?: { id: string; revision: number };
-          };
-        };
+        const request = JSON.parse(raw) as LearningOnboardingRequest;
         if (request.operation.kind === 'adjust-accepted-course') {
           const body = adjustmentSuccess(request.requestId);
-          body.adjustment.acceptedProposal =
-            request.operation.acceptedProposal!;
+          body.adjustment.acceptedProposal = request.operation.acceptedProposal;
+          body.adjustment.reviewedBase = reviewedBaseFromRequest(request);
           return bytes(body);
         }
         return bytes(courseSuccess(request.requestId));
@@ -2011,6 +2017,7 @@ describe('learning onboarding operations', () => {
               attemptId: 'e1234567-1234-4234-8234-123456789012',
               recordedRevision: 1,
               remoteStepId: 'step-999',
+              activity: dummyPracticalActivity(seeded.project.id),
             },
           ],
         },
@@ -2054,4 +2061,316 @@ describe('learning onboarding operations', () => {
     }
     expect(duplicate.value.pathId).toBe(first.value.pathId);
   });
+
+  it('keeps accepted overlay A when proposing B, rejects ready targets, and binds replay', async () => {
+    const { store, operations } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as LearningOnboardingRequest;
+        if (request.operation.kind === 'adjust-accepted-course') {
+          const body = adjustmentSuccess(request.requestId);
+          body.adjustment.acceptedProposal = request.operation.acceptedProposal;
+          body.adjustment.reviewedBase = reviewedBaseFromRequest(request);
+          if (request.operation.model.reviewedCourse?.acceptedAdjustment) {
+            const current = {
+              ...tokenizerBrief,
+              intendedOutcome:
+                'Produce a tokenizer and a documented unknown-token rule.',
+            };
+            const next = {
+              ...tokenizerBrief,
+              intendedOutcome:
+                'Produce a tokenizer and a second unknown-token rule.',
+            };
+            body.adjustment.focus = null;
+            body.adjustment.depth = null;
+            body.adjustment.patches = [
+              {
+                remoteStepId: 'step-002',
+                field: 'practice',
+                before: current.intendedOutcome,
+                after: next.intendedOutcome,
+                practiceBefore: current,
+                practice: next,
+              },
+            ];
+          }
+          return bytes(body);
+        }
+        if (request.operation.kind === 'generate-selected-lesson') {
+          const body = selectedLessonSuccess(request.requestId);
+          const generatedPractice = body.lesson.practice;
+          if (request.operation.target.practice && generatedPractice) {
+            body.lesson.practice = {
+              ...generatedPractice,
+              ...request.operation.target.practice,
+              citations: generatedPractice.citations,
+            };
+          }
+          return bytes(body);
+        }
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const seeded = await seededInterview(operations, store);
+    const proposed = await operations.proposeCourse({
+      projectId: seeded.project.id,
+      requestId: 'request-01',
+      interviewRevision: seeded.interview.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    if (proposed.outcome !== 'success') throw new Error('propose');
+    const accepted = await operations.acceptCourse({
+      projectId: seeded.project.id,
+      requestId: 'accept-01',
+      proposal: { id: proposed.value.id, revision: proposed.value.revision },
+    });
+    if (accepted.outcome !== 'success') throw new Error('accept');
+    const firstOverlay = await operations.proposeAcceptedCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'adjust-a',
+      acceptedProposal: {
+        id: proposed.value.id,
+        revision: proposed.value.revision,
+      },
+      interviewRevision: seeded.interview.revision,
+      notes: 'first overlay',
+      progress: { practicalAttempts: [] },
+      consent: 'acquire-learning-evidence',
+    });
+    if (firstOverlay.outcome !== 'success') throw new Error('adjust-a');
+    const applied = await operations.acceptCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'accept-a',
+      adjustment: {
+        id: firstOverlay.value.id,
+        revision: firstOverlay.value.revision,
+      },
+    });
+    expect(applied.outcome).toBe('success');
+    const secondOverlay = await operations.proposeAcceptedCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'adjust-b',
+      acceptedProposal: {
+        id: proposed.value.id,
+        revision: proposed.value.revision,
+      },
+      interviewRevision: seeded.interview.revision,
+      notes: 'second overlay',
+      progress: { practicalAttempts: [] },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(secondOverlay.outcome).toBe('success');
+    if (secondOverlay.outcome !== 'success') throw new Error('adjust-b');
+    const snap = await operations.getLearningOnboarding({
+      projectId: seeded.project.id,
+    });
+    expect(snap.acceptedAdjustment).toEqual({
+      id: firstOverlay.value.id,
+      revision: firstOverlay.value.revision,
+    });
+    expect(snap.adjustment?.revision).toBe(secondOverlay.value.revision);
+    await expect(
+      operations.acceptCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'accept-a',
+        adjustment: {
+          id: secondOverlay.value.id,
+          revision: secondOverlay.value.revision,
+        },
+      }),
+    ).resolves.toMatchObject({ outcome: 'conflict' });
+    const path = accepted.value.workspace.paths[0]!;
+    const pending = path.current.topics[0]!.lessons[1]!;
+    const generated = await operations.ensureLesson({
+      projectId: seeded.project.id,
+      requestId: 'ready-01',
+      target: {
+        pathId: path.id,
+        pathRevision: path.currentRevision,
+        topicId: path.current.topics[0]!.id,
+        lessonId: pending.id,
+      },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(generated.outcome).toBe('success');
+    await expect(
+      operations.acceptCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'accept-b-ready',
+        adjustment: {
+          id: secondOverlay.value.id,
+          revision: secondOverlay.value.revision,
+        },
+      }),
+    ).resolves.toMatchObject({ outcome: 'stale-revision' });
+  });
+
+  it('resolves historical Practical work and rejects foreign or stale revisions', async () => {
+    let capturedWork: unknown;
+    const { store, operations } = setup({
+      post: async (raw) => {
+        const request = JSON.parse(raw) as LearningOnboardingRequest;
+        if (request.operation.kind === 'adjust-accepted-course') {
+          capturedWork = request.operation.progress.practicalAttempts[0]?.work;
+          const body = adjustmentSuccess(request.requestId);
+          body.adjustment.acceptedProposal = request.operation.acceptedProposal;
+          body.adjustment.reviewedBase = reviewedBaseFromRequest(request);
+          return bytes(body);
+        }
+        return bytes(courseSuccess(request.requestId));
+      },
+    });
+    const seeded = await seededInterview(operations, store);
+    const proposed = await operations.proposeCourse({
+      projectId: seeded.project.id,
+      requestId: 'request-01',
+      interviewRevision: seeded.interview.revision,
+      consent: 'acquire-learning-evidence',
+    });
+    if (proposed.outcome !== 'success') throw new Error('propose');
+    const accepted = await operations.acceptCourse({
+      projectId: seeded.project.id,
+      requestId: 'accept-01',
+      proposal: { id: proposed.value.id, revision: proposed.value.revision },
+    });
+    if (accepted.outcome !== 'success') throw new Error('accept');
+    const path = accepted.value.workspace.paths[0]!;
+    const pending = path.current.topics[0]!.lessons[1]!;
+    const activity = {
+      projectId: seeded.project.id,
+      origin: {
+        path: {
+          pathId: path.id,
+          pathRevision: path.currentRevision,
+          topicId: path.current.topics[0]!.id,
+          lessonId: pending.id,
+        },
+      },
+      title: pending.title,
+      instructions: pending.activity,
+      objective: pending.objective,
+    };
+    const attemptId = 'e1234567-1234-4234-8234-123456789012';
+    const recorded = store.recordPracticalResult({
+      activity,
+      attemptId,
+      expectedRevision: 0,
+      draft: {
+        prediction: 'Unknown tokens will fail.',
+        attempt: 'Ran the tokenizer on a rare-token corpus.',
+        reportedResult: {
+          kind: 'user-reported-text',
+          text: 'Tokenizer emitted UNK for rare tokens.',
+        },
+        selectedEvidence: null,
+        reflection: {
+          authorKind: 'human',
+          text: 'Unknown tokens still failed.',
+        },
+      },
+    });
+    expect(recorded.status).toBe('committed');
+    const adjusted = await operations.proposeAcceptedCourseAdjustment({
+      projectId: seeded.project.id,
+      requestId: 'adjust-work',
+      acceptedProposal: {
+        id: proposed.value.id,
+        revision: proposed.value.revision,
+      },
+      interviewRevision: seeded.interview.revision,
+      notes: 'Returned work is not mastery.',
+      progress: {
+        practicalAttempts: [
+          {
+            attemptId,
+            recordedRevision: 1,
+            remoteStepId: 'step-002',
+            activity,
+          },
+        ],
+      },
+      consent: 'acquire-learning-evidence',
+    });
+    expect(adjusted.outcome).toBe('success');
+    expect(capturedWork).toMatchObject({
+      activityOrigin: {
+        pathId: path.id,
+        pathRevision: path.currentRevision,
+        lessonId: pending.id,
+      },
+      reflection: { authorKind: 'human', text: 'Unknown tokens still failed.' },
+      reportedResult: {
+        kind: 'user-reported-text',
+        text: 'Tokenizer emitted UNK for rare tokens.',
+      },
+      masteryEstablished: false,
+    });
+    await expect(
+      operations.proposeAcceptedCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'adjust-stale-rev',
+        acceptedProposal: {
+          id: proposed.value.id,
+          revision: proposed.value.revision,
+        },
+        interviewRevision: seeded.interview.revision,
+        notes: 'stale revision',
+        progress: {
+          practicalAttempts: [
+            {
+              attemptId,
+              recordedRevision: 9,
+              remoteStepId: 'step-002',
+              activity,
+            },
+          ],
+        },
+        consent: 'acquire-learning-evidence',
+      }),
+    ).resolves.toMatchObject({ outcome: 'stale-revision' });
+    const foreign = {
+      ...activity,
+      projectId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    };
+    await expect(
+      operations.proposeAcceptedCourseAdjustment({
+        projectId: seeded.project.id,
+        requestId: 'adjust-foreign',
+        acceptedProposal: {
+          id: proposed.value.id,
+          revision: proposed.value.revision,
+        },
+        interviewRevision: seeded.interview.revision,
+        notes: 'foreign',
+        progress: {
+          practicalAttempts: [
+            {
+              attemptId,
+              recordedRevision: 1,
+              remoteStepId: 'step-002',
+              activity: foreign,
+            },
+          ],
+        },
+        consent: 'acquire-learning-evidence',
+      }),
+    ).rejects.toBeInstanceOf(LearningOnboardingValidationError);
+  });
 });
+
+function dummyPracticalActivity(projectId: string) {
+  return {
+    projectId,
+    origin: {
+      path: {
+        pathId: '11111111-1111-4111-8111-111111111111',
+        pathRevision: 1,
+        topicId: '22222222-2222-4222-8222-222222222222',
+        lessonId: '33333333-3333-4333-8333-333333333333',
+      },
+    },
+    title: 'Tokenizer practice',
+    instructions: 'Tokenize a short corpus outside the app.',
+    objective: 'Produce a working tokenizer on a short corpus.',
+  };
+}
