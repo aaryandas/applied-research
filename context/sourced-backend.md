@@ -67,6 +67,8 @@ separately; no keys in this repository or chat):
 - `dimensions: 1024`, `encoding_format: float`, `require_parameters: true`, no fallbacks
 - `max_price.prompt = 0.01`, `max_price.request = 0`; no truncation
 - Query instruction: Instruct/Query prefix in `policy.ts`; document instruction is empty
+- Live query and document embeddings reserve the exact serialized final inputs (including the query instruction prefix) against the original `embedding-eval` remaining allowance, never a fresh per-run 250000 µUSD ceiling
+- Paid adapter outcomes are `not-dispatched`, `settled`, or `uncertain`. Unknown outcomes after physical dispatch retain their reservation and are non-retryable until reconciled. Settlement uses provider-reported `usage.cost` only; prompt-token guesses are forbidden
 - L2-normalized vectors; generation identity is provider + model + modelVersion + dimensions + schema + corpus + chunking
 - Mixed fixture/live transports reject. Missing live config fails closed (`live-configuration-required`)
 - Hybrid ANN+BM25 runs only after a real finite vector; there is no keyword-only fallback
@@ -101,25 +103,19 @@ sibling contract (draft PR #45). Do not consume it until independent review
 PASS. Do not register onboarding on `/v1/learning/sourced`. Do not implement
 Practical attempt storage.
 
-## Eval smoke (paid path gated)
+## Eval smoke (paid path blocked)
 
-`npm run test:source-index-eval` is **not** part of `npm run check`. It exits
-nonzero and prints the coordinator command unless `SOURCE_INDEX_EVAL=true` and
-backend keys/region are supplied. This agent did not run paid calls.
+Live `source-index-eval` is **not** part of `npm run check` and is **not**
+authorized on this head. Query and document embeddings must both admit against
+the original `embedding-eval` remaining allowance (249996 µUSD after the seeded
+4 µUSD settlement). A per-run fresh 250000 µUSD ceiling, or reporting document
+cost while excluding query cost, is a spend-boundary defect. Cleanup must run in
+`finally` and be independently confirmed. This agent did not run paid calls.
 
-```
-SOURCE_INDEX_EVAL=true \
-  OPENROUTER_API_KEY=<backend-openrouter-key> \
-  TURBOPUFFER_API_KEY=<backend-turbopuffer-key> \
-  TURBOPUFFER_REGION=aws-us-west-2 \
-  SOURCE_INDEX_EVAL_NAMESPACE=ar-eval-shared-025 \
-  EMBEDDING_EVAL_LIMIT_USD=0.25 \
-  npm run test:source-index-eval
-```
-
-The smoke embeds one original eval-only sentence, writes/queries/deletes the
-named eval namespace, and reports spent microusd. It is not starter-index
-content and does not enable production AI.
+The smoke, when later authorized, embeds one original eval-only sentence,
+writes/queries/deletes the named eval namespace, and reports combined query plus
+document spend from the durable ledger. It is not starter-index content and does
+not enable production AI.
 
 ## Desktop and sibling coordination
 

@@ -29,7 +29,17 @@ export type EmbeddingBudgetDecision =
   | { readonly kind: 'conflict' }
   | { readonly kind: 'in-progress' };
 
+export interface EmbeddingBudgetSnapshot {
+  readonly committedMicrousd: number;
+  readonly reservedMicrousd: number;
+  readonly limitMicrousd: number;
+}
+
 export interface EmbeddingBudgetService {
+  readonly inspect: () => Effect.Effect<
+    EmbeddingBudgetSnapshot,
+    OpenAlexBudgetFailure
+  >;
   readonly refreshAndReserve: (input: {
     requestId: string;
     inputHash: string;
@@ -291,6 +301,26 @@ export function makePostgresEmbeddingBudget(
   evalLimitMicrousd: number,
 ): EmbeddingBudgetService {
   return {
+    inspect() {
+      return budgetEffect(async () => {
+        const [ledger] = await database.db
+          .select()
+          .from(sharedBudget)
+          .where(eq(sharedBudget.name, 'embedding-eval'));
+        if (!ledger) {
+          return {
+            committedMicrousd: 0,
+            reservedMicrousd: 0,
+            limitMicrousd: 0,
+          };
+        }
+        return {
+          committedMicrousd: ledger.committedMicrousd,
+          reservedMicrousd: ledger.reservedMicrousd,
+          limitMicrousd: ledger.limitMicrousd,
+        };
+      });
+    },
     refreshAndReserve(input) {
       if (evalLimitMicrousd <= 0) {
         return Effect.succeed({ kind: 'budget-exhausted' });
@@ -317,7 +347,8 @@ export function makePostgresEmbeddingBudget(
               return { kind: 'conflict' } as const;
             if (existing.state === 'reserved' || existing.state === 'uncertain')
               return { kind: 'in-progress' } as const;
-            return { kind: 'budget-exhausted' } as const;
+            if (existing.state === 'settled')
+              return { kind: 'budget-exhausted' } as const;
           }
           const projected =
             ledger.committedMicrousd +
@@ -329,15 +360,33 @@ export function makePostgresEmbeddingBudget(
           ) {
             return { kind: 'budget-exhausted' } as const;
           }
-          await transaction.insert(sharedBudgetRequest).values({
-            name: 'embedding-eval',
-            requestId: input.requestId,
-            requestHash: input.inputHash,
-            state: 'reserved',
-            reservedMicrousd: input.maximumChargeMicrousd,
-            createdAt: input.now,
-            updatedAt: input.now,
-          });
+          if (existing?.state === 'released') {
+            await transaction
+              .update(sharedBudgetRequest)
+              .set({
+                requestHash: input.inputHash,
+                state: 'reserved',
+                reservedMicrousd: input.maximumChargeMicrousd,
+                actualMicrousd: null,
+                updatedAt: input.now,
+              })
+              .where(
+                and(
+                  eq(sharedBudgetRequest.name, 'embedding-eval'),
+                  eq(sharedBudgetRequest.requestId, input.requestId),
+                ),
+              );
+          } else {
+            await transaction.insert(sharedBudgetRequest).values({
+              name: 'embedding-eval',
+              requestId: input.requestId,
+              requestHash: input.inputHash,
+              state: 'reserved',
+              reservedMicrousd: input.maximumChargeMicrousd,
+              createdAt: input.now,
+              updatedAt: input.now,
+            });
+          }
           await transaction
             .update(sharedBudget)
             .set({
@@ -492,22 +541,40 @@ export function makeMemoryOpenAlexBudget(
 
 export function makeMemoryEmbeddingBudget(
   remainingMicrousd: number,
+  seed?: {
+    readonly committedMicrousd?: number;
+    readonly limitMicrousd?: number;
+  },
 ): EmbeddingBudgetService {
+  let committed = seed?.committedMicrousd ?? 0;
+  let reservedOutstanding = 0;
+  const limit = seed?.limitMicrousd ?? remainingMicrousd + committed;
   let remaining = remainingMicrousd;
-  const seen = new Map<string, string>();
+  const seen = new Map<
+    string,
+    { readonly hash: string; readonly open: boolean }
+  >();
   return {
+    inspect: () =>
+      Effect.succeed({
+        committedMicrousd: committed,
+        reservedMicrousd: reservedOutstanding,
+        limitMicrousd: limit,
+      }),
     refreshAndReserve(input) {
       const previous = seen.get(input.requestId);
       if (previous) {
-        if (previous !== input.inputHash)
+        if (previous.hash !== input.inputHash)
           return Effect.succeed({ kind: 'conflict' });
-        return Effect.succeed({ kind: 'in-progress' });
+        if (previous.open) return Effect.succeed({ kind: 'in-progress' });
+        return Effect.succeed({ kind: 'budget-exhausted' });
       }
       if (remaining < input.maximumChargeMicrousd) {
         return Effect.succeed({ kind: 'budget-exhausted' });
       }
       remaining -= input.maximumChargeMicrousd;
-      seen.set(input.requestId, input.inputHash);
+      reservedOutstanding += input.maximumChargeMicrousd;
+      seen.set(input.requestId, { hash: input.inputHash, open: true });
       let reserved = input.maximumChargeMicrousd;
       return Effect.succeed({
         kind: 'reserved',
@@ -515,14 +582,29 @@ export function makeMemoryEmbeddingBudget(
           release: () =>
             Effect.sync(() => {
               remaining += reserved;
+              reservedOutstanding = Math.max(0, reservedOutstanding - reserved);
               reserved = 0;
+              seen.delete(input.requestId);
             }),
           settle: (actual: number) =>
             Effect.sync(() => {
-              remaining += Math.max(0, reserved - actual);
+              const charge = Math.min(reserved, Math.max(1, actual));
+              remaining += Math.max(0, reserved - charge);
+              committed += charge;
+              reservedOutstanding = Math.max(0, reservedOutstanding - reserved);
               reserved = 0;
+              seen.set(input.requestId, {
+                hash: input.inputHash,
+                open: false,
+              });
             }),
-          retain: () => Effect.void,
+          retain: () =>
+            Effect.sync(() => {
+              seen.set(input.requestId, {
+                hash: input.inputHash,
+                open: true,
+              });
+            }),
         },
       });
     },

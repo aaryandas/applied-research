@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { validVector } from './index/validation.js';
 import { sourceIndexGeneration } from './embedding.js';
 import {
@@ -9,6 +9,7 @@ import {
   isReviewedEmbeddingResponseModel,
   l2Normalize,
   makeOpenRouterEmbeddingClient,
+  providerReportedEmbeddingMicrousd,
 } from './embedding.js';
 import {
   EMBEDDING_DIMENSIONS,
@@ -61,7 +62,7 @@ describe('OpenRouter embedding identity', () => {
     });
     await expect(
       client.embedDocuments(['passage text'], new AbortController().signal),
-    ).rejects.toMatchObject({ reason: 'invalid-input' });
+    ).resolves.toMatchObject({ reconciliation: 'uncertain', vectors: [] });
     const live = makeOpenRouterEmbeddingClient({
       apiKey: 'synthetic-key',
       request: async (_url, init) => {
@@ -104,10 +105,41 @@ describe('OpenRouter embedding identity', () => {
       'database keys',
       new AbortController().signal,
     );
-    expect(result.generation.modelVersion).toBe(generation.modelVersion);
-    expect(result.vector).toHaveLength(generation.dimensions);
-    expect(validVector(result.vector, generation.dimensions)).toBe(true);
+    expect(result.reconciliation).toBe('settled');
+    if (result.reconciliation !== 'settled') {
+      throw new Error('expected settled query embedding');
+    }
+    expect(result.actualMicrousd).toBe(1);
+    expect(result.vectors[0]?.generation.modelVersion).toBe(
+      generation.modelVersion,
+    );
+    expect(result.vectors[0]?.vector).toHaveLength(generation.dimensions);
+    expect(validVector(result.vectors[0]!.vector, generation.dimensions)).toBe(
+      true,
+    );
     expect(createHash('sha256').update('x').digest('hex')).toHaveLength(64);
+  });
+
+  it('does not guess cost from prompt_tokens and treats 5xx after dispatch as uncertain', async () => {
+    expect(
+      providerReportedEmbeddingMicrousd({
+        usage: { prompt_tokens: 177 },
+      }),
+    ).toBeUndefined();
+    const aborted = new AbortController();
+    aborted.abort();
+    const untouched = vi.fn<typeof fetch>();
+    const cancelled = await makeOpenRouterEmbeddingClient({
+      apiKey: 'synthetic-key',
+      request: untouched,
+    }).embedQuery('keys', aborted.signal);
+    expect(cancelled.reconciliation).toBe('not-dispatched');
+    expect(untouched).not.toHaveBeenCalled();
+    const failed = await makeOpenRouterEmbeddingClient({
+      apiKey: 'synthetic-key',
+      request: async () => new Response('timeout', { status: 504 }),
+    }).embedQuery('keys', new AbortController().signal);
+    expect(failed.reconciliation).toBe('uncertain');
   });
 
   it('rejects unreviewed response model aliases including the OpenRouter request id', async () => {
@@ -129,7 +161,7 @@ describe('OpenRouter embedding identity', () => {
       });
       await expect(
         client.embedQuery('keys', new AbortController().signal),
-      ).rejects.toMatchObject({ reason: 'generation-mismatch' });
+      ).resolves.toMatchObject({ reconciliation: 'uncertain', vectors: [] });
     }
   });
 });

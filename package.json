@@ -40,7 +40,6 @@
     "native:electron": "electron-rebuild -f -w better-sqlite3",
     "dev:backend": "npm run build:backend && npm run start:backend",
     "test:backend:postgres": "vitest run --config vitest.backend-postgres.config.ts",
-    "test:source-index-eval": "node --experimental-strip-types src/backend/source-index-eval.ts",
     "build:backend": "tsc -p tsconfig.backend.json && node scripts/copy-backend-assets.mjs",
     "start:backend": "node --enable-source-maps out/backend/backend/entrypoint.js",
     "migrate:backend": "npm run build:backend && node --enable-source-maps out/backend/backend/migrate.js",

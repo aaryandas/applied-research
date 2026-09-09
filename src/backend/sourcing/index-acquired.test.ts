@@ -100,9 +100,10 @@ describe('acquired source indexing', () => {
     const embedding: EmbeddingClient = {
       generation: sourceIndexGeneration(),
       reservationMicrousdFor: () => 10,
-      embedQuery: async () => {
-        throw new Error('query unused');
-      },
+      embedQuery: async () => ({
+        reconciliation: 'not-dispatched',
+        vectors: [],
+      }),
       embedDocuments: async () => {
         throw new Error('must not embed without a reservation');
       },

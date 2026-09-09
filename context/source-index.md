@@ -39,17 +39,9 @@ This revision does not run paid embed/index calls, deploy, or enable production 
 published Launch minimum is not an unlimited embedding budget or a hard application cap;
 the shared eval ledger fails closed when missing.
 
-Ready live smoke (do not run without coordinator authorization):
-
-```
-SOURCE_INDEX_EVAL=true \
-  OPENROUTER_API_KEY=<backend-openrouter-key> \
-  TURBOPUFFER_API_KEY=<backend-turbopuffer-key> \
-  TURBOPUFFER_REGION=aws-us-west-2 \
-  SOURCE_INDEX_EVAL_NAMESPACE=ar-eval-shared-025 \
-  EMBEDDING_EVAL_LIMIT_USD=0.25 \
-  npm run test:source-index-eval
-```
+Live eval remains blocked until every physical dispatch, including query embedding,
+admits against that original remaining allowance. There is no `npm run test:source-index-eval`
+ready-eval command on this head. A per-run fresh 250000 µUSD ceiling is not authorized.
 
 See [sourced backend](sourced-backend.md) for route composition, budgets and corpus limits.
 

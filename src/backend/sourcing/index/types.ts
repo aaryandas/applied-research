@@ -63,7 +63,8 @@ export type IndexFailureReason =
   | 'rate-limited'
   | 'index-lag'
   | 'unavailable'
-  | 'limit-exceeded';
+  | 'limit-exceeded'
+  | 'unreconciled-spend';
 
 export type IndexWriteResult =
   | { readonly outcome: 'indexed'; readonly passages: number }

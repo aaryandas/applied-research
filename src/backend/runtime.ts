@@ -24,7 +24,10 @@ import {
   makePostgresOpenAlexBudget,
 } from './sourcing/budgets.js';
 import { makeSourcingService } from './sourcing/composition.js';
-import { makeOpenRouterEmbeddingClient } from './sourcing/embedding.js';
+import {
+  EmbeddingFailure,
+  makeOpenRouterEmbeddingClient,
+} from './sourcing/embedding.js';
 import { makeLearningEvidenceSelector } from './sourcing/learning-evidence.js';
 import { makeOpenAlexDiscoveryAdapter } from './sourcing/openalex/adapter.js';
 import { OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD } from './sourcing/openalex/budget.js';
@@ -130,7 +133,9 @@ function makeBackendLayer(
               request,
               apiKey: config.turbopufferApiKey,
               region: config.turbopufferRegion,
-              embedQuery: embedding.embedQuery.bind(embedding),
+              embedQuery: async () => {
+                throw new EmbeddingFailure({ reason: 'unavailable' });
+              },
             }
           : undefined;
       const sourcing = makeSourcingService({

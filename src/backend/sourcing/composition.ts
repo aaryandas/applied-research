@@ -25,12 +25,18 @@ import {
 import { authorityFromSources } from './corpus-authority.js';
 import type { EmbeddingBudgetService } from './budgets.js';
 import type { EmbeddingClient } from './embedding.js';
-import { sourceIndexGeneration } from './embedding.js';
-import { embeddingReservationMicrousd } from './embedding.js';
+import {
+  EmbeddingFailure,
+  preparedQueryInput,
+  queryReservationMicrousd,
+  sourceIndexGeneration,
+} from './embedding.js';
+import { accountPaidEmbedding } from './paid-reservation.js';
 import {
   makeTurbopufferIndex,
   type TurbopufferIndex,
 } from './index/adapter.js';
+import { IndexOperationError } from './index/results.js';
 import type { LiveIndexTransport } from './index/types.js';
 import { indexAcquiredSource } from './index-acquired.js';
 import type { OpenAlexDiscoveryAdapter } from './openalex/adapter.js';
@@ -225,34 +231,56 @@ function wrapLiveQueryBudget(
 ): LiveIndexTransport | undefined {
   const live = composition.liveIndex;
   const budget = composition.embeddingBudget;
+  const embedding = composition.embedding;
   if (!live || !budget) return live;
   return {
     ...live,
     async embedQuery(query, signal) {
+      const prepared = preparedQueryInput(query);
       const decision = await composition.runEffect(
         budget.refreshAndReserve({
           requestId: `qemb_${randomBytes(12).toString('hex')}`,
-          inputHash: createHash('sha256').update(query).digest('hex'),
-          maximumChargeMicrousd: Math.max(
-            1,
-            embeddingReservationMicrousd([query]),
-          ),
+          inputHash: createHash('sha256').update(prepared).digest('hex'),
+          maximumChargeMicrousd: Math.max(1, queryReservationMicrousd(query)),
           now: now(),
         }),
       );
-      if (decision.kind !== 'reserved') {
-        throw new Error('Embedding evaluation budget is exhausted.');
+      if (decision.kind === 'in-progress') {
+        throw new IndexOperationError('unreconciled-spend');
       }
+      if (decision.kind !== 'reserved') {
+        throw new IndexOperationError('limit-exceeded');
+      }
+      let accounted = false;
       try {
-        const vector = await live.embedQuery(query, signal);
-        await composition.runEffect(
-          decision.reservation.settle(
-            Math.max(1, embeddingReservationMicrousd([query])),
-          ),
+        const paid = embedding
+          ? await embedding.embedQuery(query, signal)
+          : { reconciliation: 'uncertain' as const, vectors: [] };
+        const reconciliation = await accountPaidEmbedding(
+          composition.runEffect,
+          decision,
+          paid,
         );
-        return vector;
+        accounted = true;
+        if (reconciliation === 'settled' && paid.reconciliation === 'settled') {
+          const vector = paid.vectors[0];
+          if (vector) return vector;
+        }
+        if (reconciliation === 'not-dispatched') {
+          throw new IndexOperationError('cancelled');
+        }
+        throw new IndexOperationError('unreconciled-spend');
       } catch (cause) {
-        await composition.runEffect(decision.reservation.retain());
+        if (!accounted) {
+          if (
+            cause instanceof EmbeddingFailure &&
+            cause.reason === 'invalid-input'
+          ) {
+            await composition.runEffect(decision.reservation.release());
+          } else {
+            await composition.runEffect(decision.reservation.retain());
+          }
+        }
         throw cause;
       }
     },

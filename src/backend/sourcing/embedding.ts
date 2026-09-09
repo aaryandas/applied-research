@@ -33,11 +33,23 @@ export class EmbeddingFailure extends Data.TaggedError('EmbeddingFailure')<{
   readonly cause?: unknown;
 }> {}
 
-export interface EmbeddingBatchResult {
-  readonly vectors: VersionedVector[];
-  readonly actualMicrousd: number | null;
-  readonly dispatched: boolean;
-}
+export type PaidDispatchReconciliation =
+  'not-dispatched' | 'settled' | 'uncertain';
+
+export type PaidEmbeddingResult =
+  | {
+      readonly reconciliation: 'not-dispatched';
+      readonly vectors: readonly [];
+    }
+  | {
+      readonly reconciliation: 'settled';
+      readonly vectors: VersionedVector[];
+      readonly actualMicrousd: number;
+    }
+  | {
+      readonly reconciliation: 'uncertain';
+      readonly vectors: VersionedVector[];
+    };
 
 export interface EmbeddingClient {
   readonly generation: IndexGeneration;
@@ -45,11 +57,11 @@ export interface EmbeddingClient {
   readonly embedQuery: (
     query: string,
     signal: AbortSignal,
-  ) => Promise<VersionedVector>;
+  ) => Promise<PaidEmbeddingResult>;
   readonly embedDocuments: (
     texts: readonly string[],
     signal: AbortSignal,
-  ) => Promise<EmbeddingBatchResult>;
+  ) => Promise<PaidEmbeddingResult>;
 }
 
 export function sourceIndexGeneration(): IndexGeneration {
@@ -83,12 +95,20 @@ export function embeddingReservationMicrousd(texts: readonly string[]): number {
   return Math.max(1, Math.ceil(micros));
 }
 
-function queryText(query: string): string {
+export function preparedQueryInput(query: string): string {
   return `${EMBEDDING_QUERY_INSTRUCTION}${query}`;
 }
 
-function documentText(text: string): string {
+export function preparedDocumentInput(text: string): string {
   return `${EMBEDDING_DOCUMENT_INSTRUCTION}${text}`;
+}
+
+export function queryReservationMicrousd(query: string): number {
+  return embeddingReservationMicrousd([preparedQueryInput(query)]);
+}
+
+export function documentReservationMicrousd(texts: readonly string[]): number {
+  return embeddingReservationMicrousd(texts.map(preparedDocumentInput));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -162,24 +182,17 @@ function parseVectors(
     });
 }
 
-function parseActualMicrousd(value: unknown): number | null {
-  if (!isRecord(value) || !isRecord(value.usage)) return null;
-  if (
-    typeof value.usage.cost === 'number' ||
-    typeof value.usage.cost === 'string'
-  ) {
-    try {
-      return usdToMicrousd(value.usage.cost);
-    } catch {
-      return null;
-    }
+export function providerReportedEmbeddingMicrousd(
+  value: unknown,
+): number | undefined {
+  if (!isRecord(value) || !isRecord(value.usage)) return undefined;
+  const cost = value.usage.cost;
+  if (typeof cost !== 'number' && typeof cost !== 'string') return undefined;
+  try {
+    return usdToMicrousd(cost);
+  } catch {
+    return undefined;
   }
-  if (typeof value.usage.prompt_tokens === 'number') {
-    return embeddingReservationMicrousd([
-      'x'.repeat(Math.max(0, value.usage.prompt_tokens)),
-    ]);
-  }
-  return null;
 }
 
 export function makeOpenRouterEmbeddingClient(options: {
@@ -191,10 +204,10 @@ export function makeOpenRouterEmbeddingClient(options: {
   const request = options.request ?? fetch;
   const timeoutMilliseconds = options.timeoutMilliseconds ?? 10_000;
 
-  async function embed(
+  async function embedPaid(
     inputs: readonly string[],
     signal: AbortSignal,
-  ): Promise<{ vectors: VersionedVector[]; actualMicrousd: number | null }> {
+  ): Promise<PaidEmbeddingResult> {
     if (
       inputs.length === 0 ||
       inputs.length > MAX_EMBEDDING_BATCH ||
@@ -207,12 +220,21 @@ export function makeOpenRouterEmbeddingClient(options: {
     ) {
       throw new EmbeddingFailure({ reason: 'invalid-input' });
     }
+    if (signal.aborted) {
+      return { reconciliation: 'not-dispatched', vectors: [] };
+    }
     const controller = new AbortController();
     const abort = (): void => controller.abort(signal.reason);
     signal.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(() => controller.abort(), timeoutMilliseconds);
-    if (signal.aborted) abort();
+    if (signal.aborted) {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      return { reconciliation: 'not-dispatched', vectors: [] };
+    }
+    let dispatched = false;
     try {
+      dispatched = true;
       const response = await request(OPENROUTER_EMBEDDINGS_URL, {
         method: 'POST',
         redirect: 'error',
@@ -239,22 +261,25 @@ export function makeOpenRouterEmbeddingClient(options: {
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new EmbeddingFailure({ reason: 'unavailable' });
+        return { reconciliation: 'uncertain', vectors: [] };
       }
       const payload = await readJson(response, controller.signal);
-      return {
-        vectors: parseVectors(payload, inputs.length, generation),
-        actualMicrousd: parseActualMicrousd(payload),
-      };
-    } catch (cause) {
-      if (cause instanceof EmbeddingFailure) throw cause;
-      if (controller.signal.aborted) {
-        throw new EmbeddingFailure({
-          reason: signal.aborted ? 'cancelled' : 'timed-out',
-          cause,
-        });
+      let vectors: VersionedVector[];
+      try {
+        vectors = parseVectors(payload, inputs.length, generation);
+      } catch {
+        return { reconciliation: 'uncertain', vectors: [] };
       }
-      throw new EmbeddingFailure({ reason: 'unavailable', cause });
+      const actualMicrousd = providerReportedEmbeddingMicrousd(payload);
+      if (actualMicrousd === undefined) {
+        return { reconciliation: 'uncertain', vectors };
+      }
+      return { reconciliation: 'settled', vectors, actualMicrousd };
+    } catch {
+      if (!dispatched) {
+        return { reconciliation: 'not-dispatched', vectors: [] };
+      }
+      return { reconciliation: 'uncertain', vectors: [] };
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
@@ -263,25 +288,12 @@ export function makeOpenRouterEmbeddingClient(options: {
 
   return {
     generation,
-    reservationMicrousdFor: embeddingReservationMicrousd,
+    reservationMicrousdFor: documentReservationMicrousd,
     async embedQuery(query, signal) {
-      const prepared = queryText(query);
-      const result = await embed([prepared], signal);
-      const vector = result.vectors[0];
-      if (!vector) throw new EmbeddingFailure({ reason: 'unavailable' });
-      return vector;
+      return embedPaid([preparedQueryInput(query)], signal);
     },
     async embedDocuments(texts, signal) {
-      const prepared = texts.map(documentText);
-      try {
-        const result = await embed(prepared, signal);
-        return { ...result, dispatched: true };
-      } catch (cause) {
-        if (cause instanceof EmbeddingFailure && cause.reason === 'cancelled') {
-          return { vectors: [], actualMicrousd: null, dispatched: false };
-        }
-        throw cause;
-      }
+      return embedPaid(texts.map(preparedDocumentInput), signal);
     },
   };
 }

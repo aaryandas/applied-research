@@ -7,9 +7,11 @@ import { MAX_EMBEDDING_BATCH } from '../policy.js';
 import type { EmbeddingBudgetService } from './budgets.js';
 import type { EmbeddingClient } from './embedding.js';
 import {
-  embeddingReservationMicrousd,
+  documentReservationMicrousd,
+  EmbeddingFailure,
   sourceIndexGeneration,
 } from './embedding.js';
+import { accountPaidEmbedding } from './paid-reservation.js';
 import type { TurbopufferIndex } from './index/adapter.js';
 import { generationId } from './index/identity.js';
 import type { IndexPassage } from './index/types.js';
@@ -109,7 +111,7 @@ export async function indexAcquiredSource(
           batch,
         ),
         inputHash: passageHash(batch),
-        maximumChargeMicrousd: Math.max(1, embeddingReservationMicrousd(texts)),
+        maximumChargeMicrousd: Math.max(1, documentReservationMicrousd(texts)),
         now: options.now(),
       }),
     );
@@ -117,16 +119,19 @@ export async function indexAcquiredSource(
       return 'budget-exhausted';
     }
     if (decision.kind === 'in-progress') return 'unavailable';
-    let dispatched = false;
     try {
       const embedded = await options.embedding.embedDocuments(
         texts,
         invocation.signal,
       );
-      dispatched = embedded.dispatched;
+      const reconciliation = await accountPaidEmbedding(
+        options.runEffect,
+        decision,
+        embedded,
+      );
+      if (reconciliation !== 'settled') return 'unavailable';
+      if (embedded.reconciliation !== 'settled') return 'unavailable';
       if (embedded.vectors.length !== batch.length) {
-        await options.runEffect(decision.reservation.retain());
-        diagnostics.report('sourcing.embedding-failed');
         return 'unavailable';
       }
       for (const [indexInBatch, passage] of batch.entries()) {
@@ -135,7 +140,6 @@ export async function indexAcquiredSource(
           !vector ||
           generationId(vector.generation) !== embeddingGeneration
         ) {
-          await options.runEffect(decision.reservation.retain());
           return 'unavailable';
         }
         indexedPassages.push({
@@ -144,17 +148,16 @@ export async function indexAcquiredSource(
           vector: vector.vector,
         });
       }
-      if (embedded.actualMicrousd === null) {
-        await options.runEffect(decision.reservation.retain());
-      } else {
-        await options.runEffect(
-          decision.reservation.settle(embedded.actualMicrousd),
-        );
-      }
     } catch (cause) {
       diagnostics.report('sourcing.embedding-failed', cause);
-      if (dispatched) await options.runEffect(decision.reservation.retain());
-      else await options.runEffect(decision.reservation.release());
+      if (
+        cause instanceof EmbeddingFailure &&
+        cause.reason === 'invalid-input'
+      ) {
+        await options.runEffect(decision.reservation.release());
+      } else {
+        await options.runEffect(decision.reservation.retain());
+      }
       return 'unavailable';
     }
   }

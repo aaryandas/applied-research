@@ -335,11 +335,15 @@ describe('authenticated sourcing composition', () => {
     const embedding: EmbeddingClient = {
       generation: vector.generation,
       reservationMicrousdFor: () => 1,
-      embedQuery: async () => vector,
+      embedQuery: async () => ({
+        reconciliation: 'settled',
+        vectors: [vector],
+        actualMicrousd: 1,
+      }),
       embedDocuments: async (texts) => ({
+        reconciliation: 'settled',
         vectors: texts.map(() => vector),
         actualMicrousd: 1,
-        dispatched: true,
       }),
     };
     const sourcing = service({
