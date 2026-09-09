@@ -1,6 +1,16 @@
-# Local SonarQube
+# SonarQube hosting and historical local evidence
 
-The founder selected a **local-only** Community Build instance in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Open [Applied Research (local)](http://127.0.0.1:9000/dashboard?id=applied-research-local). A Docker-compatible container engine must keep the existing Sonar and PostgreSQL services running. OrbStack is now the active engine; the original pinned Compose configuration runs against its Docker context.
+## Current direction — September 8 evening
+
+The founder explicitly requested Railway hosting and prohibited running the Sonar server or scanner on this machine. This supersedes the local-only direction below. Keep local data volumes for historical evidence; do not restart the local services or scanner. Hosting and activation are tracked in [AR-9](https://linear.app/aaryan-das/issue/AR-9) and [AR-41](https://linear.app/aaryan-das/issue/AR-41).
+
+Dedicated SonarQube and PostgreSQL 17 services have been provisioned in the existing Applied Research Railway project. The application database remains separate. Use the reviewed official image digests from `compose.sonar.yml`; Elasticsearch bootstrap checks remain enabled. The Railway runtime probe on September 9 at approximately 00:47 UTC found `vm.max_map_count=1048576`, `fs.file-max=9223372036854775807`, and open-file/process limits of `1048576`, above the [official Sonar prerequisites](https://docs.sonarsource.com/sonarqube-community-build/server-installation/pre-installation/linux). The pinned Sonar server reports `SonarQube is operational` with its persistent data volume on September 9 at 01:07:23 UTC. A one-time official Node container corrected the Railway data-volume ownership to UID 1000; Sonar runs as that non-root user. Railway routing readiness, private administrator initialization, GitHub scanner configuration, and actual hosted analysis evidence remain pending. The service has no public domain during this initialization.
+
+The server stays private until its initial administrator password is replaced. Credentials remain in protected Railway variables and GitHub secrets; no token belongs in tickets or tracked files. Hosted CI owns scanner execution. The published gate must match the exact analyzed commit; a healthy server alone is not a passing analysis.
+
+## Historical local installation
+
+The earlier local-only Community Build instance used [Applied Research (local)](http://127.0.0.1:9000/dashboard?id=applied-research-local), with OrbStack and the original pinned Compose configuration. The instructions below describe that historical setup and are not authorization to run it again.
 
 ## Verified analysis
 
