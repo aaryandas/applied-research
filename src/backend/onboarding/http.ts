@@ -84,7 +84,10 @@ function publicEnvelope(
   request: LearningOnboardingRequest,
 ): LearningOnboardingResponse {
   try {
-    return validation.parseLearningOnboardingResponse(value, request);
+    return validation.parseLearningOnboardingResponseWire(
+      JSON.stringify(value),
+      request,
+    );
   } catch {
     return unavailable(request.requestId);
   }
