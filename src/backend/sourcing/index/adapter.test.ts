@@ -126,7 +126,7 @@ describe('turbopuffer index public boundary', () => {
     expect(String(url)).toMatch(
       /^https:\/\/gcp-us-central1.turbopuffer.com\/v2\/namespaces\/ar-/,
     );
-    expect(init).toMatchObject({ method: 'POST', redirect: 'error' });
+    expect(init).toMatchObject({ method: 'POST', redirect: 'manual' });
     const body = JSON.parse(String(init?.body));
     expect(body.schema).toMatchObject({
       vector: { type: '[3]f32', ann: true },

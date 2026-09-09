@@ -73,7 +73,9 @@ export async function send(
       response = await abortable(async () => {
         const received = await request(url, {
           method: 'POST',
-          redirect: 'error',
+          // manual: a 3xx is returned and fails closed below without a retry;
+          // 'error' would throw and be retried as a network failure.
+          redirect: 'manual',
           signal,
           headers: {
             'Content-Type': 'application/json',
