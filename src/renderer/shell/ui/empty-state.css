@@ -1,0 +1,54 @@
+/* Owns: .ui-empty-state and its __icon, __title, __body, __action parts,
+   plus --unsupported for a capability the app cannot offer at all. */
+
+/* Consolidates .canvas-empty (styles.css:652). Placement stays with the surface:
+   the live blocks disagree on it (.canvas-empty is absolutely positioned with no
+   padding, .empty-state at styles.css:1177 pads 64px, the prototype's .empty-state
+   pads 48px 24px and centres). All this layer fixes is the measure, from the
+   founder-approved .empty-state p (prototype/styles.css:100); at --text-base it
+   lands on .canvas-empty's own 380px. */
+.ui-empty-state {
+  max-width: 45ch;
+}
+
+/* .canvas-empty > .ui-icon (styles.css:658). Accent, because an empty state that
+   can still be filled is an invitation. */
+.ui-empty-state__icon {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  margin-bottom: var(--space-6);
+  color: var(--accent);
+}
+
+/* Placement and colour only. The type comes from .ui-heading (type.css), which is the
+   contract's single reading-face heading role — a fourth Newsreader size here would be the
+   duplication this layer exists to end. Compose both classes on the title element. */
+.ui-empty-state__title {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* .canvas-empty p (styles.css:669). Its 20px bottom margin has no token; --space-6
+   is the nearest step and the gap sits under the action's own padding anyway. */
+.ui-empty-state__body {
+  margin: var(--space-4) 0 var(--space-6);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* .canvas-empty .text-button (styles.css:675) pulls the action back by the text
+   control's own inline padding so its label aligns with the body text above. The step is
+   .ui-button--text's own padding-inline (button.css); correct it there, not per surface. */
+.ui-empty-state__action {
+  display: inline-flex;
+  margin-inline-start: calc(var(--space-2) * -1);
+}
+
+/* Nothing here and nothing you can do about it — the app cannot offer this at all
+   (Opening.tsx:141 "Source import is not available yet."). The block reads as a
+   statement rather than an invitation, so the accent and the ink both drop out. */
+.ui-empty-state--unsupported .ui-empty-state__icon,
+.ui-empty-state--unsupported .ui-empty-state__title {
+  color: var(--muted);
+}
