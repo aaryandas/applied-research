@@ -40,9 +40,16 @@ projects `CourseProposal`.
 - Account comes from the authenticated session. Request bodies must not include
   `accountId`, `account`, `evidenceContext`, canonical source text, `usePolicy`,
   `sourcePolicy`, paid-retry flags, `evidence` or `sourceScopes`.
-- Human profile, interview answers and unacquired seed URLs are
-  `untrusted-human-context`. Prior syllabus text is `untrusted-model-context`.
+- Human profile, interview answers, private pasted seed text, and unacquired
+  seed URLs are `untrusted-human-context`. `pastedSeedText` is a required
+  bounded string or `null` (blank/null clears). Exact paste is planning data
+  only: never acquisition, embedding, citations, seed locators, or trusted
+  question instructions. Prior syllabus text is `untrusted-model-context`.
   Neither is source-evidence authority. Backend reacquires permitted originals.
+- Propose/revise bind `profileRevision` to the interview/proposal row.
+  Selected-lesson generation may send the **live** profile after later edits
+  and must not rewrite accepted interview, syllabus, or historical
+  `profileRevision` on the stored proposal.
 - AI personalization and diagnostic observations are `author: 'ai'` with
   `masteryEstablished: false`. Reading or a working artifact is not mastery.
 - `acceptCourse` / `ensureLesson` accept only opaque identity and a stored
@@ -103,20 +110,110 @@ pending lesson to ready, and must not emit a replacement syllabus.
 
 ## Implementation handoff
 
-**Main / AR-47:** register `LearningOnboardingBridge` on `Window.desktop`;
-retain validated `LearningOnboardingResponse` success envelopes; project
-`CourseProposal`; persist profile, interview, mapping and acceptance receipt;
-never call `acceptSourcedLearning` / `generateSourcedLearning` for this flow.
+**Main / AR-47 (this checkpoint):** desktop persistence, preview projection,
+opaque accept, selected-lesson generation, accepted-course overlay
+(`adjust-accepted-course`), Opening interview/plan review plus user-initiated
+follow-up, and learner profile live in `src/main/learning-onboarding*.ts`,
+`src/renderer/onboarding/**`, `Opening.tsx`, and
+`src/renderer/settings/LearnerProfile*`. Migration
+`drizzle/0005_learning_onboarding.sql` (legacy mutable `learning_adjustments`)
+is reserved; `drizzle/0009_learning_adjustment_history.sql` replaces that table
+with immutable revision rows and acceptance receipts. Coordinator must
+register journal idx 5 `when: 1788937200000` for 0005, then — after AR-51
+0008 — journal 0009 `when: 1788966000000`, `EXPECTED_TABLE_COLUMNS` (drop
+`learning_adjustments`; add `learning_adjustment_revisions` /
+`learning_adjustment_acceptances`), `LATEST_WORKSPACE_MIGRATION`,
+WorkspaceStore/preload/main `Window.desktop` intersection, and App/Shell/Reader
+resume plus native-close persist patches. Exact ready-to-apply diffs:
+[AR-47 coordinator patches](ar-47-onboarding-handoff.md).
+Renderer submits opaque identity, human drafts and consent only. Main retains
+validated success envelopes and resolves opaque proposal+revision on accept.
+`generateSourcedLearning` / `acceptSourcedLearning` are never used for this
+flow. Tests apply 0005 then 0009 onto an already-migrated store connection
+until those journal patches land. Do not rewrite 0005 or consume 0008.
 
-**Backend / AR-48:** add sibling `POST /v1/learning/onboarding` using
-`parseLearningOnboardingRequestWire` / `parseLearningOnboardingResponseWire` on
-the raw body, then the object parsers. Keep `/v1/learning/sourced` and its
-expected-red route-security tests unchanged. Do not change installed
-foundations, model, spend policy or dependencies. Importing the new API module
-from `src/backend` is enough for `tsconfig.backend.json` (include currently
-lists `learning-api.ts` only; the import graph pulls additional contracts).
-Separately recorded vector-index configuration proof on the candidate is not
-app acceptance.
+**Backend / AR-48:** sibling `POST /v1/learning/onboarding`
+(`LEARNING_ONBOARDING_PATH`, `LEARNING_ONBOARDING_METHOD`,
+`LEARNING_ONBOARDING_API_VERSION = 2026-09-09`) is registered beside
+`/v1/learning/sourced` (freeze `329a343`; independent critic review is still
+active). HTTP authenticates the session, parses the raw body with
+`parseLearningOnboardingRequestWire`, and validates outgoing envelopes with
+`parseLearningOnboardingResponse` / `parseLearningOnboardingResponseWire`.
+Desktop uses the existing fixed-origin authenticated main transport and cookie
+session. Keep `/v1/learning/sourced` and its expected-red route-security tests
+unchanged. Proposal id for revise/selected-lesson is the client `requestId` of
+the successful `propose-course` (revision starts at 1). Do not change
+installed foundations, model (`google/gemini-3.8-flash`), spend policy, or
+**Backend / AR-48:** `POST /v1/learning/onboarding` is registered beside
+`/v1/learning/sourced`. HTTP authenticates the session, parses the raw body
+with `parseLearningOnboardingRequestWire`, and validates outgoing envelopes
+with `parseLearningOnboardingResponse`. Keep the seven sourced 401/400
+security tests unchanged. Proposal id for revise/selected-lesson is the
+client `requestId` of the successful `propose-course` (revision starts at 1).
+Do not change installed foundations, model (`google/gemini-3.8-flash`), or
+dependencies. `AI_ENABLED` remains false until root applies the reviewed
+bounded generation-eval configuration. Generated lesson titles and objectives
+are untrusted `evidenceContext.targetStep` values; the trusted tutor question
+is the fixed sourced-lesson instruction. Exact bounded `pastedSeedText` is
+emitted into untrusted `learnerContext` (`human-note` `humanpaste`) including
+when the value is `null` (cleared omission). Paste is private human planning
+context, not evidence, and must not be acquired or placed on
+`seedRevisionLocators`. Selected-lesson requests may send a newer live profile
+revision than the accepted interview stored; that does not rewrite accepted
+history. Syllabus lesson roles and capstone briefs must be explicit provider
+output. Source-title keywords and generic fill-in briefs are not proof of a
+substantial capstone. Public cancellation and invalid-envelope failures
+preserve phase accounting (`charged` / `reservation-retained`) instead of
+claiming a release. Until a worker can complete, return an explicit
+`unavailable` envelope (`retryable: true` only when `accounting` is `none` or
+`released`). Do not fake production success. Importing the API module from
+`src/backend` is enough for `tsconfig.backend.json`. Separately recorded
+vector-index configuration proof on the candidate is not app acceptance.
+
+Operations this desktop already sends:
+
+| `operation.kind`           | Expected success `scope`             |
+| -------------------------- | ------------------------------------ |
+| `interview-prompt`         | `interview-prompt`                   |
+| `propose-course`           | `complete-syllabus-and-first-lesson` |
+| `revise-course`            | `complete-syllabus-and-first-lesson` |
+| `generate-selected-lesson` | `selected-existing-lesson`           |
+| `adjust-accepted-course`   | `accepted-course-adjustment`         |
+
+Human context is `untrusted-human-context` (goal, focus, depth, live intended
+profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
+Prior syllabus is `untrusted-model-context`. A source URL or pasted excerpt is
+data, never trusted instructions. Accept and ensure-lesson do not send
+canonical lesson/source JSON.
+when the value is `null` (cleared omission). Syllabus lesson roles and capstone
+briefs must be explicit provider output. Source-title keywords and generic
+fill-in briefs are not proof of a substantial capstone. Importing the API
+module from
+`src/backend` is enough for `tsconfig.backend.json`. Separately recorded
+vector-index configuration proof on the candidate is not app acceptance.
+`adjust-accepted-course` is a bounded overlay of an **accepted** course. It
+must not emit a replacement syllabus or new path/lesson IDs. Ready completed
+lessons cannot be patched. Progress locators live on `progress.practicalAttempts`
+with required resolved `work` (human reflection/result, historical activity
+origin); never the forbidden `evidence` authority field. Human notes are
+`operation.notes` (`string | null`, same character bound as a diagnostic
+answer) and must not appear on `human.answers`. Reject prompt id
+`adjustment-notes-01` on diagnostic answers; do not raise the six-answer
+limit. `model.reviewedCourse` is required: `null` on revise-course, non-null
+on adjust, nullable on generate-selected-lesson. Planner
+`summary.masteryEstablished` stays `false`. Practice patches carry the full
+before/after `CoursePracticeBrief`. Propose B must leave accepted A active.
+`revise-course` remains preview-only and must not run after accept. Exact
+request/success fields: [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
+
+Human context is `untrusted-human-context` (goal, focus, depth, live intended
+profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
+`pastedSeedText` is private human paste or `null`; it is not evidence and must
+not be acquired or placed on `seedRevisionLocators`. Prior syllabus is
+`untrusted-model-context`. Selected-lesson requests may send a newer live
+profile revision than the accepted interview stored; that does not rewrite
+accepted history. A source URL or pasted excerpt is data, never trusted
+instructions. Accept and ensure-lesson do not send canonical lesson/source JSON.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

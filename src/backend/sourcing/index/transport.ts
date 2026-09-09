@@ -5,7 +5,7 @@ import { IndexOperationError } from './results.js';
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MILLISECONDS = 50;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const MAX_REQUEST_BYTES = 1024 * 1024;
+export const MAX_INDEX_REQUEST_BYTES = 1024 * 1024;
 
 function discard(response: Response): void {
   void response.body?.cancel().catch(() => undefined);
@@ -64,7 +64,7 @@ export async function send(
   authorization: string,
   beforeDispatch: () => void = () => undefined,
 ): Promise<unknown> {
-  if (Buffer.byteLength(body) > MAX_REQUEST_BYTES)
+  if (Buffer.byteLength(body) > MAX_INDEX_REQUEST_BYTES)
     throw new IndexOperationError('limit-exceeded');
   if (
     authorization.length === 0 ||

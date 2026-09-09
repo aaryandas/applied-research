@@ -3,13 +3,16 @@ import {
   useId,
   useRef,
   useState,
+  type Dispatch,
   type KeyboardEvent,
   type ReactElement,
+  type SetStateAction,
 } from 'react';
 import { useSceneVisibility } from './useSceneVisibility';
 import {
   claimClipPlayback,
   clipNotation,
+  clipStageCaptionVtt,
   isOpaqueMediaUrl,
   stageAt,
   type ClipPlaybackStatus,
@@ -66,6 +69,58 @@ function openFailureMessage(
   return 'The retained clip is missing.';
 }
 
+function idleStatusMessage(
+  status: ClipPlaybackStatus,
+  error: string | null,
+): string {
+  if (status === 'queued') return 'Queued behind the isolated renderer.';
+  if (status === 'rendering') return 'Rendering the installed recipe.';
+  if (status === 'verifying') return 'Verifying the delivered clip.';
+  if (status === 'cancelled') return 'The render was cancelled.';
+  return error ?? 'No retained clip is available.';
+}
+
+function NoClipStatus({
+  status,
+  error,
+  onRetry,
+  onCancel,
+}: {
+  readonly status: ClipPlaybackStatus;
+  readonly error: string | null;
+  readonly onRetry: (() => void) | undefined;
+  readonly onCancel: (() => void) | undefined;
+}): ReactElement {
+  return (
+    <section className="retained-clip">
+      <output className="retained-clip__status">
+        {idleStatusMessage(status, error)}
+      </output>
+      {onCancel && (status === 'queued' || status === 'rendering') && (
+        <button type="button" onClick={onCancel}>
+          Cancel render
+        </button>
+      )}
+      {onRetry && status === 'failed' && (
+        <button type="button" onClick={onRetry}>
+          Retry render
+        </button>
+      )}
+    </section>
+  );
+}
+
+function displayedClip(
+  clip: RetainedClipView | null,
+  priorClip: RetainedClipView | null,
+  status: ClipPlaybackStatus,
+): RetainedClipView | null {
+  if (status === 'ready' || status === 'offline-ready') {
+    return publicClip(clip);
+  }
+  return publicClip(priorClip ?? clip);
+}
+
 export function RetainedClipPlayer({
   clip,
   priorClip = null,
@@ -75,11 +130,7 @@ export function RetainedClipPlayer({
   onRetry,
   onCancel,
 }: PlayerProps): ReactElement {
-  const displayed = publicClip(
-    status === 'ready' || status === 'offline-ready'
-      ? clip
-      : (priorClip ?? clip),
-  );
+  const displayed = displayedClip(clip, priorClip, status);
   const mediaId = displayed?.mediaId ?? null;
   const [opened, setOpened] = useState<OpenedMedia | null>(null);
 
@@ -113,29 +164,12 @@ export function RetainedClipPlayer({
 
   if (!displayed || !mediaId) {
     return (
-      <section className="retained-clip">
-        <p role="status">
-          {status === 'queued'
-            ? 'Queued behind the isolated renderer.'
-            : status === 'rendering'
-              ? 'Rendering the installed recipe.'
-              : status === 'verifying'
-                ? 'Verifying the delivered clip.'
-                : status === 'cancelled'
-                  ? 'The render was cancelled.'
-                  : (error ?? 'No retained clip is available.')}
-        </p>
-        {onCancel && (status === 'queued' || status === 'rendering') && (
-          <button type="button" onClick={onCancel}>
-            Cancel render
-          </button>
-        )}
-        {onRetry && status === 'failed' && (
-          <button type="button" onClick={onRetry}>
-            Retry render
-          </button>
-        )}
-      </section>
+      <NoClipStatus
+        status={status}
+        error={error}
+        onRetry={onRetry}
+        onCancel={onCancel}
+      />
     );
   }
 
@@ -155,6 +189,44 @@ export function RetainedClipPlayer({
       onRetry={onRetry}
     />
   );
+}
+
+interface PlaybackKeyAction {
+  readonly event: KeyboardEvent<HTMLVideoElement>;
+  readonly enlarged: boolean;
+  readonly jump: (seconds: number) => void;
+  readonly setEnlarged: Dispatch<SetStateAction<boolean>>;
+}
+
+function handlePlaybackKeys(action: PlaybackKeyAction): void {
+  const { event, enlarged, jump, setEnlarged } = action;
+  if (event.target !== event.currentTarget) return;
+  const element = event.currentTarget;
+  if (event.key === ' ' || event.key === 'k') {
+    event.preventDefault();
+    if (element.paused) void element.play();
+    else element.pause();
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    jump(Math.min(element.duration || 10, element.currentTime + 1));
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    jump(Math.max(0, element.currentTime - 1));
+  }
+  if (event.key === 'Home') {
+    event.preventDefault();
+    jump(0);
+  }
+  if (event.key === 'Escape' && enlarged) {
+    event.preventDefault();
+    setEnlarged(() => false);
+  }
+  if (event.key === 'f' || event.key === 'e') {
+    event.preventDefault();
+    setEnlarged((value) => !value);
+  }
 }
 
 function ClipSession({
@@ -183,7 +255,23 @@ function ClipSession({
   const [enlarged, setEnlarged] = useState(false);
   const [playbackStartMs, setPlaybackStartMs] = useState<number | null>(null);
   const labelId = useId();
-  const failedOpen = Boolean(openError && usingPrior);
+  const priorActuallyAvailable = usingPrior && Boolean(objectUrl) && !openError;
+  const [captionUrl, setCaptionUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = URL.createObjectURL(
+      new Blob([clipStageCaptionVtt(clip)], { type: 'text/vtt' }),
+    );
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setCaptionUrl(url);
+    });
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(url);
+    };
+  }, [clip]);
 
   useEffect(() => {
     if (objectUrl) readyAt.current = performance.now();
@@ -231,36 +319,6 @@ function ClipSession({
     setCurrentTime(seconds);
   };
 
-  const onKeys = (event: KeyboardEvent<HTMLElement>): void => {
-    const element = video.current;
-    if (!element) return;
-    if (event.key === ' ' || event.key === 'k') {
-      event.preventDefault();
-      if (element.paused) void element.play();
-      else element.pause();
-    }
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      jump(Math.min(element.duration || 10, element.currentTime + 1));
-    }
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      jump(Math.max(0, element.currentTime - 1));
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      jump(0);
-    }
-    if (event.key === 'Escape' && enlarged) {
-      event.preventDefault();
-      setEnlarged(false);
-    }
-    if (event.key === 'f' || event.key === 'e') {
-      event.preventDefault();
-      setEnlarged((value) => !value);
-    }
-  };
-
   const stage = stageAt(clip, currentTime);
   const busy =
     status === 'queued' || status === 'rendering' || status === 'verifying';
@@ -269,9 +327,7 @@ function ClipSession({
     <section
       className={`retained-clip${enlarged ? ' retained-clip--enlarged' : ''}`}
       ref={host}
-      tabIndex={0}
       aria-label="Retained explanation clip"
-      onKeyDown={onKeys}
     >
       <div className="retained-clip__stage">
         <video
@@ -281,7 +337,21 @@ function ClipSession({
           controls={false}
           preload="metadata"
           playsInline
-        />
+          tabIndex={0}
+          onKeyDown={(event) =>
+            handlePlaybackKeys({ event, enlarged, jump, setEnlarged })
+          }
+        >
+          {captionUrl ? (
+            <track
+              kind="captions"
+              src={captionUrl}
+              srcLang="en"
+              label="Named stages"
+              default
+            />
+          ) : null}
+        </video>
       </div>
       <h2 id={labelId}>{clip.title}</h2>
       <p className="retained-clip__caption">
@@ -338,10 +408,16 @@ function ClipSession({
       {(error || openError) && (
         <p className="retained-clip__error" role="alert">
           {openError ?? error}
-          {failedOpen ? ' Previous clip is still available.' : ''}
+          {priorActuallyAvailable && error
+            ? ' Previous clip is still available.'
+            : ''}
         </p>
       )}
-      {busy && <p role="status">A newer render is in progress.</p>}
+      {busy && (
+        <output className="retained-clip__status">
+          A newer render is in progress.
+        </output>
+      )}
       {onRetry &&
         (status === 'failed' ||
           status === 'corrupt' ||

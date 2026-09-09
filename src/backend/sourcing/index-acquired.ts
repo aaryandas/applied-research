@@ -14,7 +14,10 @@ import {
 import { accountPaidEmbedding } from './paid-reservation.js';
 import type { TurbopufferIndex } from './index/adapter.js';
 import { generationId } from './index/identity.js';
-import type { IndexPassage } from './index/types.js';
+import { MAX_INDEX_REQUEST_BYTES } from './index/transport.js';
+import { MAX_INDEX_BATCH_PASSAGES } from './index/writes.js';
+import type { IndexPassage, VersionedVector } from './index/types.js';
+import { validLocator } from './index/validation.js';
 import type { SourcePassage } from './acquisition/types.js';
 import type { SourcePersistence } from './persistence.js';
 import type { SourcingInvocation } from './service.js';
@@ -67,6 +70,202 @@ function embeddingRequestId(
   return `emb_${digest.slice(0, 28)}`;
 }
 
+type BatchIndexResult =
+  | { readonly outcome: 'projected'; readonly passages: IndexPassage[] }
+  | { readonly outcome: 'budget-exhausted' }
+  | { readonly outcome: 'unavailable' };
+
+function projectSettledVectors(
+  batch: readonly SourcePassage[],
+  vectors: readonly VersionedVector[],
+  embeddingGeneration: string,
+): IndexPassage[] | null {
+  if (vectors.length !== batch.length) return null;
+  const indexed: IndexPassage[] = [];
+  for (const [indexInBatch, passage] of batch.entries()) {
+    const vector = vectors[indexInBatch];
+    if (!vector || generationId(vector.generation) !== embeddingGeneration) {
+      return null;
+    }
+    indexed.push({
+      sourceVersion: passage.sourceVersion,
+      locator: passage.locator,
+      vector: vector.vector,
+    });
+  }
+  return indexed;
+}
+
+interface EmbedReconcileBatchInput {
+  readonly options: IndexAcquiredSourceOptions;
+  readonly source: AcquiredSource;
+  readonly embeddingGeneration: string;
+  readonly batchIndex: number;
+  readonly batch: readonly SourcePassage[];
+  readonly invocation: SourcingInvocation;
+  readonly diagnostics: Diagnostics;
+}
+
+async function embedReconcileBatch(
+  input: EmbedReconcileBatchInput,
+): Promise<BatchIndexResult> {
+  const {
+    options,
+    source,
+    embeddingGeneration,
+    batchIndex,
+    batch,
+    invocation,
+    diagnostics,
+  } = input;
+  const texts = batch.map((passage) => passage.locator.quote);
+  const decision = await options.runEffect(
+    options.budget.refreshAndReserve({
+      requestId: embeddingRequestId(
+        invocation.account.id,
+        source,
+        embeddingGeneration,
+        batchIndex,
+        batch,
+      ),
+      inputHash: passageHash(batch),
+      maximumChargeMicrousd: Math.max(1, documentReservationMicrousd(texts)),
+      now: options.now(),
+    }),
+  );
+  if (decision.kind === 'budget-exhausted' || decision.kind === 'conflict') {
+    return { outcome: 'budget-exhausted' };
+  }
+  if (decision.kind === 'in-progress') return { outcome: 'unavailable' };
+  try {
+    const embedded = await options.embedding.embedDocuments(
+      texts,
+      invocation.signal,
+    );
+    const reconciliation = await accountPaidEmbedding(
+      options.runEffect,
+      decision,
+      embedded,
+    );
+    if (reconciliation !== 'settled') return { outcome: 'unavailable' };
+    if (embedded.reconciliation !== 'settled')
+      return { outcome: 'unavailable' };
+    const projected = projectSettledVectors(
+      batch,
+      embedded.vectors,
+      embeddingGeneration,
+    );
+    if (projected === null) return { outcome: 'unavailable' };
+    return { outcome: 'projected', passages: projected };
+  } catch (cause) {
+    diagnostics.report('sourcing.embedding-failed', cause);
+    if (cause instanceof EmbeddingFailure && cause.reason === 'invalid-input') {
+      await options.runEffect(decision.reservation.release());
+    } else {
+      await options.runEffect(decision.reservation.retain());
+    }
+    return { outcome: 'unavailable' };
+  }
+}
+
+function conservativeFiniteVector(dimensions: number): number[] {
+  return Array.from({ length: dimensions }, () => -Number.MAX_VALUE);
+}
+
+function writePayloadBytes(
+  passages: readonly {
+    readonly locator: {
+      readonly quote: string;
+      readonly start: number;
+      readonly end: number;
+      readonly position: unknown;
+    };
+    readonly vector: readonly number[];
+  }[],
+  dimensions: number,
+): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      upsert_rows: passages.map((passage) => ({
+        id: '0'.repeat(64),
+        vector: passage.vector,
+        text: passage.locator.quote,
+        source_key: '0'.repeat(64),
+        access_scope: 'public',
+        generation: '0'.repeat(64),
+        eligible: true,
+        tombstoned: false,
+        start: passage.locator.start,
+        end: passage.locator.end,
+        position: JSON.stringify(passage.locator.position),
+      })),
+      distance_metric: 'cosine_distance',
+      schema: {
+        vector: { type: `[${dimensions}]f32`, ann: true },
+        text: { type: 'string', full_text_search: true, filterable: false },
+      },
+    }),
+    'utf8',
+  );
+}
+
+export function estimateIndexWriteBytes(
+  passages: readonly SourcePassage[],
+  dimensions: number,
+  vector: readonly number[] = conservativeFiniteVector(dimensions),
+): number {
+  return writePayloadBytes(
+    passages.map((passage) => ({ locator: passage.locator, vector })),
+    dimensions,
+  );
+}
+
+export function planIndexWriteBatches(
+  passages: readonly SourcePassage[],
+  dimensions: number,
+): SourcePassage[][] | null {
+  const batches: SourcePassage[][] = [];
+  let remaining = passages;
+  while (remaining.length > 0) {
+    let size = Math.min(MAX_INDEX_BATCH_PASSAGES, remaining.length);
+    while (
+      size > 0 &&
+      estimateIndexWriteBytes(remaining.slice(0, size), dimensions) >
+        MAX_INDEX_REQUEST_BYTES
+    ) {
+      size -= 1;
+    }
+    if (size === 0) return null;
+    batches.push(remaining.slice(0, size));
+    remaining = remaining.slice(size);
+  }
+  return batches;
+}
+
+export function passagesReadyToIndex(
+  source: AcquiredSource,
+  passages: readonly SourcePassage[],
+): boolean {
+  const text = source.content.revision.canonicalText;
+  const version = {
+    sourceId: source.content.revision.sourceId,
+    revisionId: source.content.revision.revisionId,
+    sha256: source.content.revision.sha256,
+    canonicalizationVersion: source.content.revision.canonicalizationVersion,
+  };
+  return passages.every(
+    (passage) =>
+      passage.sourceVersion.sourceId === version.sourceId &&
+      passage.sourceVersion.revisionId === version.revisionId &&
+      passage.sourceVersion.sha256 === version.sha256 &&
+      passage.sourceVersion.canonicalizationVersion ===
+        version.canonicalizationVersion &&
+      passage.locator.sourceId === version.sourceId &&
+      passage.locator.revisionId === version.revisionId &&
+      validLocator(passage.locator, version, text),
+  );
+}
+
 export async function indexAcquiredSource(
   options: IndexAcquiredSourceOptions,
   source: AcquiredSource,
@@ -92,82 +291,55 @@ export async function indexAcquiredSource(
     ),
   );
   if (existing) return 'skipped';
-  const indexedPassages: IndexPassage[] = [];
-  for (
-    let offset = 0;
-    offset < passages.length;
-    offset += MAX_EMBEDDING_BATCH
-  ) {
-    if (invocation.signal.aborted) return 'unavailable';
-    const batch = passages.slice(offset, offset + MAX_EMBEDDING_BATCH);
-    const texts = batch.map((passage) => passage.locator.quote);
-    const decision = await options.runEffect(
-      options.budget.refreshAndReserve({
-        requestId: embeddingRequestId(
-          invocation.account.id,
-          source,
-          embeddingGeneration,
-          offset / MAX_EMBEDDING_BATCH,
-          batch,
-        ),
-        inputHash: passageHash(batch),
-        maximumChargeMicrousd: Math.max(1, documentReservationMicrousd(texts)),
-        now: options.now(),
-      }),
-    );
-    if (decision.kind === 'budget-exhausted' || decision.kind === 'conflict') {
-      return 'budget-exhausted';
-    }
-    if (decision.kind === 'in-progress') return 'unavailable';
-    try {
-      const embedded = await options.embedding.embedDocuments(
-        texts,
-        invocation.signal,
-      );
-      const reconciliation = await accountPaidEmbedding(
-        options.runEffect,
-        decision,
-        embedded,
-      );
-      if (reconciliation !== 'settled') return 'unavailable';
-      if (embedded.reconciliation !== 'settled') return 'unavailable';
-      if (embedded.vectors.length !== batch.length) {
-        return 'unavailable';
-      }
-      for (const [indexInBatch, passage] of batch.entries()) {
-        const vector = embedded.vectors[indexInBatch];
-        if (
-          !vector ||
-          generationId(vector.generation) !== embeddingGeneration
-        ) {
-          return 'unavailable';
-        }
-        indexedPassages.push({
-          sourceVersion: passage.sourceVersion,
-          locator: passage.locator,
-          vector: vector.vector,
-        });
-      }
-    } catch (cause) {
-      diagnostics.report('sourcing.embedding-failed', cause);
-      if (
-        cause instanceof EmbeddingFailure &&
-        cause.reason === 'invalid-input'
-      ) {
-        await options.runEffect(decision.reservation.release());
-      } else {
-        await options.runEffect(decision.reservation.retain());
-      }
-      return 'unavailable';
-    }
-  }
-  const write = await options.index.indexBatch(
-    { generation, passages: indexedPassages },
-    invocation,
-  );
-  if (write.outcome !== 'indexed') {
+  if (!passagesReadyToIndex(source, passages)) {
     diagnostics.report('sourcing.index-failed');
     return 'unavailable';
+  }
+  const writeBatches = planIndexWriteBatches(passages, generation.dimensions);
+  if (!writeBatches) {
+    diagnostics.report('sourcing.index-failed');
+    return 'unavailable';
+  }
+  const indexedPassages: IndexPassage[] = [];
+  let embeddingBatchIndex = 0;
+  for (const writeBatch of writeBatches) {
+    const embeddedBatch: IndexPassage[] = [];
+    for (
+      let offset = 0;
+      offset < writeBatch.length;
+      offset += MAX_EMBEDDING_BATCH
+    ) {
+      if (invocation.signal.aborted) return 'unavailable';
+      const batch = writeBatch.slice(offset, offset + MAX_EMBEDDING_BATCH);
+      const result = await embedReconcileBatch({
+        options,
+        source,
+        embeddingGeneration,
+        batchIndex: embeddingBatchIndex,
+        batch,
+        invocation,
+        diagnostics,
+      });
+      embeddingBatchIndex += 1;
+      if (result.outcome !== 'projected') return result.outcome;
+      embeddedBatch.push(...result.passages);
+    }
+    if (
+      writePayloadBytes(embeddedBatch, generation.dimensions) >
+      MAX_INDEX_REQUEST_BYTES
+    ) {
+      diagnostics.report('sourcing.index-failed');
+      return 'unavailable';
+    }
+    const write = await options.index.indexBatch(
+      { generation, passages: embeddedBatch },
+      invocation,
+    );
+    if (write.outcome !== 'indexed') {
+      diagnostics.report('sourcing.index-failed');
+      return 'unavailable';
+    }
+    indexedPassages.push(...embeddedBatch);
   }
   await options.runEffect(
     options.persistence.saveIndexState(

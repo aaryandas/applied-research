@@ -23,7 +23,7 @@ import type { OpenAlexDiscoveryAdapter } from './openalex/adapter.js';
 const account = { id: 'account-a', name: 'Ada', image: null };
 const other = { id: 'account-b', name: 'Grace', image: null };
 const html = Buffer.from(
-  '<html><body><main><p>A table is a relation. SQL selects rows.</p></main></body></html>',
+  '<html><body><main><p>Floating-point numbers are represented in computer hardware as base 2 fractions.</p></main></body></html>',
 );
 
 function runEffect<A, E>(
@@ -63,6 +63,13 @@ function service(options?: {
   liveIndex?: LiveIndexTransport;
   embedding?: EmbeddingClient;
   embeddingBudget?: ReturnType<typeof makeMemoryEmbeddingBudget>;
+  catalogSources?: Parameters<typeof makeSourcingService>[0]['catalogSources'];
+  universityAcquisition?: Parameters<
+    typeof makeSourcingService
+  >[0]['universityAcquisition'];
+  universityTransport?: Parameters<
+    typeof makeSourcingService
+  >[0]['universityTransport'];
 }) {
   return makeSourcingService({
     persistence: makeMemorySourcePersistence(),
@@ -72,6 +79,9 @@ function service(options?: {
     liveIndex: options?.liveIndex,
     embedding: options?.embedding,
     embeddingBudget: options?.embeddingBudget,
+    catalogSources: options?.catalogSources,
+    universityAcquisition: options?.universityAcquisition,
+    universityTransport: options?.universityTransport,
     runEffect,
   });
 }
@@ -93,7 +103,7 @@ describe('authenticated sourcing composition', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'discover-10',
-        query: 'database sql',
+        query: 'floating',
         intent: 'learning',
         kinds: ['chapter', 'textbook', 'course'],
         limit: 10,
@@ -107,7 +117,7 @@ describe('authenticated sourcing composition', () => {
       throw new Error('expected catalog candidates');
     }
     const chapter = discovered.candidates.find(
-      (item) => item.sourceId === 'bccampus_database_design_2e_ch15',
+      (item) => item.sourceId === 'curated_python_floating_point_3_14_7',
     );
     expect(chapter?.usePolicy.indexing.status).toBe('permitted');
     const mit = STARTER_CATALOG_SOURCES.find(
@@ -248,7 +258,7 @@ describe('authenticated sourcing composition', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'discover-50',
-        query: 'sql',
+        query: 'floating',
         intent: 'learning',
         kinds: ['chapter'],
         limit: 5,
@@ -267,7 +277,7 @@ describe('authenticated sourcing composition', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'retrieve-01',
-        query: 'sql',
+        query: 'floating-point',
         intent: 'learning',
         maxPassages: 4,
         sourceRevisions: [
@@ -355,7 +365,7 @@ describe('authenticated sourcing composition', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'discover-60',
-        query: 'sql',
+        query: 'floating',
         intent: 'learning',
         kinds: ['chapter'],
         limit: 10,

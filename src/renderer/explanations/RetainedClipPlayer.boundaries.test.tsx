@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import {
   cleanup,
   fireEvent,
@@ -136,8 +137,18 @@ function videoSrc(): string | null {
   return document.querySelector('video')?.getAttribute('src') ?? null;
 }
 
+function stubCaptionUrls(): void {
+  if (typeof URL.createObjectURL !== 'function') {
+    URL.createObjectURL = () => 'blob:http://localhost/captions';
+  }
+  if (typeof URL.revokeObjectURL !== 'function') {
+    URL.revokeObjectURL = () => undefined;
+  }
+}
+
 beforeEach(() => {
   mockMedia();
+  stubCaptionUrls();
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
@@ -448,6 +459,65 @@ describe('RetainedClipPlayer empty and retry states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry render' }));
     expect(corruptRetry).toHaveBeenCalledOnce();
   });
+
+  it('does not claim a previous clip is available when that prior clip failed to open', async () => {
+    const blocked = access({ status: 'unauthorized' });
+    render(
+      <RetainedClipPlayer
+        clip={clipAt(CLIP_B)}
+        priorClip={clip}
+        status="rendering"
+        access={blocked}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'This clip is not available to this account.',
+      ),
+    );
+    expect(screen.queryByText(/Previous clip is still available/)).toBeNull();
+    expect(videoSrc()).toBeNull();
+
+    cleanup();
+    const corruptPrior = access({ status: 'corrupt' });
+    render(
+      <RetainedClipPlayer
+        clip={clipAt(CLIP_B)}
+        priorClip={clip}
+        status="rendering"
+        access={corruptPrior}
+        error="The newer render failed."
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'The retained clip could not be verified.',
+      ),
+    );
+    expect(screen.queryByText(/Previous clip is still available/)).toBeNull();
+    expect(videoSrc()).toBeNull();
+  });
+
+  it('keeps a useful prior clip and says it is available when that clip actually opened', async () => {
+    const prior = access({
+      status: 'ready',
+      objectUrl: 'blob:http://localhost/prior',
+    });
+    render(
+      <RetainedClipPlayer
+        clip={clipAt(CLIP_B, { title: 'Newer clip' })}
+        priorClip={clip}
+        status="failed"
+        error="The newer render failed."
+        access={prior}
+      />,
+    );
+    await waitFor(() => expect(videoSrc()).toBe('blob:http://localhost/prior'));
+    expect(screen.getByText('A shear moves every point')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The newer render failed. Previous clip is still available.',
+    );
+  });
 });
 
 describe('RetainedClipPlayer playback and provenance', () => {
@@ -471,20 +541,93 @@ describe('RetainedClipPlayer playback and provenance', () => {
     expect(
       screen.getByText(/playback started after 240 ms in this view/),
     ).toBeVisible();
-    const region = screen.getByRole('region', {
-      name: 'Retained explanation clip',
-    });
-    fireEvent.keyDown(region, { key: ' ' });
+    const player = document.querySelector('video');
+    expect(player).toBeTruthy();
+    fireEvent.keyDown(player!, { key: ' ' });
     expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
     fireEvent.input(screen.getByLabelText('Clip position'), {
       target: { value: '0' },
     });
-    fireEvent.keyDown(region, { key: 'ArrowLeft' });
+    fireEvent.keyDown(player!, { key: 'ArrowLeft' });
     expect(screen.getByLabelText('Clip position')).toHaveValue('0');
     fireEvent.input(screen.getByLabelText('Clip position'), {
       target: { value: '10' },
     });
-    fireEvent.keyDown(region, { key: 'ArrowRight' });
+    fireEvent.keyDown(player!, { key: 'ArrowRight' });
     expect(screen.getByLabelText('Clip position')).toHaveValue('10');
+  });
+});
+
+describe('RetainedClipPlayer caption URL lifecycle', () => {
+  it('keeps a live stage-name track after StrictMode replay and revokes abandoned URLs', async () => {
+    const created: string[] = [];
+    const revoked: string[] = [];
+    const blobs: Blob[] = [];
+    let seq = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      blobs.push(blob as Blob);
+      const url = `blob:http://localhost/caption-${seq}`;
+      seq += 1;
+      created.push(url);
+      return url;
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation((url) => {
+      revoked.push(String(url));
+    });
+    const media = access();
+    const view = render(
+      <StrictMode>
+        <RetainedClipPlayer clip={clip} status="ready" access={media} />
+      </StrictMode>,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('track[kind="captions"]')?.getAttribute('src'),
+      ).toBeTruthy(),
+    );
+    const live = document
+      .querySelector('track[kind="captions"]')
+      ?.getAttribute('src');
+    expect(live).toBeTruthy();
+    expect(revoked).not.toContain(live);
+    const caption = await blobs.at(-1)!.text();
+    expect(caption).toContain('WEBVTT');
+    expect(caption).toContain('Read the inputs');
+    expect(caption).toContain('Transform continuously');
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Enlarge' }), {
+      key: ' ',
+    });
+    expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+    fireEvent.keyDown(screen.getByLabelText('Clip position'), {
+      key: 'ArrowRight',
+    });
+    expect(screen.getByLabelText('Clip position')).toHaveValue('0');
+    const abandoned = [...created];
+    view.rerender(
+      <StrictMode>
+        <RetainedClipPlayer
+          clip={clipAt(CLIP_B, { title: 'Replacement clip' })}
+          status="ready"
+          access={media}
+        />
+      </StrictMode>,
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Replacement clip')).toBeVisible(),
+    );
+    await waitFor(() => {
+      const next = document
+        .querySelector('track[kind="captions"]')
+        ?.getAttribute('src');
+      expect(next).toBeTruthy();
+      expect(next).not.toBe(live);
+      expect(revoked).not.toContain(next);
+    });
+    for (const url of abandoned) {
+      expect(revoked).toContain(url);
+    }
+    view.unmount();
+    expect(created.every((url) => revoked.includes(url))).toBe(true);
+    expect(document.querySelector('track[kind="captions"]')).toBeNull();
   });
 });

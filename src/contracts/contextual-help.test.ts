@@ -6,6 +6,7 @@ import {
   decodeAiProvenance,
   decodeContextualHelpRequest,
   decodeContextualHelpResponse,
+  decodeContextualQuestion,
   decodeSourceGroundingState,
   isExactExcerptMapping,
   retainedOriginFromRequest,
@@ -285,5 +286,156 @@ describe('trusted provenance on responses only', () => {
         artifactPath: '/tmp/clip.mp4',
       }).reason,
     ).toBe('authority');
+  });
+});
+
+describe('decodeContextualQuestion', () => {
+  it('accepts a bounded human question and both app-authored intents', () => {
+    expect(
+      decodeContextualQuestion({
+        kind: 'human',
+        text: 'Why does this identity hold?',
+      }),
+    ).toEqual({
+      ok: true,
+      value: { kind: 'human', text: 'Why does this identity hold?' },
+    });
+    expect(
+      decodeContextualQuestion({
+        kind: 'app-authored',
+        intent: 'explain-this-passage',
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeContextualQuestion({
+        kind: 'app-authored',
+        intent: 'explain-this-visually',
+      }),
+    ).toEqual({
+      ok: true,
+      value: { kind: 'app-authored', intent: 'explain-this-visually' },
+    });
+  });
+
+  it('rejects companion saved-utterance shape, foreign intents and overlong text', () => {
+    expect(
+      failureReason(
+        decodeContextualQuestion({
+          kind: 'human',
+          text: 'Saved later',
+          persistence: 'saved',
+          savedRevision: 2,
+        }),
+      ),
+    ).toBe('shape');
+    expect(
+      failureReason(
+        decodeContextualQuestion({
+          kind: 'app-authored',
+          intent: 'ask-about-selection',
+        }),
+      ),
+    ).toBe('unsupported');
+    expect(
+      failureReason(
+        decodeContextualQuestion({ kind: 'human', text: 'x'.repeat(2001) }),
+      ),
+    ).toBe('bounds');
+    expect(
+      failureReason(
+        decodeContextualQuestion({ kind: 'selected-source-highlight' }),
+      ),
+    ).toBe('shape');
+  });
+});
+
+describe('help origin locators', () => {
+  it('rejects companion selected-source-highlight as a help origin', () => {
+    expect(
+      failureReason(
+        decodeContextualHelpRequest(
+          request({
+            origin: {
+              kind: 'selected-source-highlight',
+              sourceRevisionId,
+              highlightId,
+            },
+          }),
+        ),
+      ),
+    ).toBe('origin');
+  });
+});
+
+describe('help message failure envelopes', () => {
+  it('allows a null request id on public failures and forbids it on cancelled', () => {
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'invalid-request',
+        requestId: null,
+        message: 'The request is invalid.',
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        outcome: 'invalid-request',
+        requestId: null,
+        message: 'The request is invalid.',
+      },
+    });
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'cancelled',
+          requestId: null,
+          message: 'Cancelled.',
+        }),
+      ),
+    ).toBe('identity');
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'cancelled',
+        requestId,
+        message: 'Cancelled.',
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('keeps extra-key and message-bound checks on public and accounted failures', () => {
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'unsupported',
+          requestId,
+          message: 'Unsupported.',
+          retryable: false,
+        }),
+      ),
+    ).toBe('shape');
+    expect(
+      failureReason(
+        decodeContextualHelpResponse({
+          outcome: 'quota-exceeded',
+          requestId,
+          message: 'x'.repeat(401),
+        }),
+      ),
+    ).toBe('bounds');
+    expect(
+      decodeContextualHelpResponse({
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        outcome: 'unavailable',
+        requestId: null,
+        message: 'Temporarily unavailable.',
+        retryable: true,
+      },
+    });
   });
 });

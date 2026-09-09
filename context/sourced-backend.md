@@ -88,15 +88,11 @@ lane's HTTP/authority acceptance.
 Permission-verified metadata in `src/backend/sourcing/catalog.ts`:
 
 - Python 3.14.7 floating-point chapter (existing curated PSF HTML)
-- BCcampus _Database Design 2e_ (Watt/Eng): book-level acquire/index forbidden; HTML Ch.2 Fundamental Concepts (CC BY 3.0) and Ch.15 SQL (CC BY 4.0) permitted; Ch.13 NC-SA excluded
-- Open Textbook Library record: CC0 **metadata only**, not a book-file grant
-- MIT OCW 6.006 / 18.06 and OpenStax University Physics: discovery/link coverage only; current notices do not grant commercial/AI indexing
+- Official MIT OCW 6.006 / 18.06 and OpenStax University Physics links remain discoverable as link-only; current notices do not grant commercial/AI indexing or transcripts
+- University extractors (MIT/Delft, later Stanford/Berkeley/Harvard grants) are **not** default catalog rows here. AR-57 injects `MetadataOnlySource[]` through `composeCatalogSources` / `bindUniversityLane`. This lane does not copy `src/backend/university-acquisition/` or invent that catalog
+- BCcampus starter acquisition grants are not shared catalog defaults
 
-HTML text extraction only. PDFs and images are not acquired. Metadata is not
-treated as retrieved evidence. Institutional course expansion is **AR-57**; the
-registration seam is `STARTER_CATALOG_SOURCES` / `discoverStarterCatalog` in
-`catalog.ts` plus account-owned descriptors in PostgreSQL. Do not silently add
-MIT OCW/OpenStax indexing rights here.
+HTML text extraction remains for the PSF chapter. PDFs and images are not acquired. Metadata is not treated as retrieved evidence. `discoverStarterCatalog` accepts an optional injected catalog. Do not silently add MIT OCW/OpenStax indexing rights here.
 
 `POST /v1/learning/onboarding` is **not** this checkpoint. AR-52 owns that
 sibling contract (draft PR #45). Do not consume it until independent review

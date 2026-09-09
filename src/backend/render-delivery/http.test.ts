@@ -21,6 +21,12 @@ const FOREIGN = {
   image: null,
 };
 const PROJECT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const GRANT_ORIGIN = {
+  projectId: PROJECT,
+  sourceVersionId: null,
+  questionId: null,
+  lessonId: null,
+};
 const stops: Array<() => Promise<void>> = [];
 const roots: string[] = [];
 
@@ -107,9 +113,19 @@ async function listen(auth: AuthService, engine: RenderEngine) {
   const delivery = createRenderDeliveryService({
     engine,
     store: createArtifactStore(root),
-    originOwnership: {
-      assertOwned: async (accountId, origin) =>
-        accountId === ACCOUNT.id && origin.projectId === PROJECT,
+    resolveApprovedRecipe: async (accountId) => {
+      if (accountId !== ACCOUNT.id) {
+        return {
+          ok: false,
+          reason: 'not-found',
+          message: 'The planner request was not found.',
+        };
+      }
+      return {
+        ok: true,
+        recipeJson: recipeJson(),
+        origin: GRANT_ORIGIN,
+      };
     },
   });
   const server = createServer((request, response) => {
@@ -169,7 +185,6 @@ describe('render delivery HTTP', () => {
       },
       body: JSON.stringify({
         requestId: randomUUID(),
-        recipeJson: recipeJson(),
       }),
     });
     expect(created.status).toBe(200);
@@ -184,7 +199,7 @@ describe('render delivery HTTP', () => {
     );
     expect(bytes.status).toBe(200);
     expect(bytes.headers.get('content-type')).toBe('video/mp4');
-    expect(Buffer.from(await bytes.arrayBuffer()).length).toBe(
+    expect(Buffer.from(await bytes.arrayBuffer())).toHaveLength(
       file.bytes.length,
     );
     expect(
@@ -201,7 +216,6 @@ describe('render delivery HTTP', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             requestId: randomUUID(),
-            recipeJson: recipeJson(),
           }),
         })
       ).status,
@@ -255,7 +269,7 @@ describe('render delivery HTTP', () => {
         'content-type': 'application/json',
         cookie: 'session=user-a',
       },
-      body: JSON.stringify({ requestId, recipeJson: recipeJson() }),
+      body: JSON.stringify({ requestId }),
     });
     await vi.waitFor(async () => {
       const status = await fetch(
@@ -294,7 +308,6 @@ describe('render delivery HTTP', () => {
           },
           body: JSON.stringify({
             requestId: randomUUID(),
-            recipeJson: recipeJson(),
           }),
         })
       ).status,

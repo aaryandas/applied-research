@@ -6,9 +6,11 @@ import {
   type ReactElement,
 } from 'react';
 import type {
+  SourceCitation,
   SourceRecord,
   SourceVersion,
 } from '../../contracts/learning-records';
+import { GeneratedCitations } from './GeneratedCitations';
 import { readSelection, type TextSpan } from './reading-location';
 import {
   positionSelectionActions,
@@ -19,6 +21,8 @@ import {
 interface SourcePaneProps {
   version: SourceVersion;
   source: SourceRecord | undefined;
+  sources?: readonly SourceRecord[];
+  citations?: readonly SourceCitation[];
   span: TextSpan | null;
   reveal: { span: TextSpan | null } | null;
   busy: boolean;
@@ -29,11 +33,14 @@ interface SourcePaneProps {
   onQuestion: () => void;
   onExplainText?: () => void;
   onExplainVisual?: () => void;
+  onOpenCitation?: (citation: SourceCitation) => void;
 }
 
 export function SourcePane({
   version,
   source,
+  sources = [],
+  citations = [],
   span,
   reveal,
   busy,
@@ -44,9 +51,10 @@ export function SourcePane({
   onQuestion,
   onExplainText,
   onExplainVisual,
+  onOpenCitation,
 }: Readonly<SourcePaneProps>): ReactElement {
   const prose = useRef<HTMLDivElement>(null);
-  const actions = useRef<HTMLDivElement>(null);
+  const actions = useRef<HTMLFieldSetElement>(null);
   const [anchor, setAnchor] = useState<SelectionPoint | null>(null);
   const [position, setPosition] = useState<
     { left: number; top: number } | undefined
@@ -62,14 +70,21 @@ export function SourcePane({
       const next = prose.current
         ? readSelection(prose.current, version.canonicalText, selection)
         : null;
+      if (!next) {
+        setAnchor(null);
+        const insideProse =
+          event?.target instanceof Node &&
+          Boolean(prose.current?.contains(event.target));
+        if (insideProse) onSelection(null);
+        return;
+      }
       onSelection(next);
-      setAnchor(
-        next && selection
-          ? event
-            ? { x: event.clientX, y: event.clientY }
-            : selectionFocusPoint(selection)
-          : null,
-      );
+      let nextAnchor: SelectionPoint | null = null;
+      if (next && selection) {
+        if (event) nextAnchor = { x: event.clientX, y: event.clientY };
+        else nextAnchor = selectionFocusPoint(selection);
+      }
+      setAnchor(nextAnchor);
     };
     const selectionChanged = (): void => capture();
     document.addEventListener('selectionchange', selectionChanged);
@@ -140,6 +155,19 @@ export function SourcePane({
       {version.provenance.locator && (
         <p className="reader-muted">{version.provenance.locator}</p>
       )}
+      {version.provenance.kind === 'generated' ? (
+        <p className="reader-muted">
+          AI-generated lesson. Open a citation to the retained original
+          revision; this wording is not the cited source.
+        </p>
+      ) : null}
+      {onOpenCitation ? (
+        <GeneratedCitations
+          citations={citations}
+          sources={sources}
+          onOpen={onOpenCitation}
+        />
+      ) : null}
       <div
         ref={prose}
         className="reader-prose"
@@ -156,14 +184,15 @@ export function SourcePane({
           version.canonicalText
         )}
       </div>
-      <div
+      <fieldset
         ref={actions}
-        role="group"
-        aria-label={span ? 'Selected passage actions' : 'Reading actions'}
         className={`ui-action-row reader-selection-actions${span && anchor ? ' reader-selection-actions--floating' : ''}`}
         style={span && anchor ? position : undefined}
         onPointerDown={(event) => event.preventDefault()}
       >
+        <legend className="ui-sr-only">
+          {span ? 'Selected passage actions' : 'Reading actions'}
+        </legend>
         {onExplainText && (
           <button
             className="ui-button"
@@ -188,7 +217,7 @@ export function SourcePane({
         <button className="ui-button" disabled={busy} onClick={onQuestion}>
           Save a question
         </button>
-      </div>
+      </fieldset>
     </>
   );
 }

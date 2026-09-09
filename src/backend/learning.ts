@@ -12,10 +12,11 @@ import type {
   ReservationResult,
   SettlementInput,
 } from './accounting.js';
-import { utcMonthStart } from './accounting.js';
+import { requestHash, utcMonthStart } from './accounting.js';
 import type { BackendConfig } from './config.js';
 import type { Diagnostics } from './diagnostics.js';
 import { silentDiagnostics } from './diagnostics.js';
+import type { GenerationEvalBudget } from './generation-eval.js';
 import {
   ProviderFailure,
   reservationMicrousdFor,
@@ -52,6 +53,7 @@ export interface LearningServiceOptions {
   >;
   readonly now: () => Date;
   readonly diagnostics?: Diagnostics;
+  readonly generationEval?: GenerationEvalBudget;
 }
 
 function pricingIsFresh(now: Date): boolean {
@@ -204,6 +206,21 @@ type RestoreInterruptibility = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ) => Effect.Effect<A, E, R>;
 
+function settleGenerationEval(
+  reservation: {
+    readonly release: () => Effect.Effect<void>;
+    readonly settle: (actualMicrousd: number) => Effect.Effect<void>;
+    readonly retain: () => Effect.Effect<void>;
+  },
+  dispatched: boolean,
+  charge: ChargeKnowledge,
+): Effect.Effect<void> {
+  if (!dispatched) return reservation.release();
+  if (charge.kind === 'known') return reservation.settle(charge.actualMicrousd);
+  if (charge.kind === 'none') return reservation.settle(0);
+  return reservation.retain();
+}
+
 function completeReservation(
   options: LearningServiceOptions,
   account: PublicAccount,
@@ -213,47 +230,57 @@ function completeReservation(
   restore: RestoreInterruptibility,
 ): Effect.Effect<LearningResponse> {
   const diagnostics = options.diagnostics ?? silentDiagnostics;
-  let providerDispatched = false;
-  const providerAttempt = Effect.suspend(() => {
-    providerDispatched = true;
-    return options.provider.complete(request).pipe(
-      Effect.timeoutFail({
-        duration: options.config.providerTimeoutMs,
-        onTimeout: () =>
-          new ProviderFailure({
-            message: 'The AI provider timed out.',
-            charge: { kind: 'unknown' },
-            cancelled: true,
-          }),
-      }),
-    );
-  });
-  return Effect.exit(restore(providerAttempt)).pipe(
-    Effect.flatMap((providerExit) => {
-      if (Exit.isSuccess(providerExit)) {
-        const completion = providerExit.value;
-        const provisionalResponse = successResponse(
-          request,
-          completion,
-          reservation.quota,
-          options.now(),
-        );
+  const admitEval = options.generationEval
+    ? options.generationEval.admit({
+        requestId: request.requestId,
+        inputHash: requestHash(request),
+        maximumChargeMicrousd: reservationMicrousdFor(request),
+        now: options.now(),
+      })
+    : Effect.succeed({
+        kind: 'reserved' as const,
+        reservation: {
+          release: () => Effect.void,
+          settle: () => Effect.void,
+          retain: () => Effect.void,
+        },
+      });
+  return admitEval.pipe(
+    Effect.catchAll((cause) => {
+      diagnostics.report('accounting.reservation-failed', cause);
+      return Effect.succeed({ kind: 'budget-exhausted' as const });
+    }),
+    Effect.flatMap((evalDecision) => {
+      if (evalDecision.kind !== 'reserved') {
+        const response: LearningResponse =
+          evalDecision.kind === 'in-progress'
+            ? unavailable(
+                request.requestId,
+                'reservation-retained',
+                'This request is already in progress or awaiting cost reconciliation.',
+              )
+            : {
+                outcome: 'quota-exceeded',
+                requestId: request.requestId,
+                message: 'The monthly AI allowance is exhausted.',
+                quota: reservation.quota,
+              };
         return options.accounting
           .settle({
             accountId: account.id,
             requestId: request.requestId,
             monthStart,
             now: options.now(),
-            response: provisionalResponse,
-            disposition: {
-              kind: 'charge',
-              actualMicrousd: completion.actualMicrousd,
-              providerRequestId: completion.providerRequestId,
-            },
+            response,
+            disposition: { kind: 'release' },
             limitMicrousd: options.config.monthlyLimitMicrousd,
           })
           .pipe(
-            Effect.map((quota) => ({ ...provisionalResponse, quota })),
+            Effect.map((quota) =>
+              response.outcome === 'quota-exceeded'
+                ? { ...response, quota }
+                : response,
+            ),
             Effect.catchAll((cause) => {
               diagnostics.report('accounting.settlement-failed', cause);
               return Effect.succeed(
@@ -262,30 +289,90 @@ function completeReservation(
             }),
           );
       }
-      const typedFailure = Option.getOrUndefined(
-        Cause.failureOption(providerExit.cause),
-      );
-      if (typedFailure instanceof ProviderFailure) {
-        return handleProviderFailure(
-          options,
-          account,
-          request,
-          monthStart,
-          typedFailure,
+      let providerDispatched = false;
+      const providerAttempt = Effect.suspend(() => {
+        providerDispatched = true;
+        return options.provider.complete(request).pipe(
+          Effect.timeoutFail({
+            duration: options.config.providerTimeoutMs,
+            onTimeout: () =>
+              new ProviderFailure({
+                message: 'The AI provider timed out.',
+                charge: { kind: 'unknown' },
+                cancelled: true,
+              }),
+          }),
         );
-      }
-      return handleProviderFailure(
-        options,
-        account,
-        request,
-        monthStart,
-        new ProviderFailure({
-          message: Cause.isInterruptedOnly(providerExit.cause)
-            ? 'The learning request was cancelled.'
-            : 'The AI provider failed unexpectedly.',
-          charge: providerDispatched ? { kind: 'unknown' } : { kind: 'none' },
-          cancelled: Cause.isInterruptedOnly(providerExit.cause),
-          cause: providerExit.cause,
+      });
+      return Effect.exit(restore(providerAttempt)).pipe(
+        Effect.flatMap((providerExit) => {
+          if (Exit.isSuccess(providerExit)) {
+            const completion = providerExit.value;
+            const provisionalResponse = successResponse(
+              request,
+              completion,
+              reservation.quota,
+              options.now(),
+            );
+            return settleGenerationEval(evalDecision.reservation, true, {
+              kind: 'known',
+              actualMicrousd: completion.actualMicrousd,
+            }).pipe(
+              Effect.flatMap(() =>
+                options.accounting.settle({
+                  accountId: account.id,
+                  requestId: request.requestId,
+                  monthStart,
+                  now: options.now(),
+                  response: provisionalResponse,
+                  disposition: {
+                    kind: 'charge',
+                    actualMicrousd: completion.actualMicrousd,
+                    providerRequestId: completion.providerRequestId,
+                  },
+                  limitMicrousd: options.config.monthlyLimitMicrousd,
+                }),
+              ),
+              Effect.map((quota) => ({ ...provisionalResponse, quota })),
+              Effect.catchAll((cause) => {
+                diagnostics.report('accounting.settlement-failed', cause);
+                return Effect.succeed(
+                  unavailable(request.requestId, 'reservation-retained'),
+                );
+              }),
+            );
+          }
+          const typedFailure = Option.getOrUndefined(
+            Cause.failureOption(providerExit.cause),
+          );
+          const failure =
+            typedFailure instanceof ProviderFailure
+              ? typedFailure
+              : new ProviderFailure({
+                  message: Cause.isInterruptedOnly(providerExit.cause)
+                    ? 'The learning request was cancelled.'
+                    : 'The AI provider failed unexpectedly.',
+                  charge: providerDispatched
+                    ? { kind: 'unknown' }
+                    : { kind: 'none' },
+                  cancelled: Cause.isInterruptedOnly(providerExit.cause),
+                  cause: providerExit.cause,
+                });
+          return settleGenerationEval(
+            evalDecision.reservation,
+            providerDispatched,
+            failure.charge,
+          ).pipe(
+            Effect.flatMap(() =>
+              handleProviderFailure(
+                options,
+                account,
+                request,
+                monthStart,
+                failure,
+              ),
+            ),
+          );
         }),
       );
     }),

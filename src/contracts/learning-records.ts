@@ -1,6 +1,6 @@
-import type { SourceFormat } from './learning-api';
-import type { SourceProvenance } from './source-provenance';
-import type { Citation, EntryKind } from './workspace';
+import type { SourceFormat } from './learning-api.js';
+import type { SourceProvenance } from './source-provenance.js';
+import type { Citation, EntryKind } from './workspace.js';
 import {
   decodeExactRecord,
   failed,
@@ -9,7 +9,7 @@ import {
   isContractUuid,
   isPositiveRevision,
   type ContractDecode,
-} from './contextual-contract-guards';
+} from './contextual-contract-guards.js';
 
 export const LEARNING_CHANNELS = {
   getWorkspace: 'learning:get-workspace',
@@ -346,6 +346,27 @@ export function isPathOrigin(value: unknown): value is PathOrigin {
   return decodePathOrigin(value).ok;
 }
 
+function decodeOptionalOriginUuid(
+  value: unknown,
+): ContractDecode<string | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  return isContractUuid(value) ? { ok: true, value } : failed('identity');
+}
+
+function decodeOptionalOriginPath(
+  value: unknown,
+): ContractDecode<PathOrigin | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  return decodePathOrigin(value);
+}
+
+function decodeOptionalOriginEntry(
+  value: unknown,
+): ContractDecode<EntryRevisionReference | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  return decodeEntryRevisionReference(value);
+}
+
 export function decodeLearningOrigin(
   value: unknown,
 ): ContractDecode<LearningOrigin> {
@@ -356,37 +377,33 @@ export function decodeLearningOrigin(
     ORIGIN_AUTHORITY_KEYS,
   );
   if (!decoded.ok) return decoded;
-  const sourceRevisionId = decoded.value.sourceRevisionId;
-  const highlightId = decoded.value.highlightId;
-  if (sourceRevisionId !== undefined && !isContractUuid(sourceRevisionId)) {
-    return failed('identity');
-  }
-  if (highlightId !== undefined && !isContractUuid(highlightId)) {
-    return failed('identity');
-  }
-  if (highlightId !== undefined && sourceRevisionId === undefined) {
+  const sourceRevisionId = decodeOptionalOriginUuid(
+    decoded.value.sourceRevisionId,
+  );
+  if (!sourceRevisionId.ok) return sourceRevisionId;
+  const highlightId = decodeOptionalOriginUuid(decoded.value.highlightId);
+  if (!highlightId.ok) return highlightId;
+  if (highlightId.value !== undefined && sourceRevisionId.value === undefined) {
     return failed('origin');
   }
-  let path: PathOrigin | undefined;
-  if (decoded.value.path !== undefined) {
-    const decodedPath = decodePathOrigin(decoded.value.path);
-    if (!decodedPath.ok) return decodedPath;
-    path = decodedPath.value;
+  const path = decodeOptionalOriginPath(decoded.value.path);
+  if (!path.ok) return path;
+  const entry = decodeOptionalOriginEntry(decoded.value.entry);
+  if (!entry.ok) return entry;
+  if (!sourceRevisionId.value && !path.value && !entry.value) {
+    return failed('origin');
   }
-  let entry: EntryRevisionReference | undefined;
-  if (decoded.value.entry !== undefined) {
-    const decodedEntry = decodeEntryRevisionReference(decoded.value.entry);
-    if (!decodedEntry.ok) return decodedEntry;
-    entry = decodedEntry.value;
-  }
-  if (!sourceRevisionId && !path && !entry) return failed('origin');
   return {
     ok: true,
     value: {
-      ...(sourceRevisionId === undefined ? {} : { sourceRevisionId }),
-      ...(highlightId === undefined ? {} : { highlightId }),
-      ...(path === undefined ? {} : { path }),
-      ...(entry === undefined ? {} : { entry }),
+      ...(sourceRevisionId.value === undefined
+        ? {}
+        : { sourceRevisionId: sourceRevisionId.value }),
+      ...(highlightId.value === undefined
+        ? {}
+        : { highlightId: highlightId.value }),
+      ...(path.value === undefined ? {} : { path: path.value }),
+      ...(entry.value === undefined ? {} : { entry: entry.value }),
     },
   };
 }

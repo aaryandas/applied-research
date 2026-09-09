@@ -350,6 +350,76 @@ describe('adversarial embedding spend accounting', () => {
     ).toBe(2);
   });
 
+  it('records an actual charge above the reservation and stops later admissions at the original ceiling', async () => {
+    const budget = makeMemoryEmbeddingBudget(
+      EMBEDDING_EVAL_REMAINING_MICROUSD,
+      {
+        committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD,
+        limitMicrousd: EMBEDDING_EVAL_LIMIT_MICROUSD,
+      },
+    );
+    const before = await runEffect(budget.inspect());
+    expect(before).toEqual({
+      committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD,
+      reservedMicrousd: 0,
+      limitMicrousd: EMBEDDING_EVAL_LIMIT_MICROUSD,
+    });
+    expect(remainingMicrousd(before)).toBe(EMBEDDING_EVAL_REMAINING_MICROUSD);
+    const decision = await runEffect(
+      budget.refreshAndReserve({
+        requestId: 'embed-overrun-01',
+        inputHash: 'hash-overrun-01',
+        maximumChargeMicrousd: EMBEDDING_EVAL_REMAINING_MICROUSD,
+        now: new Date('2026-09-09T00:00:00.000Z'),
+      }),
+    );
+    expect(decision.kind).toBe('reserved');
+    if (decision.kind !== 'reserved') throw new Error('expected reservation');
+    const honestCharge = EMBEDDING_EVAL_REMAINING_MICROUSD + 1;
+    await runEffect(decision.reservation.settle(honestCharge));
+    const after = await runEffect(budget.inspect());
+    expect(after.committedMicrousd).toBe(
+      EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD + honestCharge,
+    );
+    expect(after.committedMicrousd).toBeGreaterThan(
+      EMBEDDING_EVAL_LIMIT_MICROUSD,
+    );
+    expect(after.reservedMicrousd).toBe(0);
+    expect(remainingMicrousd(after)).toBe(0);
+    const blocked = await runEffect(
+      budget.refreshAndReserve({
+        requestId: 'embed-overrun-02',
+        inputHash: 'hash-overrun-02',
+        maximumChargeMicrousd: 1,
+        now: new Date('2026-09-09T00:00:00.000Z'),
+      }),
+    );
+    expect(blocked).toEqual({ kind: 'budget-exhausted' });
+  });
+
+  it('retains a non-integer actual instead of clipping it to the reservation', async () => {
+    const budget = makeMemoryEmbeddingBudget(
+      EMBEDDING_EVAL_REMAINING_MICROUSD,
+      {
+        committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD,
+        limitMicrousd: EMBEDDING_EVAL_LIMIT_MICROUSD,
+      },
+    );
+    const decision = await runEffect(
+      budget.refreshAndReserve({
+        requestId: 'embed-invalid-01',
+        inputHash: 'hash-invalid-01',
+        maximumChargeMicrousd: 10,
+        now: new Date('2026-09-09T00:00:00.000Z'),
+      }),
+    );
+    if (decision.kind !== 'reserved') throw new Error('expected reservation');
+    await runEffect(decision.reservation.settle(1.5));
+    const after = await runEffect(budget.inspect());
+    expect(after.committedMicrousd).toBe(EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD);
+    expect(after.reservedMicrousd).toBe(10);
+  });
+
   it('reports unreconciled spend as non-retryable', () => {
     const result = searchFailure(
       new IndexOperationError('unreconciled-spend'),
@@ -381,7 +451,7 @@ describe('adversarial embedding spend accounting', () => {
       },
     };
     const html = Buffer.from(
-      '<html><body><main><p>A table is a relation. SQL selects rows.</p></main></body></html>',
+      '<html><body><main><p>Floating-point numbers are represented in computer hardware as base 2 fractions.</p></main></body></html>',
     );
     const liveIndex: LiveIndexTransport = {
       region: 'aws-us-west-2',
@@ -449,7 +519,7 @@ describe('adversarial embedding spend accounting', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'discover-spend-01',
-        query: 'sql',
+        query: 'floating',
         intent: 'learning',
         kinds: ['chapter'],
         limit: 10,
@@ -486,7 +556,7 @@ describe('adversarial embedding spend accounting', () => {
       {
         apiVersion: SOURCING_API_VERSION,
         requestId: 'retrieve-spend-01',
-        query: 'primary key relation',
+        query: 'floating-point fractions',
         intent: 'learning',
         maxPassages: 1,
         sourceRevisions: [
@@ -505,15 +575,17 @@ describe('adversarial embedding spend accounting', () => {
       },
     );
     expect(reserved).toContain(
-      queryReservationMicrousd('primary key relation'),
+      queryReservationMicrousd('floating-point fractions'),
     );
     expect(hashes).toContain(
       createHash('sha256')
-        .update(preparedQueryInput('primary key relation'))
+        .update(preparedQueryInput('floating-point fractions'))
         .digest('hex'),
     );
-    expect(queryReservationMicrousd('primary key relation')).toBeGreaterThan(
-      embeddingReservationMicrousd(['primary key relation']),
+    expect(
+      queryReservationMicrousd('floating-point fractions'),
+    ).toBeGreaterThan(
+      embeddingReservationMicrousd(['floating-point fractions']),
     );
   });
 });

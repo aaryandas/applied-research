@@ -2,6 +2,10 @@
 
 Execution policy reflecting the founder’s decisions and current delivery evidence, updated September 9, 2026. Read this before [next-run](next-run.md). It supersedes conflicting execution instructions in older handoffs, workflow examples and agent files. Product requirements, process isolation, credential ownership and substantive quality gates remain in force.
 
+## Founder integration override — September 9, 2026
+
+The founder explicitly instructed the coordinator to integrate all implemented project work, resolve merge conflicts, and merge it into main without waiting for CI or Sonar. This overrides the merge prerequisites below for this consolidation. Existing CI and Sonar outcomes remain truthful; failures are not relabeled as passes. Product acceptance, provider budgets, credential isolation and deployment authorization remain separate. Obsolete overlapping implementations are reconciled to the newer behavior rather than restored over it.
+
 ## Execution and ownership
 
 - Implementation and independent standards/spec criticism run on **Cursor Cloud, Grok 4.6, Extra High (`xhigh`)**. Do not launch Fable, local/headless Cursor inference or replacement local coding workers. Use the existing cloud worker for a ticket when continuing its work.
@@ -34,8 +38,16 @@ While status automation is being repaired, the coordinator may manually reconcil
 4. **Keep provenance through integration.** Bind source, launch, review, recording and CI evidence to exact revisions and actual owners. A merge or new commit requires reassessing the affected evidence.
 5. **Make status reflect work.** Reconcile started work conservatively while automation is repaired. Partial demos, unavailable runtimes and blocked authentication remain explicit gaps, never completion signals.
 
+## Linear gate duplicate-attachment incident
+
+Parallel Linear gate jobs on [PR70](https://github.com/aaryandas/applied-research/pull/70)/[PR71](https://github.com/aaryandas/applied-research/pull/71) both called `attachmentLinkURL`; the loser failed `INPUT_ERROR` 400 duplicate URL. Draft/In Development classification was already the expected green lifecycle and is not a status defect. The repair is idempotent re-query of the intended issue/URL ([incident](linear-gate-duplicate-attachment-2026-09-09.md)). Cursor CI Autofix [PR69](https://github.com/aaryandas/applied-research/pull/69) was rejected for skipping tests; that automation stays paused. Original main Sonar skip after macOS failure [34361091356](https://github.com/aaryandas/applied-research/actions/runs/34361091356) remains a real failure, not a waiver.
+
 ## Current consumer leases
 
 AR47 owns Opening, new onboarding UI/main modules, LearnerProfile files and migration `0005_learning_onboarding.sql`; the coordinator owns journal/shared store/App/Shell/preload application of its precise integration patches. AR50 keeps migration0004. AR51 owns migration0006_contextual_retention for retained explanations; AR56 reserves0007 for entry origins if needed. AR58 owns six new backend boundary test files; AR48 retains existing backend production and tests. Final AR52 `bca886a` and AR53 `32d3344` passed independent Cloud review and are integrated at `f32b548`; consumer implementation may proceed.
 
 AR51 owns the new contextual main/backend modules, contextual explanation UI and migration0006; AR54 retains clip player/media/render-worker files. Shared store/IPC/Reader/Canvas mounts stay coordinator-owned patches.
+
+## Consolidated historical branches
+
+The all-implemented integration preserves PR43 portability and AR49 Canvas changes. PR27’s obsolete metadata gate, old capture fallback and inactive Linux expansion are superseded; PR38’s Canvas work is present in AR49. PR42’s scanner dependency install and explicit TypeScript paths are retained on the newer authenticated AR45 workflow; its obsolete Fable/default-on/duplicate-test topology is not restored. The AR53 companion contract and AR50 capture association producer changes are incorporated through AR55, preserving later strict decoder and validation fixes. Historical branches are joined without replacing the newer implementations.

@@ -1,17 +1,19 @@
-import { SOURCING_API_VERSION } from '../../contracts/sourcing.js';
-import type {
-  AcquiredSource,
-  RetrieveEvidenceResponse,
+import {
+  SOURCING_API_VERSION,
+  SOURCING_PUBLIC_MESSAGES,
+  type AcquiredSource,
+  type RetrieveEvidenceResponse,
 } from '../../contracts/sourcing.js';
-import { SOURCING_PUBLIC_MESSAGES } from '../../contracts/sourcing.js';
 import type {
   LearningEvidenceQuery,
   SelectedLearningEvidence,
 } from '../sourced-learning/types.js';
 import { selectEvidence } from './retrieval/selection.js';
-import type { SourcingInvocation } from './service.js';
-import type { SourcingService } from './service.js';
-import { authorizeRetrieveEvidenceRequest } from './service.js';
+import {
+  authorizeRetrieveEvidenceRequest,
+  type SourcingInvocation,
+  type SourcingService,
+} from './service.js';
 import type { SourcePersistence } from './persistence.js';
 import type { Effect } from 'effect';
 

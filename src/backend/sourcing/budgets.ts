@@ -13,6 +13,7 @@ import {
   type OpenAlexBudgetDecision,
   type OpenAlexBudgetService,
 } from './openalex/budget.js';
+import { honestChargeMicrousd } from '../money.js';
 
 export type EmbeddingBudgetDecision =
   | {
@@ -202,7 +203,7 @@ function settleOpenAlex(
           ),
         )
         .for('update');
-      if (!row || row.state !== 'reserved') return;
+      if (row?.state !== 'reserved') return;
       const [ledger] = await transaction
         .select()
         .from(providerBudget)
@@ -436,7 +437,7 @@ function settleEmbedding(
           ),
         )
         .for('update');
-      if (!row || row.state !== 'reserved') return;
+      if (row?.state !== 'reserved') return;
       const [ledger] = await transaction
         .select()
         .from(sharedBudget)
@@ -477,10 +478,19 @@ function settleEmbedding(
           );
         return;
       }
-      const actual = Math.min(
-        row.reservedMicrousd,
-        Math.max(1, disposition.actualChargeMicrousd),
-      );
+      const actual = honestChargeMicrousd(disposition.actualChargeMicrousd);
+      if (actual === undefined) {
+        await transaction
+          .update(sharedBudgetRequest)
+          .set({ state: 'uncertain', updatedAt: now })
+          .where(
+            and(
+              eq(sharedBudgetRequest.name, 'embedding-eval'),
+              eq(sharedBudgetRequest.requestId, requestId),
+            ),
+          );
+        return;
+      }
       await transaction
         .update(sharedBudget)
         .set({
@@ -588,10 +598,17 @@ export function makeMemoryEmbeddingBudget(
             }),
           settle: (actual: number) =>
             Effect.sync(() => {
-              const charge = Math.min(reserved, Math.max(1, actual));
-              remaining += Math.max(0, reserved - charge);
-              committed += charge;
+              const charge = honestChargeMicrousd(actual);
+              if (charge === undefined) {
+                seen.set(input.requestId, {
+                  hash: input.inputHash,
+                  open: true,
+                });
+                return;
+              }
               reservedOutstanding = Math.max(0, reservedOutstanding - reserved);
+              committed += charge;
+              remaining = Math.max(0, limit - committed - reservedOutstanding);
               reserved = 0;
               seen.set(input.requestId, {
                 hash: input.inputHash,

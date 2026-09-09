@@ -18,9 +18,17 @@ import type {
   PracticalProgressResult,
 } from '../contracts/practical-records';
 import {
+  decodeTrustedSceneCapture,
+  type RetainedExplanation,
+  type TrustedSceneCapture,
+} from '../contracts/explanation-artifacts';
+import {
+  isPracticalActivity,
   isRecordPracticalResultInput,
   type PracticalActivity,
   type PracticalCommitResult,
+  type PracticalEvidenceReference,
+  type ReturnedPracticalEvidence,
 } from '../contracts/practical-work';
 import {
   practicalAcceptedBriefs,
@@ -31,6 +39,7 @@ import {
   practicalMilestoneProgress,
 } from './practical-schema';
 import { acknowledgement, touchProject } from './learning-record-persistence';
+import { measuredPracticalResultFromTrustedCapture } from './practical-measured-capture';
 import {
   assertPracticalActivity,
   decodePracticalLoad,
@@ -61,9 +70,38 @@ import type {
   WorkspaceTransaction,
 } from './workspace-schema';
 
+/** Canonical AR56 retained identity. Lesson lives at `origin.path.lessonId`. */
+export type PracticalOwnedExplanation = Pick<
+  RetainedExplanation,
+  'explanationId' | 'projectId' | 'origin'
+>;
+
 /** Uses the store-owned connection. No filesystem, IPC, or connection ownership. */
+export interface PracticalOwnedCaptureLookup {
+  loadCapture(projectId: string, captureId: string): TrustedSceneCapture | null;
+  /**
+   * Required whenever measured associations are enabled. Missing records reject
+   * the association. A `LearningOrigin` without `path` is an unlinked capture.
+   */
+  loadExplanation(
+    projectId: string,
+    explanationId: string,
+  ): PracticalOwnedExplanation | null;
+}
+
+interface PracticalReturnedEvidenceQuery {
+  readonly transaction: WorkspaceTransaction;
+  readonly activity: PracticalActivity;
+  readonly projectId: string;
+  readonly attemptId: string;
+  readonly selected: PracticalEvidenceReference | null;
+}
+
 export class PracticalRecords {
-  constructor(private readonly database: WorkspaceDatabase) {}
+  constructor(
+    private readonly database: WorkspaceDatabase,
+    private readonly captures: PracticalOwnedCaptureLookup | null = null,
+  ) {}
 
   recordPracticalResult(value: unknown): PracticalCommitResult {
     if (!isRecordPracticalResultInput(value)) return { status: 'failed' };
@@ -72,12 +110,15 @@ export class PracticalRecords {
         (transaction) => {
           assertPracticalActivity(transaction, value.activity);
           const evidence = value.draft.selectedEvidence;
-          if (
-            evidence &&
-            (evidence.kind !== 'user-selected-file' ||
-              !readPracticalFile(transaction, value, evidence.selectionId))
-          )
+          if (evidence?.kind === 'user-selected-file') {
+            if (!readPracticalFile(transaction, value, evidence.selectionId))
+              return { status: 'failed' };
+          } else if (
+            evidence?.kind === 'app-measured' &&
+            !this.acceptOwnedCapture(value.activity, evidence.captureId)
+          ) {
             return { status: 'failed' };
+          }
           const existing = transaction
             .select()
             .from(practicalAttempts)
@@ -247,9 +288,12 @@ export class PracticalRecords {
               reflection: { authorKind: 'human', text: '' },
             },
             revisions,
-            returnedEvidence: readPracticalFiles(transaction, {
+            returnedEvidence: this.returnedEvidence({
+              transaction,
               activity: input.activity,
+              projectId: stored.projectId,
               attemptId: stored.id,
+              selected: current?.draft.selectedEvidence ?? null,
             }),
           },
         };
@@ -257,6 +301,102 @@ export class PracticalRecords {
     } catch {
       return { status: 'failed' };
     }
+  }
+
+  /**
+   * Main-internal only. Decodes persisted activityJson then reuses
+   * `loadPracticalAttempt`. Not an IPC/SQL surface.
+   */
+  loadPracticalAttemptByProjectAndId(
+    projectId: string,
+    attemptId: string,
+  ): LoadPracticalAttemptResult {
+    try {
+      const stored = this.database
+        .select()
+        .from(practicalAttempts)
+        .where(
+          and(
+            eq(practicalAttempts.projectId, projectId),
+            eq(practicalAttempts.id, attemptId),
+          ),
+        )
+        .get();
+      if (!stored) return { status: 'loaded', attempt: null };
+      const activity: unknown = JSON.parse(stored.activityJson);
+      if (!isPracticalActivity(activity) || activity.projectId !== projectId) {
+        return { status: 'failed' };
+      }
+      return this.loadPracticalAttempt({ activity, attemptId });
+    } catch {
+      return { status: 'failed' };
+    }
+  }
+
+  private acceptOwnedCapture(
+    activity: PracticalActivity,
+    captureId: string,
+  ): boolean {
+    const capture = this.readOwnedCapture(activity.projectId, captureId);
+    if (!capture) return false;
+    return this.captureMatchesActivity(activity, capture);
+  }
+
+  private readOwnedCapture(
+    projectId: string,
+    captureId: string,
+  ): TrustedSceneCapture | null {
+    if (!this.captures) return null;
+    const decoded = decodeTrustedSceneCapture(
+      this.captures.loadCapture(projectId, captureId),
+    );
+    if (!decoded.ok || decoded.value.captureId !== captureId) return null;
+    return decoded.value;
+  }
+
+  private captureMatchesActivity(
+    activity: PracticalActivity,
+    capture: TrustedSceneCapture,
+  ): boolean {
+    if (!this.captures) return false;
+    const explanation = this.captures.loadExplanation(
+      activity.projectId,
+      capture.explanationId,
+    );
+    if (!explanation) return false;
+    if (
+      explanation.projectId !== activity.projectId ||
+      explanation.explanationId !== capture.explanationId
+    ) {
+      return false;
+    }
+    const originPath = explanation.origin.path;
+    if (!originPath) return true;
+    const claimed = activity.origin.path;
+    return (
+      originPath.pathId === claimed.pathId &&
+      originPath.pathRevision === claimed.pathRevision &&
+      originPath.topicId === claimed.topicId &&
+      originPath.lessonId === claimed.lessonId
+    );
+  }
+
+  private returnedEvidence(
+    query: PracticalReturnedEvidenceQuery,
+  ): ReturnedPracticalEvidence[] {
+    const files = readPracticalFiles(query.transaction, {
+      activity: query.activity,
+      attemptId: query.attemptId,
+    });
+    if (query.selected?.kind !== 'app-measured') return files;
+    const capture = this.readOwnedCapture(
+      query.projectId,
+      query.selected.captureId,
+    );
+    if (!capture || !this.captureMatchesActivity(query.activity, capture)) {
+      return files;
+    }
+    return [...files, measuredPracticalResultFromTrustedCapture(capture)];
   }
 
   /** Main-internal only. Bytes come from a completed native selection, never IPC. */
@@ -368,8 +508,7 @@ export class PracticalRecords {
           item.kind === 'user-selected-file' &&
           item.selectionId === input.selectionId,
       );
-      if (!meta || meta.kind !== 'user-selected-file')
-        return { status: 'unavailable' };
+      if (meta?.kind !== 'user-selected-file') return { status: 'unavailable' };
       return previewRetainedPracticalFile(
         meta.selectionId,
         meta.displayName,
@@ -567,8 +706,7 @@ export class PracticalRecords {
             .get();
           const currentRevision = existing?.revision ?? 0;
           if (
-            existing &&
-            existing.status === input.status &&
+            existing?.status === input.status &&
             existing.note === input.note &&
             existing.evidenceSelectionId ===
               (input.evidence?.selectionId ?? null) &&
@@ -869,8 +1007,7 @@ function assertProgressBinding(
           .get()
       : null;
     if (
-      !brief ||
-      brief.briefRevision !== sourceRevision ||
+      brief?.briefRevision !== sourceRevision ||
       journey.briefRevision !== sourceRevision
     )
       throw new Error('Progress is not bound to this brief revision.');

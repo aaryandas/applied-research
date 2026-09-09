@@ -5,34 +5,17 @@ import type {
   SourceCitation,
   SourceRevisionInput,
 } from './learning-api.js';
-import {
-  LEARNING_API_VERSION,
-  LEARNING_MODEL_ALLOWLIST,
-} from './learning-api.js';
 import type { PathSourceState } from './learning-records.js';
-import {
-  COURSE_PRACTICE_BRIEF_KIND,
-  COURSE_PRACTICE_TOOL_KINDS,
-  EXTRACTION_COVERAGE,
-  LESSON_DEPTHS,
-  LESSON_ROLES,
-} from './learning-onboarding.js';
 import type {
-  CourseCapstoneDesignation,
   CoursePracticeBrief,
-  CoursePracticeToolChoice,
-  CoursePracticeToolKind,
   LessonDepth,
   LessonRole,
   OnboardingCoverageGap,
   OnboardingPersonalization,
   OnboardingSourceCoverage,
   OnboardingSyllabus,
-  OnboardingSyllabusLesson,
-  OnboardingSyllabusTopic,
   OpaqueRevisionRef,
   ProposalSource,
-  ProposalSourceCoverage,
   UnacquiredSeedUrl,
 } from './learning-onboarding.js';
 import type { AcquiredSource, RetrievalEvidence } from './sourcing.js';
@@ -44,7 +27,7 @@ export {
   EXTRACTION_COVERAGE,
   LESSON_DEPTHS,
   LESSON_ROLES,
-};
+} from './learning-onboarding.js';
 export type {
   CourseCapstoneDesignation,
   CoursePracticeBrief,
@@ -62,7 +45,11 @@ export type {
   ProposalSource,
   ProposalSourceCoverage,
   UnacquiredSeedUrl,
-};
+} from './learning-onboarding.js';
+export {
+  LEARNING_API_VERSION as LEARNING_ONBOARDING_LEARNING_API_VERSION,
+  LEARNING_MODEL_ALLOWLIST as LEARNING_ONBOARDING_MODEL_ALLOWLIST,
+} from './learning-api.js';
 
 /** Sibling of `/v1/learning/sourced`. Do not register this path on the old route. */
 export const LEARNING_ONBOARDING_PATH = '/v1/learning/onboarding' as const;
@@ -76,6 +63,7 @@ export const LEARNING_ONBOARDING_SCOPES = [
   'interview-prompt',
   'complete-syllabus-and-first-lesson',
   'selected-existing-lesson',
+  'accepted-course-adjustment',
 ] as const;
 export type LearningOnboardingScope =
   (typeof LEARNING_ONBOARDING_SCOPES)[number];
@@ -85,6 +73,7 @@ export const LEARNING_ONBOARDING_OPERATIONS = [
   'propose-course',
   'revise-course',
   'generate-selected-lesson',
+  'adjust-accepted-course',
 ] as const;
 export type LearningOnboardingOperationKind =
   (typeof LEARNING_ONBOARDING_OPERATIONS)[number];
@@ -113,7 +102,11 @@ export const LEARNING_ONBOARDING_LIMITS = {
   diagnosticAnswers: 6,
   diagnosticAnswerCharacters: 4_000,
   interviewPrompts: 6,
+  practicalAttemptLocators: 16,
+  adjustmentPatches: 32,
+  adjustmentBeforeAfterCharacters: 2_000,
   promptCharacters: 2_000,
+  pastedSeedCharacters: 24_000,
   seedRevisionLocators: 8,
   unacquiredSeedUrls: 4,
   urlCharacters: 2_048,
@@ -149,9 +142,6 @@ export const LEARNING_ONBOARDING_LIMITS = {
   mappingEntries: 160,
   revision: 1_000_000,
 } as const;
-
-export const LEARNING_ONBOARDING_MODEL_ALLOWLIST = LEARNING_MODEL_ALLOWLIST;
-export const LEARNING_ONBOARDING_LEARNING_API_VERSION = LEARNING_API_VERSION;
 
 export const LEARNING_ONBOARDING_PUBLIC_MESSAGES = {
   invalidRequest: 'The onboarding request is invalid.',
@@ -195,6 +185,11 @@ export type UntrustedHumanLearnerContext = {
   goal: string;
   focus: string;
   depth: LessonDepth;
+  /**
+   * Intended profile revision for this request. Propose/revise bind it to the
+   * interview row. Selected-lesson generation may send the live profile after
+   * later edits; that must not rewrite accepted interview or syllabus history.
+   */
   profileRevision: number;
   interviewRevision: number;
   profile: {
@@ -205,6 +200,12 @@ export type UntrustedHumanLearnerContext = {
   answers: HumanDiagnosticAnswer[];
   seedRevisionLocators: SeedRevisionLocator[];
   unacquiredSeedUrls: UnacquiredSeedUrl[];
+  /**
+   * Exact private human paste, or null when none/cleared. Untrusted planning
+   * context only — not evidence, not an acquired public source, and not trusted
+   * question instructions. Never place this text on `seedRevisionLocators`.
+   */
+  pastedSeedText: string | null;
 };
 
 export type CompactSyllabusLesson = {
@@ -228,6 +229,26 @@ export type CompactSyllabus = {
   topics: CompactSyllabusTopic[];
 };
 
+/**
+ * Main-owned effective accepted-course projection. Compact lessons still omit
+ * objective/activity, so those pending AI changes live here. Focus/depth are
+ * the latest accepted overlay values (`null` when none). Practice digests stay
+ * on `syllabus`. This is untrusted model context, never a human diagnostic.
+ */
+export type ReviewedPendingFieldChange = {
+  remoteStepId: string;
+  field: 'objective' | 'activity';
+  value: string;
+};
+
+export type ReviewedCourseProjection = {
+  acceptedAdjustment: OpaqueRevisionRef | null;
+  pathRevision: number;
+  focus: string | null;
+  depth: LessonDepth | null;
+  pendingFieldChanges: ReviewedPendingFieldChange[];
+};
+
 export type UntrustedModelSyllabusContext = {
   trust: typeof ONBOARDING_CONTEXT_TRUST.model;
   priorProposal: OpaqueRevisionRef;
@@ -237,6 +258,7 @@ export type UntrustedModelSyllabusContext = {
     observedGaps: string[];
     masteryEstablished: false;
   } | null;
+  reviewedCourse: ReviewedCourseProjection | null;
 };
 
 export type OnboardingGeneratedLesson = {
@@ -286,11 +308,106 @@ export type GenerateSelectedLessonOperation = {
   };
 };
 
+export type PracticalAttemptActivityOrigin = {
+  pathId: string;
+  pathRevision: number;
+  topicId: string;
+  lessonId: string;
+};
+
+/**
+ * Main-resolved Practical work for an adjustment. Opaque ids alone are not
+ * work content. Selected file metadata is not included and is not source
+ * evidence or mastery. Reflection/result stay human-attributed.
+ */
+export type PracticalAttemptWorkContext = {
+  activityOrigin: PracticalAttemptActivityOrigin;
+  reflection: { authorKind: 'human'; text: string };
+  reportedResult: { kind: 'user-reported-text'; text: string };
+  recordedAt: string;
+  masteryEstablished: false;
+};
+
+/**
+ * Practical attempt locator plus resolved work. Main must resolve ownership
+ * against stored Practical records before posting. Backend must not treat
+ * these as evidence authority.
+ */
+export type PracticalAttemptLocator = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  kind: 'practical-attempt-locator';
+  attemptId: string;
+  recordedRevision: number;
+  remoteStepId: string;
+  work: PracticalAttemptWorkContext;
+};
+
+export type CourseAdjustmentProgress = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  practicalAttempts: PracticalAttemptLocator[];
+};
+
+export const COURSE_ADJUSTMENT_PATCH_FIELDS = [
+  'objective',
+  'activity',
+  'practice',
+] as const;
+export type CourseAdjustmentPatchField =
+  (typeof COURSE_ADJUSTMENT_PATCH_FIELDS)[number];
+
+/**
+ * Proposed overlay on a still-pending accepted step. Ready completed lessons
+ * cannot appear here. `practice` is the replacement brief when `field` is
+ * `practice`; `practiceBefore` is the current retained brief. Objective and
+ * activity patches keep `practice`/`practiceBefore` null. Before/after strings
+ * are the named field bytes, not an unrelated summary.
+ */
+export type CourseAdjustmentPatch = {
+  remoteStepId: string;
+  field: CourseAdjustmentPatchField;
+  before: string;
+  after: string;
+  practiceBefore: CoursePracticeBrief | null;
+  practice: CoursePracticeBrief | null;
+};
+
+export type CourseAdjustmentReviewedBase = {
+  pathRevision: number;
+  acceptedAdjustment: OpaqueRevisionRef | null;
+  digest: string;
+};
+
+export type CourseAdjustmentProposalBody = {
+  acceptedProposal: OpaqueRevisionRef;
+  summary: OnboardingPersonalization;
+  focus: { before: string; after: string } | null;
+  depth: { before: LessonDepth; after: LessonDepth } | null;
+  patches: CourseAdjustmentPatch[];
+  citations: SourceCitation[];
+  reviewedBase: CourseAdjustmentReviewedBase;
+};
+
+/**
+ * Bounded review of an already-accepted course. Reuses the existing
+ * onboarding planner/allowlist/quota. Must not emit a replacement syllabus
+ * or new lesson identities. `notes` is a separate human field and must not
+ * appear on `human.answers`.
+ */
+export type AdjustAcceptedCourseOperation = {
+  kind: 'adjust-accepted-course';
+  human: UntrustedHumanLearnerContext;
+  notes: string | null;
+  model: UntrustedModelSyllabusContext;
+  progress: CourseAdjustmentProgress;
+  acceptedProposal: OpaqueRevisionRef;
+};
+
 export type LearningOnboardingOperation =
   | InterviewPromptOperation
   | ProposeCourseOperation
   | ReviseCourseOperation
-  | GenerateSelectedLessonOperation;
+  | GenerateSelectedLessonOperation
+  | AdjustAcceptedCourseOperation;
 
 /**
  * Main→backend envelope. Account is session-derived and must be absent.
@@ -347,8 +464,24 @@ export type SelectedLessonSuccess = {
   quota: MonthlyQuota;
 };
 
+export type AcceptedCourseAdjustmentSuccess = {
+  outcome: 'success';
+  requestId: string;
+  scope: 'accepted-course-adjustment';
+  adjustment: CourseAdjustmentProposalBody;
+  sources: AcquiredSource[];
+  bibliography: ProposalSource[];
+  evidence: RetrievalEvidence[];
+  gaps: OnboardingCoverageGap[];
+  provenance: AiProvenance[];
+  quota: MonthlyQuota;
+};
+
 export type LearningOnboardingSuccess =
-  InterviewPromptSuccess | CourseProposalSuccess | SelectedLessonSuccess;
+  | InterviewPromptSuccess
+  | CourseProposalSuccess
+  | SelectedLessonSuccess
+  | AcceptedCourseAdjustmentSuccess;
 
 export type OnboardingInvalidRequest = {
   outcome: 'invalid-request';

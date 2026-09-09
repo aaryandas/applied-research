@@ -314,7 +314,7 @@ describe('authenticated source route boundaries', () => {
       },
       body: JSON.stringify({
         ...discovery,
-        query: 'sql database',
+        query: 'floating point',
         kinds: ['chapter', 'textbook', 'course'],
         limit: 10,
       }),
@@ -333,7 +333,7 @@ describe('authenticated source route boundaries', () => {
         discoveredBody.outcome === 'partial',
     ).toBe(true);
     const chapter = discoveredBody.candidates?.find((item) =>
-      item.sourceId.includes('ch15'),
+      item.sourceId.includes('python'),
     );
     expect(chapter).toBeDefined();
     const foreign = await fetch(`${origin}/v1/sources/acquire`, {

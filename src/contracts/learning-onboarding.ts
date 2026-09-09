@@ -5,6 +5,7 @@ import type {
   PathSourceState,
 } from './learning-records.js';
 import type { PracticalToolId } from './practical-tools.js';
+import type { PracticalActivity } from './practical-work.js';
 import type {
   ProviderIdentity,
   ScholarlyIdentity,
@@ -23,8 +24,20 @@ export const LEARNING_ONBOARDING_CHANNELS = {
   revise: 'onboarding:revise-course',
   accept: 'onboarding:accept-course',
   ensureLesson: 'onboarding:ensure-lesson',
+  adjust: 'onboarding:adjust-accepted-course',
+  acceptAdjustment: 'onboarding:accept-course-adjustment',
   cancel: 'onboarding:cancel',
 } as const;
+
+export const LEARNING_ONBOARDING_RESUME_CHANNELS = {
+  getContinueLearning: 'onboarding:get-continue-learning',
+  saveReadingResume: 'onboarding:save-reading-resume',
+  getProfileView: 'onboarding:get-learner-profile-view',
+  getPastedSource: 'onboarding:get-pasted-source',
+  savePastedSource: 'onboarding:save-pasted-source',
+} as const;
+/** Human notes attached only to an accepted-course adjustment request. */
+export const ADJUSTMENT_NOTES_PROMPT_ID = 'adjustment-notes-01' as const;
 
 export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
 export type LessonDepth = (typeof LESSON_DEPTHS)[number];
@@ -199,6 +212,7 @@ export type InterviewDraft = {
   goal: string;
   focus: string;
   depth: LessonDepth;
+  /** 0 = unbound local draft (no saved profile yet). Planning requires a real bind. */
   profileRevision: number;
   sourceRevisionIds: string[];
   seedDrafts: UnacquiredSeedUrl[];
@@ -224,8 +238,8 @@ export type SaveLearningInterviewInput = {
   draft: InterviewDraft;
 };
 
-export type ProposalLesson = OnboardingSyllabusLesson;
-export type ProposalTopic = OnboardingSyllabusTopic;
+export type { OnboardingSyllabusLesson as ProposalLesson };
+export type { OnboardingSyllabusTopic as ProposalTopic };
 
 /**
  * Renderer display projection. Never accepted back as authority.
@@ -237,7 +251,7 @@ export type CourseProposal = {
   projectId: string;
   interviewRevision: number;
   title: string;
-  topics: ProposalTopic[];
+  topics: OnboardingSyllabusTopic[];
   capstone: CourseCapstoneDesignation | null;
   firstLesson: { stepId: string; title: string; text: string } | null;
   sources: ProposalSource[];
@@ -258,6 +272,10 @@ export type LearningOnboardingSnapshot = {
   interview: InterviewRecord | null;
   proposal: CourseProposal | null;
   accepted: AcceptedOnboarding | null;
+  /** Latest unaccepted overlay. Accepted overlays stay in `acceptedAdjustment`. */
+  adjustment: CourseAdjustmentProposal | null;
+  /** Latest accepted overlay revision. Original course acceptance stays in `accepted`. */
+  acceptedAdjustment: OpaqueRevisionRef | null;
 };
 
 export type RevisionWrite<T> =
@@ -316,6 +334,70 @@ export type EnsureLessonInput = OnboardingRequest & {
 export type InterviewPromptInput = OnboardingRequest & {
   interviewRevision: number;
   consent: 'acquire-learning-evidence';
+};
+
+export type CourseAdjustmentEvidenceItem = {
+  attemptId: string;
+  recordedRevision: number;
+  remoteStepId: string;
+  lessonTitle: string;
+  activity: PracticalActivity;
+};
+
+export type CourseAdjustmentPatchView = {
+  remoteStepId: string;
+  lessonTitle: string;
+  sourceState: PathSourceState;
+  field: 'objective' | 'activity' | 'practice';
+  before: string;
+  after: string;
+  practiceBefore: CoursePracticeBrief | null;
+  practiceAfter: CoursePracticeBrief | null;
+};
+
+export type CourseAdjustmentProposal = {
+  id: string;
+  revision: number;
+  projectId: string;
+  acceptedProposal: OpaqueRevisionRef;
+  title: string;
+  summary: OnboardingPersonalization;
+  focus: { before: string; after: string } | null;
+  depth: { before: LessonDepth; after: LessonDepth } | null;
+  patches: CourseAdjustmentPatchView[];
+  sources: ProposalSource[];
+  gaps: OnboardingCoverageGap[];
+  acceptance: 'ready' | 'coverage-pending';
+  reviewedBase: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    digest: string;
+  };
+};
+
+export type AdjustAcceptedCourseInput = OnboardingRequest & {
+  acceptedProposal: OpaqueRevisionRef;
+  interviewRevision: number;
+  notes: string;
+  progress: {
+    practicalAttempts: {
+      attemptId: string;
+      recordedRevision: number;
+      remoteStepId: string;
+      activity: PracticalActivity;
+    }[];
+  };
+  consent: 'acquire-learning-evidence';
+};
+
+export type AcceptCourseAdjustmentInput = OnboardingRequest & {
+  adjustment: OpaqueRevisionRef;
+};
+
+export type AcceptCourseAdjustmentValue = {
+  adjustment: OpaqueRevisionRef;
+  pathId: string;
+  pathRevision: number;
 };
 
 export type AcceptCourseValue = {
@@ -382,5 +464,37 @@ export interface LearningOnboardingBridge {
   ensureLesson(
     input: EnsureLessonInput,
   ): Promise<OnboardingResult<EnsureLessonValue>>;
+  proposeAcceptedCourseAdjustment(
+    input: AdjustAcceptedCourseInput,
+  ): Promise<OnboardingResult<CourseAdjustmentProposal>>;
+  acceptCourseAdjustment(
+    input: AcceptCourseAdjustmentInput,
+  ): Promise<OnboardingResult<AcceptCourseAdjustmentValue>>;
   cancelLearningOnboarding(input: OnboardingRequest): Promise<void>;
+}
+
+export type ContinueLearningCard = {
+  projectId: string;
+  path: PathOrigin;
+  sourceRevisionId: string | null;
+  span: { start: number; end: number; quote: string } | null;
+  lessonTitle: string;
+  projectGoal: string;
+};
+
+export type LearnerProfileView = {
+  profile: LearnerProfile | null;
+  assessment: OnboardingPersonalization | null;
+};
+
+export interface LearningOnboardingResumeBridge {
+  getContinueLearning(): Promise<ContinueLearningCard | null>;
+  saveReadingResume(value: ContinueLearningCard): Promise<void>;
+  getLearnerProfileView(): Promise<LearnerProfileView>;
+  getPastedSource(input: { projectId: string }): Promise<string | null>;
+  savePastedSource(input: {
+    projectId: string;
+    expectedRevision: number;
+    pastedSourceText: string | null;
+  }): Promise<RevisionWrite<InterviewRecord>>;
 }

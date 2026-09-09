@@ -1,15 +1,37 @@
-import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+} from 'react';
 import type {
   CompanionContext,
+  CompanionOutcome,
   CompanionSession,
   CompanionState,
 } from '../../contracts/companion';
+import {
+  COMPANION_APP_CONTEXT_SOURCE_ID,
+  type CompanionGuidanceReply,
+  type CompanionSelectedTarget,
+} from '../../contracts/companion-guidance';
+import type { AiProvenance } from '../../contracts/learning-api';
+import type { SourceCitation } from '../../contracts/learning-records';
 import type {
   PracticalGuidanceRequest,
   PracticalTarget,
 } from '../../contracts/practical-work';
 import { Icon } from '../FieldAtlas';
+import type { CompanionGuidanceController } from './guidance-adapter';
 import { attachPointerFollower } from './pointer-follower';
+import {
+  createCompanionSelectionPointer,
+  type CompanionPointingSelectionState,
+  type CompanionSelectionRevealer,
+} from './reveal-registry';
 import {
   createCompanionTargetPointer,
   type CompanionPointingState,
@@ -43,9 +65,115 @@ function contextAttribution(context: CompanionContext): string {
   return '';
 }
 
+function workspaceLabel(target: CompanionSelectedTarget): string {
+  if (target.surface === 'practical-work') return TARGET_LABELS[target.target];
+  switch (target.target.kind) {
+    case 'selected-source-highlight':
+      return 'Selected source passage';
+    case 'saved-question':
+      return 'Saved question';
+    case 'selected-graph-record':
+      return 'Selected canvas record';
+  }
+}
+
+function provenanceCopy(provenance: AiProvenance): string {
+  return ` · ${provenance.provider} · ${provenance.model}`;
+}
+
+function provenanceLabel(reply: CompanionGuidanceReply): string {
+  if (reply.outcome !== 'success') return '';
+  return provenanceCopy(reply.provenance);
+}
+
+function citationKindLabel(
+  citation: SourceCitation,
+  provenance: AiProvenance,
+): string {
+  if (citation.sourceId === COMPANION_APP_CONTEXT_SOURCE_ID) {
+    return 'Supplied application context';
+  }
+  const revision = provenance.sourceRevisions.find(
+    (item) =>
+      item.sourceId === citation.sourceId &&
+      item.revisionId === citation.revisionId,
+  );
+  return revision?.provenance.kind === 'discovered'
+    ? 'Acquired scholarly citation'
+    : 'Retained source';
+}
+
+function GuidanceCitations({
+  citations,
+  provenance,
+}: {
+  citations: readonly SourceCitation[];
+  provenance: AiProvenance;
+}): ReactElement {
+  return (
+    <ul className="activity-companion-citations">
+      {citations.map((citation) => (
+        <li
+          key={`${citation.sourceId}:${citation.revisionId}:${citation.start}:${citation.end}`}
+        >
+          <p className="activity-companion-citation-kind">
+            {citationKindLabel(citation, provenance)} · retained revision{' '}
+            {citation.revisionId} (not a web link)
+          </p>
+          <blockquote className="activity-companion-citation-quote">
+            {citation.quote}
+          </blockquote>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function GuidanceAnswerBody({
+  text,
+  nextAction,
+  citations,
+  provenance,
+}: {
+  text: string;
+  nextAction: string;
+  citations: readonly SourceCitation[];
+  provenance: AiProvenance;
+}): ReactElement {
+  return (
+    <>
+      <p className="activity-companion-answer">{text}</p>
+      <GuidanceCitations citations={citations} provenance={provenance} />
+      <p className="activity-companion-next-action">
+        Suggested next step (advice only, never an automatic command):{' '}
+        {nextAction}
+      </p>
+    </>
+  );
+}
+
+function sessionAnswer(outcome: CompanionOutcome): ReactElement | null {
+  if (outcome.status !== 'answered') return null;
+  return (
+    <>
+      <p className="activity-companion-attribution">
+        AI guidance · {TARGET_LABELS[outcome.requestedTarget.target]}
+        {contextAttribution(outcome.context)}
+        {provenanceCopy(outcome.provenance)}
+      </p>
+      <GuidanceAnswerBody
+        text={outcome.text}
+        nextAction={outcome.nextAction}
+        citations={outcome.citations}
+        provenance={outcome.provenance}
+      />
+    </>
+  );
+}
+
 export interface CompanionProps {
-  session: CompanionSession;
-  state: CompanionState;
+  session?: CompanionSession;
+  state?: CompanionState;
   /** Supply only a target whose producer can currently resolve the selected context. */
   selectedRequest: PracticalGuidanceRequest | null;
   unavailableMessage?: string;
@@ -55,6 +183,10 @@ export interface CompanionProps {
   parkPointer?: boolean;
   /** App-owned semantic reveal/geometry adapter; absent means pointing unavailable. */
   targetRevealer?: CompanionTargetRevealer;
+  /** AR53 serializable guidance host for Reader/Canvas and authenticated Practical asks. */
+  guidanceHost?: CompanionGuidanceController;
+  workspaceSelection?: CompanionSelectedTarget | null;
+  selectionRevealer?: CompanionSelectionRevealer;
 }
 
 export function Companion({
@@ -65,23 +197,56 @@ export function Companion({
   pointerSurface,
   parkPointer = false,
   targetRevealer,
+  guidanceHost,
+  workspaceSelection = null,
+  selectionRevealer,
 }: CompanionProps): ReactElement {
+  const subscribeHost = useCallback(
+    (listener: () => void) =>
+      guidanceHost ? guidanceHost.subscribe(listener) : () => undefined,
+    [guidanceHost],
+  );
+  const getHostState = useCallback(
+    () => guidanceHost?.getState() ?? null,
+    [guidanceHost],
+  );
+  const hostState = useSyncExternalStore(
+    subscribeHost,
+    getHostState,
+    getHostState,
+  );
   const [open, setOpen] = useState(false);
   const [pointing, setPointing] = useState<CompanionPointingState>({
     status: 'idle',
   });
+  const [workspacePointing, setWorkspacePointing] =
+    useState<CompanionPointingSelectionState>({ status: 'idle' });
   const targetPointer = useRef<CompanionTargetPointer | null>(null);
+  const workspacePointer = useRef<ReturnType<
+    typeof createCompanionSelectionPointer
+  > | null>(null);
   const pointingPhase = useRef<CompanionPointingState['status']>('idle');
   const command = useRef<HTMLButtonElement>(null);
   const ask = useRef<HTMLButtonElement>(null);
   const decoration = useRef<HTMLDivElement>(null);
   const focusAsk = useRef(false);
   const panelId = useId();
-  const active = state.observation.status !== 'inactive';
-  const busy = state.pending !== null || state.draining === true;
+  const observation = state?.observation ?? {
+    status: 'inactive',
+    reason: null,
+  };
+  const active =
+    observation.status !== 'inactive' || hostState?.activity === 'active';
+  const busy =
+    state?.pending != null ||
+    state?.draining === true ||
+    hostState?.pending != null ||
+    hostState?.draining === true;
   const selectedLabel = selectedRequest
     ? TARGET_LABELS[selectedRequest.target.target]
-    : null;
+    : workspaceSelection
+      ? workspaceLabel(workspaceSelection)
+      : null;
 
   useEffect(() => {
     const element = decoration.current;
@@ -119,7 +284,7 @@ export function Companion({
   }, [pointerSurface, open]);
 
   useEffect(() => {
-    if (!targetRevealer) return;
+    if (!targetRevealer || !session) return;
     const pointer = createCompanionTargetPointer({
       identity: session.getState().activity,
       revealer: targetRevealer,
@@ -150,18 +315,54 @@ export function Companion({
     };
   }, [session, targetRevealer]);
 
+  useEffect(() => {
+    if (!selectionRevealer) return;
+    const pointer = createCompanionSelectionPointer({
+      revealer: selectionRevealer,
+      viewport: () => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+      onStateChange: setWorkspacePointing,
+    });
+    workspacePointer.current = pointer;
+    const clear = (): void => pointer.stop();
+    window.addEventListener('resize', clear);
+    window.addEventListener('blur', clear);
+    return () => {
+      pointer.dispose();
+      workspacePointer.current = null;
+      window.removeEventListener('resize', clear);
+      window.removeEventListener('blur', clear);
+    };
+  }, [selectionRevealer]);
+
   useEffect(() => () => targetPointer.current?.stop(), [selectedRequest]);
+  useEffect(() => () => workspacePointer.current?.stop(), [workspaceSelection]);
 
   function stopGuidance(): void {
     targetPointer.current?.stop();
-    session.stop('user-stop');
+    workspacePointer.current?.stop();
+    session?.stop('user-stop');
+    guidanceHost?.stop();
     command.current?.focus();
   }
 
   // Stop is replay-safe in React StrictMode; the shell disposes its owned session.
-  useEffect(() => () => session.stop('unmount'), [session]);
+  useEffect(() => () => session?.stop('unmount'), [session]);
 
-  const outcome = state.outcome;
+  const outcome = state?.outcome ?? null;
+  const hostReply = hostState?.reply ?? null;
+  const outline =
+    pointing.status === 'pointing'
+      ? pointing.bounds
+      : workspacePointing.status === 'pointing'
+        ? workspacePointing.bounds
+        : null;
+  const showPracticalReveal = Boolean(selectedRequest && targetRevealer);
+  const showWorkspaceReveal = Boolean(workspaceSelection && selectionRevealer);
+  const canAskPractical = Boolean(selectedRequest && session);
+  const canAskWorkspace = Boolean(workspaceSelection && guidanceHost);
   return (
     <section className="activity-companion" aria-label="Activity companion">
       <div
@@ -170,20 +371,20 @@ export function Companion({
         aria-hidden="true"
         style={{
           pointerEvents: 'none',
-          visibility: pointing.status === 'pointing' ? 'hidden' : undefined,
+          visibility: outline ? 'hidden' : undefined,
         }}
       >
         <Icon name="companion" />
       </div>
-      {pointing.status === 'pointing' && (
+      {outline && (
         <div
           className="activity-companion-target"
           aria-hidden="true"
           style={{
-            left: pointing.bounds.x,
-            top: pointing.bounds.y,
-            width: pointing.bounds.width,
-            height: pointing.bounds.height,
+            left: outline.x,
+            top: outline.y,
+            width: outline.width,
+            height: outline.height,
             pointerEvents: 'none',
           }}
         >
@@ -203,8 +404,16 @@ export function Companion({
           <Icon name="companion" /> Companion
         </button>
         {(pointing.status === 'pointing' ||
-          pointing.status === 'revealing') && (
-          <button type="button" onClick={() => targetPointer.current?.stop()}>
+          pointing.status === 'revealing' ||
+          workspacePointing.status === 'pointing' ||
+          workspacePointing.status === 'revealing') && (
+          <button
+            type="button"
+            onClick={() => {
+              targetPointer.current?.stop();
+              workspacePointer.current?.stop();
+            }}
+          >
             Hide target
           </button>
         )}
@@ -217,16 +426,18 @@ export function Companion({
             Stop guidance
           </button>
         )}
-        {state.pending !== null && !active && (
+        {(state?.pending != null || hostState?.pending != null) && !active && (
           <button type="button" onClick={stopGuidance}>
             Cancel answer
           </button>
         )}
       </div>
       <p className="activity-companion-scope" role="status">
-        {state.observation.status === 'inactive'
+        {observation.status === 'inactive' && hostState?.activity !== 'active'
           ? 'Guidance is off.'
-          : `${state.observation.status === 'starting' ? 'Starting' : 'Guiding'}: ${state.activity.activity.title} · ${TARGET_LABELS[state.observation.target.target]}${state.observation.toolSessionId ? ' · App tool controls on navigation; no page reads.' : ' · No tool observation.'}`}
+          : observation.status !== 'inactive'
+            ? `${observation.status === 'starting' ? 'Starting' : 'Guiding'}: ${state?.activity.activity.title ?? ''} · ${TARGET_LABELS[observation.target.target]}${observation.toolSessionId ? ' · App tool controls on navigation; no page reads.' : ' · No tool observation.'}`
+            : `Guiding: ${workspaceSelection ? workspaceLabel(workspaceSelection) : 'selected material'}`}
       </p>
       {open && (
         <div
@@ -235,6 +446,7 @@ export function Companion({
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               targetPointer.current?.stop();
+              workspacePointer.current?.stop();
               event.stopPropagation();
               setOpen(false);
               command.current?.focus();
@@ -248,13 +460,15 @@ export function Companion({
             <button
               type="button"
               disabled={
-                !selectedRequest ||
-                !targetRevealer ||
-                pointing.status === 'revealing'
+                (!showPracticalReveal && !showWorkspaceReveal) ||
+                pointing.status === 'revealing' ||
+                workspacePointing.status === 'revealing'
               }
               onClick={() => {
                 if (selectedRequest)
                   void targetPointer.current?.point(selectedRequest.target);
+                else if (workspaceSelection)
+                  void workspacePointer.current?.point(workspaceSelection);
               }}
             >
               Show selected target
@@ -263,34 +477,69 @@ export function Companion({
             <button
               type="button"
               ref={ask}
-              disabled={!selectedRequest || busy}
+              disabled={(!canAskPractical && !canAskWorkspace) || busy}
               onClick={() => {
-                if (selectedRequest) void session.askOnce(selectedRequest);
+                if (selectedRequest && session)
+                  void session.askOnce(selectedRequest);
+                else if (workspaceSelection && guidanceHost) {
+                  guidanceHost.setSelection(workspaceSelection);
+                  guidanceHost.setUtterance({
+                    kind: 'app-authored-intent',
+                    intent: 'ask-about-selection',
+                  });
+                  void guidanceHost.askOnce('ask-once');
+                }
               }}
             >
               Ask about selected target
             </button>
-            <button
-              type="button"
-              disabled={!selectedRequest || busy || active}
-              onClick={() => {
-                if (selectedRequest)
-                  void session.startActivity(selectedRequest);
-              }}
-            >
-              Guide this activity
-            </button>
+            {workspaceSelection?.surface !== 'practical-work' &&
+              workspaceSelection?.target.kind ===
+                'selected-source-highlight' && (
+                <button
+                  type="button"
+                  disabled={!canAskWorkspace || busy}
+                  onClick={() => {
+                    if (!guidanceHost || !workspaceSelection) return;
+                    guidanceHost.setSelection(workspaceSelection);
+                    guidanceHost.setUtterance({
+                      kind: 'app-authored-intent',
+                      intent: 'explain-this-passage',
+                    });
+                    void guidanceHost.askOnce('ask-once');
+                  }}
+                >
+                  Explain this passage
+                </button>
+              )}
+            {canAskPractical && (
+              <button
+                type="button"
+                disabled={busy || active}
+                onClick={() => {
+                  if (selectedRequest && session)
+                    void session.startActivity(selectedRequest);
+                }}
+              >
+                Guide this activity
+              </button>
+            )}
           </div>
           <p className="activity-companion-pointing-status" role="status">
             {pointing.status === 'pointing'
               ? `Showing ${TARGET_LABELS[pointing.target.target]}.`
-              : pointing.status === 'revealing'
-                ? 'Revealing selected app target…'
-                : 'message' in pointing
-                  ? pointing.message
-                  : !targetRevealer
-                    ? 'Target reveal is unavailable.'
-                    : ''}
+              : workspacePointing.status === 'pointing'
+                ? `Showing ${workspaceLabel(workspacePointing.target)}.`
+                : pointing.status === 'revealing' ||
+                    workspacePointing.status === 'revealing'
+                  ? 'Revealing selected app target…'
+                  : 'message' in pointing
+                    ? pointing.message
+                    : 'message' in workspacePointing
+                      ? workspacePointing.message
+                      : !targetRevealer && !selectionRevealer
+                        ? 'Target reveal is unavailable.'
+                        : ''}
           </p>
           <div
             className="activity-companion-response"
@@ -299,25 +548,37 @@ export function Companion({
           >
             {busy && (
               <p>
-                {state.draining
+                {state?.draining || hostState?.draining
                   ? 'Stopping the previous request…'
-                  : state.pending === 'resolving'
+                  : state?.pending === 'resolving'
                     ? 'Reading the selected context…'
                     : 'Asking for guidance…'}
               </p>
             )}
-            {outcome?.status === 'answered' && (
-              <>
-                <p className="activity-companion-attribution">
-                  AI guidance · {TARGET_LABELS[outcome.requestedTarget.target]}
-                  {contextAttribution(outcome.context)}
-                </p>
-                <p className="activity-companion-answer">{outcome.text}</p>
-              </>
-            )}
+            {outcome?.status === 'answered' && sessionAnswer(outcome)}
             {outcome &&
               outcome.status !== 'answered' &&
               outcome.status !== 'ignored' && <p>{outcome.message}</p>}
+            {hostReply?.outcome === 'success' && !outcome && (
+              <>
+                <p className="activity-companion-attribution">
+                  AI guidance
+                  {workspaceSelection
+                    ? ` · ${workspaceLabel(workspaceSelection)}`
+                    : ''}
+                  {provenanceLabel(hostReply)}
+                </p>
+                <GuidanceAnswerBody
+                  text={hostReply.text}
+                  nextAction={hostReply.nextAction}
+                  citations={hostReply.citations}
+                  provenance={hostReply.provenance}
+                />
+              </>
+            )}
+            {hostReply && hostReply.outcome !== 'success' && !outcome && (
+              <p>{hostReply.message}</p>
+            )}
           </div>
         </div>
       )}

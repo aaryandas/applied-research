@@ -60,9 +60,15 @@ vi.mock('./SceneCanvas', () => ({
 function Harness({
   initial,
   active = true,
+  plannedParameters,
+  onRetainedCapture,
 }: {
   initial: ExplanationSpec;
   active?: boolean;
+  plannedParameters?: ExplanationSpec['parameters'];
+  onRetainedCapture?: ComponentProps<
+    typeof ExplanationExperience
+  >['onRetainedCapture'];
 }): ReactElement {
   const [spec, setSpec] = useState(initial);
   return (
@@ -71,6 +77,8 @@ function Harness({
       active={active}
       onChange={setSpec}
       onCapture={vi.fn()}
+      {...(plannedParameters ? { plannedParameters } : {})}
+      {...(onRetainedCapture ? { onRetainedCapture } : {})}
     />
   );
 }
@@ -317,4 +325,46 @@ it('keeps unfinished drafts across reactivation, blocks capture and resets every
     key: 'ArrowUp',
   });
   expect(screen.getByLabelText('First link length')).toHaveValue('2');
+});
+
+it('resets a retained scene to the planned parameters instead of DEFAULT_ARM', async () => {
+  const spec = createExplanation('two-link-arm');
+  spec.parameters = {
+    firstLength: 2.5,
+    secondLength: 1,
+    shoulderDegrees: 10,
+    elbowDegrees: 20,
+  };
+  const planned = {
+    firstLength: 1.2,
+    secondLength: 0.8,
+    shoulderDegrees: 45,
+    elbowDegrees: -15,
+  };
+  const onRetainedCapture = vi.fn();
+  render(
+    <Harness
+      initial={spec}
+      plannedParameters={planned}
+      onRetainedCapture={onRetainedCapture}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Capture endpoint' }),
+    ).toBeEnabled(),
+  );
+  fireEvent.change(screen.getByLabelText('Shoulder angle (°)'), {
+    target: { value: '90' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  expect(screen.getByLabelText('Shoulder angle (°)')).toHaveValue('45');
+  expect(screen.getByLabelText('First link length')).toHaveValue('1.2');
+  fireEvent.click(screen.getByRole('button', { name: 'Capture endpoint' }));
+  expect(onRetainedCapture).toHaveBeenCalledWith(
+    expect.objectContaining({
+      explanationId: spec.id,
+      parameters: expect.objectContaining({ shoulderDegrees: 45 }),
+    }),
+  );
 });

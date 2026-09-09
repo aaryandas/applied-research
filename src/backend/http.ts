@@ -12,6 +12,24 @@ import { silentDiagnostics } from './diagnostics.js';
 import type { LearningService } from './learning.js';
 import type { SourcedLearningApi } from './learning-api.js';
 import {
+  handleOnboardingRoute,
+  type OnboardingService,
+} from './onboarding/index.js';
+import {
+  handleCompanionGuidanceRoute,
+  matchCompanionGuidanceRoute,
+  type AccountScopedAdmittedSourceLookup,
+} from './companion/index.js';
+import {
+  handleExplanationPlanRoute,
+  type ExplanationPlannerService,
+} from './explanations/index.js';
+import {
+  handleRenderDelivery,
+  matchRenderDeliveryRoute,
+  type RenderDeliveryService,
+} from './render-delivery/index.js';
+import {
   API_ORIGIN,
   ELECTRON_AUTH_CALLBACK_PATH,
   ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
@@ -32,6 +50,10 @@ export interface HttpDependencies {
   readonly learning: LearningService;
   readonly sourcing?: SourcingService;
   readonly sourcedLearning?: SourcedLearningApi;
+  readonly onboarding?: OnboardingService;
+  readonly explanationPlanner?: ExplanationPlannerService;
+  readonly lookupAdmittedSource?: AccountScopedAdmittedSourceLookup;
+  readonly renderDelivery?: RenderDeliveryService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -259,8 +281,56 @@ export function createHttpHandler(
       }
       return;
     }
+    if (matchCompanionGuidanceRoute(url.pathname, request.method ?? '')) {
+      await handleCompanionGuidanceRoute(request, response, {
+        auth: dependencies.auth,
+        learning: dependencies.learning,
+        runEffect: dependencies.runEffect,
+        ...(dependencies.diagnostics
+          ? { diagnostics: dependencies.diagnostics }
+          : {}),
+        ...(dependencies.lookupAdmittedSource
+          ? { lookupAdmittedSource: dependencies.lookupAdmittedSource }
+          : {}),
+      });
+      return;
+    }
+    const renderRoute = matchRenderDeliveryRoute(
+      url.pathname,
+      request.method ?? '',
+    );
+    if (renderRoute) {
+      if (!dependencies.renderDelivery) {
+        writeJson(response, 503, {
+          outcome: 'unavailable',
+          message: 'Remote render host configuration is not present.',
+        });
+        return;
+      }
+      await handleRenderDelivery(renderRoute, request, response, {
+        auth: dependencies.auth,
+        delivery: dependencies.renderDelivery,
+      });
+      return;
+    }
     const disconnect = observeDisconnect(request, response);
     try {
+      const onboardingHandled = await handleOnboardingRoute(
+        url.pathname,
+        request,
+        response,
+        dependencies,
+        disconnect.signal,
+      );
+      if (onboardingHandled) return;
+      const planned = await handleExplanationPlanRoute(
+        url.pathname,
+        request,
+        response,
+        dependencies,
+        disconnect.signal,
+      );
+      if (planned) return;
       const handled = await handleSourceRoute(
         url.pathname,
         request,

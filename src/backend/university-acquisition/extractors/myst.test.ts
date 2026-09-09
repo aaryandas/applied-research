@@ -181,4 +181,51 @@ Ignored directive
       expect.arrayContaining(['unresolved-crossref', 'unknown-directive']),
     );
   });
+
+  it('parses CRLF lines without regex backtracking and keeps locators on LF splits', () => {
+    const source =
+      '# Heading\r\n\r\n```python\r\nprint(1)\r\n```\r\n\r\n| A | B |\r\n| - | - |\r\n| 1 | 2 |\r\n\r\nSee [^1].\r\n\r\n[^1]: Note\r\n';
+    const extracted = extractMystMarkdown(bytesOf(source), {
+      slice: null,
+      includeFootnotes: ['1'],
+    });
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.text).toContain('# Heading');
+    expect(extracted.document.text).toContain('print(1)');
+    expect(extracted.document.text).toContain('| A | B |');
+    expect(extracted.document.text).toContain('[^1]: Note');
+    expect(extracted.document.locators[0]?.sourceStartLine).toBe(1);
+    expect(extracted.document.locators[0]?.sourceStartByte).toBe(0);
+  });
+
+  it('keeps whitespace-only ATX lines in canonical text without rewriting them', () => {
+    const emptyTitle = extractMystMarkdown(
+      bytesOf('#  \n\nVisible paragraph\n'),
+      {
+        slice: null,
+        includeFootnotes: [],
+      },
+    );
+    expect(emptyTitle.outcome).toBe('success');
+    if (emptyTitle.outcome !== 'success') return;
+    expect(emptyTitle.document.text).toContain('#  ');
+    expect(emptyTitle.document.text).toContain('Visible paragraph');
+    expect(emptyTitle.document.sections[0]?.title).toBe('');
+
+    const notHeading = extractMystMarkdown(
+      bytesOf('# \n\nVisible paragraph\n'),
+      {
+        slice: null,
+        includeFootnotes: [],
+      },
+    );
+    expect(notHeading.outcome).toBe('success');
+    if (notHeading.outcome !== 'success') return;
+    expect(notHeading.document.text).toContain('#');
+    expect(notHeading.document.text).toContain('Visible paragraph');
+    expect(
+      notHeading.document.sections.some((section) => section.title === ''),
+    ).toBe(false);
+  });
 });

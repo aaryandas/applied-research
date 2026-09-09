@@ -7,6 +7,7 @@ import {
   MAX_HUMAN_PLAN_MILESTONES,
   isBriefCheckpointIdFormat,
   isPracticalBriefCheckpoint,
+  isPracticalToolId,
 } from '../contracts/practical-brief';
 import type {
   PracticalFilePreviewInput,
@@ -17,28 +18,12 @@ import type {
   RecordPracticalWorkChoiceInput,
   SavePracticalHumanPlanInput,
 } from '../contracts/practical-records';
-import { isPracticalToolId } from '../contracts/practical-brief';
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-function keys(
-  value: Record<string, unknown>,
-  required: string[],
-  optional: string[] = [],
-): boolean {
-  return (
-    required.every((key) => Object.hasOwn(value, key)) &&
-    Object.keys(value).every(
-      (key) => required.includes(key) || optional.includes(key),
-    )
-  );
-}
-function uuid(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value)
-  );
-}
+import {
+  hasPracticalKeys as keys,
+  isPracticalRecord as isObject,
+  isPracticalUuid as uuid,
+} from '../contracts/practical-validation-primitives';
+
 function field(value: unknown): value is string {
   return (
     typeof value === 'string' &&

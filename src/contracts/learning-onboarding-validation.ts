@@ -23,6 +23,7 @@ import {
   LESSON_DEPTHS,
   LESSON_ROLES,
   ONBOARDING_CONTEXT_TRUST,
+  COURSE_ADJUSTMENT_PATCH_FIELDS,
 } from './learning-onboarding-api.js';
 import type {
   CompactSyllabus,
@@ -30,6 +31,12 @@ import type {
   CoursePracticeBrief,
   CoursePracticeToolChoice,
   CourseProposalSuccess,
+  AcceptedCourseAdjustmentSuccess,
+  AdjustAcceptedCourseOperation,
+  CourseAdjustmentPatch,
+  CourseAdjustmentPatchField,
+  CourseAdjustmentProgress,
+  CourseAdjustmentReviewedBase,
   GenerateSelectedLessonOperation,
   GeneratedCoursePracticeBrief,
   HumanDiagnosticAnswer,
@@ -41,6 +48,7 @@ import type {
   LearningOnboardingScope,
   LessonDepth,
   LessonRole,
+  OnboardingCancelled,
   OnboardingCoverageGap,
   OnboardingGeneratedLesson,
   OnboardingPersonalization,
@@ -48,9 +56,13 @@ import type {
   OnboardingSyllabus,
   OnboardingSyllabusLesson,
   OnboardingSyllabusTopic,
+  OnboardingUnavailable,
   OpaqueRevisionRef,
+  PracticalAttemptLocator,
+  PracticalAttemptWorkContext,
   ProposalSource,
   ProposeCourseOperation,
+  ReviewedCourseProjection,
   ReviseCourseOperation,
   SeedRevisionLocator,
   SelectedLessonSuccess,
@@ -58,26 +70,32 @@ import type {
   UntrustedHumanLearnerContext,
   UntrustedModelSyllabusContext,
 } from './learning-onboarding-api.js';
-import type {
-  AcceptCourseInput,
-  AcceptedStepMapping,
-  CourseProposal,
-  EnsureLessonInput,
-  InterviewAnswer,
-  InterviewDraft,
-  InterviewPrompt,
-  InterviewPromptInput,
-  InterviewRecord,
-  LearnerProfile,
-  LearnerProfileDraft,
-  LearningOnboardingSnapshot,
-  OnboardingRequest,
-  ProposeCourseInput,
-  RevisionWrite,
-  ReviseCourseInput,
-  SaveLearnerProfileInput,
-  SaveLearningInterviewInput,
+import {
+  ADJUSTMENT_NOTES_PROMPT_ID,
+  type AcceptCourseAdjustmentInput,
+  type AcceptCourseInput,
+  type AcceptedStepMapping,
+  type AdjustAcceptedCourseInput,
+  type CourseAdjustmentProposal,
+  type CourseProposal,
+  type EnsureLessonInput,
+  type InterviewAnswer,
+  type InterviewDraft,
+  type InterviewPrompt,
+  type InterviewPromptInput,
+  type InterviewRecord,
+  type LearnerProfile,
+  type LearnerProfileDraft,
+  type LearningOnboardingSnapshot,
+  type OnboardingRequest,
+  type ProposeCourseInput,
+  type RevisionWrite,
+  type ReviseCourseInput,
+  type SaveLearnerProfileInput,
+  type SaveLearningInterviewInput,
 } from './learning-onboarding.js';
+import { isPracticalActivity } from './practical-work.js';
+import { isRemoteText } from './source-text.js';
 import { createSourceContractValidation } from './source-contract-validation.js';
 import {
   SOURCE_FORMATS,
@@ -106,6 +124,52 @@ export class LearningOnboardingValidationError extends Error {
     super(input.message);
     this.name = 'LearningOnboardingValidationError';
   }
+}
+
+function invalid(message: string): never {
+  throw new LearningOnboardingValidationError({ message });
+}
+
+function isPracticeRole(value: LessonRole): boolean {
+  return value === 'practice' || value === 'capstone';
+}
+
+function samePracticeBrief(
+  expected: CoursePracticeBrief,
+  actual: CoursePracticeBrief,
+): boolean {
+  if (
+    expected.kind !== actual.kind ||
+    expected.author !== actual.author ||
+    expected.masteryEstablished !== actual.masteryEstablished ||
+    expected.intendedOutcome !== actual.intendedOutcome ||
+    expected.setup !== actual.setup ||
+    expected.instructions !== actual.instructions ||
+    expected.expectedArtifact !== actual.expectedArtifact ||
+    expected.reflectionPrompt !== actual.reflectionPrompt
+  ) {
+    return false;
+  }
+  if (
+    expected.sourceIds.join('\0') !== actual.sourceIds.join('\0') ||
+    expected.observableCheckpoints.join('\0') !==
+      actual.observableCheckpoints.join('\0')
+  ) {
+    return false;
+  }
+  if (expected.tool.kind !== actual.tool.kind) return false;
+  if (
+    expected.tool.kind === 'app-hosted-catalog' &&
+    actual.tool.kind === 'app-hosted-catalog'
+  ) {
+    return expected.tool.toolId === actual.tool.toolId;
+  }
+  return (
+    expected.tool.kind === 'learner-external' &&
+    actual.tool.kind === 'learner-external' &&
+    expected.tool.toolName === actual.tool.toolName &&
+    expected.tool.intendedUse === actual.tool.intendedUse
+  );
 }
 
 export type BoundedJsonWireResult =
@@ -169,6 +233,21 @@ export interface LearningOnboardingValidation {
   parseReviseCourseInput(value: unknown): ReviseCourseInput;
   parseAcceptCourseInput(value: unknown): AcceptCourseInput;
   parseEnsureLessonInput(value: unknown): EnsureLessonInput;
+  parseAdjustAcceptedCourseInput(value: unknown): AdjustAcceptedCourseInput;
+  parseAcceptCourseAdjustmentInput(value: unknown): AcceptCourseAdjustmentInput;
+  parseCourseAdjustmentProposal(value: unknown): CourseAdjustmentProposal;
+  reviewedBaseDigest(input: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    focus: string | null;
+    depth: LessonDepth | null;
+    pending: readonly {
+      remoteStepId: string;
+      field: 'objective' | 'activity' | 'practice';
+      value: string;
+      practiceDigest: string | null;
+    }[];
+  }): string;
   parseOnboardingRequest(value: unknown): OnboardingRequest;
   parseCourseProposal(value: unknown): CourseProposal;
   parseAcceptedStepMapping(value: unknown): AcceptedStepMapping;
@@ -198,9 +277,6 @@ export interface LearningOnboardingValidation {
 export function createLearningOnboardingValidation(
   sha256Text: (value: string) => string,
 ): LearningOnboardingValidation {
-  function invalid(message: string): never {
-    throw new LearningOnboardingValidationError({ message });
-  }
   const validation = createValidationPrimitives({
     invalid,
     unsupportedFieldMessage: 'The value contains an unsupported field.',
@@ -320,10 +396,6 @@ export function createLearningOnboardingValidation(
     return value;
   }
 
-  function isPracticeRole(value: LessonRole): boolean {
-    return value === 'practice' || value === 'capstone';
-  }
-
   function assertListedTopology(
     ids: readonly string[],
     prerequisitesOf: (id: string) => readonly string[],
@@ -360,6 +432,39 @@ export function createLearningOnboardingValidation(
           brief.reflectionPrompt,
           brief.sourceIds.join('\n'),
         ].join('\0'),
+      ),
+    );
+  }
+
+  function reviewedBaseDigest(input: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    focus: string | null;
+    depth: LessonDepth | null;
+    pending: readonly {
+      remoteStepId: string;
+      field: 'objective' | 'activity' | 'practice';
+      value: string;
+      practiceDigest: string | null;
+    }[];
+  }): string {
+    const pending = [...input.pending]
+      .map(
+        (item) =>
+          `${item.remoteStepId}\0${item.field}\0${item.value}\0${item.practiceDigest ?? ''}`,
+      )
+      .sort();
+    return validateSha256(
+      sha256Text(
+        [
+          String(input.pathRevision),
+          input.acceptedAdjustment
+            ? `${input.acceptedAdjustment.id}:${input.acceptedAdjustment.revision}`
+            : '',
+          input.focus ?? '',
+          input.depth ?? '',
+          ...pending,
+        ].join('\n'),
       ),
     );
   }
@@ -471,44 +576,6 @@ export function createLearningOnboardingValidation(
       ),
       sourceIds,
     };
-  }
-
-  function samePracticeBrief(
-    expected: CoursePracticeBrief,
-    actual: CoursePracticeBrief,
-  ): boolean {
-    if (
-      expected.kind !== actual.kind ||
-      expected.author !== actual.author ||
-      expected.masteryEstablished !== actual.masteryEstablished ||
-      expected.intendedOutcome !== actual.intendedOutcome ||
-      expected.setup !== actual.setup ||
-      expected.instructions !== actual.instructions ||
-      expected.expectedArtifact !== actual.expectedArtifact ||
-      expected.reflectionPrompt !== actual.reflectionPrompt
-    ) {
-      return false;
-    }
-    if (
-      expected.sourceIds.join('\0') !== actual.sourceIds.join('\0') ||
-      expected.observableCheckpoints.join('\0') !==
-        actual.observableCheckpoints.join('\0')
-    ) {
-      return false;
-    }
-    if (expected.tool.kind !== actual.tool.kind) return false;
-    if (
-      expected.tool.kind === 'app-hosted-catalog' &&
-      actual.tool.kind === 'app-hosted-catalog'
-    ) {
-      return expected.tool.toolId === actual.tool.toolId;
-    }
-    return (
-      expected.tool.kind === 'learner-external' &&
-      actual.tool.kind === 'learner-external' &&
-      expected.tool.toolName === actual.tool.toolName &&
-      expected.tool.intendedUse === actual.tool.intendedUse
-    );
   }
 
   function capstoneDesignation(
@@ -683,7 +750,7 @@ export function createLearningOnboardingValidation(
       depth: depth(input.depth),
       profileRevision: boundedInteger(
         input.profileRevision,
-        1,
+        0,
         LIMITS.revision,
         'Profile revision',
       ),
@@ -1014,6 +1081,94 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function parseAdjustAcceptedCourseInput(
+    value: unknown,
+  ): AdjustAcceptedCourseInput {
+    const input = remoteRequest(value, [
+      'acceptedProposal',
+      'notes',
+      'progress',
+    ]);
+    if (input.proposal !== undefined || input.changes !== undefined) {
+      invalid('Accepted-course adjustment fields are invalid.');
+    }
+    if (input.target !== undefined)
+      invalid('Accepted-course adjustment fields are invalid.');
+    const progress = strictRecord(input.progress, ['practicalAttempts']);
+    if (
+      !isDenseArray(progress.practicalAttempts) ||
+      progress.practicalAttempts.length > LIMITS.practicalAttemptLocators
+    ) {
+      invalid('Practical attempt locators are invalid.');
+    }
+    const practicalAttempts = progress.practicalAttempts.map((item) => {
+      const locator = strictRecord(item, [
+        'attemptId',
+        'recordedRevision',
+        'remoteStepId',
+        'activity',
+      ]);
+      if (!isPracticalActivity(locator.activity)) {
+        invalid('Practical attempt activity identity is invalid.');
+      }
+      if (
+        locator.activity.projectId !== identifier(input.projectId, 'Project id')
+      ) {
+        invalid('Practical attempt activity must belong to this project.');
+      }
+      return {
+        attemptId: identifier(locator.attemptId, 'Attempt id'),
+        recordedRevision: boundedInteger(
+          locator.recordedRevision,
+          1,
+          LIMITS.revision,
+          'Attempt revision',
+        ),
+        remoteStepId: identifier(locator.remoteStepId, 'Remote step id'),
+        activity: locator.activity,
+      };
+    });
+    if (
+      new Set(practicalAttempts.map((item) => item.attemptId)).size !==
+      practicalAttempts.length
+    ) {
+      invalid('Practical attempt locators must be distinct.');
+    }
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      acceptedProposal: opaqueRef(input.acceptedProposal),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      notes:
+        input.notes === ''
+          ? ''
+          : boundedText(
+              input.notes,
+              LIMITS.diagnosticAnswerCharacters,
+              'Adjustment notes',
+            ),
+      progress: { practicalAttempts },
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function parseAcceptCourseAdjustmentInput(
+    value: unknown,
+  ): AcceptCourseAdjustmentInput {
+    const input = strictRecord(value, ['projectId', 'requestId', 'adjustment']);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      adjustment: opaqueRef(input.adjustment),
+    };
+  }
+
   function coverage(value: unknown): OnboardingSourceCoverage {
     const input = strictRecord(value, [
       'readyLessons',
@@ -1213,10 +1368,7 @@ export function createLearningOnboardingValidation(
       'Source id',
     );
     const practice = practical ? practiceBrief(input.practice) : null;
-    if (
-      practice !== null &&
-      practice.sourceIds.some((sourceId) => !sourceIds.includes(sourceId))
-    ) {
+    if (practice?.sourceIds.some((sourceId) => !sourceIds.includes(sourceId))) {
       invalid('Practice brief sources must belong to the lesson.');
     }
     return {
@@ -1464,12 +1616,10 @@ export function createLearningOnboardingValidation(
     const firstStep = topics[0]?.lessons[0];
     if (input.acceptance === 'ready') {
       if (
-        first === null ||
-        firstStep === undefined ||
-        first.stepId !== firstStep.stepId ||
-        first.title !== firstStep.title ||
-        firstStep.sourceState !== 'ready' ||
-        firstStep.prerequisiteStepIds.length > 0 ||
+        first?.stepId !== firstStep?.stepId ||
+        first?.title !== firstStep?.title ||
+        firstStep?.sourceState !== 'ready' ||
+        (firstStep?.prerequisiteStepIds.length ?? 0) > 0 ||
         (topics[0]?.prerequisiteTopicIds.length ?? 0) > 0
       ) {
         invalid(
@@ -1501,6 +1651,155 @@ export function createLearningOnboardingValidation(
       sourceCoverage,
       personalization: personalization(input.personalization),
       acceptance: input.acceptance,
+    };
+  }
+
+  function parseCourseAdjustmentProposal(
+    value: unknown,
+  ): CourseAdjustmentProposal {
+    const input = strictRecord(value, [
+      'id',
+      'revision',
+      'projectId',
+      'acceptedProposal',
+      'title',
+      'summary',
+      'focus',
+      'depth',
+      'patches',
+      'sources',
+      'gaps',
+      'acceptance',
+      'reviewedBase',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (
+      input.acceptance !== 'ready' &&
+      input.acceptance !== 'coverage-pending'
+    ) {
+      invalid('Adjustment acceptance state is invalid.');
+    }
+    if (
+      !isDenseArray(input.patches) ||
+      input.patches.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Course adjustment patches are invalid.');
+    }
+    const patches = input.patches.map((item) => {
+      const patch = strictRecord(item, [
+        'remoteStepId',
+        'lessonTitle',
+        'sourceState',
+        'field',
+        'before',
+        'after',
+        'practiceBefore',
+        'practiceAfter',
+      ]);
+      if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, patch.field)) {
+        invalid('Course adjustment patch field is invalid.');
+      }
+      if (patch.sourceState === 'ready') {
+        invalid('Ready lessons cannot appear in an adjustment overlay.');
+      }
+      const field: CourseAdjustmentPatchField = patch.field;
+      const practiceBefore =
+        field === 'practice'
+          ? patch.practiceBefore === null
+            ? null
+            : practiceBrief(patch.practiceBefore)
+          : null;
+      const practiceAfter =
+        field === 'practice' ? practiceBrief(patch.practiceAfter) : null;
+      if (field !== 'practice' && patch.practiceBefore !== null) {
+        invalid('Non-practice adjustment patches cannot include a brief.');
+      }
+      if (field !== 'practice' && patch.practiceAfter !== null) {
+        invalid('Non-practice adjustment patches cannot include a brief.');
+      }
+      return {
+        remoteStepId: identifier(patch.remoteStepId, 'Remote step id'),
+        lessonTitle: boundedText(
+          patch.lessonTitle,
+          LIMITS.titleCharacters,
+          'Lesson title',
+        ),
+        sourceState: sourceState(patch.sourceState),
+        field,
+        before: boundedText(
+          patch.before,
+          LIMITS.adjustmentBeforeAfterCharacters,
+          'Adjustment before',
+        ),
+        after: boundedText(
+          patch.after,
+          LIMITS.adjustmentBeforeAfterCharacters,
+          'Adjustment after',
+        ),
+        practiceBefore,
+        practiceAfter,
+      };
+    });
+    if (
+      new Set(patches.map((item) => `${item.remoteStepId}:${item.field}`))
+        .size !== patches.length
+    ) {
+      invalid('Course adjustment patches must be distinct.');
+    }
+    const sources = (() => {
+      if (
+        !isDenseArray(input.sources) ||
+        input.sources.length > LIMITS.proposalSources
+      ) {
+        invalid('Adjustment sources are invalid.');
+      }
+      return input.sources.map(proposalSource);
+    })();
+    return {
+      id: identifier(input.id, 'Adjustment id'),
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Adjustment revision',
+      ),
+      projectId: identifier(input.projectId, 'Project id'),
+      acceptedProposal: opaqueRef(input.acceptedProposal),
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
+      summary: personalization(input.summary),
+      focus:
+        input.focus === null
+          ? null
+          : (() => {
+              const change = strictRecord(input.focus, ['before', 'after']);
+              return {
+                before: boundedText(
+                  change.before,
+                  LIMITS.focusCharacters,
+                  'Focus before',
+                ),
+                after: boundedText(
+                  change.after,
+                  LIMITS.focusCharacters,
+                  'Focus after',
+                ),
+              };
+            })(),
+      depth:
+        input.depth === null
+          ? null
+          : (() => {
+              const change = strictRecord(input.depth, ['before', 'after']);
+              return {
+                before: depth(change.before),
+                after: depth(change.after),
+              };
+            })(),
+      patches,
+      sources,
+      gaps: gaps(input.gaps),
+      acceptance: input.acceptance,
+      reviewedBase: reviewedBaseRef(input.reviewedBase),
     };
   }
 
@@ -1601,7 +1900,13 @@ export function createLearningOnboardingValidation(
   function parseLearningOnboardingSnapshot(
     value: unknown,
   ): LearningOnboardingSnapshot {
-    const input = strictRecord(value, ['interview', 'proposal', 'accepted']);
+    const input = strictRecord(value, [
+      'interview',
+      'proposal',
+      'accepted',
+      'adjustment',
+      'acceptedAdjustment',
+    ]);
     const accepted =
       input.accepted === null
         ? null
@@ -1646,6 +1951,14 @@ export function createLearningOnboardingValidation(
       proposal:
         input.proposal === null ? null : parseCourseProposal(input.proposal),
       accepted,
+      adjustment:
+        input.adjustment === null
+          ? null
+          : parseCourseAdjustmentProposal(input.adjustment),
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
     };
   }
 
@@ -1693,9 +2006,13 @@ export function createLearningOnboardingValidation(
       if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
         invalid('Diagnostic answers must be untrusted human context.');
       }
+      const promptId = identifier(input.promptId, 'Prompt id');
+      if (promptId === ADJUSTMENT_NOTES_PROMPT_ID) {
+        invalid('Adjustment notes cannot be stored as diagnostic answers.');
+      }
       return {
         trust: input.trust,
-        promptId: identifier(input.promptId, 'Prompt id'),
+        promptId,
         answer: boundedText(
           input.answer,
           LIMITS.diagnosticAnswerCharacters,
@@ -1719,6 +2036,19 @@ export function createLearningOnboardingValidation(
     });
   }
 
+  function pastedSeedText(value: unknown): string | null {
+    if (value === null) return null;
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      value.length > LIMITS.pastedSeedCharacters ||
+      !isRemoteText(value)
+    ) {
+      invalid('Pasted seed text is invalid.');
+    }
+    return value;
+  }
+
   function humanContext(value: unknown): UntrustedHumanLearnerContext {
     const input = strictRecord(value, [
       'trust',
@@ -1731,6 +2061,7 @@ export function createLearningOnboardingValidation(
       'answers',
       'seedRevisionLocators',
       'unacquiredSeedUrls',
+      'pastedSeedText',
     ]);
     rejectForbiddenAuthority(input);
     if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
@@ -1757,6 +2088,7 @@ export function createLearningOnboardingValidation(
       answers: humanAnswers(input.answers),
       seedRevisionLocators: seedLocators(input.seedRevisionLocators),
       unacquiredSeedUrls: seedDrafts(input.unacquiredSeedUrls),
+      pastedSeedText: pastedSeedText(input.pastedSeedText),
     };
   }
 
@@ -1837,12 +2169,71 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function reviewedCourseProjection(value: unknown): ReviewedCourseProjection {
+    const input = strictRecord(value, [
+      'acceptedAdjustment',
+      'pathRevision',
+      'focus',
+      'depth',
+      'pendingFieldChanges',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (
+      !isDenseArray(input.pendingFieldChanges) ||
+      input.pendingFieldChanges.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Reviewed pending field changes are invalid.');
+    }
+    const pendingFieldChanges = input.pendingFieldChanges.map((item) => {
+      const change = strictRecord(item, ['remoteStepId', 'field', 'value']);
+      if (change.field !== 'objective' && change.field !== 'activity') {
+        invalid('Reviewed pending field is invalid.');
+      }
+      const field: 'objective' | 'activity' = change.field;
+      const fieldLimit =
+        field === 'objective'
+          ? LIMITS.objectiveCharacters
+          : LIMITS.activityCharacters;
+      return {
+        remoteStepId: identifier(change.remoteStepId, 'Remote step id'),
+        field,
+        value: boundedText(change.value, fieldLimit, 'Reviewed pending field'),
+      };
+    });
+    if (
+      new Set(
+        pendingFieldChanges.map((item) => `${item.remoteStepId}:${item.field}`),
+      ).size !== pendingFieldChanges.length
+    ) {
+      invalid('Reviewed pending field changes must be distinct.');
+    }
+    return {
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
+      pathRevision: boundedInteger(
+        input.pathRevision,
+        1,
+        LIMITS.revision,
+        'Path revision',
+      ),
+      focus:
+        input.focus === null
+          ? null
+          : boundedText(input.focus, LIMITS.focusCharacters, 'Reviewed focus'),
+      depth: input.depth === null ? null : depth(input.depth),
+      pendingFieldChanges,
+    };
+  }
+
   function modelContext(value: unknown): UntrustedModelSyllabusContext {
     const input = strictRecord(value, [
       'trust',
       'priorProposal',
       'syllabus',
       'personalization',
+      'reviewedCourse',
     ]);
     rejectForbiddenAuthority(input);
     if (input.trust !== ONBOARDING_CONTEXT_TRUST.model) {
@@ -1856,49 +2247,194 @@ export function createLearningOnboardingValidation(
         input.personalization === null
           ? null
           : personalization(input.personalization),
+      reviewedCourse:
+        input.reviewedCourse === null
+          ? null
+          : reviewedCourseProjection(input.reviewedCourse),
     };
   }
 
-  function operation(value: unknown): LearningOnboardingOperation {
-    const input = strictRecord(value, [
-      'kind',
-      'human',
-      'model',
-      'changes',
-      'target',
-    ]);
-    if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
-      invalid('Onboarding operation is not supported.');
+  function adjustmentProgress(
+    value: unknown,
+    lessons: readonly CompactSyllabus['topics'][number]['lessons'][number][],
+  ): CourseAdjustmentProgress {
+    const input = strictRecord(value, ['trust', 'practicalAttempts']);
+    rejectForbiddenAuthority(input);
+    if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
+      invalid('Adjustment progress must be marked untrusted human context.');
     }
-    const human = humanContext(input.human);
-    if (input.kind === 'interview-prompt' || input.kind === 'propose-course') {
+    if (
+      !isDenseArray(input.practicalAttempts) ||
+      input.practicalAttempts.length > LIMITS.practicalAttemptLocators
+    ) {
+      invalid('Practical attempt locators are invalid.');
+    }
+    const stepIds = new Set(lessons.map((lesson) => lesson.stepId));
+    const practicalAttempts = input.practicalAttempts.map((item) => {
+      const locator = strictRecord(item, [
+        'trust',
+        'kind',
+        'attemptId',
+        'recordedRevision',
+        'remoteStepId',
+        'work',
+      ]);
+      rejectForbiddenAuthority(locator);
       if (
-        input.model !== undefined ||
-        input.changes !== undefined ||
-        input.target !== undefined
+        locator.trust !== ONBOARDING_CONTEXT_TRUST.human ||
+        locator.kind !== 'practical-attempt-locator'
       ) {
-        invalid('Onboarding operation fields are invalid.');
+        invalid('Practical attempt locator attribution is invalid.');
       }
-      return { kind: input.kind, human } as
-        InterviewPromptOperation | ProposeCourseOperation;
+      const remoteStepId = identifier(locator.remoteStepId, 'Remote step id');
+      if (!stepIds.has(remoteStepId)) {
+        invalid('Practical attempt locator is not in the retained syllabus.');
+      }
+      const parsed: PracticalAttemptLocator = {
+        trust: locator.trust,
+        kind: locator.kind,
+        attemptId: identifier(locator.attemptId, 'Attempt id'),
+        recordedRevision: boundedInteger(
+          locator.recordedRevision,
+          1,
+          LIMITS.revision,
+          'Attempt revision',
+        ),
+        remoteStepId,
+        work: practicalAttemptWork(locator.work),
+      };
+      return parsed;
+    });
+    if (
+      new Set(practicalAttempts.map((item) => item.attemptId)).size !==
+      practicalAttempts.length
+    ) {
+      invalid('Practical attempt locators must be distinct.');
     }
-    if (input.kind === 'revise-course') {
-      if (input.target !== undefined)
-        invalid('Revise-course fields are invalid.');
-      const changes = strictRecord(input.changes, ['focus', 'depth']);
-      return {
-        kind: input.kind,
-        human,
-        model: modelContext(input.model),
-        changes: {
-          focus: boundedText(
-            changes.focus,
-            LIMITS.focusCharacters,
-            'Course focus',
-          ),
-          depth: depth(changes.depth),
-        },
-      } satisfies ReviseCourseOperation;
+    return { trust: input.trust, practicalAttempts };
+  }
+
+  function practicalAttemptWork(value: unknown): PracticalAttemptWorkContext {
+    const input = strictRecord(value, [
+      'activityOrigin',
+      'reflection',
+      'reportedResult',
+      'recordedAt',
+      'masteryEstablished',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.masteryEstablished !== false) {
+      invalid('Practical work cannot establish mastery.');
+    }
+    const origin = strictRecord(input.activityOrigin, [
+      'pathId',
+      'pathRevision',
+      'topicId',
+      'lessonId',
+    ]);
+    const reflection = strictRecord(input.reflection, ['authorKind', 'text']);
+    if (reflection.authorKind !== 'human') {
+      invalid('Practical reflection must remain human-authored.');
+    }
+    const reported = strictRecord(input.reportedResult, ['kind', 'text']);
+    if (reported.kind !== 'user-reported-text') {
+      invalid('Practical reported result must be learner-authored text.');
+    }
+    return {
+      activityOrigin: {
+        pathId: identifier(origin.pathId, 'Path id'),
+        pathRevision: boundedInteger(
+          origin.pathRevision,
+          1,
+          LIMITS.revision,
+          'Path revision',
+        ),
+        topicId: identifier(origin.topicId, 'Topic id'),
+        lessonId: identifier(origin.lessonId, 'Lesson id'),
+      },
+      reflection: {
+        authorKind: 'human',
+        text: boundedText(
+          reflection.text,
+          LIMITS.diagnosticAnswerCharacters,
+          'Practical reflection',
+        ),
+      },
+      reportedResult: {
+        kind: 'user-reported-text',
+        text: boundedText(
+          reported.text,
+          LIMITS.diagnosticAnswerCharacters,
+          'Practical reported result',
+        ),
+      },
+      recordedAt: isoTimestamp(input.recordedAt, 'Recorded at'),
+      masteryEstablished: false,
+    };
+  }
+
+  function interviewOrProposeOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): InterviewPromptOperation | ProposeCourseOperation {
+    if (
+      input.model !== undefined ||
+      input.changes !== undefined ||
+      input.target !== undefined ||
+      input.progress !== undefined ||
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
+    ) {
+      invalid('Onboarding operation fields are invalid.');
+    }
+    return { kind: input.kind, human } as
+      InterviewPromptOperation | ProposeCourseOperation;
+  }
+
+  function reviseCourseOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): ReviseCourseOperation {
+    if (
+      input.target !== undefined ||
+      input.progress !== undefined ||
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
+    )
+      invalid('Revise-course fields are invalid.');
+    const changes = strictRecord(input.changes, ['focus', 'depth']);
+    const revisedModel = modelContext(input.model);
+    if (revisedModel.reviewedCourse !== null) {
+      invalid('Revise-course cannot carry an accepted-course overlay.');
+    }
+    return {
+      kind: 'revise-course',
+      human,
+      model: revisedModel,
+      changes: {
+        focus: boundedText(
+          changes.focus,
+          LIMITS.focusCharacters,
+          'Course focus',
+        ),
+        depth: depth(changes.depth),
+      },
+    };
+  }
+
+  function generateSelectedLessonOperation(
+    input: Record<string, unknown>,
+    human: UntrustedHumanLearnerContext,
+  ): GenerateSelectedLessonOperation {
+    if (
+      input.progress !== undefined ||
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
+    ) {
+      invalid('Selected-lesson fields are invalid.');
+    }
+    if (input.notes !== undefined) {
+      invalid('Selected-lesson fields are invalid.');
     }
     const target = strictRecord(input.target, [
       'remoteStepId',
@@ -1948,7 +2484,9 @@ export function createLearningOnboardingValidation(
         );
       }
     }
-    const selected: GenerateSelectedLessonOperation = {
+    if (input.changes !== undefined)
+      invalid('Selected-lesson fields are invalid.');
+    return {
       kind: 'generate-selected-lesson',
       human,
       model,
@@ -1958,9 +2496,71 @@ export function createLearningOnboardingValidation(
         practice: targetPractice,
       },
     };
-    if (input.changes !== undefined)
-      invalid('Selected-lesson fields are invalid.');
-    return selected;
+  }
+
+  function operation(value: unknown): LearningOnboardingOperation {
+    const input = strictRecord(value, [
+      'kind',
+      'human',
+      'model',
+      'changes',
+      'target',
+      'progress',
+      'acceptedProposal',
+      'notes',
+    ]);
+    if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
+      invalid('Onboarding operation is not supported.');
+    }
+    const human = humanContext(input.human);
+    if (input.kind === 'interview-prompt' || input.kind === 'propose-course') {
+      return interviewOrProposeOperation(input, human);
+    }
+    if (input.kind === 'revise-course') {
+      return reviseCourseOperation(input, human);
+    }
+    if (input.kind === 'adjust-accepted-course') {
+      if (input.changes !== undefined || input.target !== undefined) {
+        invalid('Accepted-course adjustment fields are invalid.');
+      }
+      const model = modelContext(input.model);
+      if (model.reviewedCourse === null) {
+        invalid('Accepted-course adjustment requires reviewed course context.');
+      }
+      const acceptedProposal = opaqueRef(input.acceptedProposal);
+      if (
+        acceptedProposal.id !== model.priorProposal.id ||
+        acceptedProposal.revision !== model.priorProposal.revision
+      ) {
+        invalid(
+          'Adjustment proposal identity does not match the retained syllabus.',
+        );
+      }
+      const notes =
+        input.notes === null
+          ? null
+          : boundedText(
+              input.notes,
+              LIMITS.diagnosticAnswerCharacters,
+              'Adjustment notes',
+            );
+      const adjusted: AdjustAcceptedCourseOperation = {
+        kind: 'adjust-accepted-course',
+        human,
+        notes,
+        model,
+        progress: adjustmentProgress(
+          input.progress,
+          model.syllabus.topics.flatMap((topic) => topic.lessons),
+        ),
+        acceptedProposal,
+      };
+      return adjusted;
+    }
+    if (input.kind !== 'generate-selected-lesson') {
+      invalid('Onboarding operation is not supported.');
+    }
+    return generateSelectedLessonOperation(input, human);
   }
 
   function parseLearningOnboardingRequest(
@@ -2120,7 +2720,7 @@ export function createLearningOnboardingValidation(
     const original = originals.find(
       (item) => item.sourceId === sourceId && item.revisionId === revisionId,
     );
-    if (!original || original.canonicalText.slice(start, end) !== quote) {
+    if (original?.canonicalText.slice(start, end) !== quote) {
       invalid('Citation does not match backend-owned source evidence.');
     }
     return { sourceId, revisionId, start, end, quote };
@@ -2275,10 +2875,10 @@ export function createLearningOnboardingValidation(
         item.revisionId === locator.revisionId,
     );
     if (
-      original === undefined ||
-      original.canonicalText.slice(start, end) !== quote ||
-      original.sha256 !== sourceVersion.sha256 ||
-      original.canonicalizationVersion !== sourceVersion.canonicalizationVersion
+      original?.canonicalText.slice(start, end) !== quote ||
+      original?.sha256 !== sourceVersion.sha256 ||
+      original?.canonicalizationVersion !==
+        sourceVersion.canonicalizationVersion
     ) {
       invalid('Evidence quote does not match backend-owned source text.');
     }
@@ -2504,6 +3104,7 @@ export function createLearningOnboardingValidation(
       'personalization',
       'provenance',
       'quota',
+      'adjustment',
       'message',
       'retryable',
       'accounting',
@@ -2534,6 +3135,7 @@ export function createLearningOnboardingValidation(
         'sourceCoverage',
         'personalization',
         'provenance',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2563,6 +3165,7 @@ export function createLearningOnboardingValidation(
         'prompt',
         'assessment',
         'lesson',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2667,6 +3270,7 @@ export function createLearningOnboardingValidation(
         'firstLesson',
         'sourceCoverage',
         'personalization',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2707,6 +3311,402 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function optionalResponseRequestId(value: unknown): string | null {
+    return value === null ? null : identifier(value, 'Request id');
+  }
+
+  function publicOutcomeFailure<
+    T extends 'invalid-request' | 'unauthenticated' | 'unsupported',
+    M extends string,
+  >(
+    outcome: T,
+    input: Record<string, unknown>,
+    expectedMessage: M,
+  ): {
+    outcome: T;
+    requestId: string | null;
+    message: M;
+  } {
+    return {
+      outcome,
+      requestId: optionalResponseRequestId(input.requestId),
+      message: publicMessage(input.message, expectedMessage),
+    };
+  }
+
+  function cancelledFailure(
+    input: Record<string, unknown>,
+  ): OnboardingCancelled {
+    if (input.retryable !== false)
+      invalid('Cancelled onboarding cannot authorize a paid retry.');
+    const accounting = input.accounting;
+    if (
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
+    ) {
+      return {
+        outcome: 'cancelled',
+        requestId: identifier(input.requestId, 'Request id'),
+        message: publicMessage(input.message, MESSAGES.cancelled),
+        retryable: false,
+        accounting,
+      };
+    }
+    invalid('Cancelled accounting is invalid.');
+  }
+
+  function unavailableFailure(
+    input: Record<string, unknown>,
+  ): OnboardingUnavailable {
+    const retryable = booleanField(input.retryable, 'Retryable');
+    const accounting = input.accounting;
+    if (
+      accounting === 'none' ||
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
+    ) {
+      if (
+        (accounting === 'charged' || accounting === 'reservation-retained') &&
+        retryable
+      ) {
+        invalid(
+          'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
+        );
+      }
+      return {
+        outcome: 'unavailable',
+        requestId: optionalResponseRequestId(input.requestId),
+        message: publicMessage(input.message, MESSAGES.unavailable),
+        retryable,
+        accounting,
+      };
+    }
+    invalid('Unavailable accounting is invalid.');
+  }
+
+  function coveragePendingFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Coverage-pending cannot authorize a paid retry.');
+    if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
+      invalid('Coverage scope is invalid.');
+    }
+    return {
+      outcome: 'coverage-pending' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: input.scope as LearningOnboardingScope,
+      message: publicMessage(input.message, MESSAGES.coveragePending),
+      gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+      sourceCoverage:
+        input.sourceCoverage === null ? null : coverage(input.sourceCoverage),
+      quota: input.quota === null ? null : quota(input.quota),
+      retryable: false as const,
+    };
+  }
+
+  function conflictFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Conflict cannot authorize a paid retry.');
+    return {
+      outcome: 'conflict' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.conflict),
+      retryable: false as const,
+    };
+  }
+
+  function staleRevisionFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Stale revision cannot authorize a paid retry.');
+    return {
+      outcome: 'stale-revision' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.staleRevision),
+      expectedRevision:
+        input.expectedRevision === null
+          ? null
+          : revision(input.expectedRevision, 'Expected revision'),
+      currentRevision:
+        input.currentRevision === null
+          ? null
+          : boundedInteger(
+              input.currentRevision,
+              1,
+              LIMITS.revision,
+              'Current revision',
+            ),
+      retryable: false as const,
+    };
+  }
+
+  function quotaExceededFailure(input: Record<string, unknown>) {
+    if (input.retryable !== false)
+      invalid('Quota-exceeded cannot authorize a paid retry.');
+    return {
+      outcome: 'quota-exceeded' as const,
+      requestId: identifier(input.requestId, 'Request id'),
+      message: publicMessage(input.message, MESSAGES.quotaExceeded),
+      quota: quota(input.quota),
+      retryable: false as const,
+    };
+  }
+
+  function wireAdjustmentPatch(
+    value: unknown,
+    lessons: readonly CompactSyllabus['topics'][number]['lessons'][number][],
+  ): CourseAdjustmentPatch {
+    const input = strictRecord(value, [
+      'remoteStepId',
+      'field',
+      'before',
+      'after',
+      'practiceBefore',
+      'practice',
+    ]);
+    if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, input.field)) {
+      invalid('Course adjustment patch field is invalid.');
+    }
+    const field: CourseAdjustmentPatchField = input.field;
+    const remoteStepId = identifier(input.remoteStepId, 'Remote step id');
+    const compact = lessons.find((lesson) => lesson.stepId === remoteStepId);
+    if (compact === undefined) {
+      invalid('Adjustment patch is not in the retained syllabus.');
+    }
+    if (compact.sourceState === 'ready') {
+      invalid('Accepted ready lessons cannot be replaced by an adjustment.');
+    }
+    const practiceBefore =
+      field === 'practice'
+        ? input.practiceBefore === null
+          ? null
+          : practiceBrief(input.practiceBefore)
+        : null;
+    const practice =
+      field === 'practice' ? practiceBrief(input.practice) : null;
+    if (field !== 'practice' && input.practice !== null) {
+      invalid('Non-practice adjustment patches cannot include a brief.');
+    }
+    if (field !== 'practice' && input.practiceBefore !== null) {
+      invalid('Non-practice adjustment patches cannot include a brief.');
+    }
+    if (field === 'practice' && !isPracticeRole(compact.role)) {
+      invalid('Practice patches require a pending practice or capstone step.');
+    }
+    const before = boundedText(
+      input.before,
+      LIMITS.adjustmentBeforeAfterCharacters,
+      'Adjustment before',
+    );
+    const after = boundedText(
+      input.after,
+      LIMITS.adjustmentBeforeAfterCharacters,
+      'Adjustment after',
+    );
+    if (before === after && field !== 'practice') {
+      invalid('Adjustment patches must change the named field.');
+    }
+    if (
+      field === 'practice' &&
+      practiceBefore &&
+      practice &&
+      practiceBriefDigest(practiceBefore) === practiceBriefDigest(practice)
+    ) {
+      invalid('Adjustment patches must change the named field.');
+    }
+    return { remoteStepId, field, before, after, practiceBefore, practice };
+  }
+
+  function adjustmentSuccess(
+    input: Record<string, unknown>,
+    request: LearningOnboardingRequest,
+  ): AcceptedCourseAdjustmentSuccess {
+    if (request.operation.kind !== 'adjust-accepted-course') {
+      invalid('Adjustment success does not match its request.');
+    }
+    rejectDefinedFields(
+      input,
+      [
+        'prompt',
+        'assessment',
+        'syllabus',
+        'firstLesson',
+        'lesson',
+        'sourceCoverage',
+        'personalization',
+        'message',
+        'retryable',
+        'accounting',
+        'expectedRevision',
+        'currentRevision',
+      ],
+      'Adjustment success outcome is invalid.',
+    );
+    const lessons = request.operation.model.syllabus.topics.flatMap(
+      (topic) => topic.lessons,
+    );
+    const sources = acquiredSources(input.sources);
+    const originals = sources.map((source) => ({
+      sourceId: source.content.revision.sourceId,
+      revisionId: source.content.revision.revisionId,
+      canonicalText: source.content.revision.canonicalText,
+      sha256: source.content.revision.sha256,
+      canonicalizationVersion: source.content.revision.canonicalizationVersion,
+    }));
+    const body = strictRecord(input.adjustment, [
+      'acceptedProposal',
+      'summary',
+      'focus',
+      'depth',
+      'patches',
+      'citations',
+      'reviewedBase',
+    ]);
+    const acceptedProposal = opaqueRef(body.acceptedProposal);
+    if (
+      acceptedProposal.id !== request.operation.acceptedProposal.id ||
+      acceptedProposal.revision !== request.operation.acceptedProposal.revision
+    ) {
+      invalid(
+        'Adjustment success identity does not match the retained syllabus.',
+      );
+    }
+    if (
+      !isDenseArray(body.patches) ||
+      body.patches.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Course adjustment patches are invalid.');
+    }
+    const patches = body.patches.map((item) =>
+      wireAdjustmentPatch(item, lessons),
+    );
+    if (
+      new Set(patches.map((item) => `${item.remoteStepId}:${item.field}`))
+        .size !== patches.length
+    ) {
+      invalid('Course adjustment patches must be distinct.');
+    }
+    const listedBibliography = bibliography(input.bibliography);
+    bibliographyClosure(lessons, listedBibliography);
+    if (
+      !isDenseArray(input.provenance) ||
+      input.provenance.length < 1 ||
+      input.provenance.length > LIMITS.provenanceReceipts
+    ) {
+      invalid('AI provenance receipts are invalid.');
+    }
+    const citations =
+      body.citations === undefined
+        ? []
+        : (() => {
+            if (
+              !isDenseArray(body.citations) ||
+              body.citations.length > LIMITS.retrievalPassages
+            ) {
+              invalid('Adjustment citations are invalid.');
+            }
+            return body.citations.map((item) => citation(item, originals));
+          })();
+    const focus =
+      body.focus === null
+        ? null
+        : (() => {
+            const change = strictRecord(body.focus, ['before', 'after']);
+            return {
+              before: boundedText(
+                change.before,
+                LIMITS.focusCharacters,
+                'Focus before',
+              ),
+              after: boundedText(
+                change.after,
+                LIMITS.focusCharacters,
+                'Focus after',
+              ),
+            };
+          })();
+    const depthChange =
+      body.depth === null
+        ? null
+        : (() => {
+            const change = strictRecord(body.depth, ['before', 'after']);
+            return {
+              before: depth(change.before),
+              after: depth(change.after),
+            };
+          })();
+    if (focus === null && depthChange === null && patches.length === 0) {
+      invalid('An adjustment must propose a visible change.');
+    }
+    if (focus && focus.before === focus.after) {
+      invalid('Focus adjustment must change the focus text.');
+    }
+    if (depthChange && depthChange.before === depthChange.after) {
+      invalid('Depth adjustment must change the lesson depth.');
+    }
+    const summary = personalization(body.summary);
+    if (summary.masteryEstablished !== false) {
+      invalid('Adjustment observations cannot establish mastery.');
+    }
+    const reviewed = request.operation.model.reviewedCourse;
+    const reviewedBase = reviewedBaseRef(body.reviewedBase);
+    if (
+      !reviewed ||
+      reviewedBase.pathRevision !== reviewed.pathRevision ||
+      (reviewedBase.acceptedAdjustment === null) !==
+        (reviewed.acceptedAdjustment === null) ||
+      (reviewedBase.acceptedAdjustment &&
+        reviewed.acceptedAdjustment &&
+        (reviewedBase.acceptedAdjustment.id !==
+          reviewed.acceptedAdjustment.id ||
+          reviewedBase.acceptedAdjustment.revision !==
+            reviewed.acceptedAdjustment.revision))
+    ) {
+      invalid('Adjustment reviewed base does not match the request.');
+    }
+    return {
+      outcome: 'success',
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: 'accepted-course-adjustment',
+      adjustment: {
+        acceptedProposal,
+        summary,
+        focus,
+        depth: depthChange,
+        patches,
+        citations,
+        reviewedBase,
+      },
+      sources,
+      bibliography: listedBibliography,
+      evidence: evidenceList(input.evidence, originals),
+      gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+      provenance: input.provenance.map(provenance),
+      quota: quota(input.quota),
+    };
+  }
+
+  function reviewedBaseRef(value: unknown): CourseAdjustmentReviewedBase {
+    const input = strictRecord(value, [
+      'pathRevision',
+      'acceptedAdjustment',
+      'digest',
+    ]);
+    return {
+      pathRevision: boundedInteger(
+        input.pathRevision,
+        1,
+        LIMITS.revision,
+        'Path revision',
+      ),
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
+      digest: validateSha256(input.digest),
+    };
+  }
+
   function failure(
     value: unknown,
     requestId: string,
@@ -2717,137 +3717,31 @@ export function createLearningOnboardingValidation(
     }
     switch (input.outcome) {
       case 'invalid-request':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.invalidRequest),
-        };
+        return publicOutcomeFailure(
+          input.outcome,
+          input,
+          MESSAGES.invalidRequest,
+        );
       case 'unauthenticated':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unauthenticated),
-        };
+        return publicOutcomeFailure(
+          input.outcome,
+          input,
+          MESSAGES.unauthenticated,
+        );
       case 'unsupported':
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unsupported),
-        };
+        return publicOutcomeFailure(input.outcome, input, MESSAGES.unsupported);
       case 'cancelled':
-        if (input.retryable !== false)
-          invalid('Cancelled onboarding cannot authorize a paid retry.');
-        if (
-          input.accounting !== 'released' &&
-          input.accounting !== 'charged' &&
-          input.accounting !== 'reservation-retained'
-        ) {
-          invalid('Cancelled accounting is invalid.');
-        }
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.cancelled),
-          retryable: false,
-          accounting: input.accounting,
-        };
-      case 'unavailable': {
-        const retryable = booleanField(input.retryable, 'Retryable');
-        const accounting =
-          input.accounting === 'none' ||
-          input.accounting === 'released' ||
-          input.accounting === 'charged' ||
-          input.accounting === 'reservation-retained'
-            ? input.accounting
-            : invalid('Unavailable accounting is invalid.');
-        if (
-          (accounting === 'charged' || accounting === 'reservation-retained') &&
-          retryable
-        ) {
-          invalid(
-            'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
-          );
-        }
-        return {
-          outcome: input.outcome,
-          requestId:
-            input.requestId === null
-              ? null
-              : identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.unavailable),
-          retryable,
-          accounting,
-        };
-      }
+        return cancelledFailure(input);
+      case 'unavailable':
+        return unavailableFailure(input);
       case 'coverage-pending':
-        if (input.retryable !== false)
-          invalid('Coverage-pending cannot authorize a paid retry.');
-        if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
-          invalid('Coverage scope is invalid.');
-        }
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          scope: input.scope as LearningOnboardingScope,
-          message: publicMessage(input.message, MESSAGES.coveragePending),
-          gaps: input.gaps === undefined ? [] : gaps(input.gaps),
-          sourceCoverage:
-            input.sourceCoverage === null
-              ? null
-              : coverage(input.sourceCoverage),
-          quota: input.quota === null ? null : quota(input.quota),
-          retryable: false,
-        };
+        return coveragePendingFailure(input);
       case 'conflict':
-        if (input.retryable !== false)
-          invalid('Conflict cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.conflict),
-          retryable: false,
-        };
+        return conflictFailure(input);
       case 'stale-revision':
-        if (input.retryable !== false)
-          invalid('Stale revision cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.staleRevision),
-          expectedRevision:
-            input.expectedRevision === null
-              ? null
-              : revision(input.expectedRevision, 'Expected revision'),
-          currentRevision:
-            input.currentRevision === null
-              ? null
-              : boundedInteger(
-                  input.currentRevision,
-                  1,
-                  LIMITS.revision,
-                  'Current revision',
-                ),
-          retryable: false,
-        };
+        return staleRevisionFailure(input);
       case 'quota-exceeded':
-        if (input.retryable !== false)
-          invalid('Quota-exceeded cannot authorize a paid retry.');
-        return {
-          outcome: input.outcome,
-          requestId: identifier(input.requestId, 'Request id'),
-          message: publicMessage(input.message, MESSAGES.quotaExceeded),
-          quota: quota(input.quota),
-          retryable: false,
-        };
+        return quotaExceededFailure(input);
       default:
         return invalid('Onboarding outcome is invalid.');
     }
@@ -2880,6 +3774,9 @@ export function createLearningOnboardingValidation(
       }
       return courseSuccess(input);
     }
+    if (input.scope === 'accepted-course-adjustment') {
+      return adjustmentSuccess(input, request);
+    }
     return selectedSuccess(input, request);
   }
 
@@ -2905,6 +3802,10 @@ export function createLearningOnboardingValidation(
     parseReviseCourseInput,
     parseAcceptCourseInput,
     parseEnsureLessonInput,
+    parseAdjustAcceptedCourseInput,
+    parseAcceptCourseAdjustmentInput,
+    parseCourseAdjustmentProposal,
+    reviewedBaseDigest,
     parseOnboardingRequest,
     parseCourseProposal,
     parseAcceptedStepMapping,

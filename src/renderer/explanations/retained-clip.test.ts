@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   claimClipPlayback,
   clipNotation,
+  clipStageCaptionVtt,
   isOpaqueMediaUrl,
   stageAt,
   type RetainedClipView,
@@ -54,5 +55,19 @@ describe('retained clip notation', () => {
     const release = claimClipPlayback(second);
     expect(first).toHaveBeenCalled();
     release();
+    const late = vi.fn();
+    let nested = false;
+    const mutator = vi.fn(() => {
+      if (nested) return;
+      nested = true;
+      claimClipPlayback(late);
+    });
+    claimClipPlayback(mutator);
+    claimClipPlayback(vi.fn());
+    expect(late).not.toHaveBeenCalled();
+    expect(clipStageCaptionVtt(clip)).toContain('WEBVTT');
+    expect(clipStageCaptionVtt(clip)).toContain('Read the inputs');
+    expect(clipStageCaptionVtt(clip)).toContain('00:00:02.000');
+    expect(clipStageCaptionVtt({ ...clip, stages: [] })).toContain(clip.title);
   });
 });

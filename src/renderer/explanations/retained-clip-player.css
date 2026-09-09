@@ -25,6 +25,10 @@
   max-height: min(720px, 70vh);
   background: #0c0f12;
 }
+.retained-clip output {
+  display: block;
+  margin: 0;
+}
 .retained-clip--enlarged video {
   max-height: 80vh;
 }

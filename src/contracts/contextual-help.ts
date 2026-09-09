@@ -8,15 +8,11 @@ import {
   type SourceRevisionLocator,
 } from './learning-api';
 import {
-  decodeEntryRevisionReference,
   decodeLearningOrigin,
   decodePathOrigin,
-  decodeSourceCitation,
-  isLearningOrigin,
   type EntryRevisionReference,
   type LearningOrigin,
   type PathOrigin,
-  type SourceCitation,
 } from './learning-records';
 import { SOURCE_FORMATS } from './source-validation-primitives';
 import {
@@ -33,8 +29,11 @@ import {
   isDenseArray,
   isIsoTimestamp,
   type ContractDecode,
-  type ContractFailureReason,
 } from './contextual-contract-guards';
+import {
+  decodeHighlightLocator,
+  decodeSavedQuestionLocator,
+} from './contextual-origin-locators';
 import { isRemoteText } from './source-text.js';
 
 export const CONTEXTUAL_HELP_CONTRACT_VERSION = '2026-09-09';
@@ -282,38 +281,15 @@ function decodeOriginLocator(
 ): ContractDecode<ContextualOriginLocator> {
   if (!isContractRecord(value)) return failed('shape');
   if (value.kind === 'source-highlight') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'sourceRevisionId',
-      'highlightId',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      !isContractUuid(decoded.value.sourceRevisionId) ||
-      !isContractUuid(decoded.value.highlightId)
-    ) {
-      return failed('identity');
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'source-highlight',
-        sourceRevisionId: decoded.value.sourceRevisionId,
-        highlightId: decoded.value.highlightId,
-      },
-    };
+    return decodeHighlightLocator(value, 'source-highlight');
   }
-  if (value.kind === 'saved-question') {
-    const decoded = decodeExactRecord(value, ['kind', 'entry']);
-    if (!decoded.ok) return decoded;
-    const entry = decodeEntryRevisionReference(decoded.value.entry);
-    if (!entry.ok) return entry;
-    return { ok: true, value: { kind: 'saved-question', entry: entry.value } };
-  }
+  if (value.kind === 'saved-question') return decodeSavedQuestionLocator(value);
   return failed('origin');
 }
 
-function decodeQuestion(value: unknown): ContractDecode<ContextualQuestion> {
+export function decodeContextualQuestion(
+  value: unknown,
+): ContractDecode<ContextualQuestion> {
   if (!isContractRecord(value)) return failed('shape');
   if (value.kind === 'human') {
     const decoded = decodeExactRecord(value, ['kind', 'text']);
@@ -376,7 +352,7 @@ export function decodeContextualHelpRequest(
     return failed('unsupported');
   const origin = decodeOriginLocator(decoded.value.origin);
   if (!origin.ok) return origin;
-  const question = decodeQuestion(decoded.value.question);
+  const question = decodeContextualQuestion(decoded.value.question);
   if (!question.ok) return question;
   let path: PathOrigin | undefined;
   if (decoded.value.path !== undefined) {
@@ -415,111 +391,131 @@ export function isContextualHelpRequest(
   return decodeContextualHelpRequest(value).ok;
 }
 
+function decodeFullCanonicalGrounding(
+  value: Record<string, unknown>,
+): ContractDecode<
+  Extract<SourceGroundingState, { kind: 'full-canonical-source' }>
+> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'sourceRevisionId',
+    'sha256',
+    'characters',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.sourceRevisionId))
+    return failed('identity');
+  if (!isContractSha256(decoded.value.sha256)) return failed('identity');
+  if (
+    !isContractGeneration(decoded.value.characters) ||
+    decoded.value.characters < 1 ||
+    decoded.value.characters > CONTEXTUAL_SOURCE_CHARACTER_LIMIT
+  ) {
+    return failed('bounds');
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'full-canonical-source',
+      sourceRevisionId: decoded.value.sourceRevisionId,
+      sha256: decoded.value.sha256,
+      characters: decoded.value.characters,
+    },
+  };
+}
+
+function decodeBoundedExcerptGrounding(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<SourceGroundingState, { kind: 'bounded-excerpt' }>> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'sourceRevisionId',
+    'sha256',
+    'start',
+    'end',
+    'quote',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.sourceRevisionId))
+    return failed('identity');
+  if (!isContractSha256(decoded.value.sha256)) return failed('identity');
+  const { start, end, quote } = decoded.value;
+  if (
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end <= start
+  ) {
+    return failed('revision');
+  }
+  if (!isBoundedRemoteText(quote, CONTEXTUAL_SOURCE_CHARACTER_LIMIT)) {
+    return failed('bounds');
+  }
+  if (quote.length !== end - start) return failed('origin');
+  return {
+    ok: true,
+    value: {
+      kind: 'bounded-excerpt',
+      sourceRevisionId: decoded.value.sourceRevisionId,
+      sha256: decoded.value.sha256,
+      start,
+      end,
+      quote,
+    },
+  };
+}
+
+function decodeUnsupportedLongSourceGrounding(
+  value: Record<string, unknown>,
+): ContractDecode<
+  Extract<SourceGroundingState, { kind: 'unsupported-long-source' }>
+> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'sourceRevisionId',
+    'sha256',
+    'characters',
+    'limit',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.sourceRevisionId))
+    return failed('identity');
+  if (!isContractSha256(decoded.value.sha256)) return failed('identity');
+  if (
+    !isContractGeneration(decoded.value.characters) ||
+    decoded.value.characters <= CONTEXTUAL_SOURCE_CHARACTER_LIMIT
+  ) {
+    return failed('bounds');
+  }
+  if (decoded.value.limit !== CONTEXTUAL_SOURCE_CHARACTER_LIMIT) {
+    return failed('revision');
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'unsupported-long-source',
+      sourceRevisionId: decoded.value.sourceRevisionId,
+      sha256: decoded.value.sha256,
+      characters: decoded.value.characters,
+      limit: CONTEXTUAL_SOURCE_CHARACTER_LIMIT,
+    },
+  };
+}
+
 export function decodeSourceGroundingState(
   value: unknown,
 ): ContractDecode<SourceGroundingState> {
   if (!isContractRecord(value)) return failed('shape');
   if (value.kind === 'full-canonical-source') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'sourceRevisionId',
-      'sha256',
-      'characters',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (!isContractUuid(decoded.value.sourceRevisionId))
-      return failed('identity');
-    if (!isContractSha256(decoded.value.sha256)) return failed('identity');
-    if (
-      !isContractGeneration(decoded.value.characters) ||
-      decoded.value.characters < 1
-    ) {
-      return failed('bounds');
-    }
-    if (decoded.value.characters > CONTEXTUAL_SOURCE_CHARACTER_LIMIT) {
-      return failed('bounds');
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'full-canonical-source',
-        sourceRevisionId: decoded.value.sourceRevisionId,
-        sha256: decoded.value.sha256,
-        characters: decoded.value.characters,
-      },
-    };
+    return decodeFullCanonicalGrounding(value);
   }
   if (value.kind === 'bounded-excerpt') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'sourceRevisionId',
-      'sha256',
-      'start',
-      'end',
-      'quote',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (!isContractUuid(decoded.value.sourceRevisionId))
-      return failed('identity');
-    if (!isContractSha256(decoded.value.sha256)) return failed('identity');
-    const { start, end, quote } = decoded.value;
-    if (
-      typeof start !== 'number' ||
-      typeof end !== 'number' ||
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      end <= start
-    ) {
-      return failed('revision');
-    }
-    if (!isBoundedRemoteText(quote, CONTEXTUAL_SOURCE_CHARACTER_LIMIT)) {
-      return failed('bounds');
-    }
-    if (quote.length !== end - start) return failed('origin');
-    return {
-      ok: true,
-      value: {
-        kind: 'bounded-excerpt',
-        sourceRevisionId: decoded.value.sourceRevisionId,
-        sha256: decoded.value.sha256,
-        start,
-        end,
-        quote,
-      },
-    };
+    return decodeBoundedExcerptGrounding(value);
   }
   if (value.kind === 'unsupported-long-source') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'sourceRevisionId',
-      'sha256',
-      'characters',
-      'limit',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (!isContractUuid(decoded.value.sourceRevisionId))
-      return failed('identity');
-    if (!isContractSha256(decoded.value.sha256)) return failed('identity');
-    if (
-      !isContractGeneration(decoded.value.characters) ||
-      decoded.value.characters <= CONTEXTUAL_SOURCE_CHARACTER_LIMIT
-    ) {
-      return failed('bounds');
-    }
-    if (decoded.value.limit !== CONTEXTUAL_SOURCE_CHARACTER_LIMIT) {
-      return failed('revision');
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'unsupported-long-source',
-        sourceRevisionId: decoded.value.sourceRevisionId,
-        sha256: decoded.value.sha256,
-        characters: decoded.value.characters,
-        limit: CONTEXTUAL_SOURCE_CHARACTER_LIMIT,
-      },
-    };
+    return decodeUnsupportedLongSourceGrounding(value);
   }
   return failed('shape');
 }
@@ -638,116 +634,187 @@ export function decodeAiProvenance(
   };
 }
 
-export function decodeContextualHelpResponse(
-  value: unknown,
-): ContractDecode<ContextualHelpResponse> {
-  if (!isContractRecord(value) || typeof value.outcome !== 'string') {
-    return failed('shape');
-  }
-  if (value.outcome === 'success') {
-    const decoded = decodeExactRecord(value, [
-      'outcome',
-      'requestId',
-      'explanationId',
-      'attemptId',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      !isContractUuid(decoded.value.requestId) ||
-      !isContractUuid(decoded.value.explanationId) ||
-      !isContractUuid(decoded.value.attemptId)
-    ) {
-      return failed('identity');
-    }
-    return {
-      ok: true,
-      value: {
-        outcome: 'success',
-        requestId: decoded.value.requestId,
-        explanationId: decoded.value.explanationId,
-        attemptId: decoded.value.attemptId,
-      },
-    };
-  }
-  if (value.outcome === 'conflict') {
-    const decoded = decodeExactRecord(value, [
-      'outcome',
-      'requestId',
-      'expectedProjectGeneration',
-      'currentProjectGeneration',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (!isContractUuid(decoded.value.requestId)) return failed('identity');
-    if (
-      !isContractGeneration(decoded.value.expectedProjectGeneration) ||
-      !isContractGeneration(decoded.value.currentProjectGeneration)
-    ) {
-      return failed('revision');
-    }
-    return {
-      ok: true,
-      value: {
-        outcome: 'conflict',
-        requestId: decoded.value.requestId,
-        expectedProjectGeneration: decoded.value.expectedProjectGeneration,
-        currentProjectGeneration: decoded.value.currentProjectGeneration,
-      },
-    };
-  }
-  const requestId = value.requestId;
-  if (requestId !== null && !isContractUuid(requestId))
+function decodeHelpSuccessResponse(
+  value: Record<string, unknown>,
+): ContractDecode<ContextualHelpSuccess> {
+  const decoded = decodeExactRecord(value, [
+    'outcome',
+    'requestId',
+    'explanationId',
+    'attemptId',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (
+    !isContractUuid(decoded.value.requestId) ||
+    !isContractUuid(decoded.value.explanationId) ||
+    !isContractUuid(decoded.value.attemptId)
+  ) {
     return failed('identity');
+  }
+  return {
+    ok: true,
+    value: {
+      outcome: 'success',
+      requestId: decoded.value.requestId,
+      explanationId: decoded.value.explanationId,
+      attemptId: decoded.value.attemptId,
+    },
+  };
+}
+
+function decodeHelpConflictResponse(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<ContextualHelpFailure, { outcome: 'conflict' }>> {
+  const decoded = decodeExactRecord(value, [
+    'outcome',
+    'requestId',
+    'expectedProjectGeneration',
+    'currentProjectGeneration',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+  if (
+    !isContractGeneration(decoded.value.expectedProjectGeneration) ||
+    !isContractGeneration(decoded.value.currentProjectGeneration)
+  ) {
+    return failed('revision');
+  }
+  return {
+    ok: true,
+    value: {
+      outcome: 'conflict',
+      requestId: decoded.value.requestId,
+      expectedProjectGeneration: decoded.value.expectedProjectGeneration,
+      currentProjectGeneration: decoded.value.currentProjectGeneration,
+    },
+  };
+}
+
+function decodeHelpOptionalRequestId(
+  value: unknown,
+): ContractDecode<string | null> {
+  if (value === null) return { ok: true, value: null };
+  if (!isContractUuid(value)) return failed('identity');
+  return { ok: true, value };
+}
+
+interface HelpMessageFailureInput {
+  requestId: string | null;
+  message: string;
+  record: Record<string, unknown>;
+}
+
+function decodeHelpPublicMessageFailure(
+  outcome: 'invalid-request' | 'unsupported' | 'unauthenticated',
+  input: HelpMessageFailureInput,
+): ContractDecode<
+  Extract<
+    ContextualHelpFailure,
+    { outcome: 'invalid-request' | 'unsupported' | 'unauthenticated' }
+  >
+> {
+  const extra = extraKeyReason(input.record, [
+    'outcome',
+    'requestId',
+    'message',
+  ]);
+  if (extra) return failed(extra);
+  return {
+    ok: true,
+    value: {
+      outcome,
+      requestId: input.requestId,
+      message: input.message,
+    },
+  };
+}
+
+function decodeHelpAccountedMessageFailure(
+  outcome: 'cancelled' | 'quota-exceeded',
+  input: HelpMessageFailureInput,
+): ContractDecode<
+  Extract<ContextualHelpFailure, { outcome: 'cancelled' | 'quota-exceeded' }>
+> {
+  const extra = extraKeyReason(input.record, [
+    'outcome',
+    'requestId',
+    'message',
+  ]);
+  if (extra) return failed(extra);
+  if (input.requestId === null) return failed('identity');
+  return {
+    ok: true,
+    value: {
+      outcome,
+      requestId: input.requestId,
+      message: input.message,
+    },
+  };
+}
+
+function decodeHelpUnavailableFailure(
+  input: HelpMessageFailureInput,
+): ContractDecode<Extract<ContextualHelpFailure, { outcome: 'unavailable' }>> {
+  const extra = extraKeyReason(input.record, [
+    'outcome',
+    'requestId',
+    'message',
+    'retryable',
+  ]);
+  if (extra) return failed(extra);
+  if (typeof input.record.retryable !== 'boolean') return failed('shape');
+  return {
+    ok: true,
+    value: {
+      outcome: 'unavailable',
+      requestId: input.requestId,
+      message: input.message,
+      retryable: input.record.retryable,
+    },
+  };
+}
+
+function decodeHelpMessageFailure(
+  value: Record<string, unknown>,
+): ContractDecode<Exclude<ContextualHelpFailure, { outcome: 'conflict' }>> {
+  const requestId = decodeHelpOptionalRequestId(value.requestId);
+  if (!requestId.ok) return requestId;
   if (
     typeof value.message !== 'string' ||
     !isBoundedRemoteText(value.message, 400)
   ) {
     return failed('bounds');
   }
+  const input: HelpMessageFailureInput = {
+    requestId: requestId.value,
+    message: value.message,
+    record: value,
+  };
   if (
     value.outcome === 'invalid-request' ||
     value.outcome === 'unsupported' ||
     value.outcome === 'unauthenticated'
   ) {
-    const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
-    if (extra) return failed(extra);
-    return {
-      ok: true,
-      value: {
-        outcome: value.outcome,
-        requestId,
-        message: value.message,
-      },
-    };
+    return decodeHelpPublicMessageFailure(value.outcome, input);
   }
   if (value.outcome === 'cancelled' || value.outcome === 'quota-exceeded') {
-    const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
-    if (extra) return failed(extra);
-    if (requestId === null) return failed('identity');
-    return {
-      ok: true,
-      value: { outcome: value.outcome, requestId, message: value.message },
-    };
+    return decodeHelpAccountedMessageFailure(value.outcome, input);
   }
   if (value.outcome === 'unavailable') {
-    const extra = extraKeyReason(value, [
-      'outcome',
-      'requestId',
-      'message',
-      'retryable',
-    ]);
-    if (extra) return failed(extra);
-    if (typeof value.retryable !== 'boolean') return failed('shape');
-    return {
-      ok: true,
-      value: {
-        outcome: 'unavailable',
-        requestId,
-        message: value.message,
-        retryable: value.retryable,
-      },
-    };
+    return decodeHelpUnavailableFailure(input);
   }
   return failed('unsupported');
+}
+
+export function decodeContextualHelpResponse(
+  value: unknown,
+): ContractDecode<ContextualHelpResponse> {
+  if (!isContractRecord(value) || typeof value.outcome !== 'string') {
+    return failed('shape');
+  }
+  if (value.outcome === 'success') return decodeHelpSuccessResponse(value);
+  if (value.outcome === 'conflict') return decodeHelpConflictResponse(value);
+  return decodeHelpMessageFailure(value);
 }
 
 export function isExactExcerptMapping(
@@ -782,6 +849,7 @@ export function retainedOriginFromRequest(
   return decodeLearningOrigin(origin);
 }
 
-export { decodeLearningOrigin, decodeSourceCitation, isLearningOrigin };
-
-export type { ContractFailureReason, LearningOrigin, SourceCitation };
+export { decodeLearningOrigin } from './learning-records';
+export { decodeSourceCitation, isLearningOrigin } from './learning-records';
+export type { LearningOrigin, SourceCitation } from './learning-records';
+export type { ContractFailureReason } from './contextual-contract-guards';

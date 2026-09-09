@@ -4,11 +4,14 @@ import {
   COMPATIBLE_SOURCED_LEARNING_SCOPE,
   LEARNING_ONBOARDING_API_VERSION,
   LEARNING_ONBOARDING_LIMITS,
+  LEARNING_ONBOARDING_OPERATIONS,
   LEARNING_ONBOARDING_PATH,
   LEARNING_ONBOARDING_PUBLIC_MESSAGES,
+  LEARNING_ONBOARDING_SCOPES,
   ONBOARDING_CONTEXT_TRUST,
 } from './learning-onboarding-api.js';
 import type {
+  AcceptedCourseAdjustmentSuccess,
   LearningOnboardingRequest,
   LearningOnboardingResponse,
   ProposalSource,
@@ -202,6 +205,7 @@ const human = {
   ],
   seedRevisionLocators: [{ sourceId: 'openalex_W1', revisionId: 'edition-1' }],
   unacquiredSeedUrls: [],
+  pastedSeedText: null,
 } satisfies UntrustedHumanLearnerContext;
 
 const tokenizerBrief = {
@@ -471,6 +475,43 @@ function compactFromSyllabus() {
   };
 }
 
+function emptyReviewedCourse() {
+  return {
+    acceptedAdjustment: null,
+    pathRevision: 1,
+    focus: null,
+    depth: null,
+    pendingFieldChanges: [] as {
+      remoteStepId: string;
+      field: 'objective' | 'activity';
+      value: string;
+    }[],
+  };
+}
+
+const reviewedDigest = validation.reviewedBaseDigest({
+  pathRevision: 1,
+  acceptedAdjustment: null,
+  focus: null,
+  depth: null,
+  pending: [],
+});
+
+const practicalActivity = {
+  projectId,
+  origin: {
+    path: {
+      pathId: '11111111-1111-4111-8111-111111111111',
+      pathRevision: 1,
+      topicId: '22222222-2222-4222-8222-222222222222',
+      lessonId: '33333333-3333-4333-8333-333333333333',
+    },
+  },
+  title: 'Tokenizer practice',
+  instructions: 'Tokenize a short corpus outside the app.',
+  objective: 'Produce a working tokenizer on a short corpus.',
+};
+
 function completeMappings() {
   return syllabus.topics.flatMap((topic) =>
     topic.lessons.map((lesson, index) => ({
@@ -497,6 +538,7 @@ const selectedLessonRequest: LearningOnboardingRequest = {
       priorProposal: { id: 'proposal-01', revision: 1 },
       syllabus: compactFromSyllabus(),
       personalization: null,
+      reviewedCourse: null,
     },
     target: {
       remoteStepId: 'step-002',
@@ -504,6 +546,111 @@ const selectedLessonRequest: LearningOnboardingRequest = {
       practice: tokenizerBrief,
     },
   },
+};
+
+const adjustedBrief = {
+  ...tokenizerBrief,
+  intendedOutcome: 'Produce a tokenizer and a documented unknown-token rule.',
+};
+
+const adjustmentRequest: LearningOnboardingRequest = {
+  apiVersion: LEARNING_ONBOARDING_API_VERSION,
+  requestId: 'request-03',
+  model: 'google/gemini-3.8-flash',
+  operation: {
+    kind: 'adjust-accepted-course',
+    human,
+    notes: 'Tokenizer practice still failed on unknown tokens.',
+    model: {
+      trust: ONBOARDING_CONTEXT_TRUST.model,
+      priorProposal: { id: 'proposal-01', revision: 1 },
+      syllabus: compactFromSyllabus(),
+      personalization: null,
+      reviewedCourse: emptyReviewedCourse(),
+    },
+    progress: {
+      trust: ONBOARDING_CONTEXT_TRUST.human,
+      practicalAttempts: [
+        {
+          trust: ONBOARDING_CONTEXT_TRUST.human,
+          kind: 'practical-attempt-locator',
+          attemptId: 'e1234567-1234-4234-8234-123456789012',
+          recordedRevision: 1,
+          remoteStepId: 'step-002',
+          work: {
+            activityOrigin: {
+              pathId: practicalActivity.origin.path.pathId,
+              pathRevision: 1,
+              topicId: practicalActivity.origin.path.topicId,
+              lessonId: practicalActivity.origin.path.lessonId,
+            },
+            reflection: {
+              authorKind: 'human',
+              text: 'Unknown tokens still failed.',
+            },
+            reportedResult: {
+              kind: 'user-reported-text',
+              text: 'Tokenizer emitted UNK for rare tokens.',
+            },
+            recordedAt: at,
+            masteryEstablished: false,
+          },
+        },
+      ],
+    },
+    acceptedProposal: { id: 'proposal-01', revision: 1 },
+  },
+};
+
+const adjustmentSuccess: AcceptedCourseAdjustmentSuccess = {
+  outcome: 'success',
+  requestId: 'request-03',
+  scope: 'accepted-course-adjustment',
+  adjustment: {
+    acceptedProposal: { id: 'proposal-01', revision: 1 },
+    summary: {
+      author: 'ai',
+      summary:
+        'Returned tokenizer work still misses the unknown-token rule; deepen that pending practice.',
+      observedGaps: ['Unknown-token handling is still unproven.'],
+      masteryEstablished: false,
+    },
+    focus: {
+      before: human.focus,
+      after: 'Tokenizer unknown-token handling before LoRA.',
+    },
+    depth: { before: 'balanced', after: 'deep' },
+    patches: [
+      {
+        remoteStepId: 'step-002',
+        field: 'practice',
+        before: tokenizerBrief.intendedOutcome,
+        after: adjustedBrief.intendedOutcome,
+        practiceBefore: tokenizerBrief,
+        practice: adjustedBrief,
+      },
+    ],
+    citations: [
+      {
+        sourceId: 'openalex_W1',
+        revisionId: 'edition-1',
+        start: 0,
+        end: 5,
+        quote: HELLO,
+      },
+    ],
+    reviewedBase: {
+      pathRevision: 1,
+      acceptedAdjustment: null,
+      digest: reviewedDigest,
+    },
+  },
+  sources: [acquiredSource],
+  bibliography: [bibliographySource],
+  evidence: [evidence],
+  gaps: [],
+  provenance: [provenance],
+  quota,
 };
 
 describe('learning onboarding contracts', () => {
@@ -521,6 +668,11 @@ describe('learning onboarding contracts', () => {
       48_000,
     );
     expect(LEARNING_ONBOARDING_LIMITS.practiceCheckpoints).toBe(8);
+    expect(LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters).toBe(
+      LEARNING_ONBOARDING_LIMITS.previewCharacters,
+    );
+    expect(LEARNING_ONBOARDING_OPERATIONS).toContain('adjust-accepted-course');
+    expect(LEARNING_ONBOARDING_SCOPES).toContain('accepted-course-adjustment');
     expect(SOURCE_CHANNELS.generate).toBe('sources:generate-learning-path');
     expect(desktopOnboarding).not.toHaveProperty('LEARNING_ONBOARDING_PATH');
     expect(desktopOnboarding).not.toHaveProperty(
@@ -598,6 +750,192 @@ describe('learning onboarding contracts', () => {
     expect(
       validation.parseLearningOnboardingResponse(courseSuccess, proposeRequest),
     ).toEqual(courseSuccess);
+  });
+
+  it('admits exact pasted seed bytes as untrusted context and unbound interview drafts', () => {
+    const pasted = '  excerpt from a paper  ';
+    const withPaste = {
+      ...proposeRequest,
+      operation: {
+        ...proposeRequest.operation,
+        human: { ...human, pastedSeedText: pasted },
+      },
+    };
+    expect(validation.parseLearningOnboardingRequest(withPaste)).toEqual(
+      withPaste,
+    );
+    expectRejected(
+      {
+        ...proposeRequest,
+        operation: {
+          ...proposeRequest.operation,
+          human: { ...human, pastedSeedText: '   ' },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expectRejected(
+      {
+        ...proposeRequest,
+        operation: {
+          ...proposeRequest.operation,
+          human: Object.fromEntries(
+            Object.entries(human).filter(([key]) => key !== 'pastedSeedText'),
+          ),
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    const unbound = {
+      goal: human.goal,
+      focus: human.focus,
+      depth: human.depth,
+      profileRevision: 0,
+      sourceRevisionIds: [] as string[],
+      seedDrafts: [] as const,
+      answers: [{ promptId: 'prompt-01', answer: human.answers[0]!.answer }],
+    };
+    expect(
+      validation.parseSaveLearningInterviewInput({
+        projectId,
+        expectedRevision: 0,
+        draft: unbound,
+      }).draft.profileRevision,
+    ).toBe(0);
+  });
+
+  it('roundtrips accepted-course adjustment overlays and rejects replacement syllabi or ready-lesson patches', () => {
+    expect(
+      validation.parseLearningOnboardingRequest(adjustmentRequest),
+    ).toEqual(adjustmentRequest);
+    expect(
+      validation.parseLearningOnboardingResponse(
+        adjustmentSuccess,
+        adjustmentRequest,
+      ),
+    ).toEqual(adjustmentSuccess);
+    expect(
+      validation.parseAdjustAcceptedCourseInput({
+        projectId,
+        requestId: 'request-03',
+        acceptedProposal: { id: 'proposal-01', revision: 1 },
+        interviewRevision: 1,
+        notes: 'Tokenizer practice still failed on unknown tokens.',
+        progress: {
+          practicalAttempts: [
+            {
+              attemptId: 'e1234567-1234-4234-8234-123456789012',
+              recordedRevision: 1,
+              remoteStepId: 'step-002',
+              activity: practicalActivity,
+            },
+          ],
+        },
+        consent: 'acquire-learning-evidence',
+      }).notes,
+    ).toBe('Tokenizer practice still failed on unknown tokens.');
+    expectRejected(
+      {
+        ...adjustmentSuccess,
+        syllabus,
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, adjustmentRequest),
+    );
+    expectRejected(
+      {
+        ...adjustmentSuccess,
+        adjustment: {
+          ...adjustmentSuccess.adjustment,
+          patches: [
+            {
+              remoteStepId: 'step-001',
+              field: 'objective',
+              before: 'Explain scaled dot-product attention.',
+              after: 'Skip the first lesson.',
+              practiceBefore: null,
+              practice: null,
+            },
+          ],
+        },
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, adjustmentRequest),
+    );
+    expectRejected(
+      {
+        ...adjustmentRequest,
+        operation: {
+          ...adjustmentRequest.operation,
+          acceptedProposal: { id: 'proposal-99', revision: 1 },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expectRejected(
+      {
+        projectId,
+        requestId: 'request-03',
+        acceptedProposal: { id: 'proposal-01', revision: 1 },
+        interviewRevision: 1,
+        notes: 'ok',
+        progress: { practicalAttempts: [] },
+        consent: 'acquire-learning-evidence',
+        evidence: [{ attemptId: 'forged' }],
+      },
+      validation.parseAdjustAcceptedCourseInput,
+    );
+    expectRejected(
+      {
+        ...adjustmentRequest,
+        operation: {
+          ...adjustmentRequest.operation,
+          notes: null,
+          human: {
+            ...human,
+            answers: [
+              ...human.answers,
+              {
+                trust: ONBOARDING_CONTEXT_TRUST.human,
+                promptId: desktopOnboarding.ADJUSTMENT_NOTES_PROMPT_ID,
+                answer: 'Tokenizer practice still failed on unknown tokens.',
+              },
+            ],
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expect(
+      validation.parseLearningOnboardingSnapshot({
+        interview: null,
+        proposal: null,
+        accepted: null,
+        adjustment: null,
+        acceptedAdjustment: null,
+      }),
+    ).toEqual({
+      interview: null,
+      proposal: null,
+      accepted: null,
+      adjustment: null,
+      acceptedAdjustment: null,
+    });
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          ...selectedLessonRequest.operation,
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'proposal-01', revision: 1 },
+            syllabus: compactFromSyllabus(),
+            personalization: null,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
   });
 
   it('rejects forged renderer authority on accept, ensure and network envelopes', () => {
@@ -1189,6 +1527,7 @@ describe('learning onboarding contracts', () => {
             priorProposal: { id: 'proposal-01', revision: 1 },
             syllabus: { title: compact.title, topics: extraSourceTopics },
             personalization: null,
+            reviewedCourse: null,
           },
           target: {
             remoteStepId: 'step-002',

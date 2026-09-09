@@ -1,5 +1,4 @@
 import type {
-  LearningOrigin,
   LearningWorkspace,
   PathOrigin,
 } from '../contracts/learning-records';
@@ -69,35 +68,5 @@ export function listPracticalActivities(
   return listed;
 }
 
-export interface WorkspaceSearchResult {
-  id: string;
-  label: string;
-  kind: string;
-  origin: LearningOrigin | null;
-}
-
-export function searchWorkspace(
-  workspace: LearningWorkspace,
-  query: string,
-): WorkspaceSearchResult[] {
-  const term = query.trim().toLocaleLowerCase();
-  if (!term) return [];
-  return [
-    ...workspace.sources.map((source) => ({
-      id: source.id,
-      label: source.currentVersion.title,
-      text: source.currentVersion.canonicalText,
-      kind: 'Source',
-      origin: { sourceRevisionId: source.currentVersionId },
-    })),
-    ...workspace.entries.map((entry) => ({
-      id: entry.id,
-      label: entry.current.title || entry.current.body,
-      text: entry.current.body,
-      kind: entry.current.kind,
-      origin: entry.current.origin,
-    })),
-  ].filter((item) =>
-    `${item.label} ${item.text}`.toLocaleLowerCase().includes(term),
-  );
-}
+export type { WorkspaceSearchResult } from './shell/record-navigation';
+export { searchWorkspace } from './shell/record-navigation';

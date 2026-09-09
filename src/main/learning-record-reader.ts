@@ -4,6 +4,7 @@ import {
 } from './source-persistence-reader';
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq } from 'drizzle-orm';
+import type Database from 'better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type {
   EntryRevisionReference,
@@ -18,6 +19,7 @@ import type {
   SourceRecord,
   SourceVersion,
 } from '../contracts/learning-records';
+import { readStoredEntryOrigins } from './entry-origin-persistence';
 import {
   decodeHttpsUrl,
   decodeLearningEntryKind,
@@ -55,6 +57,7 @@ type WorkspaceDatabase = BetterSQLite3Database<typeof workspaceSchema>;
 
 interface ReaderInput {
   orm: WorkspaceDatabase;
+  database: Database.Database;
   project: typeof projects.$inferSelect;
   unreadableProjects: UnreadableProject[];
 }
@@ -78,6 +81,7 @@ function readSupports(
 
 function originFromContext(
   context: typeof entryRevisionContext.$inferSelect | undefined,
+  entry: EntryRevisionReference | undefined,
 ): LearningOrigin | null {
   if (!context) return null;
   const path = context.pathId
@@ -93,7 +97,9 @@ function originFromContext(
   if (path && path.pathRevision < 1) {
     throw new WorkspaceValidationError('Invalid stored origin path revision.');
   }
-  if (!context.sourceRevisionId && !context.highlightId && !path) return null;
+  if (!context.sourceRevisionId && !context.highlightId && !path && !entry) {
+    return null;
+  }
   return {
     ...(context.sourceRevisionId
       ? {
@@ -107,11 +113,13 @@ function originFromContext(
       ? { highlightId: decodeUuid(context.highlightId, 'origin highlight id') }
       : {}),
     ...(path ? { path } : {}),
+    ...(entry ? { entry } : {}),
   };
 }
 
 function readEntries(
   orm: WorkspaceDatabase,
+  database: Database.Database,
   projectId: string,
 ): LearningEntryRecord[] {
   const storedEntries = orm
@@ -136,6 +144,7 @@ function readEntries(
     .from(insightRevisionSupports)
     .where(eq(insightRevisionSupports.projectId, projectId))
     .all();
+  const entryOrigins = readStoredEntryOrigins(database, projectId);
   return storedEntries.map((entry) => {
     const history = revisions
       .filter((item) => item.entryId === entry.id)
@@ -158,7 +167,12 @@ function readEntries(
           citations: content.citations,
           authorKind: content.authorKind,
           recordedAt: content.recordedAt,
-          origin: originFromContext(context),
+          origin: originFromContext(
+            context,
+            context
+              ? entryOrigins.get(`${item.entryId}:${item.revision}`)
+              : undefined,
+          ),
           supports: readSupports(supports, item.entryId, item.revision),
         };
       });
@@ -530,7 +544,7 @@ export function readLearningWorkspace(input: ReaderInput): LearningWorkspace {
       createdAt: decodeTimestamp(input.project.createdAt, 'project createdAt'),
       updatedAt: decodeTimestamp(input.project.updatedAt, 'project updatedAt'),
     },
-    entries: readEntries(input.orm, projectId),
+    entries: readEntries(input.orm, input.database, projectId),
     sources: readSources(input.orm, projectId),
     highlights: readHighlights(input.orm, projectId),
     paths: readPaths(input.orm, projectId),

@@ -18,13 +18,20 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import type { CanvasView } from '../../contracts/learning-records';
+import type {
+  RetainedExplanationCanvasPlacement,
+  RetainedExplanationCanvasProjection,
+} from '../../contracts/explanation-canvas';
 import { isNestedInteraction } from './interaction';
 import { LearningNode } from './CanvasNode';
 import { CanvasActions } from './actions';
 import { arrangeMeasuredNodes } from './layout';
 import { deriveCanvasGraph, type CanvasNode } from './graph';
+import { canvasEditKind, initialPlacementMessage } from './authoring';
 import type { WorkspaceCanvasProps } from './types';
 import { PlacementSession } from './placement-session';
+import { overlayRetainedExplanationNodes } from './overlay-retained-explanations';
+import { useCanvasAuthoring } from './use-canvas-authoring';
 import '@xyflow/react/dist/style.css';
 import './canvas.css';
 
@@ -32,6 +39,10 @@ const nodeTypes = { learning: LearningNode };
 const READABLE_FIT_ZOOM = 0.85;
 const PAN_STEP = 80;
 const DEFAULT_VIEWPORT: Viewport = { x: 16, y: 16, zoom: 1 };
+const EMPTY_RETAINED_EXPLANATIONS: readonly RetainedExplanationCanvasProjection[] =
+  [];
+const EMPTY_EXPLANATION_PLACEMENTS: readonly RetainedExplanationCanvasPlacement[] =
+  [];
 const NODE_DESCRIPTION =
   'Press Enter or Space to select. Arrow keys move a selected movable node. Press F2 to edit current human writing, or Escape to deselect.';
 const PAN_DELTAS: Record<string, [number, number]> = {
@@ -56,29 +67,63 @@ function CanvasSession({
   view,
   onViewChange,
   onOpenOrigin,
+  onOpenRetainedExplanation,
   onEditEntry,
   onMove,
+  onPlaceExplanation,
+  retainedExplanations = EMPTY_RETAINED_EXPLANATIONS,
+  explanationPlacements = EMPTY_EXPLANATION_PLACEMENTS,
   registerFlush,
   onShellControls,
   status = 'ready',
   onRetry,
+  records,
+  onWorkspace,
 }: Readonly<WorkspaceCanvasProps>): React.JSX.Element {
   const graph = useMemo(
-    () => deriveCanvasGraph(workspace, view),
-    [workspace, view],
+    () =>
+      overlayRetainedExplanationNodes(deriveCanvasGraph(workspace, view), {
+        view,
+        projections: retainedExplanations,
+        placements: explanationPlacements,
+      }),
+    [workspace, view, retainedExplanations, explanationPlacements],
   );
   const [nodes, setNodes] = useState(graph.nodes);
   const [receivedGraph, setReceivedGraph] = useState(graph);
   const [session] = useState(
     () => new PlacementSession({ projectId: workspace.project.id, onMove }),
   );
+  const [explanationSession] = useState(
+    () =>
+      new PlacementSession({
+        projectId: workspace.project.id,
+        onMove: async (input) => {
+          if (!onPlaceExplanation) {
+            throw new Error('Retained explanation placement is unavailable.');
+          }
+          await onPlaceExplanation({
+            projectId: input.projectId,
+            explanationId: input.recordId,
+            view: input.view,
+            x: input.x,
+            y: input.y,
+          });
+        },
+      }),
+  );
   const placements = useSyncExternalStore(
     session.subscribe,
     session.getSnapshot,
   );
-  const failures = [...placements.values()].filter(
-    (draft) => draft.phase === 'failed',
+  const explanationDrafts = useSyncExternalStore(
+    explanationSession.subscribe,
+    explanationSession.getSnapshot,
   );
+  const failures = [
+    ...placements.values(),
+    ...explanationDrafts.values(),
+  ].filter((draft) => draft.phase === 'failed');
   const [viewports, setViewports] = useState<Record<CanvasView, Viewport>>({
     distilled: DEFAULT_VIEWPORT,
     expanded: DEFAULT_VIEWPORT,
@@ -86,18 +131,69 @@ function CanvasSession({
   const zoom = viewports[view].zoom;
   const [notice, setNotice] = useState('');
   const [navigationBlocked, setNavigationBlocked] = useState(false);
-  const feedback = navigationBlocked
-    ? session.blockedNavigationNotice()
-    : notice;
   const flow = useReactFlow<CanvasNode>();
+  const selectedIds = nodes
+    .filter((node) => node.selected)
+    .map((node) => node.id);
+  const onEditEntryRef = useRef(onEditEntry);
+  const flushRef = useRef<() => Promise<boolean>>(async () => true);
+  useEffect(() => {
+    onEditEntryRef.current = onEditEntry;
+  }, [onEditEntry]);
+  const authoring = useCanvasAuthoring({
+    workspace,
+    view,
+    records,
+    onWorkspace,
+    onEditEntry: (entry) => {
+      void flushRef.current().then((ok) => {
+        if (ok) onEditEntryRef.current(entry);
+      });
+    },
+    flow,
+    placement: session,
+    setNotice,
+    selectedIds,
+  });
+  const feedback = navigationBlocked
+    ? authoring.blockedNotice ||
+      session.blockedNavigationNotice() ||
+      explanationSession.blockedNavigationNotice()
+    : notice;
   useEffect(() => {
     session.reconcile(workspace.placements);
   }, [session, workspace.placements, placements]);
+  useEffect(() => {
+    explanationSession.reconcile(
+      explanationPlacements.map((placement) => ({
+        projectId: placement.projectId,
+        recordId: placement.explanationId,
+        view: placement.view,
+        x: placement.x,
+        y: placement.y,
+        updatedAt: '',
+      })),
+    );
+  }, [explanationSession, explanationPlacements, explanationDrafts]);
   const active = useRef(true);
   const navigationRequest = useRef(0);
   useEffect(() => {
     session.setWriter(onMove);
   }, [session, onMove]);
+  useEffect(() => {
+    explanationSession.setWriter(async (input) => {
+      if (!onPlaceExplanation) {
+        throw new Error('Retained explanation placement is unavailable.');
+      }
+      await onPlaceExplanation({
+        projectId: input.projectId,
+        explanationId: input.recordId,
+        view: input.view,
+        x: input.x,
+        y: input.y,
+      });
+    });
+  }, [explanationSession, onPlaceExplanation]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -108,7 +204,9 @@ function CanvasSession({
     setReceivedGraph(graph);
     setNodes((previous) =>
       graph.nodes.map((node) => {
-        const draft = placements.get(`${view}:${node.id}`)?.input;
+        const draft =
+          placements.get(`${view}:${node.id}`)?.input ??
+          explanationDrafts.get(`${view}:${node.id}`)?.input;
         const existing = previous.find((item) => item.id === node.id);
         return {
           ...node,
@@ -129,14 +227,17 @@ function CanvasSession({
       'Map centered at a readable scale. Pan to reach nodes outside the viewport.',
     );
   }, [flow]);
+  const flushAuthoring = authoring.flush;
   const flush = useCallback(async (): Promise<boolean> => {
-    const saved = await session.flush();
+    const saved =
+      (await flushAuthoring()) && (await explanationSession.flush());
     if (!active.current) return false;
     setNavigationBlocked(!saved);
     if (saved) setNotice('');
     return saved;
-  }, [session]);
+  }, [flushAuthoring, explanationSession]);
   useEffect(() => {
+    flushRef.current = flush;
     registerFlush(flush);
     return () => registerFlush(null);
   }, [registerFlush, flush]);
@@ -177,8 +278,13 @@ function CanvasSession({
             )
             .map((placement) => placement.recordId),
         );
-        for (const node of updated)
-          if (session.get(view, node.id)) fixedIds.add(node.id);
+        for (const node of updated) {
+          if (
+            session.get(view, node.id) ||
+            explanationSession.get(view, node.id)
+          )
+            fixedIds.add(node.id);
+        }
         return arrangeMeasuredNodes(updated, fixedIds);
       });
       for (const change of changes) {
@@ -197,25 +303,58 @@ function CanvasSession({
             nodes.find((candidate) => candidate.id === change.id)?.position ??
             node.position,
         };
-        if (change.dragging) session.stage(movement);
-        else session.move(movement);
+        const owner =
+          node.data.placementKind === 'explanation'
+            ? explanationSession
+            : session;
+        if (change.dragging) owner.stage(movement);
+        else owner.move(movement);
       }
     },
-    [flow, nodes, session, workspace.project.id, workspace.placements, view],
+    [
+      flow,
+      nodes,
+      session,
+      explanationSession,
+      workspace.project.id,
+      workspace.placements,
+      view,
+    ],
   );
   const actions = useMemo(
     () => ({
       onOpenOrigin: (origin: Parameters<typeof onOpenOrigin>[0]) => {
         void beforeNavigation(() => onOpenOrigin(origin));
       },
-      onEditEntry: (entry: Parameters<typeof onEditEntry>[0]) => {
-        void beforeNavigation(() => onEditEntry(entry));
-      },
+      onEditEntry: authoring.editReference,
+      ...(onOpenRetainedExplanation
+        ? {
+            onOpenRetainedExplanation: (
+              input: Parameters<
+                NonNullable<WorkspaceCanvasProps['onOpenRetainedExplanation']>
+              >[0],
+            ) => {
+              void beforeNavigation(() => onOpenRetainedExplanation(input));
+            },
+          }
+        : {}),
     }),
-    [beforeNavigation, onOpenOrigin, onEditEntry],
+    [
+      authoring.editReference,
+      beforeNavigation,
+      onOpenOrigin,
+      onOpenRetainedExplanation,
+    ],
   );
   const resetPosition = (failedView: CanvasView, nodeId: string): void => {
-    const position = session.discard(failedView, nodeId);
+    if (authoring.initialPlacement.has(nodeId)) {
+      if (session.abandon(failedView, nodeId))
+        setNotice('Automatic placement kept. The note is saved.');
+      return;
+    }
+    const position =
+      session.discard(failedView, nodeId) ??
+      explanationSession.discard(failedView, nodeId);
     if (position) setNotice('Previous position restored.');
     if (position && failedView === view)
       setNodes((current) =>
@@ -230,9 +369,9 @@ function CanvasSession({
   ): void {
     if (event.key !== 'F2') return;
     const content = flow.getNode(nodeElement.dataset.id ?? '')?.data.content;
-    if (content?.editable && content.entry) {
+    if (content) {
       event.preventDefault();
-      actions.onEditEntry(content.entry);
+      authoring.requestEdit(content);
     }
   }
   function handleViewportKeyDown(event: React.KeyboardEvent): void {
@@ -265,8 +404,11 @@ function CanvasSession({
       event.target instanceof Element
         ? event.target.closest<HTMLElement>('.react-flow__node')
         : null;
-    if (nodeElement) handleNodeKeyDown(event, nodeElement);
-    else handleViewportKeyDown(event);
+    if (nodeElement) {
+      handleNodeKeyDown(event, nodeElement);
+      if (event.key !== 'F2') authoring.handleAuthoringKeyDown(event);
+    } else if (!authoring.handleAuthoringKeyDown(event))
+      handleViewportKeyDown(event);
   }
   const unavailableState =
     status === 'loading' ? (
@@ -302,6 +444,11 @@ function CanvasSession({
               edges={graph.edges}
               nodeTypes={nodeTypes}
               onNodesChange={onNodesChange}
+              onPaneContextMenu={authoring.onPaneContextMenu}
+              onNodeContextMenu={authoring.onNodeContextMenu}
+              onPaneClick={authoring.dismissMenu}
+              onMoveStart={authoring.dismissMenu}
+              multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
               nodesConnectable={false}
               edgesReconnectable={false}
               deleteKeyCode={null}
@@ -327,13 +474,11 @@ function CanvasSession({
               proOptions={{ hideAttribution: true }}
               onNodeDoubleClick={(event, node) => {
                 if (isNestedInteraction(event)) return;
-                const { content } = node.data;
-                if (content.editable && content.entry)
-                  actions.onEditEntry(content.entry);
+                authoring.requestEdit(node.data.content);
               }}
               onNodeClick={(_, node) =>
                 setNotice(
-                  `${node.data.content.label} selected.${node.data.content.editable ? ' Press F2 to edit your current writing.' : ''}`,
+                  `${node.data.content.label} selected.${canvasEditKind(node.data.content, authoring.enabled) ? ' Press F2 to edit your current writing.' : ''}`,
                 )
               }
               onKeyDown={handleMapKeyDown}
@@ -341,12 +486,20 @@ function CanvasSession({
               tabIndex={0}
             >
               <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
+              {authoring.toolbar && (
+                <Panel
+                  position="top-left"
+                  className="workspace-canvas-authoring-panel"
+                >
+                  {authoring.toolbar}
+                </Panel>
+              )}
               <Panel
                 position="bottom-left"
                 className="workspace-canvas-controls"
               >
                 <button
-                  className="ui-button ui-button--icon ui-button--small"
+                  className="ui-button ui-button--icon"
                   aria-label="Zoom out"
                   onClick={() => void flow.zoomOut()}
                 >
@@ -354,17 +507,18 @@ function CanvasSession({
                 </button>
                 <output aria-label="Zoom">{Math.round(zoom * 100)}%</output>
                 <button
-                  className="ui-button ui-button--icon ui-button--small"
+                  className="ui-button ui-button--icon"
                   aria-label="Zoom in"
                   onClick={() => void flow.zoomIn()}
                 >
                   +
                 </button>
-                <button className="ui-button ui-button--small" onClick={fitMap}>
+                <button className="ui-button" onClick={fitMap}>
                   Fit map
                 </button>
               </Panel>
             </ReactFlow>
+            {authoring.overlays}
           </>
         )}
         <aside
@@ -402,32 +556,47 @@ function CanvasSession({
               role="alert"
             >
               <div className="ui-alert__body">
-                {failures.map((failure) => (
-                  <div key={`${failure.input.view}:${failure.nodeId}`}>
-                    <p>
-                      Position could not be saved in {failure.input.view}. Your
-                      placement is kept here.
-                    </p>
-                    <div className="ui-action-row">
-                      <button
-                        className="ui-button ui-button--secondary"
-                        onClick={() =>
-                          session.retry(failure.input.view, failure.nodeId)
-                        }
-                      >
-                        Retry position
-                      </button>
-                      <button
-                        className="ui-button ui-button--secondary"
-                        onClick={() =>
-                          resetPosition(failure.input.view, failure.nodeId)
-                        }
-                      >
-                        Restore previous position
-                      </button>
+                {failures.map((failure) => {
+                  const createdKind = authoring.initialPlacement.get(
+                    failure.nodeId,
+                  );
+                  return (
+                    <div key={`${failure.input.view}:${failure.nodeId}`}>
+                      <p>
+                        {createdKind
+                          ? `${initialPlacementMessage(createdKind)}. Retry placement, not creation.`
+                          : `Position could not be saved in ${failure.input.view}. Your placement is kept here.`}
+                      </p>
+                      <div className="ui-action-row">
+                        <button
+                          className="ui-button ui-button--secondary"
+                          onClick={() => {
+                            if (
+                              !session.retry(failure.input.view, failure.nodeId)
+                            ) {
+                              explanationSession.retry(
+                                failure.input.view,
+                                failure.nodeId,
+                              );
+                            }
+                          }}
+                        >
+                          Retry position
+                        </button>
+                        <button
+                          className="ui-button ui-button--secondary"
+                          onClick={() =>
+                            resetPosition(failure.input.view, failure.nodeId)
+                          }
+                        >
+                          {createdKind
+                            ? 'Leave at automatic placement'
+                            : 'Restore previous position'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

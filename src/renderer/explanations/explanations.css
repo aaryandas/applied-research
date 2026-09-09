@@ -172,3 +172,23 @@
 .tool-panel [hidden] {
   display: none;
 }
+
+.contextual-help {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.contextual-help-quote {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--accent-soft, #efe8d8);
+  border-radius: var(--radius-control, 8px);
+}
+.contextual-help textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.contextual-help-answer {
+  padding: 8px 0 16px;
+}

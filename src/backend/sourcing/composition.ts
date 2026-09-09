@@ -15,7 +15,7 @@ import { silentDiagnostics } from '../diagnostics.js';
 import { SOURCE_INDEX_CORPUS_VERSION } from '../policy.js';
 import { SourceAcquisitionAdapter } from './acquisition/acquire.js';
 import type { AcquisitionAdapterResult } from './acquisition/types.js';
-import { discoverStarterCatalog } from './catalog.js';
+import { discoverStarterCatalog, composeCatalogSources } from './catalog.js';
 import {
   parseAcquireCanonicalSourceRequest,
   parseAcquireCanonicalSourceResponse,
@@ -23,13 +23,18 @@ import {
   parseDiscoverSourcesResponse,
 } from './contract-validation.js';
 import { authorityFromSources } from './corpus-authority.js';
-import type { EmbeddingBudgetService } from './budgets.js';
-import type { EmbeddingClient } from './embedding.js';
+import type {
+  EmbeddingBudgetDecision,
+  EmbeddingBudgetService,
+} from './budgets.js';
 import {
   EmbeddingFailure,
   preparedQueryInput,
   queryReservationMicrousd,
   sourceIndexGeneration,
+  type EmbeddingClient,
+  type PaidDispatchReconciliation,
+  type PaidEmbeddingResult,
 } from './embedding.js';
 import { accountPaidEmbedding } from './paid-reservation.js';
 import {
@@ -37,7 +42,7 @@ import {
   type TurbopufferIndex,
 } from './index/adapter.js';
 import { IndexOperationError } from './index/results.js';
-import type { LiveIndexTransport } from './index/types.js';
+import type { LiveIndexTransport, VersionedVector } from './index/types.js';
 import { indexAcquiredSource } from './index-acquired.js';
 import type { OpenAlexDiscoveryAdapter } from './openalex/adapter.js';
 import {
@@ -45,10 +50,17 @@ import {
   type SourceOperationStore,
 } from './operations.js';
 import type { SourcePersistence } from './persistence.js';
-import type {
-  RetrieveEvidenceAdapterRequest,
-  SourcingService,
-} from './service.js';
+import type { SourcingService } from './service.js';
+import {
+  boundUniversityLane,
+  indexingGrantFromDescriptor,
+  isExtractionReady,
+  mapUniversityAcquisitionFailure,
+  universityCandidateId,
+  type UniversityAcquisitionApi,
+  type UniversityByteTransport,
+  type UniversityLaneBinding,
+} from './university-join.js';
 
 export interface SourcingCompositionOptions {
   readonly persistence: SourcePersistence;
@@ -58,12 +70,28 @@ export interface SourcingCompositionOptions {
   readonly liveIndex?: LiveIndexTransport | undefined;
   readonly embedding?: EmbeddingClient | undefined;
   readonly embeddingBudget?: EmbeddingBudgetService | undefined;
+  readonly catalogSources?: readonly MetadataOnlySource[] | undefined;
+  readonly universityAcquisition?: UniversityAcquisitionApi | undefined;
+  readonly universityTransport?: UniversityByteTransport | undefined;
   readonly diagnostics?: Diagnostics | undefined;
   readonly clock?: (() => Date) | undefined;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
   ) => Promise<A>;
+}
+
+function resolveUniversityLane(
+  options: SourcingCompositionOptions,
+): UniversityLaneBinding | undefined {
+  const bound = boundUniversityLane();
+  const api = options.universityAcquisition ?? bound?.api;
+  const transport = options.universityTransport ?? bound?.transport;
+  if (!api || !transport) return undefined;
+  const catalog = options.catalogSources ?? bound?.catalog;
+  return catalog === undefined
+    ? { api, transport }
+    : { api, transport, catalog };
 }
 
 function remapSessionSafeDiscovery(
@@ -122,6 +150,22 @@ function uniqueSources(
   return unique;
 }
 
+function remoteDiscoveryIssues(
+  remoteSafe: DiscoverSourcesResponse | null,
+): ProviderIssue<'openalex'>[] {
+  if (remoteSafe === null) return [];
+  if (remoteSafe.outcome === 'partial') {
+    return remoteSafe.issues.filter(
+      (issue): issue is ProviderIssue<'openalex'> =>
+        issue.provider === 'openalex',
+    );
+  }
+  if (remoteSafe.outcome === 'success' || remoteSafe.outcome === 'no-results') {
+    return [];
+  }
+  return [openAlexDiscoveryIssue(remoteSafe)];
+}
+
 function discoveryFromCatalogAndRemote(
   request: DiscoverSourcesRequest,
   catalog: readonly MetadataOnlySource[],
@@ -136,17 +180,7 @@ function discoveryFromCatalogAndRemote(
     0,
     request.limit,
   );
-  const remoteIssues: ProviderIssue<'openalex'>[] =
-    remoteSafe?.outcome === 'partial'
-      ? remoteSafe.issues.filter(
-          (issue): issue is ProviderIssue<'openalex'> =>
-            issue.provider === 'openalex',
-        )
-      : remoteSafe &&
-          remoteSafe.outcome !== 'success' &&
-          remoteSafe.outcome !== 'no-results'
-        ? [openAlexDiscoveryIssue(remoteSafe)]
-        : [];
+  const remoteIssues = remoteDiscoveryIssues(remoteSafe);
   if (candidates.length === 0) {
     if (
       remoteSafe &&
@@ -225,6 +259,35 @@ function storedResponse<T>(
   }
 }
 
+function queryVectorFromPaid(
+  paid: PaidEmbeddingResult,
+  reconciliation: PaidDispatchReconciliation,
+): VersionedVector {
+  if (reconciliation === 'settled' && paid.reconciliation === 'settled') {
+    const vector = paid.vectors[0];
+    if (vector) return vector;
+  }
+  if (reconciliation === 'not-dispatched') {
+    throw new IndexOperationError('cancelled');
+  }
+  throw new IndexOperationError('unreconciled-spend');
+}
+
+async function cleanupUndispatchedQueryReservation(
+  runEffect: SourcingCompositionOptions['runEffect'],
+  reservation: Extract<
+    EmbeddingBudgetDecision,
+    { kind: 'reserved' }
+  >['reservation'],
+  cause: unknown,
+): Promise<void> {
+  if (cause instanceof EmbeddingFailure && cause.reason === 'invalid-input') {
+    await runEffect(reservation.release());
+    return;
+  }
+  await runEffect(reservation.retain());
+}
+
 function wrapLiveQueryBudget(
   composition: SourcingCompositionOptions,
   now: () => Date,
@@ -262,24 +325,14 @@ function wrapLiveQueryBudget(
           paid,
         );
         accounted = true;
-        if (reconciliation === 'settled' && paid.reconciliation === 'settled') {
-          const vector = paid.vectors[0];
-          if (vector) return vector;
-        }
-        if (reconciliation === 'not-dispatched') {
-          throw new IndexOperationError('cancelled');
-        }
-        throw new IndexOperationError('unreconciled-spend');
+        return queryVectorFromPaid(paid, reconciliation);
       } catch (cause) {
         if (!accounted) {
-          if (
-            cause instanceof EmbeddingFailure &&
-            cause.reason === 'invalid-input'
-          ) {
-            await composition.runEffect(decision.reservation.release());
-          } else {
-            await composition.runEffect(decision.reservation.retain());
-          }
+          await cleanupUndispatchedQueryReservation(
+            composition.runEffect,
+            decision.reservation,
+            cause,
+          );
         }
         throw cause;
       }
@@ -397,6 +450,7 @@ export function makeSourcingService(
             query: parsed.query,
             kinds: parsed.kinds,
             limit: parsed.limit,
+            sources: composeCatalogSources(options.catalogSources),
           });
           let remote: DiscoverSourcesResponse | null = null;
           if (options.openAlex && parsed.kinds.includes('paper')) {
@@ -471,6 +525,74 @@ export function makeSourcingService(
               decision: 'unknown',
               message: SOURCING_PUBLIC_MESSAGES.notPermitted,
             };
+          }
+          const university = resolveUniversityLane(options);
+          const candidateId = universityCandidateId(descriptor);
+          if (university?.api.supportsCandidate(candidateId)) {
+            const extracted = await university.api.acquireUniversitySource({
+              candidateId,
+              transport: university.transport,
+              signal: invocation.signal,
+              clock: { now },
+            });
+            if (!isExtractionReady(extracted)) {
+              return mapUniversityAcquisitionFailure(
+                parsed.requestId,
+                extracted,
+              );
+            }
+            const acquiredSource = university.api.toAcquiredSource(
+              extracted,
+              indexingGrantFromDescriptor(descriptor),
+            );
+            const passages =
+              university.api.sourcePassagesFromExtraction(extracted);
+            const stored = await options.runEffect(
+              options.persistence.saveRevision(
+                invocation.account.id,
+                acquiredSource,
+                now(),
+              ),
+            );
+            if (
+              options.liveIndex &&
+              options.embedding &&
+              options.embeddingBudget &&
+              stored.usePolicy.indexing.status === 'permitted'
+            ) {
+              const index = makeIndex(invocation.account.id, [stored]);
+              if (index) {
+                const indexed = await indexAcquiredSource(
+                  {
+                    persistence: options.persistence,
+                    index,
+                    embedding: options.embedding,
+                    budget: options.embeddingBudget,
+                    diagnostics,
+                    runEffect: options.runEffect,
+                    now,
+                  },
+                  stored,
+                  passages,
+                  invocation,
+                );
+                if (indexed === 'budget-exhausted') {
+                  return {
+                    outcome: 'budget-exhausted',
+                    requestId: parsed.requestId,
+                    message: SOURCING_PUBLIC_MESSAGES.budgetExhausted,
+                  };
+                }
+              }
+            }
+            return parseAcquireCanonicalSourceResponse(
+              {
+                outcome: 'success',
+                requestId: parsed.requestId,
+                source: stored,
+              },
+              parsed,
+            );
           }
           const acquired = await options.acquisition.acquire({
             request: parsed,
@@ -561,4 +683,4 @@ export function makeLiveSourcingIndex(
   });
 }
 
-export type { RetrieveEvidenceAdapterRequest };
+export type { RetrieveEvidenceAdapterRequest } from './service.js';

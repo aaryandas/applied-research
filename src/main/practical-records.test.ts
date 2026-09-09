@@ -12,7 +12,13 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { RecordPracticalResultInput } from '../contracts/practical-work';
-import { PracticalRecords } from './practical-records';
+import type { TrustedSceneCapture } from '../contracts/explanation-artifacts';
+import type { LearningOrigin } from '../contracts/learning-records';
+import {
+  PracticalRecords,
+  type PracticalOwnedCaptureLookup,
+  type PracticalOwnedExplanation,
+} from './practical-records';
 import { PracticalFileSelection } from './practical-file-selection';
 import { PracticalFileExport } from './practical-export';
 import { WorkspaceStore } from './workspace-store';
@@ -1567,4 +1573,359 @@ it('exports fail closed for a missing file, a directory destination, and a stale
   ).toEqual({ status: 'cancelled' });
   expect(existsSync(destination)).toBe(false);
   expect(stale.occupied).toBe(false);
+});
+
+function ownedExplanation(
+  explanationId: string,
+  projectId: string,
+  origin: LearningOrigin,
+): PracticalOwnedExplanation {
+  return { explanationId, projectId, origin };
+}
+
+function matchingPathOrigin(
+  activity: RecordPracticalResultInput['activity'],
+): LearningOrigin {
+  return {
+    path: {
+      pathId: activity.origin.path.pathId,
+      pathRevision: activity.origin.path.pathRevision,
+      topicId: activity.origin.path.topicId,
+      lessonId: activity.origin.path.lessonId,
+    },
+    ...(activity.origin.sourceRevisionId
+      ? { sourceRevisionId: activity.origin.sourceRevisionId }
+      : {}),
+  };
+}
+
+function ownedCaptureLookup(args: {
+  projectId: string;
+  captures: Map<string, TrustedSceneCapture>;
+  explanations: Map<string, PracticalOwnedExplanation>;
+}): PracticalOwnedCaptureLookup {
+  return {
+    loadCapture(projectId, captureId) {
+      if (projectId !== args.projectId) return null;
+      return args.captures.get(captureId) ?? null;
+    },
+    loadExplanation(projectId, explanationId) {
+      if (projectId !== args.projectId) return null;
+      const explanation = args.explanations.get(explanationId);
+      if (!explanation || explanation.projectId !== projectId) return null;
+      return explanation;
+    },
+  };
+}
+
+function recordsWithLookup(
+  database: ReturnType<typeof setup>['database'],
+  lookup: PracticalOwnedCaptureLookup,
+): PracticalRecords {
+  return new PracticalRecords(
+    drizzle(database, { schema: workspaceSchema }),
+    lookup,
+  );
+}
+
+function measuredDraft(
+  input: RecordPracticalResultInput,
+  captureId: string,
+  activity: RecordPracticalResultInput['activity'] = input.activity,
+): RecordPracticalResultInput {
+  return {
+    ...input,
+    activity,
+    draft: {
+      ...input.draft,
+      selectedEvidence: { kind: 'app-measured', captureId },
+    },
+  };
+}
+
+it('associates an owned retained capture using AR56 explanation identity', () => {
+  const { input, database } = setup();
+  const captureId = randomUUID();
+  const explanationId = randomUUID();
+  const measuredAt = '2026-09-09T08:00:00.000Z';
+  const capture: TrustedSceneCapture = {
+    kind: 'app-measured',
+    captureId,
+    explanationId,
+    measurement: {
+      kind: 'endpoint',
+      endpoint: { x: 3.5, y: 0, z: 0 },
+      units: 'model units',
+    },
+    measuredAt,
+  };
+  const captures = new Map<string, TrustedSceneCapture>([[captureId, capture]]);
+  const explanations = new Map<string, PracticalOwnedExplanation>([
+    [
+      explanationId,
+      ownedExplanation(
+        explanationId,
+        input.activity.projectId,
+        matchingPathOrigin(input.activity),
+      ),
+    ],
+  ]);
+  const lookup = ownedCaptureLookup({
+    projectId: input.activity.projectId,
+    captures,
+    explanations,
+  });
+  const records = recordsWithLookup(database, lookup);
+  expect(
+    records.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toMatchObject({ status: 'committed', acknowledgement: { revision: 1 } });
+  const loaded = records.loadPracticalAttempt({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(loaded).toMatchObject({
+    status: 'loaded',
+    attempt: {
+      draft: {
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+    },
+  });
+  if (loaded.status !== 'loaded' || !loaded.attempt)
+    throw new Error('Expected owned attempt');
+  expect(loaded.attempt.returnedEvidence).toEqual([
+    {
+      kind: 'app-measured',
+      captureId,
+      measuredAt,
+      summary: expect.stringContaining('App-measured endpoint'),
+    },
+  ]);
+  expect(
+    records.loadPracticalAttemptByProjectAndId(
+      input.activity.projectId,
+      input.attemptId,
+    ),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: { attemptId: input.attemptId },
+  });
+  explanations.delete(explanationId);
+  expect(
+    records.loadPracticalAttempt({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: {
+      draft: {
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+      returnedEvidence: [],
+    },
+  });
+  explanations.set(
+    explanationId,
+    ownedExplanation(
+      explanationId,
+      input.activity.projectId,
+      matchingPathOrigin(input.activity),
+    ),
+  );
+  captures.delete(captureId);
+  expect(
+    records.loadPracticalAttempt({
+      activity: input.activity,
+      attemptId: input.attemptId,
+    }),
+  ).toMatchObject({
+    status: 'loaded',
+    attempt: {
+      draft: {
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+      returnedEvidence: [],
+    },
+  });
+  expect(
+    records.loadPracticalAttemptByProjectAndId(
+      input.activity.projectId,
+      randomUUID(),
+    ),
+  ).toEqual({ status: 'loaded', attempt: null });
+});
+
+it('rejects measured association when project, explanation, or path identity differs', () => {
+  const { input, database, otherActivity } = setup();
+  const captureId = randomUUID();
+  const explanationId = randomUUID();
+  const capture: TrustedSceneCapture = {
+    kind: 'app-measured',
+    captureId,
+    explanationId,
+    measurement: {
+      kind: 'endpoint',
+      endpoint: { x: 1, y: 0, z: 0 },
+      units: 'model units',
+    },
+    measuredAt: '2026-09-09T08:00:00.000Z',
+  };
+  const matching = ownedExplanation(
+    explanationId,
+    input.activity.projectId,
+    matchingPathOrigin(input.activity),
+  );
+  const captures = new Map<string, TrustedSceneCapture>([[captureId, capture]]);
+  const explanations = new Map<string, PracticalOwnedExplanation>([
+    [explanationId, matching],
+  ]);
+  const owned = recordsWithLookup(
+    database,
+    ownedCaptureLookup({
+      projectId: input.activity.projectId,
+      captures,
+      explanations,
+    }),
+  );
+  expect(
+    owned.recordPracticalResult(measuredDraft(input, captureId, otherActivity)),
+  ).toEqual({ status: 'failed' });
+  expect(
+    owned.recordPracticalResult(measuredDraft(input, randomUUID())),
+  ).toEqual({ status: 'failed' });
+  const leakedProject = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(
+        explanationId,
+        otherActivity.projectId,
+        matchingPathOrigin(input.activity),
+      ),
+  });
+  expect(
+    leakedProject.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const wrongExplanation = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(
+        randomUUID(),
+        input.activity.projectId,
+        matchingPathOrigin(input.activity),
+      ),
+  });
+  expect(
+    wrongExplanation.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const missingRecord = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () => null,
+  });
+  expect(
+    missingRecord.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const wrongLesson = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(explanationId, input.activity.projectId, {
+        path: {
+          ...input.activity.origin.path,
+          lessonId: otherActivity.origin.path.lessonId,
+        },
+      }),
+  });
+  expect(
+    wrongLesson.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const wrongPathId = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(explanationId, input.activity.projectId, {
+        path: {
+          ...input.activity.origin.path,
+          pathId: otherActivity.origin.path.pathId,
+        },
+      }),
+  });
+  expect(
+    wrongPathId.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const wrongRevision = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(explanationId, input.activity.projectId, {
+        path: {
+          ...input.activity.origin.path,
+          pathRevision: input.activity.origin.path.pathRevision + 1,
+        },
+      }),
+  });
+  expect(
+    wrongRevision.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+  const wrongTopic = recordsWithLookup(database, {
+    loadCapture: () => capture,
+    loadExplanation: () =>
+      ownedExplanation(explanationId, input.activity.projectId, {
+        path: {
+          ...input.activity.origin.path,
+          topicId: otherActivity.origin.path.topicId,
+        },
+      }),
+  });
+  expect(
+    wrongTopic.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toEqual({ status: 'failed' });
+});
+
+it('associates an unlinked retained capture that has no course path', () => {
+  const { input, database } = setup();
+  const captureId = randomUUID();
+  const explanationId = randomUUID();
+  const sourceRevisionId = randomUUID();
+  const capture: TrustedSceneCapture = {
+    kind: 'app-measured',
+    captureId,
+    explanationId,
+    measurement: {
+      kind: 'part-positions',
+      positions: {
+        base: { x: 0, y: 0, z: 0 },
+        board: { x: 1, y: 0, z: 0 },
+        core: { x: 0, y: 1, z: 0 },
+        cover: { x: 0, y: 0, z: 1 },
+      },
+    },
+    measuredAt: '2026-09-09T08:00:00.000Z',
+  };
+  const records = recordsWithLookup(database, {
+    loadCapture: (projectId, id) =>
+      projectId === input.activity.projectId && id === captureId
+        ? capture
+        : null,
+    loadExplanation: (projectId, id) =>
+      projectId === input.activity.projectId && id === explanationId
+        ? ownedExplanation(explanationId, input.activity.projectId, {
+            sourceRevisionId,
+          })
+        : null,
+  });
+  expect(
+    records.recordPracticalResult(measuredDraft(input, captureId)),
+  ).toMatchObject({ status: 'committed', acknowledgement: { revision: 1 } });
+  const loaded = records.loadPracticalAttempt({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  if (loaded.status !== 'loaded' || !loaded.attempt)
+    throw new Error('Expected owned unlinked capture');
+  expect(loaded.attempt.returnedEvidence).toEqual([
+    {
+      kind: 'app-measured',
+      captureId,
+      measuredAt: capture.measuredAt,
+      summary: expect.stringContaining('App-measured part positions'),
+    },
+  ]);
 });

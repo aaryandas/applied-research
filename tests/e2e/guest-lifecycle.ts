@@ -30,20 +30,24 @@ export interface GuestLifecycleSnapshot {
 }
 
 /**
- * Production same-workspace guard (AR-50 guest lifecycle; copy into AR-56).
- * SourceDesktopOperations.activate already no-ops the same id. Decode before
- * teardown so invalid payloads cannot closeTool. True project switch and
- * logout (`null` after a selected id) still replaceWorkspace + closeTool.
- * Same-id Shell mount / StrictMode / signed-in replay must not.
+ * Production same-workspace guard (AR-50 guest lifecycle; AR-56 owns the
+ * onboarding/contextual mount). SourceDesktopOperations.activate already
+ * no-ops the same id. Decode before teardown so invalid payloads cannot
+ * closeTool. True project switch and logout (`null` after a selected id)
+ * still revoke in-flight onboarding, replaceWorkspace, and closeTool.
+ * Same-id Shell mount / StrictMode / signed-in replay must not kill guest
+ * or reset contextual generation counters.
  *
  *   handle(SOURCE_CHANNELS.activate, (value) => {
  *     const plan = planWorkspaceActivate(selectedWorkspaceId, value);
  *     if (plan.revokeOperations) {
+ *       onboardingOperations.revoke();
  *       practicalOperations.replaceWorkspace();
  *       closeTool();
  *     }
  *     sourceOperations.activate(value);
  *     selectedWorkspaceId = plan.nextId;
+ *     return contextualHelp.activate(value);
  *   });
  */
 export async function installGuestLifecycleProbe(
@@ -133,4 +137,95 @@ export function committedLearningToolsGuest(
       contents.url === url &&
       !contents.loading,
   );
+}
+
+/**
+ * capturePage can reject UnknownVizError immediately after URL/title/loading
+ * and bounds are already true: the guest is created at 0×0, resizeTool then
+ * setVisible+invalidate, and Chromium's viz compositor has not admitted a
+ * frame yet. Catch that inside evaluate so Playwright's Electron channel is
+ * not rejected, and wait for a real nonempty PNG. Same identified transients
+ * as practical-tools.spec.ts. Not a load-timeout and not a GPU flag.
+ */
+const GUEST_CAPTURE_TRANSIENT =
+  /UnknownVizError|Unable to capture|loading|tiny-png|missing-guest|missing-view|zero-bounds|not-visible|empty-image/i;
+
+type GuestCaptureAttempt =
+  { ok: true; png: string } | { ok: false; error: string };
+
+export async function captureAdmittedGuestPng(
+  application: ElectronApplication,
+  url: string,
+): Promise<Buffer> {
+  let admitted: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const result = await application.evaluate(
+          async (
+            { webContents, BrowserWindow, WebContentsView },
+            destination,
+          ): Promise<GuestCaptureAttempt> => {
+            const guest = webContents
+              .getAllWebContents()
+              .find((contents) => contents.getURL() === destination);
+            if (!guest) return { ok: false, error: 'missing-guest' };
+            if (guest.isDestroyed()) return { ok: false, error: 'destroyed' };
+            if (guest.isLoading()) return { ok: false, error: 'loading' };
+            const view =
+              BrowserWindow.getAllWindows()[0]?.contentView.children.find(
+                (child) =>
+                  child instanceof WebContentsView &&
+                  child.webContents.id === guest.id,
+              );
+            if (!view) return { ok: false, error: 'missing-view' };
+            const bounds = view.getBounds();
+            if (bounds.width < 1 || bounds.height < 1) {
+              return {
+                ok: false,
+                error: `zero-bounds:${bounds.width}x${bounds.height}`,
+              };
+            }
+            if (!view.getVisible()) return { ok: false, error: 'not-visible' };
+            try {
+              guest.invalidate();
+              const image = await guest.capturePage();
+              const png = image.toPNG();
+              if (image.isEmpty() || png.length < 32) {
+                return {
+                  ok: false,
+                  error: image.isEmpty()
+                    ? 'empty-image'
+                    : `tiny-png:${png.length}`,
+                };
+              }
+              return { ok: true, png: png.toString('base64') };
+            } catch (error_) {
+              const message =
+                error_ instanceof Error ? error_.message : String(error_);
+              return { ok: false, error: message };
+            }
+          },
+          url,
+        );
+        if (result.ok) {
+          admitted = result.png;
+          return 'admitted';
+        }
+        if (!GUEST_CAPTURE_TRANSIENT.test(result.error)) {
+          throw new Error(`Guest capture failed: ${result.error}`);
+        }
+        return result.error;
+      },
+      {
+        timeout: GUEST_COMMIT_TIMEOUT_MS,
+        message:
+          'Wait until the learning-tools guest compositor admits a nonempty capturePage PNG.',
+      },
+    )
+    .toBe('admitted');
+  if (!admitted) {
+    throw new Error('Guest capture did not produce a real image.');
+  }
+  return Buffer.from(admitted, 'base64');
 }

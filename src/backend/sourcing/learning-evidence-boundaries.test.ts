@@ -19,12 +19,12 @@ const NOW = new Date('2026-09-09T00:00:00.000Z');
 const TEXT = 'SQL selects rows from a table.';
 const QUOTE = 'SQL selects rows';
 
-const catalog = STARTER_CATALOG_SOURCES.find(
-  (item) => item.sourceId === 'bccampus_database_design_2e_ch15',
+const catalog = STARTER_CATALOG_SOURCES.find((item) =>
+  item.sourceId.includes('python'),
 );
 
 function requireCatalog(): MetadataOnlySource {
-  if (!catalog) throw new Error('expected reviewed SQL chapter');
+  if (!catalog) throw new Error('expected reviewed PSF chapter');
   return catalog;
 }
 

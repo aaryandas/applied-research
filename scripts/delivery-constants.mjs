@@ -125,8 +125,8 @@ export const UNTRUSTED_CURSOR_CREDENTIAL = [
 
 export const MISSING_LAUNCH_RECEIPT = [
   'Documented GET /v1/agents and GET /v1/agents/{id}/runs do not include model or originalModelName.',
-  'PASS requires a trusted-launch-job receipt bound to authenticated agentId, runId, repos[0].startingRef, and the GitHub Actions run that launched the critic.',
-  'Missing model fields on GET are not permission to treat coordinator or self-authored JSON as model proof.',
+  'PASS requires a trusted-launch-job receipt bound to authenticated agentId, runId, the GitHub Actions run/attempt/job that launched the critic, and GET repos[0].url.',
+  'POST pins repos[0].startingRef to the exact head and omits prUrl; GET may omit that optional startingRef echo. Missing GET model or startingRef fields are not permission to treat coordinator or self-authored JSON as proof.',
 ].join(' ');
 
 export const MISSING_ISOLATION_VARS = [

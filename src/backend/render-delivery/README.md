@@ -10,14 +10,24 @@ are an internal mirror until that checkpoint is published.
 ## What this slice does
 
 - Authenticated account identity comes from the session, never the body.
+- Production composition uses `createRemoteRenderEngine` against a private
+  worker daemon. Missing worker host configuration fail-closes render routes
+  without generating certificates. AR-48 joins submit through the account-scoped
+  planner receipt reader; it does not use a global project ACL, `allowAll`, or
+  client recipe/origin trust. See [render grant](../../context/render-grant.md).
+  worker daemon. `failClosedOriginOwnership` is the default until AR-48 injects
+  account-bound evidence. Railway is the API, not the Manim host.
 - One in-flight render per account; the worker still allows one active container
   and at most eight resident jobs.
 - Recipe JSON is the existing installed `linear-transform` /
   `weighted-combination` contract. No generated Python, compiler markup, URLs
   or executable source.
 - Success copies the worker file into an account-owned store, re-hashes it,
-  then releases temporary worker ownership. Cancelled, late, corrupt or
-  hash-mismatched files never become `ready`.
+  then releases temporary worker ownership. Failed, cancelled, unsupported,
+  deadline, and rejected-download executions are cancelled and released with a
+  finite cleanup budget so the eight-slot daemon cap is not exhausted. Staging
+  maps and worker handles stay until release is acknowledged; a failed ack
+  does not drop the retry handle or delete retained learner artifacts.
 - Public JSON and the renderer see an opaque `mediaId` plus verified metadata.
   Worker `artifactPath`, Docker argv and cookies never cross that seam.
 - Previous ready media remains when a later request fails.

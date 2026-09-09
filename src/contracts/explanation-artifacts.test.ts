@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeAnimationRecipe } from './animation-recipes.js';
 import { DEFAULT_ARM, isExplanationSpec } from './explanations';
+import { failureReason } from './contextual-contract-guards';
 import {
   decodeClipLocalState,
   decodeExplanationPlan,
@@ -8,6 +9,7 @@ import {
   decodeRetainedExplanation,
   decodeSceneCaptureRequest,
   decodeTrustedSceneCapture,
+  decodeVerifiedClipMetadata,
   EXPLANATION_ARTIFACT_CONTRACT_VERSION,
   RETAINED_CLIP_MAX_BYTES,
 } from './explanation-artifacts';
@@ -513,5 +515,132 @@ describe('retained artifacts and measurement authority', () => {
         measuredAt: createdAt,
       }).reason,
     ).toBe('shape');
+  });
+
+  it('accepts nonnegative finite stage timestamps and still requires a positive duration', () => {
+    const renderer = {
+      name: 'manim-community' as const,
+      version: '0.21.0' as const,
+      image,
+    };
+    const base = {
+      sha256,
+      mediaType: 'video/mp4',
+      bytes: 4096,
+      width: 1280,
+      height: 720,
+      durationSeconds: 10,
+      renderer,
+    };
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [
+          { name: 'Read the inputs', seconds: 0 },
+          { name: 'Transform continuously', seconds: 2 },
+          { name: 'Read the endpoint', seconds: 5 },
+        ],
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: 15 }],
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: -0.1 }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: Number.NaN }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: 15.1 }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        durationSeconds: 0,
+        stages: [{ name: 'Show weights', seconds: 0 }],
+      }).ok,
+    ).toBe(false);
+  });
+});
+
+describe('pinned renderer image references', () => {
+  const mainPinnedImagePattern =
+    /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
+
+  function metadata(imageValue: string) {
+    return {
+      sha256,
+      mediaType: 'video/mp4',
+      bytes: 4096,
+      width: 1280,
+      height: 720,
+      durationSeconds: 10,
+      stages,
+      renderer: {
+        name: 'manim-community',
+        version: '0.21.0',
+        image: imageValue,
+      },
+    };
+  }
+
+  function acceptedOnMain(value: string): boolean {
+    return (
+      value.length > 0 &&
+      value.length <= 256 &&
+      !value.includes('..') &&
+      !value.includes('\\') &&
+      !value.includes('://') &&
+      !value.startsWith('/') &&
+      mainPinnedImagePattern.test(value)
+    );
+  }
+
+  it('keeps the main accepted path/tag/digest language including an optional digest', () => {
+    const accepted = [
+      image,
+      'manimcommunity/manim',
+      'manimcommunity/manim:v0.21.0',
+      'a',
+      `${'a'.repeat(200)}:tag`,
+    ];
+    for (const value of accepted) {
+      expect(acceptedOnMain(value)).toBe(true);
+      expect(decodeVerifiedClipMetadata(metadata(value)).ok).toBe(true);
+    }
+  });
+
+  it('does not widen image authority past the previous 256-character bound and charset', () => {
+    const rejected = [
+      'Manimcommunity/manim',
+      '/manimcommunity/manim',
+      'manimcommunity/../manim',
+      'manimcommunity\\manim',
+      'https://example.test/manim',
+      'manimcommunity/manim:',
+      `manimcommunity/manim:v0.21.0@sha256:${'A'.repeat(64)}`,
+      `manimcommunity/manim:v0.21.0@sha256:${'a'.repeat(63)}`,
+      `${'a'.repeat(257)}`,
+      '',
+    ];
+    for (const value of rejected) {
+      expect(acceptedOnMain(value)).toBe(false);
+      expect(failureReason(decodeVerifiedClipMetadata(metadata(value)))).toBe(
+        'authority',
+      );
+    }
   });
 });

@@ -38,6 +38,7 @@ import {
   createCloudReviewAgent,
   getAgent,
   getRun,
+  isLaunchPinFailure,
   listArtifacts,
   listModels,
 } from './delivery-cursor-api.mjs';
@@ -340,7 +341,12 @@ export function evaluateIndependentReview({
   }
 
   try {
-    if (agent) assertPinnedStartingRef(agent, expectedHeadSha);
+    if (agent) {
+      assertPinnedStartingRef(agent, expectedHeadSha, {
+        launchReceipt,
+        repository: launchReceipt?.repository,
+      });
+    }
   } catch (error) {
     fail(error.message);
   }
@@ -673,7 +679,10 @@ export async function evaluateFromCursor({
   }
   try {
     agent = await getAgent(launchReceipt.agentId, { apiKey, fetchImpl, env });
-    assertPinnedStartingRef(agent, expectedHeadSha);
+    assertPinnedStartingRef(agent, expectedHeadSha, {
+      launchReceipt,
+      repository: launchReceipt.repository,
+    });
     run = await getRun(agent.id, originalRunId, { apiKey, fetchImpl, env });
     try {
       artifacts = await listArtifacts(agent.id, { apiKey, fetchImpl, env });
@@ -682,7 +691,7 @@ export async function evaluateFromCursor({
     }
   } catch (error) {
     const message = redactSecrets(error.message);
-    if (/startingRef/.test(message)) {
+    if (isLaunchPinFailure(message) || /startingRef/.test(message)) {
       return {
         passed: false,
         status: 'FAIL',

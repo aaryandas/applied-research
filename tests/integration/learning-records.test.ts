@@ -1250,3 +1250,242 @@ it('rejects backend citations that do not exactly locate owned source text', () 
   expect(store.getLearningWorkspace(project.id).paths).toEqual([]);
   store.close();
 });
+
+it('persists exact parent entry revisions on a production store and reopens them', () => {
+  const path = databasePath();
+  const store = new WorkspaceStore(path);
+  const project = store.create('Retain entry origins');
+  const parent = committed(
+    store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Parent question',
+      body: 'Exact parent wording',
+      origin: null,
+    }),
+  );
+  const entryOrigin = { entry: { entryId: parent.id, revision: 1 } };
+  const child = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Child note',
+      body: 'Origin-only child',
+      origin: entryOrigin,
+    }),
+  );
+  expect(child.current.origin).toEqual(entryOrigin);
+  expect(child.current.body).toBe('Origin-only child');
+
+  const unchanged = store.saveReadingNote({
+    projectId: project.id,
+    entryId: child.id,
+    expectedRevision: 1,
+    title: 'Child note',
+    body: 'Origin-only child',
+    origin: entryOrigin,
+  });
+  expect(unchanged.status).toBe('committed');
+  if (unchanged.status === 'committed') {
+    expect(unchanged.acknowledgement.changed).toBe(false);
+    expect(unchanged.acknowledgement.revision).toBe(1);
+  }
+
+  const relinked = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      entryId: child.id,
+      expectedRevision: 1,
+      title: 'Child note',
+      body: 'Origin-only child',
+      origin: { entry: { entryId: parent.id, revision: 1 } },
+    }),
+  );
+  expect(relinked.currentRevision).toBe(1);
+
+  const sibling = committed(
+    store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Second parent',
+      body: 'Another parent',
+      origin: null,
+    }),
+  );
+  const parentOnlyChange = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      entryId: child.id,
+      expectedRevision: 1,
+      title: 'Child note',
+      body: 'Origin-only child',
+      origin: { entry: { entryId: sibling.id, revision: 1 } },
+    }),
+  );
+  expect(parentOnlyChange.currentRevision).toBe(2);
+  expect(parentOnlyChange.current.origin).toEqual({
+    entry: { entryId: sibling.id, revision: 1 },
+  });
+  expect(
+    parentOnlyChange.revisions.find((item) => item.revision === 1)?.origin,
+  ).toEqual(entryOrigin);
+
+  committed(
+    store.saveQuestion({
+      projectId: project.id,
+      entryId: sibling.id,
+      expectedRevision: 1,
+      title: 'Second parent',
+      body: 'Updated parent later',
+      origin: null,
+    }),
+  );
+  expect(
+    store
+      .getLearningWorkspace(project.id)
+      .entries.find((item) => item.id === child.id)?.current.origin,
+  ).toEqual({ entry: { entryId: sibling.id, revision: 1 } });
+
+  const sourced = committed(
+    store.importTextSource({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Exact source',
+      text: 'Canonical human bytes',
+      acquiredAt: '2026-09-09T12:00:00.000Z',
+    }),
+  );
+  const sourcedNote = committed(
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Sourced',
+      body: 'Keeps source origin',
+      origin: {
+        sourceRevisionId: sourced.currentVersionId,
+        entry: { entryId: parent.id, revision: 1 },
+      },
+    }),
+  );
+  expect(sourcedNote.current.origin).toEqual({
+    sourceRevisionId: sourced.currentVersionId,
+    entry: { entryId: parent.id, revision: 1 },
+  });
+
+  expect(() =>
+    store.saveReadingNote({
+      projectId: project.id,
+      entryId: child.id,
+      expectedRevision: 2,
+      title: 'Child note',
+      body: 'Origin-only child',
+      origin: { entry: { entryId: child.id, revision: 1 } },
+    }),
+  ).toThrow('cannot reference itself');
+  expect(() =>
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Missing parent',
+      body: 'Missing',
+      origin: {
+        entry: {
+          entryId: '80000000-0000-4000-8000-000000000099',
+          revision: 1,
+        },
+      },
+    }),
+  ).toThrow('not found in this learning space');
+  expect(() =>
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Missing parent revision',
+      body: 'Missing',
+      origin: { entry: { entryId: parent.id, revision: 99 } },
+    }),
+  ).toThrow('not found in this learning space');
+
+  const other = store.create('Foreign space');
+  const foreign = committed(
+    store.saveQuestion({
+      projectId: other.id,
+      expectedRevision: 0,
+      title: 'Foreign',
+      body: 'Other project',
+      origin: null,
+    }),
+  );
+  expect(() =>
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Foreign parent',
+      body: 'No',
+      origin: { entry: { entryId: foreign.id, revision: 1 } },
+    }),
+  ).toThrow('not found in this learning space');
+
+  const cycleA = committed(
+    store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Cycle A',
+      body: 'A',
+      origin: null,
+    }),
+  );
+  const cycleB = committed(
+    store.saveQuestion({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Cycle B',
+      body: 'B',
+      origin: { entry: { entryId: cycleA.id, revision: 1 } },
+    }),
+  );
+  expect(() =>
+    store.saveQuestion({
+      projectId: project.id,
+      entryId: cycleA.id,
+      expectedRevision: 1,
+      title: 'Cycle A',
+      body: 'A',
+      origin: { entry: { entryId: cycleB.id, revision: 1 } },
+    }),
+  ).toThrow('cannot form a cycle');
+
+  const beforeLegacy = store
+    .getLearningWorkspace(project.id)
+    .entries.find((item) => item.id === child.id)!;
+  store.saveEntry({
+    projectId: project.id,
+    id: child.id,
+    kind: 'note',
+    title: 'Child note',
+    body: 'Legacy edit keeps origin',
+    url: '',
+  });
+  const afterLegacy = store
+    .getLearningWorkspace(project.id)
+    .entries.find((item) => item.id === child.id)!;
+  expect(afterLegacy.currentRevision).toBe(beforeLegacy.currentRevision + 1);
+  expect(afterLegacy.current.origin).toEqual(beforeLegacy.current.origin);
+  expect(afterLegacy.current.body).toBe('Legacy edit keeps origin');
+
+  store.close();
+  const reopened = new WorkspaceStore(path);
+  const restored = reopened
+    .getLearningWorkspace(project.id)
+    .entries.find((item) => item.id === child.id);
+  expect(restored?.current.origin).toEqual({
+    entry: { entryId: sibling.id, revision: 1 },
+  });
+  expect(
+    restored?.revisions.find((item) => item.revision === 1)?.origin,
+  ).toEqual(entryOrigin);
+  expect(restored?.revisions.find((item) => item.revision === 1)?.body).toBe(
+    'Origin-only child',
+  );
+  reopened.close();
+});

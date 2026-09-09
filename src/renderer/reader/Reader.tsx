@@ -16,11 +16,13 @@ import type {
   LearningWorkspace,
   PathOrigin,
   PathSourceState,
+  SourceCitation,
   SourceRecord,
   SourceHighlight,
   SourceVersion,
 } from '../../contracts/learning-records';
 import { DraftSession } from './draft-session';
+import { generatedLessonCitations, lessonForPath } from './generated-citations';
 import { ReaderContext } from './ReaderContext';
 import { isHumanSupport } from './human-support';
 import { ReaderSidebar, type WorkspaceDestination } from './ReaderSidebar';
@@ -40,6 +42,7 @@ export interface ReaderProps {
   sidebar?: ReactNode;
   explanation?: ReactNode;
   onPathChange?: (path: PathOrigin | undefined) => void;
+  onReadingLocation?: (location: ReaderReadingLocation) => void;
   onExplainSelection?: (request: ReaderExplanationRequest) => Promise<void>;
 }
 
@@ -49,11 +52,20 @@ export interface ReaderExplanationRequest {
   quote: string;
 }
 
+export type ReaderReadingLocation = {
+  path: PathOrigin | undefined;
+  sourceRevisionId: string | null;
+  span: TextSpan | null;
+};
+
 export interface ReaderNavigationControls {
   /** Use only while this project-keyed Reader remains mounted. Home/close use registerFlush. */
   flushViewNavigation: () => Promise<boolean>;
   openOrigin: (origin: LearningOrigin) => void;
+  restoreReading: (origin: LearningOrigin, span: TextSpan | null) => void;
+  readingLocation: () => ReaderReadingLocation;
   editEntry: (entry: EntryRevisionReference) => void;
+  revealEntry: (entry: EntryRevisionReference) => void;
 }
 
 /** The shell must flush before replacing this project-keyed component. */
@@ -71,6 +83,7 @@ function ProjectReader({
   sidebar,
   explanation,
   onPathChange,
+  onReadingLocation,
   onExplainSelection,
 }: Readonly<ReaderProps>): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
@@ -119,14 +132,57 @@ function ProjectReader({
   });
   const [supports, setSupports] = useState<string[]>([]);
   const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
+  const [revealedEntry, setRevealedEntry] =
+    useState<EntryRevisionReference | null>(null);
+  const explanationRegion = useRef<HTMLElement>(null);
+  const [explanationFocus, setExplanationFocus] = useState(0);
   const isOccupied = busy || importState.saving;
   function selectPath(next: PathOrigin | undefined): void {
     setPath(next);
     onPathChange?.(next);
   }
+  const pathRef = useRef(path);
+  const versionRef = useRef(version);
+  const spanRef = useRef(span);
+  const revealRef = useRef(reveal);
+  pathRef.current = path;
+  versionRef.current = version;
+  spanRef.current = span;
+  revealRef.current = reveal;
+  useEffect(() => {
+    onReadingLocation?.({
+      path,
+      sourceRevisionId: version?.revisionId ?? null,
+      span: span ?? reveal?.span ?? null,
+    });
+  }, [onReadingLocation, path, version, span, reveal]);
+  useLayoutEffect(() => {
+    if (!explanationFocus) return;
+    const node = explanationRegion.current;
+    if (!node) return;
+    node.scrollIntoView?.({ block: 'nearest' });
+    node.focus({ preventScroll: true });
+  }, [explanationFocus]);
+  function currentReadingLocation(): ReaderReadingLocation {
+    return {
+      path: pathRef.current,
+      sourceRevisionId: versionRef.current?.revisionId ?? null,
+      span: spanRef.current ?? revealRef.current?.span ?? null,
+    };
+  }
+  function applyExactSpan(
+    edition: SourceVersion | null,
+    span: TextSpan | null,
+  ): void {
+    if (!edition || !span || !isExactSpan(edition.canonicalText, span)) return;
+    setSpan(span);
+    setReveal({ span });
+  }
   useImperativeHandle(navigationRef, () => ({
     flushViewNavigation,
     openOrigin,
+    restoreReading,
+    readingLocation: currentReadingLocation,
     editEntry: (reference) => {
       const entry = workspace.entries.find(
         (item) => item.id === reference.entryId,
@@ -143,6 +199,7 @@ function ProjectReader({
       }
       edit(entry);
     },
+    revealEntry,
   }));
   useEffect(() => {
     active.current = true;
@@ -203,6 +260,7 @@ function ProjectReader({
           origin: retained.origin,
           quote: selection.span.quote,
         });
+      if (active.current) setExplanationFocus((count) => count + 1);
     } catch {
       if (active.current)
         setMessage(
@@ -330,19 +388,52 @@ function ProjectReader({
       highlight: result.record,
     };
   }
+  function revealEntry(reference: EntryRevisionReference): void {
+    const entry = workspace.entries.find(
+      (item) => item.id === reference.entryId,
+    );
+    if (!entry) {
+      setRevealedEntry(null);
+      setMessage('The referenced entry is unavailable.');
+      return;
+    }
+    const revision = entry.revisions.find(
+      (item) => item.revision === reference.revision,
+    );
+    if (!revision) {
+      setRevealedEntry(null);
+      setMessage(
+        `This link refers to revision ${reference.revision}; that retained wording is unavailable.`,
+      );
+      return;
+    }
+    setMessage(null);
+    setRevealedEntry(reference);
+  }
   function openOrigin(origin: LearningOrigin): void {
+    restoreReading(origin, null);
+  }
+  function restoreReading(origin: LearningOrigin, span: TextSpan | null): void {
     if (!origin.sourceRevisionId && origin.path) {
-      void openLesson(origin.path);
+      void openLesson(origin.path).then(() => {
+        const lesson = lessonVersion(workspace, origin.path);
+        applyExactSpan(lesson, span);
+      });
       return;
     }
     void beforeNavigation(() => {
       try {
         const resolved = resolveOrigin(workspace, origin);
         setVersion(resolved.version);
-        setSpan(resolved.span);
         selectPath(origin.path);
         setMessage(null);
-        setReveal({ span: resolved.span });
+        if (span && isExactSpan(resolved.version.canonicalText, span)) {
+          setSpan(span);
+          setReveal({ span });
+        } else {
+          setSpan(resolved.span);
+          setReveal({ span: resolved.span });
+        }
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : 'Source origin unavailable.',
@@ -371,6 +462,15 @@ function ProjectReader({
       });
     });
   }
+  function openCitation(citation: SourceCitation): void {
+    restoreReading(
+      {
+        ...(path ? { path } : {}),
+        sourceRevisionId: citation.revisionId,
+      },
+      { start: citation.start, end: citation.end, quote: citation.quote },
+    );
+  }
   function renderSourceContent(): ReactElement {
     if (version)
       return (
@@ -378,6 +478,11 @@ function ProjectReader({
           version={version}
           source={workspace.sources.find(
             (item) => item.id === version.sourceId,
+          )}
+          sources={workspace.sources}
+          citations={generatedLessonCitations(
+            version,
+            lessonForPath(workspace, path),
           )}
           span={span}
           reveal={reveal}
@@ -393,6 +498,7 @@ function ProjectReader({
           onUpdate={(source) => void beforeNavigation(() => openImport(source))}
           onNote={() => void retainSelectionAndBegin('note')}
           onQuestion={() => void retainSelectionAndBegin('question')}
+          onOpenCitation={openCitation}
           {...(onExplainSelection
             ? {
                 onExplainText: () => void explainSelection('text'),
@@ -503,20 +609,36 @@ function ProjectReader({
               </section>
             )}
             {renderSourceContent()}
-            {explanation}
+            {explanation ? (
+              <section
+                ref={explanationRegion}
+                className="reader-contextual-response"
+                tabIndex={-1}
+                aria-label="Contextual explanation response"
+              >
+                {explanation}
+              </section>
+            ) : null}
           </article>
           <ReaderContext
             workspace={workspace}
             session={session}
             supports={supports}
             busy={busy}
+            reveal={revealedEntry}
             onSupportsChange={setSupports}
             onEdit={edit}
             onOpenOrigin={openOrigin}
+            onRevealEntry={revealEntry}
             onInsight={() => void retainSelectionAndBegin('insight')}
-            onSource={(source) =>
+            citations={generatedLessonCitations(
+              version,
+              lessonForPath(workspace, path),
+            )}
+            onOpenCitation={openCitation}
+            onOpenSourceVersion={(edition) =>
               void beforeNavigation(() => {
-                setVersion(source.currentVersion);
+                setVersion(edition);
                 setSpan(null);
                 setReveal(null);
                 selectPath(undefined);
@@ -535,4 +657,25 @@ function unavailableSourceMessage(state: PathSourceState): string {
   if (state === 'unsupported')
     return 'Readable content is unsupported for this lesson. You can add a source or save a question.';
   return 'Readable content is pending for this lesson. You can add a source or save a question.';
+}
+
+function lessonVersion(
+  workspace: LearningWorkspace,
+  origin: PathOrigin | undefined,
+): SourceVersion | null {
+  if (!origin?.lessonId) return null;
+  const record = workspace.paths.find((item) => item.id === origin.pathId);
+  const revision =
+    record?.currentRevision === origin.pathRevision
+      ? record.current
+      : record?.revisions.find((item) => item.revision === origin.pathRevision);
+  const sourceRevisionId = revision?.topics
+    .find((item) => item.id === origin.topicId)
+    ?.lessons.find((item) => item.id === origin.lessonId)?.sourceRevisionId;
+  if (!sourceRevisionId) return null;
+  return (
+    workspace.sources
+      .flatMap((source) => source.versions)
+      .find((item) => item.revisionId === sourceRevisionId) ?? null
+  );
 }

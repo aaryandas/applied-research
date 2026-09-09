@@ -1,9 +1,65 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { fixture } from './reader.test.fixtures';
-import { InsightSupports } from './EntryOrigin';
+import { EntryOrigin, InsightSupports } from './EntryOrigin';
+import type { LearningEntryRecord } from '../../contracts/learning-records';
 
 describe('retained support provenance', () => {
+  it('shows an explicit parent-entry link distinct from source origin', () => {
+    const { workspace } = fixture();
+    const record = (
+      id: string,
+      current: LearningEntryRecord['current'],
+    ): LearningEntryRecord => ({
+      id,
+      projectId: 'project',
+      currentRevision: current.revision,
+      current,
+      revisions: [current],
+      createdAt: '',
+    });
+    const parentCurrent = {
+      kind: 'question' as const,
+      revision: 1,
+      title: 'Parent question',
+      body: 'Exact parent',
+      url: '',
+      citations: [],
+      authorKind: 'human' as const,
+      recordedAt: '',
+      origin: null,
+      supports: [],
+    };
+    const childCurrent = {
+      ...parentCurrent,
+      kind: 'note' as const,
+      title: 'Follow-up',
+      body: 'Child note',
+      origin: { entry: { entryId: 'parent', revision: 1 } },
+    };
+    workspace.entries = [
+      record('parent', parentCurrent),
+      record('child', childCurrent),
+    ];
+    const onOpen = vi.fn();
+    const onRevealEntry = vi.fn();
+    render(
+      <EntryOrigin
+        revision={childCurrent}
+        workspace={workspace}
+        onOpen={onOpen}
+        onRevealEntry={onRevealEntry}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open parent entry' }));
+    expect(onRevealEntry).toHaveBeenCalledWith({
+      entryId: 'parent',
+      revision: 1,
+    });
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Open origin' })).toBeNull();
+  });
+
   it('shows the cited wording after a note changes, and reports missing revisions', async () => {
     const { bridge } = fixture();
     await bridge.saveReadingNote({

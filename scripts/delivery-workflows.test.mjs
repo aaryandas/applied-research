@@ -114,6 +114,14 @@ test('linear gate receives PR draft/state and does not claim to move Linear', ()
     true,
   );
   assert.match(gate, /does not move Linear status/);
+  assert.match(
+    gate,
+    /group: linear-gate-\$\{\{ github\.event\.pull_request\.number \}\}/,
+  );
+  assert.match(gate, /cancel-in-progress: true/);
+  assert.match(gate, /cancelled run is not a passing Linear gate/);
+  assert.equal(gate.includes('continue-on-error'), false);
+  assert.equal(/if:.*cancelled/.test(gate), false);
 });
 
 test('CI classification job has no environment secrets and does not block on expected failures', () => {

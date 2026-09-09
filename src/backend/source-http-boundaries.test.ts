@@ -42,16 +42,16 @@ const discovery: DiscoverSourcesRequest = {
   kinds: ['chapter', 'paper'],
   limit: 5,
 };
-const chapter = STARTER_CATALOG_SOURCES.find(
-  (item) => item.sourceId === 'bccampus_database_design_2e_ch15',
+const chapter = STARTER_CATALOG_SOURCES.find((item) =>
+  item.sourceId.includes('python'),
 );
 const acquisition: AcquireCanonicalSourceRequest = {
   apiVersion: '2026-09-08',
   requestId: 'acquire-01',
-  sourceId: 'bccampus_database_design_2e_ch15',
-  providerIdentity: {
+  sourceId: chapter?.sourceId ?? 'curated_python_floating_point_3_14_7',
+  providerIdentity: chapter?.providerIds[0] ?? {
     provider: 'curated-catalog',
-    id: 'bccampus-dbdesign-2e-ch15',
+    id: 'python-floating-point-3-14-7',
   },
 };
 const generation: LearningRequest = {
@@ -69,7 +69,7 @@ const account = { id: 'user-a', name: 'Ada', image: null };
 const electronAuthCallbackScript = Buffer.from('/* synthetic callback */');
 
 function requireChapter(): MetadataOnlySource {
-  if (!chapter) throw new Error('expected reviewed SQL chapter');
+  if (!chapter) throw new Error('expected reviewed PSF chapter');
   return chapter;
 }
 

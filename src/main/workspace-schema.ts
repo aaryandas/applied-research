@@ -215,6 +215,8 @@ export const entryRevisionContext = sqliteTable(
     pathRevision: integer('path_revision'),
     topicId: text('topic_id'),
     lessonId: text('lesson_id'),
+    originEntryId: text('origin_entry_id'),
+    originEntryRevision: integer('origin_entry_revision'),
   },
   (table) => [primaryKey({ columns: [table.entryId, table.revision] })],
 );
@@ -304,3 +306,8 @@ export type WorkspaceDatabase = BetterSQLite3Database<typeof workspaceSchema>;
 export type WorkspaceTransaction = Parameters<
   Parameters<WorkspaceDatabase['transaction']>[0]
 >[0];
+
+export {
+  applyLearningOnboardingTables,
+  learningOnboardingSchema,
+} from './learning-onboarding-schema';

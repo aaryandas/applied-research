@@ -1,6 +1,4 @@
-import { constants } from 'node:fs';
-import { access, lstat, realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { trustedExecutable } from '../../render-worker/trusted-runtime.js';
 
 export interface TrustedRenderRuntime {
   readonly docker: string;
@@ -9,7 +7,6 @@ export interface TrustedRenderRuntime {
   readonly ffprobe: string;
 }
 
-const EXECUTABLE_UNWRITABLE = 0o022;
 const CONTEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export function trustedDockerContextName(context: string): string {
@@ -17,24 +14,6 @@ export function trustedDockerContextName(context: string): string {
     throw new Error('Docker context name is not a trusted identifier.');
   }
   return context;
-}
-
-async function trustedExecutable(
-  value: string | undefined,
-  name: string,
-): Promise<string> {
-  if (typeof value !== 'string' || !isAbsolute(value)) {
-    throw new Error(`${name} must be an absolute installed executable path.`);
-  }
-  const resolved = await realpath(value);
-  const entry = await lstat(resolved);
-  if (!entry.isFile() || (entry.mode & EXECUTABLE_UNWRITABLE) !== 0) {
-    throw new Error(
-      `${name} must be a regular executable without group or public write access.`,
-    );
-  }
-  await access(resolved, constants.X_OK);
-  return resolved;
 }
 
 /**

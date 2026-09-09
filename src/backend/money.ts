@@ -1,5 +1,11 @@
 export const MICROUSD_PER_USD = 1_000_000;
 
+/** Safe nonnegative integer µUSD. Non-integers and infinities are not settled. */
+export function honestChargeMicrousd(value: number): number | undefined {
+  if (!Number.isSafeInteger(value) || value < 0) return undefined;
+  return value;
+}
+
 export function usdToMicrousd(value: unknown): number {
   if (typeof value !== 'number' && typeof value !== 'string') {
     throw new TypeError('Provider cost is missing.');

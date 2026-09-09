@@ -18,22 +18,23 @@ import {
   GUEST_COMMIT_TIMEOUT_MS,
   MATRIX_LAB_TITLE,
   MATRIX_LAB_URL,
+  captureAdmittedGuestPng,
   committedLearningToolsGuest,
   installGuestLifecycleProbe,
   readGuestLifecycle,
   settleActivatedWorkspace,
 } from './guest-lifecycle';
+import { desktopE2EEnv } from './desktop-e2e-env';
+import { startLearningWorkspace } from './start-learning-workspace';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
   return electron.launch({
     ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }),
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
+    env: desktopE2EEnv(directory, {
       APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR: key ? 'true' : 'false',
       OPENROUTER_API_KEY: key,
-    },
+    }),
   });
 }
 
@@ -85,6 +86,35 @@ async function resizeViewport(
   return true;
 }
 
+test('packaged production cannot skip Opening from the desktop-e2e environment', async () => {
+  test.skip(!PACKAGED, 'Production-mode negative for the packaged executable.');
+  const directory = mkdtempSync(
+    join(tmpdir(), 'applied-electron-packaged-e2e-'),
+  );
+  const application = await launch(directory);
+  try {
+    const page = await application.firstWindow();
+    useElectronCloseHandling(page);
+    await expect(
+      page.getByLabel('What do you want to learn about?', { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByLabel('What do you want to learn about?', { exact: true })
+      .fill('Keep propose and accept required in packaged production');
+    await page.getByRole('button', { name: 'Start learning' }).click();
+    await expect(
+      page.getByText(/uncertainty is a valid answer/i),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Reading' })).toHaveCount(0);
+    expect(
+      await page.evaluate(() => window.desktop.info.testEnvironment ?? null),
+    ).toBeNull();
+  } finally {
+    await closeTestApplication(application);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('saves an offline learning space, edits and layout across a real Electron restart', async () => {
   test.setTimeout(60_000);
   const directory = mkdtempSync(join(tmpdir(), 'applied-electron-'));
@@ -106,10 +136,7 @@ test('saves an offline learning space, edits and layout across a real Electron r
     ).toBe('undefined');
     await page.evaluate(() => window.open('https://example.com'));
     expect(application.windows()).toHaveLength(1);
-    await page
-      .getByLabel('What do you want to learn about?', { exact: true })
-      .fill('Understand linear transformations');
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    await startLearningWorkspace(page, 'Understand linear transformations');
     await page.getByRole('button', { name: 'Add source', exact: true }).click();
     await page.getByLabel('Source title').fill('Synthetic shear source');
     await page
@@ -280,10 +307,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
     const page = await application.firstWindow();
     useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page
-      .getByLabel('What do you want to learn about?', { exact: true })
-      .fill('Build an intuition for linear algebra');
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    await startLearningWorkspace(page, 'Build an intuition for linear algebra');
     await settleActivatedWorkspace(page);
     // Guest and development tutor controls are no longer shell destinations.
     // Exercise their supported named preload operations against real main and SQLite.
@@ -417,17 +441,12 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
           ?.getBounds(),
     );
     expect(guestBounds).toEqual({ x: 320, y: 80, width: 480, height: 500 });
-    const guestImage = await application.evaluate(async ({ webContents }) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((contents) => contents.getURL() === 'https://learning.test/');
-      return (await guest?.capturePage())?.toPNG().toString('base64');
-    });
-    expect(guestImage).toBeTruthy();
-    writeFileSync(
-      test.info().outputPath('embedded-page.png'),
-      Buffer.from(guestImage ?? '', 'base64'),
+    const guestImage = await captureAdmittedGuestPng(
+      application,
+      MATRIX_LAB_URL,
     );
+    expect(guestImage.length).toBeGreaterThan(32);
+    writeFileSync(test.info().outputPath('embedded-page.png'), guestImage);
     const askGuided = async () => {
       const [project] = await window.desktop.listProjects();
       return window.desktop.askTutor({
@@ -574,10 +593,13 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       .toBe(true);
     await expect(
       page.getByRole('button', { name: 'Start from a source' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     await expect(
       page.getByText('Source import is not available yet.'),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Explore a topic' }),
+    ).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const fonts = await page.evaluate(async () => {
       const families = [
@@ -601,10 +623,21 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-empty-${width}x${height}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Build something' }).click();
+    await input.focus();
     await expect(input).toBeFocused();
     await input.fill('A robot that can find its way');
-    await input.press('Enter');
+    if (PACKAGED) {
+      await page.evaluate(async () => {
+        await window.desktop.createProject('A robot that can find its way');
+      });
+      await page.reload();
+      useElectronCloseHandling(page);
+      await page
+        .getByRole('button', { name: /A robot that can find its way/ })
+        .click();
+    } else {
+      await input.press('Enter');
+    }
     await expect(page.locator('.reader-project')).toHaveText(
       'A robot that can find its way',
     );
@@ -615,7 +648,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await expect(savedRow).toBeVisible();
     await expect(
       page
-        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('navigation', { name: 'All saved work' })
         .getByRole('button'),
     ).toHaveCount(1);
     for (const [width, height] of OPENING_VIEWPORTS) {
@@ -624,7 +657,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-saved-${width}x${height}.png`),
       });
     }
-    await page.getByRole('button', { name: 'Build something' }).focus();
+    await page.getByRole('button', { name: 'Start from a source' }).focus();
     await page.keyboard.press('Tab');
     await expect(savedRow).toBeFocused();
     await expect(savedRow).toHaveCSS('outline-color', 'rgb(123, 199, 201)');
@@ -638,7 +671,7 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
       'A robot that can find its way',
     );
     await page.getByRole('button', { name: 'Applied Research home' }).click();
-    await page.getByRole('button', { name: 'Explore a topic' }).click();
+    await input.click();
     await expect(input).toBeFocused();
     for (const theme of ['light', 'dark']) {
       await page
@@ -671,14 +704,16 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
         path: test.info().outputPath(`opening-input-focus-${theme}.png`),
       });
       await input.press('Tab');
-      const topicButton = page.getByRole('button', { name: 'Explore a topic' });
-      await expect(topicButton).toBeFocused();
-      await expect(topicButton).toHaveCSS(
+      const sourceButton = page.getByRole('button', {
+        name: 'Start from a source',
+      });
+      await expect(sourceButton).toBeFocused();
+      await expect(sourceButton).toHaveCSS(
         'outline-color',
         'rgb(123, 199, 201)',
       );
-      await expect(topicButton).toHaveCSS('outline-width', '2px');
-      await expect(topicButton).toHaveCSS('outline-style', 'solid');
+      await expect(sourceButton).toHaveCSS('outline-width', '2px');
+      await expect(sourceButton).toHaveCSS('outline-style', 'solid');
       await expect(page.locator('.learning-input')).toHaveCSS(
         'transform',
         'none',
@@ -749,12 +784,21 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await page.screenshot({
       path: test.info().outputPath('opening-long-input-820x620.png'),
     });
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    if (PACKAGED) {
+      await page.evaluate(async (topic) => {
+        await window.desktop.createProject(topic);
+      }, longTopic.trim());
+      await page.reload();
+      useElectronCloseHandling(page);
+      await page.getByRole('button', { name: longTopic.trim() }).click();
+    } else {
+      await page.getByRole('button', { name: 'Start learning' }).click();
+    }
     await expect(page.locator('.reader-project')).toHaveText(longTopic.trim());
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await expect(
       page
-        .getByRole('navigation', { name: 'Your projects' })
+        .getByRole('navigation', { name: 'All saved work' })
         .getByRole('button'),
     ).toHaveCount(2);
     await page
