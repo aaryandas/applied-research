@@ -10,6 +10,9 @@ are an internal mirror until that checkpoint is published.
 ## What this slice does
 
 - Authenticated account identity comes from the session, never the body.
+- Production composition uses `createRemoteRenderEngine` against a private
+  worker daemon. `failClosedOriginOwnership` is the default until AR-48 injects
+  account-bound evidence. Railway is the API, not the Manim host.
 - One in-flight render per account; the worker still allows one active container
   and at most eight resident jobs.
 - Recipe JSON is the existing installed `linear-transform` /

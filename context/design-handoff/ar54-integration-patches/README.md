@@ -5,16 +5,25 @@ AR-54 does not edit `http.ts`, `runtime.ts`, `provider.ts`, `policy.ts`,
 Shell. Apply these narrow patches in a coordinator/integration PR after this
 slice is reviewed.
 
+Remote delivery composition is in:
+
+- [AR48-REMOTE-DELIVERY.md](./AR48-REMOTE-DELIVERY.md) — remote engine, origin grant, public routes
+- [AR51-CLIP-IDENTITY.md](./AR51-CLIP-IDENTITY.md) — reserved explanation IDs and previous useful result
+- [AR56-CLIP-PLAYER.md](./AR56-CLIP-PLAYER.md) — opaque `ar-media:` mount
+- [LANE-ALLOWLIST.md](./LANE-ALLOWLIST.md) — `src/main/clip-*.ts`
+
 Public artifact types remain AR-53. Replace the internal mirror in
 `src/backend/render-delivery/types.ts` with that import when the checkpoint SHA
 is posted.
 
-## 1. Lane (already proposed on this PR)
+## 1. Lane
 
 `.github/lanes.json` `lane:explanations` includes:
 
 - `src/backend/render-delivery/**`
+- `src/render-worker/**`
 - `src/main/retained-media-*.ts`
+- `src/main/clip-*.ts`
 
 ## 2. `tsconfig.backend.json`
 
