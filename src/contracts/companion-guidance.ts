@@ -1,6 +1,8 @@
 import {
   decodeAiProvenance,
+  decodeSourceCitation,
   CONTEXTUAL_HELP_QUESTION_LIMIT,
+  type SourceCitation,
 } from './contextual-help';
 import {
   decodeExactRecord,
@@ -8,8 +10,10 @@ import {
   failed,
   isBoundedRemoteText,
   isContractGeneration,
+  isContractIdentifier,
   isContractRecord,
   isContractUuid,
+  isDenseArray,
   isPositiveRevision,
   type ContractDecode,
 } from './contextual-contract-guards';
@@ -25,6 +29,10 @@ export const COMPANION_GUIDANCE_REQUEST_CHANNEL =
 export const COMPANION_GUIDANCE_CANCEL_CHANNEL =
   'learning:cancel-companion-guidance';
 export const COMPANION_ANSWER_LIMIT = 24_000;
+export const COMPANION_NEXT_ACTION_LIMIT = 400;
+export const COMPANION_CITATION_LIMIT = 12;
+/** Synthetic source id for tool/file/measurement envelopes. Not a scholarly corpus id. */
+export const COMPANION_APP_CONTEXT_SOURCE_ID = 'companion-app-context';
 
 export type CompanionGuidanceCause = 'ask-once' | 'activity-start';
 export type CompanionPracticalTargetName =
@@ -104,6 +112,8 @@ export type CompanionGuidanceReply =
       authorKind: 'ai';
       text: string;
       provenance: AiProvenance;
+      nextAction: string;
+      citations: SourceCitation[];
     }
   | {
       outcome: CompanionGuidanceFailureOutcome;
@@ -493,6 +503,68 @@ export function decodeCompanionGuidanceCancelRequest(
   };
 }
 
+function decodeSuppliedContextCitation(
+  value: unknown,
+): ContractDecode<SourceCitation> {
+  const decoded = decodeExactRecord(value, [
+    'sourceId',
+    'revisionId',
+    'start',
+    'end',
+    'quote',
+  ]);
+  if (!decoded.ok) return decoded;
+  const { sourceId, revisionId, start, end, quote } = decoded.value;
+  if (!isContractIdentifier(sourceId) || !isContractIdentifier(revisionId)) {
+    return failed('identity');
+  }
+  if (
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end <= start
+  ) {
+    return failed('revision');
+  }
+  if (!isBoundedRemoteText(quote, 48_000)) return failed('bounds');
+  if (quote.length !== end - start) return failed('origin');
+  return {
+    ok: true,
+    value: { sourceId, revisionId, start, end, quote },
+  };
+}
+
+function decodeCompanionCitation(
+  value: unknown,
+): ContractDecode<SourceCitation> {
+  const scholarly = decodeSourceCitation(value);
+  if (scholarly.ok) return scholarly;
+  const supplied = decodeSuppliedContextCitation(value);
+  if (supplied.ok) return supplied;
+  return scholarly;
+}
+
+function decodeCompanionCitations(
+  value: unknown,
+): ContractDecode<SourceCitation[]> {
+  if (
+    !isDenseArray(value) ||
+    value.length < 1 ||
+    value.length > COMPANION_CITATION_LIMIT
+  ) {
+    return failed('shape');
+  }
+  const citations: SourceCitation[] = [];
+  for (const item of value) {
+    const citation = decodeCompanionCitation(item);
+    if (!citation.ok) return citation;
+    citations.push(citation.value);
+  }
+  return { ok: true, value: citations };
+}
+
 export function decodeCompanionGuidanceReply(
   value: unknown,
 ): ContractDecode<CompanionGuidanceReply> {
@@ -506,6 +578,8 @@ export function decodeCompanionGuidanceReply(
       'authorKind',
       'text',
       'provenance',
+      'nextAction',
+      'citations',
     ]);
     if (!decoded.ok) return decoded;
     if (!isContractUuid(decoded.value.requestId)) return failed('identity');
@@ -513,8 +587,18 @@ export function decodeCompanionGuidanceReply(
     if (!isBoundedRemoteText(decoded.value.text, COMPANION_ANSWER_LIMIT)) {
       return failed('bounds');
     }
+    if (
+      !isBoundedRemoteText(
+        decoded.value.nextAction,
+        COMPANION_NEXT_ACTION_LIMIT,
+      )
+    ) {
+      return failed('bounds');
+    }
     const provenance = decodeAiProvenance(decoded.value.provenance);
     if (!provenance.ok) return provenance;
+    const citations = decodeCompanionCitations(decoded.value.citations);
+    if (!citations.ok) return citations;
     return {
       ok: true,
       value: {
@@ -523,6 +607,8 @@ export function decodeCompanionGuidanceReply(
         authorKind: 'ai',
         text: decoded.value.text,
         provenance: provenance.value,
+        nextAction: decoded.value.nextAction,
+        citations: citations.value,
       },
     };
   }
