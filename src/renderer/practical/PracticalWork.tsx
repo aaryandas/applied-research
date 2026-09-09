@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -216,7 +217,7 @@ function ActivityWork(
   } = props;
   const stopGuidance = activityGuidance?.stop;
   const { companionContext, attemptId } = props;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!companionContext) return;
     const resolver = createPracticalContextResolver({
       ...companionContext,
