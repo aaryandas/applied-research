@@ -1,8 +1,9 @@
-import type {
-  CommitAcknowledgement,
-  LearningOrigin,
-  LearningWorkspace,
-  PathOrigin,
+import {
+  isEntryRevisionReference,
+  type CommitAcknowledgement,
+  type LearningOrigin,
+  type LearningWorkspace,
+  type PathOrigin,
 } from './learning-records';
 
 /** Producer checkpoint for AR-19; not a persistence schema or IPC registration. */
@@ -138,15 +139,22 @@ function practicalRevision(value: unknown): boolean {
 function practicalOrigin(value: unknown): boolean {
   if (
     !isPracticalObject(value) ||
-    !practicalKeys(value, ['path'], ['sourceRevisionId', 'highlightId'])
+    !practicalKeys(
+      value,
+      ['path'],
+      ['sourceRevisionId', 'highlightId', 'entry'],
+    )
   )
     return false;
   const path = value.path;
   const optionalIdsValid = ['sourceRevisionId', 'highlightId'].every(
     (key) => !Object.hasOwn(value, key) || practicalUuid(value[key]),
   );
+  const entryValid =
+    !Object.hasOwn(value, 'entry') || isEntryRevisionReference(value.entry);
   return (
     optionalIdsValid &&
+    entryValid &&
     isPracticalObject(path) &&
     practicalKeys(path, ['pathId', 'pathRevision', 'topicId', 'lessonId']) &&
     ['pathId', 'topicId', 'lessonId'].every((key) =>

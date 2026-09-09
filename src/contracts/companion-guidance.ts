@@ -1,0 +1,497 @@
+import {
+  decodeAiProvenance,
+  CONTEXTUAL_HELP_QUESTION_LIMIT,
+} from './contextual-help';
+import {
+  decodeExactRecord,
+  extraKeyReason,
+  failed,
+  isBoundedRemoteText,
+  isContractGeneration,
+  isContractRecord,
+  isContractUuid,
+  isPositiveRevision,
+  type ContractDecode,
+} from './contextual-contract-guards';
+import {
+  decodeEntryRevisionReference,
+  type EntryRevisionReference,
+} from './learning-records';
+import type { AiProvenance } from './learning-api';
+
+export const COMPANION_GUIDANCE_CONTRACT_VERSION = '2026-09-09';
+export const COMPANION_GUIDANCE_REQUEST_CHANNEL =
+  'learning:request-companion-guidance';
+export const COMPANION_ANSWER_LIMIT = 24_000;
+
+export type CompanionGuidanceCause = 'ask-once' | 'activity-start';
+export type CompanionPracticalTargetName =
+  'activity-instructions' | 'tool-controls' | 'selected-result' | 'reflection';
+
+export type CompanionSelectedTarget =
+  | {
+      surface: 'practical-work';
+      projectId: string;
+      attemptId: string;
+      target: CompanionPracticalTargetName;
+    }
+  | {
+      surface: 'reader' | 'canvas';
+      projectId: string;
+      target:
+        | {
+            kind: 'selected-source-highlight';
+            sourceRevisionId: string;
+            highlightId: string;
+          }
+        | { kind: 'saved-question'; entry: EntryRevisionReference }
+        | { kind: 'selected-graph-record'; recordId: string };
+    };
+
+export type CompanionHumanUtterance =
+  | { kind: 'none' }
+  | {
+      kind: 'human';
+      text: string;
+      persistence: 'unsaved-draft' | 'saved';
+      savedRevision: number | null;
+    }
+  | {
+      kind: 'app-authored-intent';
+      intent: 'ask-about-selection' | 'explain-this-passage';
+    };
+
+export type CompanionEvidenceReference =
+  | { kind: 'none' }
+  | { kind: 'user-selected-file'; selectionId: string }
+  | { kind: 'app-measured'; captureId: string };
+
+export interface CompanionGuidanceRequest {
+  contractVersion: typeof COMPANION_GUIDANCE_CONTRACT_VERSION;
+  requestId: string;
+  trigger: 'explicit-action';
+  cause: CompanionGuidanceCause;
+  target: CompanionSelectedTarget;
+  utterance: CompanionHumanUtterance;
+  selectedEvidence: CompanionEvidenceReference;
+  pageAccess: 'none';
+}
+
+export type CompanionGuidanceFailureOutcome =
+  | 'invalid-request'
+  | 'unsupported'
+  | 'unauthenticated'
+  | 'unavailable'
+  | 'cancelled'
+  | 'stale'
+  | 'offline'
+  | 'quota-exceeded';
+
+export type CompanionGuidanceReply =
+  | {
+      outcome: 'success';
+      requestId: string;
+      authorKind: 'ai';
+      text: string;
+      provenance: AiProvenance;
+    }
+  | {
+      outcome: CompanionGuidanceFailureOutcome;
+      requestId: string | null;
+      message: string;
+    };
+
+const PRACTICAL_TARGETS: readonly CompanionPracticalTargetName[] = [
+  'activity-instructions',
+  'tool-controls',
+  'selected-result',
+  'reflection',
+];
+const CAUSES: readonly CompanionGuidanceCause[] = [
+  'ask-once',
+  'activity-start',
+];
+const APP_INTENTS = ['ask-about-selection', 'explain-this-passage'] as const;
+const FAILURE_OUTCOMES: readonly CompanionGuidanceFailureOutcome[] = [
+  'invalid-request',
+  'unsupported',
+  'unauthenticated',
+  'unavailable',
+  'cancelled',
+  'stale',
+  'offline',
+  'quota-exceeded',
+];
+const REQUEST_AUTHORITY_KEYS = [
+  'accountId',
+  'account',
+  'provenance',
+  'context',
+  'requestedTarget',
+  'activity',
+  'guest',
+  'url',
+  'href',
+  'clipboard',
+  'coordinates',
+  'selector',
+  'pageSnapshot',
+  'observation',
+  'artifactPath',
+  'filePath',
+  'code',
+  'shader',
+  'model',
+  'system',
+  'instructions',
+  'measurement',
+  'attribution',
+  'cookie',
+] as const;
+
+function includes<T>(values: readonly T[], value: unknown): value is T {
+  const candidates: readonly unknown[] = values;
+  return candidates.includes(value);
+}
+
+function decodePracticalTarget(
+  value: unknown,
+): ContractDecode<
+  Extract<CompanionSelectedTarget, { surface: 'practical-work' }>
+> {
+  const decoded = decodeExactRecord(
+    value,
+    ['surface', 'projectId', 'attemptId', 'target'],
+    [],
+    REQUEST_AUTHORITY_KEYS,
+  );
+  if (!decoded.ok) return decoded;
+  if (decoded.value.surface !== 'practical-work') return failed('shape');
+  if (
+    !isContractUuid(decoded.value.projectId) ||
+    !isContractUuid(decoded.value.attemptId)
+  ) {
+    return failed('identity');
+  }
+  if (!includes(PRACTICAL_TARGETS, decoded.value.target)) {
+    return failed('unsupported');
+  }
+  return {
+    ok: true,
+    value: {
+      surface: 'practical-work',
+      projectId: decoded.value.projectId,
+      attemptId: decoded.value.attemptId,
+      target: decoded.value.target,
+    },
+  };
+}
+
+function decodeWorkspaceTarget(
+  value: unknown,
+): ContractDecode<
+  Extract<CompanionSelectedTarget, { surface: 'reader' | 'canvas' }>
+> {
+  const decoded = decodeExactRecord(
+    value,
+    ['surface', 'projectId', 'target'],
+    [],
+    REQUEST_AUTHORITY_KEYS,
+  );
+  if (!decoded.ok) return decoded;
+  if (
+    decoded.value.surface !== 'reader' &&
+    decoded.value.surface !== 'canvas'
+  ) {
+    return failed('unsupported');
+  }
+  if (!isContractUuid(decoded.value.projectId)) return failed('identity');
+  const target = decodeWorkspaceFocus(decoded.value.target);
+  if (!target.ok) return target;
+  return {
+    ok: true,
+    value: {
+      surface: decoded.value.surface,
+      projectId: decoded.value.projectId,
+      target: target.value,
+    },
+  };
+}
+
+function decodeWorkspaceFocus(
+  value: unknown,
+): ContractDecode<
+  Extract<CompanionSelectedTarget, { surface: 'reader' | 'canvas' }>['target']
+> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.kind === 'selected-source-highlight') {
+    const decoded = decodeExactRecord(value, [
+      'kind',
+      'sourceRevisionId',
+      'highlightId',
+    ]);
+    if (!decoded.ok) return decoded;
+    if (
+      !isContractUuid(decoded.value.sourceRevisionId) ||
+      !isContractUuid(decoded.value.highlightId)
+    ) {
+      return failed('identity');
+    }
+    return {
+      ok: true,
+      value: {
+        kind: 'selected-source-highlight',
+        sourceRevisionId: decoded.value.sourceRevisionId,
+        highlightId: decoded.value.highlightId,
+      },
+    };
+  }
+  if (value.kind === 'saved-question') {
+    const decoded = decodeExactRecord(value, ['kind', 'entry']);
+    if (!decoded.ok) return decoded;
+    const entry = decodeEntryRevisionReference(decoded.value.entry);
+    if (!entry.ok) return entry;
+    return { ok: true, value: { kind: 'saved-question', entry: entry.value } };
+  }
+  if (value.kind === 'selected-graph-record') {
+    const decoded = decodeExactRecord(value, ['kind', 'recordId']);
+    if (!decoded.ok) return decoded;
+    if (!isContractUuid(decoded.value.recordId)) return failed('identity');
+    return {
+      ok: true,
+      value: {
+        kind: 'selected-graph-record',
+        recordId: decoded.value.recordId,
+      },
+    };
+  }
+  return failed('origin');
+}
+
+function decodeTarget(value: unknown): ContractDecode<CompanionSelectedTarget> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.surface === 'practical-work') return decodePracticalTarget(value);
+  if (value.surface === 'reader' || value.surface === 'canvas') {
+    return decodeWorkspaceTarget(value);
+  }
+  return failed('unsupported');
+}
+
+function decodeUtterance(
+  value: unknown,
+): ContractDecode<CompanionHumanUtterance> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.kind === 'none') {
+    const decoded = decodeExactRecord(value, ['kind']);
+    if (!decoded.ok) return decoded;
+    return { ok: true, value: { kind: 'none' } };
+  }
+  if (value.kind === 'human') {
+    const decoded = decodeExactRecord(value, [
+      'kind',
+      'text',
+      'persistence',
+      'savedRevision',
+    ]);
+    if (!decoded.ok) return decoded;
+    if (
+      !isBoundedRemoteText(decoded.value.text, CONTEXTUAL_HELP_QUESTION_LIMIT)
+    ) {
+      return failed('bounds');
+    }
+    if (
+      decoded.value.persistence !== 'unsaved-draft' &&
+      decoded.value.persistence !== 'saved'
+    ) {
+      return failed('unsupported');
+    }
+    const savedRevision = decoded.value.savedRevision;
+    if (decoded.value.persistence === 'saved') {
+      if (!isPositiveRevision(savedRevision)) return failed('revision');
+      return {
+        ok: true,
+        value: {
+          kind: 'human',
+          text: decoded.value.text,
+          persistence: 'saved',
+          savedRevision,
+        },
+      };
+    }
+    if (savedRevision === null) {
+      return {
+        ok: true,
+        value: {
+          kind: 'human',
+          text: decoded.value.text,
+          persistence: 'unsaved-draft',
+          savedRevision: null,
+        },
+      };
+    }
+    if (!isContractGeneration(savedRevision)) return failed('revision');
+    return {
+      ok: true,
+      value: {
+        kind: 'human',
+        text: decoded.value.text,
+        persistence: 'unsaved-draft',
+        savedRevision,
+      },
+    };
+  }
+  if (value.kind === 'app-authored-intent') {
+    const decoded = decodeExactRecord(value, ['kind', 'intent']);
+    if (!decoded.ok) return decoded;
+    if (!includes(APP_INTENTS, decoded.value.intent))
+      return failed('unsupported');
+    return {
+      ok: true,
+      value: { kind: 'app-authored-intent', intent: decoded.value.intent },
+    };
+  }
+  return failed('shape');
+}
+
+function decodeEvidence(
+  value: unknown,
+): ContractDecode<CompanionEvidenceReference> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.kind === 'none') {
+    const decoded = decodeExactRecord(value, ['kind']);
+    if (!decoded.ok) return decoded;
+    return { ok: true, value: { kind: 'none' } };
+  }
+  if (value.kind === 'user-selected-file') {
+    const decoded = decodeExactRecord(value, ['kind', 'selectionId']);
+    if (!decoded.ok) return decoded;
+    if (
+      typeof decoded.value.selectionId !== 'string' ||
+      decoded.value.selectionId.trim().length === 0 ||
+      decoded.value.selectionId.length > 128 ||
+      !isBoundedRemoteText(decoded.value.selectionId, 128)
+    ) {
+      return failed('identity');
+    }
+    return {
+      ok: true,
+      value: {
+        kind: 'user-selected-file',
+        selectionId: decoded.value.selectionId,
+      },
+    };
+  }
+  if (value.kind === 'app-measured') {
+    const decoded = decodeExactRecord(value, ['kind', 'captureId']);
+    if (!decoded.ok) return decoded;
+    if (!isContractUuid(decoded.value.captureId)) return failed('identity');
+    return {
+      ok: true,
+      value: { kind: 'app-measured', captureId: decoded.value.captureId },
+    };
+  }
+  return failed('authority');
+}
+
+export function decodeCompanionGuidanceRequest(
+  value: unknown,
+): ContractDecode<CompanionGuidanceRequest> {
+  const decoded = decodeExactRecord(
+    value,
+    [
+      'contractVersion',
+      'requestId',
+      'trigger',
+      'cause',
+      'target',
+      'utterance',
+      'selectedEvidence',
+      'pageAccess',
+    ],
+    [],
+    REQUEST_AUTHORITY_KEYS,
+  );
+  if (!decoded.ok) return decoded;
+  if (decoded.value.contractVersion !== COMPANION_GUIDANCE_CONTRACT_VERSION) {
+    return failed('revision');
+  }
+  if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+  if (decoded.value.trigger !== 'explicit-action') return failed('unsupported');
+  if (!includes(CAUSES, decoded.value.cause)) return failed('unsupported');
+  if (decoded.value.pageAccess !== 'none') return failed('authority');
+  const target = decodeTarget(decoded.value.target);
+  if (!target.ok) return target;
+  const utterance = decodeUtterance(decoded.value.utterance);
+  if (!utterance.ok) return utterance;
+  const selectedEvidence = decodeEvidence(decoded.value.selectedEvidence);
+  if (!selectedEvidence.ok) return selectedEvidence;
+  return {
+    ok: true,
+    value: {
+      contractVersion: COMPANION_GUIDANCE_CONTRACT_VERSION,
+      requestId: decoded.value.requestId,
+      trigger: 'explicit-action',
+      cause: decoded.value.cause,
+      target: target.value,
+      utterance: utterance.value,
+      selectedEvidence: selectedEvidence.value,
+      pageAccess: 'none',
+    },
+  };
+}
+
+export function isCompanionGuidanceRequest(
+  value: unknown,
+): value is CompanionGuidanceRequest {
+  return decodeCompanionGuidanceRequest(value).ok;
+}
+
+export function decodeCompanionGuidanceReply(
+  value: unknown,
+): ContractDecode<CompanionGuidanceReply> {
+  if (!isContractRecord(value) || typeof value.outcome !== 'string') {
+    return failed('shape');
+  }
+  if (value.outcome === 'success') {
+    const decoded = decodeExactRecord(value, [
+      'outcome',
+      'requestId',
+      'authorKind',
+      'text',
+      'provenance',
+    ]);
+    if (!decoded.ok) return decoded;
+    if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+    if (decoded.value.authorKind !== 'ai') return failed('provenance');
+    if (!isBoundedRemoteText(decoded.value.text, COMPANION_ANSWER_LIMIT)) {
+      return failed('bounds');
+    }
+    const provenance = decodeAiProvenance(decoded.value.provenance);
+    if (!provenance.ok) return provenance;
+    return {
+      ok: true,
+      value: {
+        outcome: 'success',
+        requestId: decoded.value.requestId,
+        authorKind: 'ai',
+        text: decoded.value.text,
+        provenance: provenance.value,
+      },
+    };
+  }
+  if (!includes(FAILURE_OUTCOMES, value.outcome)) return failed('unsupported');
+  const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
+  if (extra) return failed(extra);
+  if (value.requestId !== null && !isContractUuid(value.requestId)) {
+    return failed('identity');
+  }
+  if (!isBoundedRemoteText(value.message, 400)) return failed('bounds');
+  return {
+    ok: true,
+    value: {
+      outcome: value.outcome,
+      requestId: value.requestId,
+      message: value.message,
+    },
+  };
+}
