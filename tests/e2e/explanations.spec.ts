@@ -19,8 +19,14 @@ import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+import { desktopE2EEnv } from './desktop-e2e-env';
 
 const evidence = process.env.AR24_EVIDENCE_DIR;
+const ASSEMBLY_QUOTE = 'A beacon module stacks a base, board, core and cover.';
+const ARM_QUOTE =
+  'A planar two-link arm places the hand by composing two joint rotations.';
+const SOURCE_TEXT = `${ASSEMBLY_QUOTE} ${ARM_QUOTE}`;
+
 async function launchExplanationApplication(
   directory: string,
 ): Promise<ElectronApplication> {
@@ -29,11 +35,7 @@ async function launchExplanationApplication(
     ...(requestedExecutablePath
       ? { executablePath: requestedExecutablePath, args: [] }
       : { args: ['.'] }),
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
-      OPENROUTER_API_KEY: '',
-    },
+    env: desktopE2EEnv(directory),
   });
   if (!requestedExecutablePath) return application;
   try {
@@ -51,10 +53,12 @@ async function launchExplanationApplication(
     throw error;
   }
 }
+
 function artifact(name: string): string {
   return evidence ? join(evidence, name) : test.info().outputPath(name);
 }
-async function openExplanations(
+
+async function openContextualWorkspace(
   application: ElectronApplication,
 ): Promise<Page> {
   const page = await application.firstWindow();
@@ -64,18 +68,96 @@ async function openExplanations(
     .fill('Inspect an assembly and a robot arm');
   await page.getByRole('button', { name: 'Start learning' }).click();
   await expect(
-    page.getByRole('region', { name: 'Interactive explanations' }),
+    page.getByRole('button', { name: 'Add source', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Add source', exact: true }).click();
+  await page.getByLabel('Source title').fill('Planar arm and assembly notes');
+  await page.getByLabel('Exact source text').fill(SOURCE_TEXT);
+  await page
+    .getByRole('button', { name: 'Import source', exact: true })
+    .click();
+  await expect(page.getByLabel('Source text')).toHaveText(SOURCE_TEXT);
+  await expect(
+    page.getByRole('button', { name: 'Ask about this' }),
   ).toBeVisible();
   return page;
 }
-async function captureRecord(page: Page): Promise<Record<string, unknown>> {
-  const section = page.locator('.explanation-experience:visible');
-  await section.getByText('Recipe and origin', { exact: true }).click();
-  const data = JSON.parse(
-    await section.getByLabel('Captured scene record').innerText(),
+
+async function selectSourceQuote(page: Page, quote: string): Promise<void> {
+  const found = await page
+    .getByLabel('Source text')
+    .evaluate((element, text) => {
+      const node = element.firstChild;
+      if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+      const value = node.textContent ?? '';
+      const start = value.indexOf(text);
+      if (start < 0) return false;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + text.length);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      return true;
+    }, quote);
+  expect(found).toBe(true);
+  await expect(
+    page.getByRole('button', { name: 'Ask about this' }),
+  ).toBeEnabled();
+}
+
+async function retainSelection(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Contextual explanation' }),
+  ).toBeVisible();
+}
+
+async function requestVisual(page: Page, question?: string): Promise<void> {
+  const panel = page.getByRole('region', { name: 'Contextual explanation' });
+  if (question) {
+    await panel.getByLabel('Your question').fill(question);
+  }
+  await panel.getByRole('button', { name: 'Visual explanation' }).click();
+}
+
+async function readTrustedCapture(
+  page: Page,
+): Promise<Record<string, unknown>> {
+  return JSON.parse(
+    await page.getByLabel('Captured scene record').innerText(),
   ) as Record<string, unknown>;
-  await section.getByText('Recipe and origin', { exact: true }).click();
-  return data;
+}
+
+async function currentVisualExplanationId(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const [project] = await window.desktop.listProjects();
+    if (!project) throw new Error('Start learning did not create a project.');
+    const listed = await window.desktop.listRetainedExplanations({
+      projectId: project.id,
+    });
+    const visual = listed.find((item) => item.intent === 'visual');
+    if (!visual) throw new Error('No retained visual explanation.');
+    return visual.explanationId;
+  });
+}
+
+async function loadSceneState(
+  page: Page,
+  explanationId: string,
+): Promise<{
+  camera: { position: unknown; target: unknown };
+  parameters: Record<string, unknown>;
+} | null> {
+  return page.evaluate(async (id) => {
+    const [project] = await window.desktop.listProjects();
+    if (!project) throw new Error('missing project');
+    return window.desktop.loadExplanationSceneState({
+      projectId: project.id,
+      explanationId: id,
+    });
+  }, explanationId);
 }
 
 test('manipulates actual local scenes, measures endpoints, pauses, and recovers context loss', async () => {
@@ -83,12 +165,17 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     process.platform !== 'darwin',
     'Capture stays disabled without a real GPU (xvfb / Windows CI).',
   );
+  test.info().annotations.push({
+    type: 'not-acceptance',
+    description:
+      'Automated Electron evidence for the mounted contextual scene path. Root/mac CI owns platform proof. This is not MP4 or live-provider acceptance.',
+  });
   test.setTimeout(90_000);
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-scenes-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openExplanations(application);
+    const page = await openContextualWorkspace(application);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -118,8 +205,13 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
         return Reflect.apply(draw, this, args);
       };
     });
+    await selectSourceQuote(page, ASSEMBLY_QUOTE);
+    await retainSelection(page);
     const launchStart = performance.now();
-    await page.getByRole('button', { name: 'Explore an assembly' }).click();
+    await requestVisual(page);
+    await expect(
+      page.getByRole('region', { name: 'Beacon module explanation' }),
+    ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Capture assembly' }),
     ).toBeEnabled();
@@ -138,16 +230,9 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await page.keyboard.press('+');
     await expect(canvas).toBeFocused();
     await page.getByRole('button', { name: 'Capture assembly' }).click();
-    const assemblyRecord = await captureRecord(page);
+    const assemblyRecord = await readTrustedCapture(page);
     expect(assemblyRecord).toMatchObject({
-      attribution: 'app-measured',
-      retention: 'session-only',
-      explanation: {
-        recipe: 'spatial-assembly',
-        version: 1,
-        origin: null,
-        parameters: { separation: 1, selectedPart: 'cover' },
-      },
+      kind: 'app-measured',
       measurement: { positions: { cover: { y: 2.34 } } },
     });
     await canvas.focus();
@@ -158,7 +243,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await page.screenshot({ path: artifact('assembly-exploded.png') });
     await page.getByRole('button', { name: 'Reassemble', exact: true }).click();
     await page.getByRole('button', { name: 'Capture assembly' }).click();
-    expect(await captureRecord(page)).toMatchObject({
+    expect(await readTrustedCapture(page)).toMatchObject({
       measurement: { positions: { cover: { y: 0.94 } } },
     });
     await page.getByRole('button', { name: 'Base plate', exact: true }).click();
@@ -167,7 +252,8 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       page.getByRole('button', { name: 'Beacon core', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: 'Capture assembly' }).click();
-    const beforeDrag = await captureRecord(page);
+    const assemblyExplanationId = await currentVisualExplanationId(page);
+    const beforeDrag = await loadSceneState(page, assemblyExplanationId);
     await canvas.scrollIntoViewIfNeeded();
     const bounds = await canvas.boundingBox();
     if (!bounds) throw new Error('Scene viewport missing');
@@ -182,13 +268,17 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       { steps: 8 },
     );
     await page.mouse.up();
-    await page.getByRole('button', { name: 'Capture assembly' }).click();
-    const afterDrag = await captureRecord(page);
-    expect(afterDrag.camera).not.toEqual(beforeDrag.camera);
-    expect(afterDrag.explanation).toEqual(beforeDrag.explanation);
-    await page
-      .getByRole('button', { name: 'Explore a two-link arm', exact: true })
-      .click();
+    await expect
+      .poll(async () => {
+        const next = await loadSceneState(page, assemblyExplanationId);
+        return JSON.stringify(next?.camera);
+      })
+      .not.toBe(JSON.stringify(beforeDrag?.camera));
+    const afterDrag = await loadSceneState(page, assemblyExplanationId);
+    expect(afterDrag?.parameters).toEqual(beforeDrag?.parameters);
+    await selectSourceQuote(page, ARM_QUOTE);
+    await retainSelection(page);
+    await requestVisual(page, 'Show a two-link arm');
     await expect(
       page.getByRole('button', { name: 'Capture endpoint' }),
     ).toBeEnabled();
@@ -205,7 +295,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
       await page.getByLabel('Elbow angle (°)').fill(String(elbow));
       await page.getByRole('button', { name: 'Capture endpoint' }).click();
       timings.push(performance.now() - start);
-      const record = await captureRecord(page);
+      const record = await readTrustedCapture(page);
       const endpoint = (
         record.measurement as { endpoint: { x: number; y: number; z: number } }
       ).endpoint;
@@ -331,19 +421,14 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await expect(
       page.getByRole('button', { name: 'Capture endpoint' }),
     ).toBeEnabled();
-    await page
-      .getByRole('button', { name: 'Close explanation', exact: true })
-      .click();
-    await expect(page.locator('.explanation-viewport canvas')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Canvas' }).click();
     await expect(
-      page.getByRole('region', { name: 'Interactive explanations' }),
+      page.getByRole('region', { name: 'Learning canvas' }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Explore an assembly' }).click();
+    await page.getByRole('button', { name: 'Reading' }).click();
     await expect(
-      page
-        .getByRole('region', { name: 'Beacon module explanation' })
-        .getByText('Captured · app-measured'),
-    ).toBeVisible();
+      page.getByRole('button', { name: 'Capture endpoint' }),
+    ).toBeEnabled();
     expect(errors).toEqual([]);
     writeFileSync(
       artifact('responsiveness.json'),
@@ -365,7 +450,7 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
           assemblyLaunchToEnabledCaptureMs: usableMs,
           twoParameterEditsAndCaptureMs: timings,
           scope:
-            'Actual Electron on this machine, Playwright inclusive wall times; no SLA or remote-render claim.',
+            'Actual Electron on this machine through the mounted contextual help path and desktop-e2e test transport. Playwright inclusive wall times; no SLA, live-provider, or MP4 claim.',
           errors,
         },
         null,
@@ -379,11 +464,15 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
 });
 
 test('offers usable text and parameters when WebGL context creation is unavailable', async () => {
+  test.info().annotations.push({
+    type: 'not-acceptance',
+    description:
+      'Automated Electron evidence for honest WebGL fallback on the mounted contextual scene. Not MP4 acceptance.',
+  });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-no-webgl-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openExplanations(application);
-    // Fault injection at the browser boundary: exercise real Three initialization failure.
+    const page = await openContextualWorkspace(application);
     await page.evaluate(() => {
       const original = HTMLCanvasElement.prototype.getContext;
       Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
@@ -402,7 +491,9 @@ test('offers usable text and parameters when WebGL context creation is unavailab
         },
       });
     });
-    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
+    await selectSourceQuote(page, ARM_QUOTE);
+    await retainSelection(page);
+    await requestVisual(page, 'Show a two-link arm');
     await expect(page.getByText(/3D view unavailable/)).toBeVisible();
     await expect(page.locator('.explanation-axis')).toHaveCount(0);
     await page.getByLabel('Shoulder angle (°)').fill('0');
@@ -425,13 +516,20 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
     process.platform !== 'darwin',
     'Capture stays disabled without a real GPU (xvfb / Windows CI).',
   );
+  test.info().annotations.push({
+    type: 'not-acceptance',
+    description:
+      'Automated Electron evidence for retained arm drafts through the mounted contextual scene. Not MP4 acceptance.',
+  });
   if (evidence) mkdirSync(evidence, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'ar24-repair-'));
   const application = await launchExplanationApplication(directory);
   try {
-    const page = await openExplanations(application);
+    const page = await openContextualWorkspace(application);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
+    await selectSourceQuote(page, ARM_QUOTE);
+    await retainSelection(page);
+    await requestVisual(page, 'Show a two-link arm');
     const capture = page.getByRole('button', { name: 'Capture endpoint' });
     await expect(capture).toBeEnabled();
     const shoulder = page.getByLabel('Shoulder angle (°)');
@@ -463,11 +561,11 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
       await expect(endpoint).toHaveText(angleEndpoint!);
       await expect(capture).toBeDisabled();
     }
-    await page
-      .getByRole('button', { name: 'Close explanation', exact: true })
-      .click();
-    await expect(page.locator('.explanation-viewport canvas')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Explore a two-link arm' }).click();
+    await page.getByRole('button', { name: 'Canvas' }).click();
+    await expect(
+      page.getByRole('region', { name: 'Learning canvas' }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Reading' }).click();
     await expect(length).toHaveValue('0.');
     await expect(capture).toBeDisabled();
     await length.focus();
@@ -476,21 +574,18 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
     await expect(length).toHaveValue('0.7');
     await expect(capture).toBeEnabled();
     await capture.click();
-    const typedRecord = await captureRecord(page);
-    expect(typedRecord).toMatchObject({
-      explanation: {
-        parameters: {
-          firstLength: 0.7,
-          secondLength: 1.5,
-          shoulderDegrees: -45,
-          elbowDegrees: 60,
-        },
-      },
+    const typedRecord = await readTrustedCapture(page);
+    const explanationId = await currentVisualExplanationId(page);
+    const typedScene = await loadSceneState(page, explanationId);
+    expect(typedScene?.parameters).toMatchObject({
+      firstLength: 0.7,
+      secondLength: 1.5,
+      shoulderDegrees: -45,
+      elbowDegrees: 60,
     });
     const measured = (
       typedRecord.measurement as { endpoint: { x: number; y: number } }
     ).endpoint;
-    // Independent special-angle identities: cos(-45), sin(-45), cos(15), sin(15).
     expect(measured.x).toBeCloseTo(
       0.7 * Math.SQRT1_2 + (1.5 * (Math.sqrt(6) + Math.sqrt(2))) / 4,
       10,
@@ -504,7 +599,7 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
     await length.pressSequentially('4');
     await expect(length).toHaveValue('4');
     await expect(capture).toBeDisabled();
-    expect(await captureRecord(page)).toEqual(typedRecord);
+    expect(await readTrustedCapture(page)).toEqual(typedRecord);
     await page.getByRole('button', { name: 'Reset', exact: true }).click();
     await expect(length).toHaveValue('2');
     await expect(shoulder).toHaveValue('30');
@@ -520,7 +615,7 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
     await canvas.press('ArrowRight');
     await canvas.press('+');
     await capture.click();
-    const beforeBlur = await captureRecord(page);
+    const beforeBlur = await loadSceneState(page, explanationId);
     await page.evaluate(() => {
       Reflect.set(
         window,
@@ -533,8 +628,8 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
     await expect(canvas).toHaveCount(1);
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await capture.click();
-    const afterFocus = await captureRecord(page);
-    expect(afterFocus.camera).toEqual(beforeBlur.camera);
+    const afterFocus = await loadSceneState(page, explanationId);
+    expect(afterFocus?.camera).toEqual(beforeBlur?.camera);
     expect(
       await page.evaluate(
         () =>
@@ -551,7 +646,7 @@ test('preserves typed arm drafts and exact camera pose across blur and focus', a
           afterFocus,
           sameCanvasAcrossBlur: true,
           focusCoverage:
-            'Synthetic window blur/focus reproduces the reviewed listener path in actual Electron. Playwright focus emulation prevents claims about manual native minimize behavior.',
+            'Synthetic window blur/focus reproduces the reviewed listener path in actual Electron through the mounted contextual scene. Playwright focus emulation prevents claims about manual native minimize behavior.',
         },
         null,
         2,
