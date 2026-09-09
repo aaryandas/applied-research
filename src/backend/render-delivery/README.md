@@ -19,8 +19,11 @@ are an internal mirror until that checkpoint is published.
   `weighted-combination` contract. No generated Python, compiler markup, URLs
   or executable source.
 - Success copies the worker file into an account-owned store, re-hashes it,
-  then releases temporary worker ownership. Cancelled, late, corrupt or
-  hash-mismatched files never become `ready`.
+  then releases temporary worker ownership. Failed, cancelled, unsupported,
+  deadline, and rejected-download executions are cancelled and released with a
+  finite cleanup budget so the eight-slot daemon cap is not exhausted. Staging
+  maps and worker handles stay until release is acknowledged; a failed ack
+  does not drop the retry handle or delete retained learner artifacts.
 - Public JSON and the renderer see an opaque `mediaId` plus verified metadata.
   Worker `artifactPath`, Docker argv and cookies never cross that seam.
 - Previous ready media remains when a later request fails.

@@ -23,9 +23,18 @@ export interface WorkerTransport {
     requestId: string;
     recipeJson: string;
     recipeHash: string;
+    signal?: AbortSignal;
   }): Promise<WorkerJobStatus>;
-  status(ownerScope: string, executionId: string): Promise<WorkerJobStatus>;
-  cancel(ownerScope: string, executionId: string): Promise<WorkerJobStatus>;
+  status(
+    ownerScope: string,
+    executionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkerJobStatus>;
+  cancel(
+    ownerScope: string,
+    executionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkerJobStatus>;
   artifact(
     ownerScope: string,
     executionId: string,
@@ -34,6 +43,7 @@ export interface WorkerTransport {
   release(
     ownerScope: string,
     executionId: string,
+    signal?: AbortSignal,
   ): Promise<'released' | 'unavailable'>;
 }
 
@@ -43,17 +53,24 @@ export interface RemoteRenderEngineOptions {
   readonly wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly pollIntervalMs?: number;
   readonly maxPolls?: number;
+  readonly jsonTimeoutMs?: number;
+  readonly artifactTimeoutMs?: number;
+  readonly cleanupTimeoutMs?: number;
 }
 
-interface StagingRecord {
-  readonly stagingPath: string;
+interface OwnedExecution {
   readonly ownerScope: string;
   readonly requestId: string;
   readonly executionId: string;
+  stagingPath: string | null;
 }
 
 const DEFAULT_POLL_MS = 50;
 const DEFAULT_MAX_POLLS = 2_400;
+const DEFAULT_JSON_TIMEOUT_MS = 20_000;
+const DEFAULT_ARTIFACT_TIMEOUT_MS = 120_000;
+const DEFAULT_CLEANUP_TIMEOUT_MS = 8_000;
+const SUBMIT_REJECTED = new Set(['capacity', 'invalid', 'closed']);
 
 export function createRemoteRenderEngine(
   options: RemoteRenderEngineOptions,
@@ -62,7 +79,116 @@ export function createRemoteRenderEngine(
     options.wait ?? ((ms, signal) => delay(ms, undefined, { signal }));
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_MS;
   const maxPolls = options.maxPolls ?? DEFAULT_MAX_POLLS;
-  const staging = new Map<string, StagingRecord>();
+  const jsonTimeoutMs = options.jsonTimeoutMs ?? DEFAULT_JSON_TIMEOUT_MS;
+  const artifactTimeoutMs =
+    options.artifactTimeoutMs ?? DEFAULT_ARTIFACT_TIMEOUT_MS;
+  const cleanupTimeoutMs =
+    options.cleanupTimeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS;
+  const owned = new Map<string, OwnedExecution>();
+  const inCleanup = new Map<string, Promise<void>>();
+  const shutdown = new AbortController();
+
+  function interruptSignal(caller?: AbortSignal): AbortSignal {
+    return mergeSignals([shutdown.signal, ...(caller ? [caller] : [])]);
+  }
+
+  function jsonSignal(caller?: AbortSignal): AbortSignal {
+    return mergeSignals([
+      interruptSignal(caller),
+      AbortSignal.timeout(jsonTimeoutMs),
+    ]);
+  }
+
+  function artifactSignal(caller?: AbortSignal): AbortSignal {
+    return mergeSignals([
+      shutdown.signal,
+      AbortSignal.timeout(artifactTimeoutMs),
+      ...(caller ? [caller] : []),
+    ]);
+  }
+
+  function cleanupSignal(): AbortSignal {
+    return AbortSignal.timeout(cleanupTimeoutMs);
+  }
+
+  function finalize(record: OwnedExecution, cancel: boolean): Promise<void> {
+    const existing = inCleanup.get(record.executionId);
+    if (existing) return existing;
+    const work = releaseOwned(record, cancel).finally(() => {
+      inCleanup.delete(record.executionId);
+    });
+    inCleanup.set(record.executionId, work);
+    return work;
+  }
+
+  async function releaseOwned(
+    record: OwnedExecution,
+    cancel: boolean,
+  ): Promise<void> {
+    const current = owned.get(record.executionId);
+    if (!current) return;
+    if (cancel) {
+      try {
+        await options.transport.cancel(
+          current.ownerScope,
+          current.executionId,
+          cleanupSignal(),
+        );
+      } catch {
+        /* still attempt release so a failed cancel cannot pin capacity */
+      }
+    }
+    let acknowledged: 'released' | 'unavailable';
+    try {
+      acknowledged = await options.transport.release(
+        current.ownerScope,
+        current.executionId,
+        cleanupSignal(),
+      );
+    } catch {
+      acknowledged = 'unavailable';
+    }
+    if (acknowledged !== 'released') return;
+    if (current.stagingPath) {
+      await unlink(current.stagingPath).catch(() => undefined);
+    }
+    owned.delete(current.executionId);
+  }
+
+  async function reclaimFailedAdmissions(): Promise<void> {
+    await Promise.all(
+      [...owned.values()]
+        .filter((record) => record.stagingPath === null)
+        .map((record) => finalize(record, true)),
+    );
+  }
+
+  async function recoverLostSubmit(
+    context: RenderExecutionContext,
+    json: string,
+    recipeHash: string,
+  ): Promise<void> {
+    try {
+      const recovered = await options.transport.submit({
+        ownerScope: context.accountId,
+        requestId: context.requestId,
+        recipeJson: json,
+        recipeHash,
+        signal: cleanupSignal(),
+      });
+      if (!admittedResident(recovered)) return;
+      const record: OwnedExecution = {
+        ownerScope: context.accountId,
+        requestId: context.requestId,
+        executionId: recovered.executionId,
+        stagingPath: null,
+      };
+      owned.set(recovered.executionId, record);
+      await finalize(record, true);
+    } catch {
+      /* fail closed: do not invent an execution handle or free the slot */
+    }
+  }
 
   return {
     async render(
@@ -78,14 +204,40 @@ export function createRemoteRenderEngine(
       ) {
         return { status: 'invalid', reason: 'execution-context' };
       }
-      if (signal?.aborted) return { status: 'cancelled' };
+      await reclaimFailedAdmissions();
+      if (signal?.aborted || shutdown.signal.aborted) {
+        return { status: 'cancelled' };
+      }
       const recipeHash = recipeSha256(json);
-      const submitted = await options.transport.submit({
+      let submitted: WorkerJobStatus;
+      try {
+        submitted = await options.transport.submit({
+          ownerScope: context.accountId,
+          requestId: context.requestId,
+          recipeJson: json,
+          recipeHash,
+          signal: jsonSignal(signal),
+        });
+      } catch (error) {
+        if (!isLocalSubmitError(error)) {
+          await recoverLostSubmit(context, json, recipeHash);
+        }
+        if (signal?.aborted || shutdown.signal.aborted) {
+          return { status: 'cancelled' };
+        }
+        return { status: 'failed', reason: 'timeout' };
+      }
+      if (!admittedResident(submitted)) {
+        return mapNonSuccess(submitted);
+      }
+      const record: OwnedExecution = {
         ownerScope: context.accountId,
         requestId: context.requestId,
-        recipeJson: json,
-        recipeHash,
-      });
+        executionId: submitted.executionId,
+        stagingPath: null,
+      };
+      owned.set(submitted.executionId, record);
+      const interrupted = interruptSignal(signal);
       const terminal = await pollUntilTerminal(
         options.transport,
         context.accountId,
@@ -93,21 +245,19 @@ export function createRemoteRenderEngine(
         wait,
         pollIntervalMs,
         maxPolls,
-        signal,
+        jsonSignal,
+        interrupted,
       );
-      if (signal?.aborted || terminal.status === 'cancelled') {
-        await options.transport
-          .cancel(context.accountId, submitted.executionId)
-          .catch(() => undefined);
+      if (interrupted.aborted || terminal.status === 'cancelled') {
+        await finalize(record, true);
         return { status: 'cancelled' };
       }
       if (terminal.status !== 'succeeded') {
+        await finalize(record, true);
         return mapNonSuccess(terminal);
       }
-      if (signal?.aborted) {
-        await options.transport
-          .cancel(context.accountId, terminal.executionId)
-          .catch(() => undefined);
+      if (interrupted.aborted) {
+        await finalize(record, true);
         return { status: 'cancelled' };
       }
       let downloaded: { sha256: string; bytes: Buffer } | null;
@@ -115,27 +265,25 @@ export function createRemoteRenderEngine(
         downloaded = await options.transport.artifact(
           context.accountId,
           terminal.executionId,
-          signal,
+          artifactSignal(signal),
         );
       } catch {
-        if (signal?.aborted) {
-          await options.transport
-            .cancel(context.accountId, terminal.executionId)
-            .catch(() => undefined);
+        await finalize(record, true);
+        if (interruptSignal(signal).aborted) {
           return { status: 'cancelled' };
         }
         return { status: 'failed', reason: 'runtime' };
       }
-      if (signal?.aborted) {
-        await options.transport
-          .cancel(context.accountId, terminal.executionId)
-          .catch(() => undefined);
+      if (interruptSignal(signal).aborted) {
+        await finalize(record, true);
         return { status: 'cancelled' };
       }
       if (!downloaded) {
+        await finalize(record, true);
         return { status: 'failed', reason: 'artifact' };
       }
       if (downloaded.bytes.length > MAX_RETAINED_CLIP_BYTES) {
+        await finalize(record, true);
         return { status: 'failed', reason: 'output-limit' };
       }
       const digest = createHash('sha256')
@@ -146,6 +294,7 @@ export function createRemoteRenderEngine(
         (terminal.sha256 !== null && digest !== terminal.sha256) ||
         (terminal.bytes !== null && terminal.bytes !== downloaded.bytes.length)
       ) {
+        await finalize(record, true);
         return { status: 'failed', reason: 'artifact' };
       }
       const artifact = engineArtifact(
@@ -154,20 +303,23 @@ export function createRemoteRenderEngine(
         downloaded.bytes.length,
       );
       if (!artifact) {
+        await finalize(record, true);
         return { status: 'failed', reason: 'artifact' };
       }
-      await mkdir(options.stagingDirectory, { recursive: true });
       const stagingPath = join(
         options.stagingDirectory,
         `${terminal.executionId}.mp4`,
       );
-      await writeFile(stagingPath, downloaded.bytes);
-      staging.set(terminal.executionId, {
-        stagingPath,
-        ownerScope: context.accountId,
-        requestId: context.requestId,
-        executionId: terminal.executionId,
-      });
+      record.stagingPath = stagingPath;
+      try {
+        await mkdir(options.stagingDirectory, { recursive: true });
+        await writeFile(stagingPath, downloaded.bytes);
+      } catch {
+        record.stagingPath = null;
+        await unlink(stagingPath).catch(() => undefined);
+        await finalize(record, true);
+        return { status: 'failed', reason: 'runtime' };
+      }
       return {
         status: 'succeeded',
         jobId: terminal.executionId,
@@ -176,26 +328,18 @@ export function createRemoteRenderEngine(
       };
     },
     async release(jobId) {
-      const record = staging.get(jobId);
-      if (record) {
-        await unlink(record.stagingPath).catch(() => undefined);
-        staging.delete(jobId);
-        const acknowledged = await options.transport.release(
-          record.ownerScope,
-          record.executionId,
-        );
-        if (acknowledged !== 'released') {
-          throw new Error('Remote render cleanup was not acknowledged.');
-        }
+      const record = owned.get(jobId);
+      if (!record) return;
+      await finalize(record, false);
+      if (owned.has(jobId)) {
+        throw new Error('Remote render cleanup was not acknowledged.');
       }
     },
     async close() {
+      shutdown.abort();
       await Promise.all(
-        [...staging.values()].map(async (record) => {
-          await unlink(record.stagingPath).catch(() => undefined);
-        }),
+        [...owned.values()].map((record) => finalize(record, true)),
       );
-      staging.clear();
     },
   };
 }
@@ -207,22 +351,48 @@ async function pollUntilTerminal(
   wait: (ms: number, signal?: AbortSignal) => Promise<void>,
   pollIntervalMs: number,
   maxPolls: number,
-  signal?: AbortSignal,
+  jsonSignal: (caller?: AbortSignal) => AbortSignal,
+  interrupted: AbortSignal,
 ): Promise<WorkerJobStatus> {
   let status = submitted;
   for (let attempt = 0; attempt < maxPolls; attempt += 1) {
-    if (signal?.aborted) return { ...status, status: 'cancelled' };
+    if (interrupted.aborted) return { ...status, status: 'cancelled' };
     if (status.status !== 'queued' && status.status !== 'rendering') {
       return status;
     }
     try {
-      await wait(pollIntervalMs, signal);
+      await wait(pollIntervalMs, interrupted);
     } catch {
       return { ...status, status: 'cancelled' };
     }
-    status = await transport.status(ownerScope, submitted.executionId);
+    try {
+      status = await transport.status(
+        ownerScope,
+        submitted.executionId,
+        jsonSignal(interrupted),
+      );
+    } catch {
+      if (interrupted.aborted) return { ...status, status: 'cancelled' };
+      return { ...status, status: 'unavailable', reason: 'deadline' };
+    }
   }
   return { ...status, status: 'unavailable', reason: 'deadline' };
+}
+
+function admittedResident(status: WorkerJobStatus): boolean {
+  if (status.status === 'conflict' || status.status === 'unavailable') {
+    return false;
+  }
+  if (status.status === 'failed' && SUBMIT_REJECTED.has(status.reason ?? '')) {
+    return false;
+  }
+  return (
+    status.status === 'queued' ||
+    status.status === 'rendering' ||
+    status.status === 'succeeded' ||
+    status.status === 'failed' ||
+    status.status === 'cancelled'
+  );
 }
 
 function mapNonSuccess(status: WorkerJobStatus): RenderEngineOutcome {
@@ -279,4 +449,22 @@ function engineArtifact(
     endpoint: verified.endpoint,
     timings: verified.timings,
   };
+}
+
+function mergeSignals(signals: AbortSignal[]): AbortSignal {
+  if (signals.length === 1) {
+    const only = signals[0];
+    if (!only) {
+      throw new Error('A render operation requires an abort signal.');
+    }
+    return only;
+  }
+  return AbortSignal.any(signals);
+}
+
+function isLocalSubmitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes('Recipe hash does not match')
+  );
 }

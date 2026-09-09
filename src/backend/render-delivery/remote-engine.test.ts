@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +19,10 @@ import {
   createRenderDaemon,
   type DaemonEngine,
 } from '../../render-worker/daemon-server.js';
-import { WORKER_PROTOCOL as DAEMON_PROTOCOL } from '../../render-worker/daemon-protocol.js';
+import {
+  MAX_RESIDENT_DAEMON_JOBS,
+  WORKER_PROTOCOL as DAEMON_PROTOCOL,
+} from '../../render-worker/daemon-protocol.js';
 
 const ACCOUNT = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -107,6 +110,28 @@ function daemonTransport(
     cancel: (owner, id) => daemon.cancel(owner, id),
     artifact: (owner, id) => daemon.artifact(owner, id),
     release: (owner, id) => daemon.release(owner, id),
+  };
+}
+
+function hangUntilAbort(signal?: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = (): void => {
+      reject(new Error('The render worker request was cancelled.'));
+    };
+    if (!signal) return;
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
+function executionContext() {
+  return {
+    accountId: ACCOUNT.id,
+    requestId: randomUUID(),
+    attemptId: randomUUID(),
   };
 }
 
@@ -218,13 +243,14 @@ describe('remote render engine', () => {
 
     const during = new AbortController();
     const cancel = vi.fn(async () => queued('cancelled'));
+    const release = vi.fn(async () => 'released' as const);
     const rendering = createRemoteRenderEngine({
       transport: {
         submit: async () => queued('queued'),
         status: async () => queued('queued'),
         cancel,
         artifact: vi.fn(),
-        release: vi.fn(),
+        release,
       },
       stagingDirectory: staging,
       wait: async (_ms, signal) => {
@@ -240,9 +266,11 @@ describe('remote render engine', () => {
       }),
     ).toEqual({ status: 'cancelled' });
     expect(cancel).toHaveBeenCalled();
+    expect(release).toHaveBeenCalled();
 
     const download = new AbortController();
     const downloadCancel = vi.fn(async () => queued('cancelled'));
+    const downloadRelease = vi.fn(async () => 'released' as const);
     const hanging = createRemoteRenderEngine({
       transport: {
         submit: async () => queued('succeeded'),
@@ -259,7 +287,7 @@ describe('remote render engine', () => {
           });
           return null;
         },
-        release: vi.fn(),
+        release: downloadRelease,
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -271,6 +299,8 @@ describe('remote render engine', () => {
         attemptId: randomUUID(),
       }),
     ).toEqual({ status: 'cancelled' });
+    expect(downloadCancel).toHaveBeenCalled();
+    expect(downloadRelease).toHaveBeenCalled();
     await engine.close();
     await rendering.close();
     await hanging.close();
@@ -284,12 +314,12 @@ describe('remote render engine', () => {
       transport: {
         submit: async () => queued('succeeded'),
         status: async () => queued('succeeded'),
-        cancel: vi.fn(),
+        cancel: vi.fn(async () => queued('cancelled')),
         artifact: async () => ({
           sha256: 'c'.repeat(64),
           bytes,
         }),
-        release: async () => 'released',
+        release: vi.fn(async () => 'released' as const),
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -401,6 +431,7 @@ describe('remote render engine', () => {
       'mystery',
     ] as const;
     for (const reason of reasons) {
+      const release = vi.fn(async () => 'released' as const);
       const engine = createRemoteRenderEngine({
         transport: {
           submit: async () => ({
@@ -420,7 +451,7 @@ describe('remote render engine', () => {
           status: vi.fn(),
           cancel: vi.fn(),
           artifact: vi.fn(),
-          release: vi.fn(),
+          release,
         },
         stagingDirectory: staging,
         wait: async () => undefined,
@@ -448,6 +479,15 @@ describe('remote render engine', () => {
                 ? 'timeout'
                 : 'cleanup',
         });
+      }
+      if (
+        reason === 'invalid' ||
+        reason === 'closed' ||
+        reason === 'deadline'
+      ) {
+        expect(release).not.toHaveBeenCalled();
+      } else {
+        expect(release).toHaveBeenCalled();
       }
       await engine.close();
     }
@@ -499,13 +539,14 @@ describe('remote render engine', () => {
         attemptId: randomUUID(),
       }),
     ).toEqual({ status: 'failed', reason: 'artifact' });
+    const deadlineRelease = vi.fn(async () => 'released' as const);
     const deadline = createRemoteRenderEngine({
       transport: {
         submit: async () => queued('queued'),
         status: async () => queued('queued'),
         cancel: vi.fn(),
         artifact: vi.fn(),
-        release: vi.fn(),
+        release: deadlineRelease,
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -518,6 +559,8 @@ describe('remote render engine', () => {
         attemptId: randomUUID(),
       }),
     ).toEqual({ status: 'failed', reason: 'timeout' });
+    expect(deadlineRelease).toHaveBeenCalled();
+    let cleanupAck: 'released' | 'unavailable' = 'unavailable';
     const digest = createHash('sha256').update(bytes).digest('hex');
     const cleanup = createRemoteRenderEngine({
       transport: {
@@ -532,7 +575,7 @@ describe('remote render engine', () => {
           sha256: digest,
           bytes,
         }),
-        release: async () => 'unavailable',
+        release: async () => cleanupAck,
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -544,7 +587,14 @@ describe('remote render engine', () => {
     });
     expect(rendered.status).toBe('succeeded');
     if (rendered.status !== 'succeeded') throw new Error('render');
+    await expect(access(rendered.artifactPath)).resolves.toBeUndefined();
     await expect(cleanup.release(rendered.jobId)).rejects.toThrow('cleanup');
+    await expect(access(rendered.artifactPath)).resolves.toBeUndefined();
+    cleanupAck = 'released';
+    await cleanup.release(rendered.jobId);
+    await expect(access(rendered.artifactPath)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
     await oversized.close();
     await noMeta.close();
     await deadline.close();
@@ -594,7 +644,7 @@ describe('remote render engine', () => {
         artifact: async () => {
           throw new Error('socket');
         },
-        release: vi.fn(),
+        release: async () => 'released',
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -616,7 +666,7 @@ describe('remote render engine', () => {
         status: vi.fn(),
         cancel: vi.fn(),
         artifact: async () => null,
-        release: vi.fn(),
+        release: async () => 'released',
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -642,7 +692,7 @@ describe('remote render engine', () => {
           afterDownload.abort();
           return { sha256: digest, bytes };
         },
-        release: vi.fn(),
+        release: async () => 'released',
       },
       stagingDirectory: staging,
       wait: async () => undefined,
@@ -678,6 +728,221 @@ describe('remote render engine', () => {
     await missing.close();
     await lateAbort.close();
     await conflict.close();
+  });
+
+  it('releases failed and cancelled resident jobs so a ninth admission can run', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    const daemon = createRenderDaemon({
+      engine: {
+        render: async () => ({ status: 'failed', reason: 'runtime' }),
+        release: async () => undefined,
+        close: async () => undefined,
+      } satisfies DaemonEngine,
+      readArtifact: async () => {
+        throw new Error('no artifact');
+      },
+    });
+    const engine = createRemoteRenderEngine({
+      transport: daemonTransport(daemon),
+      stagingDirectory: staging,
+      wait: async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    });
+    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+      expect(
+        await engine.render(recipeJson(), undefined, executionContext()),
+      ).toEqual({ status: 'failed', reason: 'runtime' });
+    }
+    const ninth = await engine.render(
+      recipeJson(),
+      undefined,
+      executionContext(),
+    );
+    expect(ninth).toEqual({ status: 'failed', reason: 'runtime' });
+    await engine.close();
+    await daemon.close();
+  });
+
+  it('does not admit a ninth job until failed cleanup is acknowledged', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    const daemon = createRenderDaemon({
+      engine: {
+        render: async () => ({ status: 'failed', reason: 'runtime' }),
+        release: async () => undefined,
+        close: async () => undefined,
+      } satisfies DaemonEngine,
+      readArtifact: async () => {
+        throw new Error('no artifact');
+      },
+    });
+    const inner = daemonTransport(daemon);
+    let acknowledge: 'released' | 'unavailable' = 'unavailable';
+    const transport: WorkerTransport = {
+      submit: (input) => inner.submit(input),
+      status: (owner, id, signal) => inner.status(owner, id, signal),
+      cancel: (owner, id, signal) => inner.cancel(owner, id, signal),
+      artifact: (owner, id, signal) => inner.artifact(owner, id, signal),
+      release: async (owner, id, signal) => {
+        if (acknowledge === 'unavailable') return 'unavailable';
+        return inner.release(owner, id, signal);
+      },
+    };
+    const engine = createRemoteRenderEngine({
+      transport,
+      stagingDirectory: staging,
+      wait: async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    });
+    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+      expect(
+        await engine.render(recipeJson(), undefined, executionContext()),
+      ).toEqual({ status: 'failed', reason: 'runtime' });
+    }
+    expect(
+      await engine.render(recipeJson(), undefined, executionContext()),
+    ).toEqual({ status: 'failed', reason: 'capacity' });
+    acknowledge = 'released';
+    const recovered = await engine.render(
+      recipeJson(),
+      undefined,
+      executionContext(),
+    );
+    expect(recovered).toEqual({ status: 'failed', reason: 'runtime' });
+    await engine.close();
+    await daemon.close();
+  });
+
+  it('releases cancelled resident jobs so a ninth admission can run', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    let admitFailures = false;
+    const daemon = createRenderDaemon({
+      engine: {
+        render: async (_json, signal) => {
+          if (!admitFailures) {
+            await hangUntilAbort(signal).catch(() => undefined);
+            return { status: 'cancelled' };
+          }
+          return { status: 'failed', reason: 'runtime' };
+        },
+        release: async () => undefined,
+        close: async () => undefined,
+      } satisfies DaemonEngine,
+      readArtifact: async () => {
+        throw new Error('no artifact');
+      },
+    });
+    let current: AbortController | undefined;
+    const engine = createRemoteRenderEngine({
+      transport: daemonTransport(daemon),
+      stagingDirectory: staging,
+      wait: async (_ms, signal) => {
+        current?.abort();
+        if (signal?.aborted) throw new Error('aborted');
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    });
+    for (let index = 0; index < MAX_RESIDENT_DAEMON_JOBS; index += 1) {
+      current = new AbortController();
+      expect(
+        await engine.render(recipeJson(), current.signal, executionContext()),
+      ).toEqual({ status: 'cancelled' });
+    }
+    admitFailures = true;
+    current = undefined;
+    expect(
+      await engine.render(recipeJson(), undefined, executionContext()),
+    ).toEqual({ status: 'failed', reason: 'runtime' });
+    await engine.close();
+    await daemon.close();
+  });
+
+  it('cancels and releases a lost submit only after a bounded recover handle exists', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    let submits = 0;
+    const cancel = vi.fn(async () => queued('cancelled'));
+    const release = vi.fn(async () => 'released' as const);
+    const recovered = queued('queued');
+    const engine = createRemoteRenderEngine({
+      transport: {
+        submit: async (input) => {
+          submits += 1;
+          if (submits === 1) {
+            await hangUntilAbort(input.signal);
+          }
+          return recovered;
+        },
+        status: vi.fn(),
+        cancel,
+        artifact: vi.fn(),
+        release,
+      },
+      stagingDirectory: staging,
+      jsonTimeoutMs: 40,
+      cleanupTimeoutMs: 80,
+    });
+    const started = Date.now();
+    expect(
+      await engine.render(recipeJson(), undefined, executionContext()),
+    ).toEqual({ status: 'failed', reason: 'timeout' });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(20);
+    expect(submits).toBe(2);
+    expect(cancel).toHaveBeenCalledWith(
+      ACCOUNT.id,
+      recovered.executionId,
+      expect.any(AbortSignal),
+    );
+    expect(release).toHaveBeenCalledWith(
+      ACCOUNT.id,
+      recovered.executionId,
+      expect.any(AbortSignal),
+    );
+    await engine.close();
+  });
+
+  it('aborts a withheld status poll on shutdown and then releases the execution', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    let statusStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      statusStarted = resolve;
+    });
+    const cancel = vi.fn(async () => queued('cancelled'));
+    const release = vi.fn(async () => 'released' as const);
+    const engine = createRemoteRenderEngine({
+      transport: {
+        submit: async () => queued('queued'),
+        status: async (_owner, _id, signal) => {
+          statusStarted?.();
+          await hangUntilAbort(signal);
+          return queued('queued');
+        },
+        cancel,
+        artifact: vi.fn(),
+        release,
+      },
+      stagingDirectory: staging,
+      jsonTimeoutMs: 5_000,
+      cleanupTimeoutMs: 80,
+      wait: async (_ms, signal) => {
+        if (signal?.aborted) throw new Error('aborted');
+      },
+    });
+    const rendering = engine.render(
+      recipeJson(),
+      undefined,
+      executionContext(),
+    );
+    await started;
+    await engine.close();
+    expect(await rendering).toEqual({ status: 'cancelled' });
+    expect(cancel).toHaveBeenCalled();
+    expect(release).toHaveBeenCalled();
   });
 });
 
