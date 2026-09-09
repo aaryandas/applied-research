@@ -33,6 +33,8 @@ export interface PracticalContextOptions {
   identity: PracticalAttemptScope;
   getSnapshot(): PracticalSaveSnapshot;
   toolSessionId?: string;
+  /** Live host session; prefer this over a construction snapshot so bind does not replace the producer. */
+  getToolSessionId?(): string | undefined;
   getToolState?(): PracticalHostToolState | null;
   resolveEvidence?(
     scope: PracticalAttemptScope,
@@ -120,7 +122,8 @@ export function createPracticalContextResolver(
     activity: options.identity.activity,
     attemptId: options.identity.attemptId,
   });
-  const toolSessionId = options.toolSessionId;
+  const toolSessionId = () =>
+    options.getToolSessionId?.() ?? options.toolSessionId;
   let disposed = false;
   const pending = new Set<AbortController>();
   async function resolveTarget(
@@ -149,7 +152,7 @@ export function createPracticalContextResolver(
       )
     )
       return stale();
-    if (request.target.target === 'tool-controls' && !toolSessionId)
+    if (request.target.target === 'tool-controls' && !toolSessionId())
       return unavailable();
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -297,8 +300,9 @@ export function createPracticalContextResolver(
         };
       case 'tool-controls': {
         const tool = options.getToolState?.();
-        if (!tool || !toolSessionId) return unavailable();
-        if (tool.sessionId !== toolSessionId) return stale();
+        const boundSessionId = toolSessionId();
+        if (!tool || !boundSessionId) return unavailable();
+        if (tool.sessionId !== boundSessionId) return stale();
         const url = new URL(tool.url);
         if (
           url.username ||

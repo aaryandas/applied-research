@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -195,6 +196,10 @@ function milestoneProgressSource(
   return null;
 }
 
+function notify(listeners: Set<() => void>): void {
+  for (const listener of listeners) listener();
+}
+
 function ActivityWork(
   props: Readonly<PracticalWorkProps & { activity: PracticalActivity }>,
 ): ReactElement {
@@ -235,21 +240,63 @@ function ActivityWork(
   } = props;
   const stopGuidance = activityGuidance?.stop;
   const { companionContext, attemptId } = props;
+  const resolverListeners = useRef(new Set<() => void>());
+  const resolverBoundRef = useRef(false);
+  const hostContextRef = useRef({
+    toolSessionId: companionContext?.toolSessionId,
+    getToolSessionId: companionContext?.getToolSessionId,
+    getToolState: companionContext?.getToolState,
+    resolveEvidence: companionContext?.resolveEvidence,
+  });
+  const resolverBound = useSyncExternalStore(
+    (onStoreChange) => {
+      const listeners = resolverListeners.current;
+      listeners.add(onStoreChange);
+      return () => {
+        listeners.delete(onStoreChange);
+      };
+    },
+    () => resolverBoundRef.current,
+    () => resolverBoundRef.current,
+  );
   useLayoutEffect(() => {
-    if (!companionContext) return;
+    hostContextRef.current = {
+      toolSessionId: companionContext?.toolSessionId,
+      getToolSessionId: companionContext?.getToolSessionId,
+      getToolState: companionContext?.getToolState,
+      resolveEvidence: companionContext?.resolveEvidence,
+    };
+  });
+  const registerResolver = companionContext?.registerResolver;
+  useLayoutEffect(() => {
+    const listeners = resolverListeners.current;
+    if (!registerResolver) {
+      if (!resolverBoundRef.current) return;
+      resolverBoundRef.current = false;
+      notify(listeners);
+      return;
+    }
     const resolver = createPracticalContextResolver({
-      ...companionContext,
       identity: { activity, attemptId },
       getSnapshot: session.getContextSnapshot,
+      getToolSessionId: () =>
+        hostContextRef.current.getToolSessionId?.() ??
+        hostContextRef.current.toolSessionId,
+      getToolState: () => hostContextRef.current.getToolState?.() ?? null,
+      resolveEvidence: (scope, reference, signal) =>
+        hostContextRef.current.resolveEvidence?.(scope, reference, signal) ??
+        Promise.resolve(null),
     });
-    const unregister = companionContext.registerResolver(
-      resolver.resolveTarget,
-    );
+    const unregister = registerResolver(resolver.resolveTarget);
+    resolverBoundRef.current = true;
+    notify(listeners);
     return () => {
       resolver.dispose();
       unregister();
+      resolverBoundRef.current = false;
+      notify(listeners);
     };
-  }, [activity, attemptId, session, companionContext]);
+  }, [activity, attemptId, session, registerResolver]);
   useEffect(
     () => () => {
       void stopGuidance?.().catch(() => {});
@@ -328,11 +375,16 @@ function ActivityWork(
     target: PracticalGuidanceRequest['target']['target'],
   ): ReactNode {
     if (!props.onRequestGuidance) return null;
+    const askReady = !companionContext || resolverBound;
     return (
       <button
         type="button"
         className="practical-button practical-guidance"
-        onClick={() => props.onRequestGuidance?.(guidanceRequest(target))}
+        disabled={!askReady}
+        onClick={() => {
+          if (!askReady) return;
+          props.onRequestGuidance?.(guidanceRequest(target));
+        }}
       >
         {GUIDANCE_LABELS[target]}
       </button>

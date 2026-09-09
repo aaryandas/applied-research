@@ -108,6 +108,15 @@ async function waitForReflectionAskReady(text: string): Promise<void> {
   });
 }
 
+/** Tool Ask can appear before the producer resolver and live host session are bound. */
+async function waitForToolAskReady(): Promise<void> {
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Ask about this tool' }),
+    ).toBeEnabled(),
+  );
+}
+
 function committed(input: {
   activity: PracticalActivity;
   attemptId: string;
@@ -1000,11 +1009,7 @@ it('sends only app-owned tool controls and none page access after native host st
   });
   const tools = toolBridge();
   const { view, requestGuidance } = renderSession({ bridge, tools });
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Ask about this tool' }),
-    ).toBeVisible(),
-  );
+  await waitForToolAskReady();
   fireEvent.click(screen.getByRole('button', { name: 'Ask about this tool' }));
   fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
   await waitFor(() =>
@@ -1065,6 +1070,37 @@ it('sends only app-owned tool controls and none page access after native host st
   expect(tools.listenerCount()).toBeLessThan(previousCount);
 });
 
+it('keeps one delayed tool Ask on the producer before native host state', async () => {
+  const loaded = loadedJourney(savedAttempt());
+  loaded.journey = {
+    ...loaded.journey,
+    workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
+  };
+  const pending = deferred<LoadPracticalJourneyResult>();
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(async () => pending.promise),
+  });
+  const tools = toolBridge();
+  const { view, requestGuidance } = renderSession({ bridge, tools });
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    pending.resolve(loaded);
+    await pending.promise;
+  });
+  await waitForToolAskReady();
+  fireEvent.click(screen.getByRole('button', { name: 'Ask about this tool' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+  await waitFor(() =>
+    expect(
+      screen.getByText(/The selected context is unavailable/),
+    ).toBeVisible(),
+  );
+  expect(requestGuidance).not.toHaveBeenCalled();
+  view.unmount();
+});
+
 it('does not apply an old native listener to a newly mounted session', async () => {
   const loaded = loadedJourney(savedAttempt());
   loaded.journey = {
@@ -1076,11 +1112,7 @@ it('does not apply an old native listener to a newly mounted session', async () 
   });
   const firstTools = toolBridge();
   const first = renderSession({ bridge, tools: firstTools });
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Ask about this tool' }),
-    ).toBeVisible(),
-  );
+  await waitForToolAskReady();
   const staleEmit = firstTools.emit.bind(firstTools);
   first.view.unmount();
   const secondTools = toolBridge();
@@ -1089,11 +1121,7 @@ it('does not apply an old native listener to a newly mounted session', async () 
     tools: secondTools,
     requestGuidance: first.requestGuidance,
   });
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Ask about this tool' }),
-    ).toBeVisible(),
-  );
+  await waitForToolAskReady();
   act(() => {
     staleEmit({
       url: 'https://www.desmos.com/calculator',
