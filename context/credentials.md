@@ -43,7 +43,13 @@ AR-40 routes SDK `/api/auth/*` calls through Node's main-process global `fetch`:
 Electron `net.fetch` filters `Set-Cookie`, preventing the supported SDK from
 capturing exchanged or renewed session cookies. The wrapper retains the fixed
 origin/auth-path allowlist, manual redirect rejection, ten-second deadline and
-256 KiB response limit. `/v1/account` keeps its existing Electron transport.
+256 KiB response limit.
+The account and Companion transports also use Node's main-process global
+`fetch`. The installed macOS app's Chromium `net.fetch` returned
+`net::ERR_FAILED` after the production account endpoint returned HTTP 200;
+Node fetch preserves the same fixed endpoints, explicit session cookie,
+deadlines, redirect rejection and response validation.
+
 Unit and real Electron lifecycle tests use synthetic loopback HTTP responses
 through Node fetch to verify cookie capture; they do not establish live GitHub
 or deployed-backend acceptance.
