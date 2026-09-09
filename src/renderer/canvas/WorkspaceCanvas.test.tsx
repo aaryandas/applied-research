@@ -12,6 +12,7 @@ import type { CanvasShellControls, WorkspaceCanvasProps } from './types';
 import type {
   CommitResult,
   LearningEntryRecord,
+  LearningWorkspace,
   SaveHumanEntryInput,
   SaveInsightInput,
 } from '../../contracts/learning-records';
@@ -569,6 +570,29 @@ describe('Canvas authoring', () => {
     };
   }
 
+  async function selectCanvasNodes(
+    container: HTMLElement,
+    ids: readonly string[],
+  ): Promise<void> {
+    const first = container.querySelector(`[data-id="${ids[0]}"]`);
+    expect(first).toBeTruthy();
+    fireEvent.keyDown(first!, { key: 'Enter' });
+    await waitFor(() => expect(first!.className).toMatch(/selected/));
+    if (ids.length < 2) return;
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Shift' });
+    });
+    for (const id of ids.slice(1)) {
+      const node = container.querySelector(`[data-id="${id}"]`);
+      expect(node).toBeTruthy();
+      fireEvent.keyDown(node!, { key: 'Enter' });
+      await waitFor(() => expect(node!.className).toMatch(/selected/));
+    }
+    await act(async () => {
+      fireEvent.keyUp(window, { key: 'Shift' });
+    });
+  }
+
   it('hides writing controls until a writer is supplied', async () => {
     const input = props();
     render(<WorkspaceCanvas {...input} />);
@@ -747,21 +771,73 @@ describe('Canvas authoring', () => {
     expect(records.saveReadingNote).toHaveBeenCalledOnce();
   });
 
+  it('does not publish workspace after Canvas unmounts during a delayed refresh', async () => {
+    let resolveWorkspace: (next: LearningWorkspace) => void = () => {};
+    const delayed = new Promise<LearningWorkspace>((resolve) => {
+      resolveWorkspace = resolve;
+    });
+    const records = recordsBridge();
+    records.getLearningWorkspace.mockImplementation(async () => delayed);
+    const onWorkspace = vi.fn();
+    const view = render(
+      <WorkspaceCanvas {...props({ records, onWorkspace })} />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'New note' }));
+    fireEvent.change(await screen.findByLabelText('In your own words'), {
+      target: { value: 'Keep after unmount' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save note' }));
+    await waitFor(() => expect(records.saveReadingNote).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(records.getLearningWorkspace).toHaveBeenCalled(),
+    );
+    expect(onWorkspace).not.toHaveBeenCalled();
+    view.unmount();
+    await act(async () => {
+      resolveWorkspace(createCanvasFixture());
+      await delayed;
+    });
+    expect(onWorkspace).not.toHaveBeenCalled();
+  });
+
   it('connects two selected human supports into an insight with exact revisions', async () => {
     const records = recordsBridge();
     const workspace = createCanvasFixture();
+    const extra: LearningEntryRecord = {
+      ...workspace.entries[0]!,
+      id: 'extra-note',
+      currentRevision: 2,
+      current: {
+        ...workspace.entries[0]!.current,
+        revision: 2,
+        body: 'A later observation about the same arm.',
+      },
+      revisions: [
+        {
+          ...workspace.entries[0]!.current,
+          revision: 2,
+          body: 'A later observation about the same arm.',
+        },
+      ],
+    };
+    const withExtra = { ...workspace, entries: [...workspace.entries, extra] };
     const { container } = render(
       <WorkspaceCanvas
         {...props({
           records,
           onWorkspace: vi.fn(),
-          workspace,
+          workspace: withExtra,
           view: 'expanded',
         })}
       />,
     );
-    await screen.findByText(workspace.entries[0]!.current.body);
-    expect(container.querySelector('[data-id="note"]')).toBeTruthy();
+    await screen.findByText(extra.current.body);
+    expect(container.querySelector('[data-id="question"]')).toBeTruthy();
+    expect(container.querySelector('[data-id="extra-note"]')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Connect into insight' }),
+    ).not.toBeInTheDocument();
+    await selectCanvasNodes(container, ['question', 'extra-note']);
     fireEvent.click(
       await screen.findByRole('button', { name: 'Connect into insight' }),
     );
@@ -771,8 +847,8 @@ describe('Canvas authoring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save insight' }));
     await waitFor(() => expect(records.saveInsight).toHaveBeenCalled());
     expect(records.saveInsight.mock.calls[0]![0].supports).toEqual([
-      { entryId: 'note', revision: 1 },
       { entryId: 'question', revision: 1 },
+      { entryId: 'extra-note', revision: 2 },
     ]);
   });
 
@@ -935,6 +1011,35 @@ describe('Canvas authoring', () => {
     await screen.findByRole('button', { name: 'New note' });
     expect(
       screen.queryByRole('button', { name: 'Connect into insight' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides the insight toolbar when two humans exist but nothing is selected', async () => {
+    const workspace = createCanvasFixture();
+    const { container } = render(
+      <WorkspaceCanvas
+        {...props({
+          records: recordsBridge(),
+          onWorkspace: vi.fn(),
+          workspace,
+          view: 'expanded',
+        })}
+      />,
+    );
+    await screen.findByText(workspace.entries[0]!.current.body);
+    expect(container.querySelector('[data-id="note"]')).toBeTruthy();
+    expect(container.querySelector('[data-id="question"]')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Connect into insight' }),
+    ).not.toBeInTheDocument();
+    fireEvent.contextMenu(container.querySelector('.react-flow__pane')!, {
+      clientX: 48,
+      clientY: 48,
+    });
+    expect(
+      screen.queryByRole('menuitem', {
+        name: 'Connect selected notes and questions into an insight',
+      }),
     ).not.toBeInTheDocument();
   });
 

@@ -114,14 +114,16 @@ export function currentHumanSupports(
   return workspace.entries.filter(isHumanNoteOrQuestion);
 }
 
-/** Selected humans if the learner picked two or more; otherwise the first saved pair. */
+/** Selected humans only when the learner has picked two or more. */
 export function defaultInsightSupports(
   selected: readonly LearningEntryRecord[],
   workspace: LearningWorkspace,
 ): LearningEntryRecord[] {
-  return selected.length >= 2
-    ? [...selected]
-    : currentHumanSupports(workspace).slice(0, 2);
+  if (selected.length < 2) return [];
+  const allowed = new Set(
+    currentHumanSupports(workspace).map((entry) => entry.id),
+  );
+  return selected.filter((entry) => allowed.has(entry.id));
 }
 
 export function relinkDraftInput(

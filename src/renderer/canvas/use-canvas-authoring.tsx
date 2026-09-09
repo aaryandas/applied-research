@@ -14,7 +14,6 @@ import type {
 } from '../../contracts/learning-records';
 import {
   canvasEditKind,
-  currentHumanSupports,
   defaultInsightSupports,
   insightNoticeIfUneditable,
   isHumanNoteOrQuestion,
@@ -111,6 +110,9 @@ export function useCanvasAuthoring({
   useEffect(() => {
     session.setRecords(records ?? null);
     session.setWorkspaceHandler(onWorkspace ?? null);
+    return () => {
+      session.setWorkspaceHandler(null);
+    };
   }, [session, records, onWorkspace]);
 
   const selected = selectedIds
@@ -484,7 +486,7 @@ export function useCanvasAuthoring({
       >
         Ask a question
       </button>
-      {currentHumanSupports(workspace).length >= 2 && (
+      {selected.length >= 2 && (
         <button
           type="button"
           className="ui-button"

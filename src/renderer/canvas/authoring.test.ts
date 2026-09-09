@@ -94,7 +94,18 @@ describe('canvas authoring helpers', () => {
     expect(describeOrigin(null, workspace)).toMatch(/No topic/);
     expect(
       defaultInsightSupports([], workspace).map((entry) => entry.id),
-    ).toEqual(['note', 'question']);
+    ).toEqual([]);
+    expect(
+      defaultInsightSupports([workspace.entries[0]!], workspace).map(
+        (entry) => entry.id,
+      ),
+    ).toEqual([]);
+    expect(
+      defaultInsightSupports(
+        [workspace.entries[1]!, workspace.entries[0]!],
+        workspace,
+      ).map((entry) => entry.id),
+    ).toEqual(['question', 'note']);
     const relink = relinkDraftInput('project', workspace.entries[1]!, {
       pathId: 'path',
       pathRevision: 1,

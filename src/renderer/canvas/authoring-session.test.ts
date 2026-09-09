@@ -442,4 +442,64 @@ describe('AuthoringSession', () => {
     );
     expect(session.takePendingPlacement()).toBeNull();
   });
+
+  it('publishes a delayed workspace refresh while the handler remains attached', async () => {
+    const { session, records, onWorkspace } = setup();
+    let resolveWorkspace: (next: LearningWorkspace) => void = () => {};
+    const delayed = new Promise<LearningWorkspace>((resolve) => {
+      resolveWorkspace = resolve;
+    });
+    vi.mocked(records.getLearningWorkspace).mockImplementation(
+      async () => delayed,
+    );
+    session.begin({
+      kind: 'note',
+      input: {
+        projectId: 'project',
+        expectedRevision: 0,
+        title: '',
+        body: 'Keep',
+        origin: null,
+      },
+    });
+    session.edit({ title: '', body: 'Keep' });
+    const flushing = session.flush();
+    await vi.waitFor(() =>
+      expect(records.getLearningWorkspace).toHaveBeenCalled(),
+    );
+    expect(onWorkspace).not.toHaveBeenCalled();
+    resolveWorkspace(workspace);
+    await expect(flushing).resolves.toBe(true);
+    expect(onWorkspace).toHaveBeenCalledWith(workspace);
+  });
+
+  it('does not publish a delayed workspace refresh after the handler is cleared', async () => {
+    const { session, records, onWorkspace } = setup();
+    let resolveWorkspace: (next: LearningWorkspace) => void = () => {};
+    const delayed = new Promise<LearningWorkspace>((resolve) => {
+      resolveWorkspace = resolve;
+    });
+    vi.mocked(records.getLearningWorkspace).mockImplementation(
+      async () => delayed,
+    );
+    session.begin({
+      kind: 'note',
+      input: {
+        projectId: 'project',
+        expectedRevision: 0,
+        title: '',
+        body: 'Keep',
+        origin: null,
+      },
+    });
+    session.edit({ title: '', body: 'Keep' });
+    const flushing = session.flush();
+    await vi.waitFor(() =>
+      expect(records.getLearningWorkspace).toHaveBeenCalled(),
+    );
+    session.setWorkspaceHandler(null);
+    resolveWorkspace(workspace);
+    await expect(flushing).resolves.toBe(true);
+    expect(onWorkspace).not.toHaveBeenCalled();
+  });
 });
