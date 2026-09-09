@@ -29,7 +29,7 @@ interface ReaderContextProps {
   onSource: (source: SourceRecord) => void;
 }
 
-export function recordHeadingId(reference: EntryRevisionReference): string {
+function recordHeadingId(reference: EntryRevisionReference): string {
   return `reader-record-${reference.entryId}-r${reference.revision}`;
 }
 

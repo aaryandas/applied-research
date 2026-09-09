@@ -116,7 +116,7 @@ export function InsightSupports({
                   revision={support}
                   workspace={workspace}
                   onOpen={onOpen}
-                  onRevealEntry={onRevealEntry}
+                  {...(onRevealEntry ? { onRevealEntry } : {})}
                 />
               </>
             ) : (

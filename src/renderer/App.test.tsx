@@ -464,9 +464,9 @@ it('keeps an incomplete Reader draft mounted while Find is open', async () => {
   });
   fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
   await screen.findByRole('heading', { name: 'Find in this project' });
-  expect(screen.getByLabelText('Title', { hidden: true })).toHaveValue(
-    '  Exact find draft 😀',
-  );
+  expect(
+    screen.getByRole('textbox', { name: 'Title', hidden: true }),
+  ).toHaveValue('  Exact find draft 😀');
   fireEvent.click(screen.getByRole('button', { name: 'Back to reading' }));
   await waitFor(() =>
     expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
