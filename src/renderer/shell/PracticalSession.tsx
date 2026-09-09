@@ -302,10 +302,14 @@ export function PracticalSession(
           : {})}
         activityGuidance={owner.guidance}
         {...(companionContext ? { companionContext } : {})}
-        onRequestGuidance={(request) => {
-          setSelectedRequest(request);
-          void requester?.session.askOnce(request);
-        }}
+        {...(requester
+          ? {
+              onRequestGuidance: (request: PracticalGuidanceRequest) => {
+                setSelectedRequest(request);
+                void requester.session.askOnce(request);
+              },
+            }
+          : {})}
       />
       {requester && state && (
         <Companion
