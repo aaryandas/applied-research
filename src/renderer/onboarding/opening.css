@@ -62,6 +62,13 @@
   font-size: var(--text-sm);
   color: #a9a6a0;
 }
+.opening-continue-group {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-width: 540px;
+  margin-inline: auto;
+}
 .opening-continue {
   display: flex;
   align-items: center;

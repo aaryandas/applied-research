@@ -1,11 +1,23 @@
-import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type Ref,
+} from 'react';
 import type { Project } from '../contracts/workspace';
-import type { AcceptCourseValue } from '../contracts/learning-onboarding';
+import type {
+  AcceptCourseValue,
+  CourseAdjustmentEvidenceItem,
+} from '../contracts/learning-onboarding';
 import { Icon } from './FieldAtlas';
 import openingArtwork from './assets/apple-landscape.webp';
+import { AcceptedCourseAdjustment } from './onboarding/AcceptedCourseAdjustment';
 import { OnboardingFlow } from './onboarding/OnboardingFlow';
 import type {
   ContinueLearningCard,
+  OnboardingDraftPersist,
   OpeningOnboardingBridge,
 } from './onboarding/types';
 import './onboarding/opening.css';
@@ -20,8 +32,12 @@ interface OpeningProps {
     createDraftProject: (goal: string) => Promise<{ id: string }>;
     bridge: OpeningOnboardingBridge;
     onAccepted: (value: AcceptCourseValue) => void;
+    adjustmentEvidence?: (
+      projectId: string,
+    ) => Promise<readonly CourseAdjustmentEvidenceItem[]>;
   };
   readonly resumeDraft?: { projectId: string; goal: string } | null;
+  readonly onboardingPersistRef?: Ref<OnboardingDraftPersist>;
 }
 
 const MAX_TOPIC_LENGTH = 1000;
@@ -34,6 +50,7 @@ export function Opening({
   onContinueLearning,
   onboarding,
   resumeDraft = null,
+  onboardingPersistRef = null,
 }: OpeningProps): ReactElement {
   const [topic, setTopic] = useState(resumeDraft?.goal ?? '');
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -44,8 +61,20 @@ export function Opening({
   const [draftProjectId, setDraftProjectId] = useState<string | null>(
     resumeDraft?.projectId ?? null,
   );
+  const [reviewingProjectId, setReviewingProjectId] = useState<string | null>(
+    null,
+  );
+  const [reviewEvidence, setReviewEvidence] = useState<
+    readonly CourseAdjustmentEvidenceItem[]
+  >([]);
   const input = useRef<HTMLTextAreaElement>(null);
   const submission = useRef(false);
+  const draftPersist = useRef<OnboardingDraftPersist>(null);
+
+  useImperativeHandle(onboardingPersistRef, () => ({
+    persistDraft: () =>
+      draftPersist.current?.persistDraft() ?? Promise.resolve('idle'),
+  }));
 
   useLayoutEffect(() => {
     const field = input.current;
@@ -79,6 +108,29 @@ export function Opening({
     }
   };
 
+  if (onboarding && reviewingProjectId) {
+    return (
+      <section className="opening-screen" aria-label="Start learning">
+        <img
+          className="world-art"
+          src={openingArtwork}
+          alt="An apple tree overlooks a mountain valley; a red apple falls through the open sky."
+        />
+        <div className="opening-content opening-content-onboarding">
+          <AcceptedCourseAdjustment
+            projectId={reviewingProjectId}
+            evidence={reviewEvidence}
+            bridge={onboarding.bridge}
+            onClose={() => {
+              setReviewingProjectId(null);
+              setReviewEvidence([]);
+            }}
+          />
+        </div>
+      </section>
+    );
+  }
+
   if (onboarding && draftProjectId) {
     return (
       <section className="opening-screen" aria-label="Start learning">
@@ -94,6 +146,7 @@ export function Opening({
             seedUrl={sourceUrl.trim()}
             pastedSource={pastedSource}
             bridge={onboarding.bridge}
+            persistHandle={draftPersist}
             onAccepted={onboarding.onAccepted}
             onCancel={() => setDraftProjectId(null)}
           />
@@ -214,25 +267,47 @@ export function Opening({
           )}
         </form>
         {continueLearning && (
-          <button
-            className="opening-continue"
-            type="button"
-            aria-label="Continue learning"
-            disabled={creating}
-            onClick={() =>
-              onContinueLearning
-                ? onContinueLearning(continueLearning)
-                : onReopen(continueLearning.projectId)
-            }
-          >
-            <span>
-              <span className="returning-meta">Continue learning</span>
-              <span className="returning-name">
-                {continueLearning.lessonTitle}
+          <div className="opening-continue-group">
+            <button
+              className="opening-continue"
+              type="button"
+              aria-label="Continue learning"
+              disabled={creating}
+              onClick={() =>
+                onContinueLearning
+                  ? onContinueLearning(continueLearning)
+                  : onReopen(continueLearning.projectId)
+              }
+            >
+              <span>
+                <span className="returning-meta">Continue learning</span>
+                <span className="returning-name">
+                  {continueLearning.lessonTitle}
+                </span>
               </span>
-            </span>
-            <Icon name="arrow" />
-          </button>
+              <Icon name="arrow" />
+            </button>
+            {onboarding ? (
+              <button
+                className="opening-source-action"
+                type="button"
+                aria-label="Review course from your work"
+                disabled={creating}
+                onClick={() => {
+                  void (async () => {
+                    const items =
+                      (await onboarding.adjustmentEvidence?.(
+                        continueLearning.projectId,
+                      )) ?? [];
+                    setReviewEvidence(items);
+                    setReviewingProjectId(continueLearning.projectId);
+                  })();
+                }}
+              >
+                Review course from your work
+              </button>
+            ) : null}
+          </div>
         )}
         {projects.length > 0 && (
           <nav className="opening-saved-work" aria-label="All saved work">

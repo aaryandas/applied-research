@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type {
@@ -5,8 +6,8 @@ import type {
   InterviewRecord,
 } from '../../contracts/learning-onboarding';
 import { OnboardingFlow } from './OnboardingFlow';
-import type { OpeningOnboardingBridge } from './types';
-import { LOCAL_PROMPT_IDS } from './types';
+import type { OnboardingDraftPersist, OpeningOnboardingBridge } from './types';
+import { LOCAL_FOLLOWUP_QUESTION, LOCAL_PROMPT_IDS } from './types';
 
 const proposal: CourseProposal = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -1364,4 +1365,262 @@ it('keeps typed answers when a draft Back persist throws', async () => {
     'I am not sure yet',
   );
   expect(onCancel).not.toHaveBeenCalled();
+});
+
+const followUpPrompt = {
+  id: 'followup-01',
+  text: 'How would you debug a vanishing gradient in this setup?',
+  provenance: {
+    author: 'ai' as const,
+    provider: 'openrouter' as const,
+    providerRequestId: 'provider-01',
+    model: 'google/gemini-3.8-flash' as const,
+    requestVersion: '2026-09-08' as const,
+    promptVersion: 'learning-v2-2026-09-09',
+    createdAt: '2026-09-09T12:00:00.000Z',
+    sourceRevisions: [] as const,
+  },
+};
+
+it('requests an AI follow-up after the human diagnostic and keeps the answer separate', async () => {
+  const prompt = vi.fn(async () => ({
+    outcome: 'success' as const,
+    requestId: 'prompt-01',
+    value: interviewRecord({
+      revision: 2,
+      prompts: [followUpPrompt],
+      answers: Object.entries(answers()).map(([promptId, answer]) => ({
+        promptId,
+        answer,
+      })),
+    }),
+  }));
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(async () => ({
+            status: 'saved',
+            record: savedProfile(),
+          })),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          saveLearningInterview: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 1 }),
+          })),
+          savePastedSource: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 2 }),
+          })),
+          getPastedSource: vi.fn(async () => null),
+          requestInterviewPrompt: prompt,
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fillDiagnostic();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Request a follow-up question' }),
+  );
+  expect(await screen.findByText(followUpPrompt.text)).toBeVisible();
+  expect(
+    screen.getByText(/AI-authored, not your diagnostic answer/),
+  ).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Your answer to the follow-up'), {
+    target: { value: 'I would inspect the residual stream first.' },
+  });
+  expect(prompt).toHaveBeenCalledWith(
+    expect.objectContaining({
+      consent: 'acquire-learning-evidence',
+    }),
+  );
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    'I am not sure yet',
+  );
+  expect(screen.getByLabelText('Your answer to the follow-up')).toHaveValue(
+    'I would inspect the residual stream first.',
+  );
+});
+
+it('uses a local follow-up when the planner is unavailable and keeps retry', async () => {
+  const prompt = vi.fn(async () => ({
+    outcome: 'unavailable' as const,
+    requestId: 'prompt-01',
+    message: 'ignored',
+    retryable: true,
+  }));
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(async () => ({
+            status: 'saved',
+            record: savedProfile(),
+          })),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          saveLearningInterview: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord(),
+          })),
+          savePastedSource: vi.fn(async () => ({
+            status: 'saved' as const,
+            record: interviewRecord({ revision: 2 }),
+          })),
+          getPastedSource: vi.fn(async () => null),
+          requestInterviewPrompt: prompt,
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fillDiagnostic();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Request a follow-up question' }),
+  );
+  expect(await screen.findByText(LOCAL_FOLLOWUP_QUESTION)).toBeVisible();
+  expect(screen.getByText(/fixed local question/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
+});
+
+it('reopens an AI follow-up and its human answer without mixing attribution', async () => {
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: interviewRecord({
+              prompts: [followUpPrompt],
+              answers: [
+                ...Object.entries(answers()).map(([promptId, answer]) => ({
+                  promptId,
+                  answer,
+                })),
+                {
+                  promptId: followUpPrompt.id,
+                  answer: 'I would inspect the residual stream first.',
+                },
+              ],
+            }),
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          getPastedSource: vi.fn(async () => null),
+          requestInterviewPrompt: vi.fn(),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText(followUpPrompt.text)).toBeVisible();
+  expect(screen.getByLabelText('Your answer to the follow-up')).toHaveValue(
+    'I would inspect the residual stream first.',
+  );
+  expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
+    'I am not sure yet',
+  );
+});
+
+it('surfaces persistHandle failures instead of swallowing unmount saves', async () => {
+  const persistHandle = createRef<OnboardingDraftPersist>();
+  const saveInterview = vi.fn(async () => ({
+    status: 'conflict' as const,
+    expectedRevision: 0,
+    currentRevision: 1,
+  }));
+  const { unmount } = render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      persistHandle={persistHandle}
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          saveLearningInterview: saveInterview,
+          getPastedSource: vi.fn(async () => null),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  await screen.findByLabelText(/Explain how you would approach/);
+  fireEvent.change(screen.getByLabelText(/Explain how you would approach/), {
+    target: { value: 'I am not sure yet' },
+  });
+  unmount();
+  expect(saveInterview).not.toHaveBeenCalled();
+  render(
+    <OnboardingFlow
+      projectId={interviewRecord().projectId}
+      goal="Learn transformers"
+      persistHandle={persistHandle}
+      bridge={
+        {
+          getLearnerProfile: vi.fn(async () => savedProfile()),
+          saveLearnerProfile: vi.fn(),
+          getLearningOnboarding: vi.fn(async () => ({
+            interview: null,
+            proposal: null,
+            accepted: null,
+            adjustment: null,
+          })),
+          saveLearningInterview: saveInterview,
+          getPastedSource: vi.fn(async () => null),
+          proposeCourse: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onAccepted={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  await screen.findByLabelText(/Explain how you would approach/);
+  fireEvent.change(screen.getByLabelText(/Explain how you would approach/), {
+    target: { value: 'I am not sure yet' },
+  });
+  await waitFor(() => expect(persistHandle.current).not.toBeNull());
+  expect(await persistHandle.current!.persistDraft()).toBe('failed');
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /already saved this draft/,
+  );
 });
