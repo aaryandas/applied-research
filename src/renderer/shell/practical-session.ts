@@ -69,12 +69,12 @@ export class PracticalSessionOwner {
     this.bridge = {
       ...options.bridge,
       loadPracticalAttempt: (input) =>
-        this.bindLoadedAttempt(
+        this.bindLoadedResult(
           options.bridge.loadPracticalAttempt(input),
           input.activity,
         ),
       loadPracticalJourney: (input) =>
-        this.bindLoadedJourney(
+        this.bindLoadedResult(
           options.bridge.loadPracticalJourney(input),
           input.activity,
         ),
@@ -119,23 +119,9 @@ export class PracticalSessionOwner {
     this.options.onState(this.requester.session.getState());
   }
 
-  private async bindLoadedAttempt(
-    pending: Promise<LoadPracticalAttemptResult>,
-    activity: PracticalActivity,
-  ): Promise<LoadPracticalAttemptResult> {
-    const token = ++this.generation;
-    this.revoke();
-    const result = await pending;
-    if (result.status !== 'loaded' || !this.active || token !== this.generation)
-      return result;
-    this.bindRequester(activity, result.attempt?.attemptId ?? this.attemptId);
-    return result;
-  }
-
-  private async bindLoadedJourney(
-    pending: Promise<LoadPracticalJourneyResult>,
-    activity: PracticalActivity,
-  ): Promise<LoadPracticalJourneyResult> {
+  private async bindLoadedResult<
+    T extends LoadPracticalAttemptResult | LoadPracticalJourneyResult,
+  >(pending: Promise<T>, activity: PracticalActivity): Promise<T> {
     const token = ++this.generation;
     this.revoke();
     const result = await pending;

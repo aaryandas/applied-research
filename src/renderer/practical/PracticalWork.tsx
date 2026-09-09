@@ -25,6 +25,7 @@ import type {
   PracticalFilePreviewResult,
   PracticalHumanPlan,
   PracticalMilestoneStatus,
+  PracticalProgressSource,
 } from '../../contracts/practical-records';
 import {
   createPracticalSaveSession,
@@ -177,6 +178,23 @@ export function PracticalWork(
   return <ActivityWork key={scopeKey} {...props} activity={props.activity} />;
 }
 
+function milestoneProgressSource(
+  journey: PracticalAttemptJourney | undefined,
+): PracticalProgressSource | null {
+  const brief = journey?.brief;
+  if (brief)
+    return {
+      kind: 'accepted-brief',
+      briefRevision: brief.briefRevision,
+    };
+  if (journey && journey.humanPlanRevision > 0)
+    return {
+      kind: 'human-plan',
+      planRevision: journey.humanPlanRevision,
+    };
+  return null;
+}
+
 function ActivityWork(
   props: Readonly<PracticalWorkProps & { activity: PracticalActivity }>,
 ): ReactElement {
@@ -325,17 +343,7 @@ function ActivityWork(
     (item): item is SelectedPracticalFile => item.kind === 'user-selected-file',
   );
   const brief = props.journey?.brief ?? null;
-  const milestoneSource = brief
-    ? {
-        kind: 'accepted-brief' as const,
-        briefRevision: brief.briefRevision,
-      }
-    : props.journey && props.journey.humanPlanRevision > 0
-      ? {
-          kind: 'human-plan' as const,
-          planRevision: props.journey.humanPlanRevision,
-        }
-      : null;
+  const milestoneSource = milestoneProgressSource(props.journey);
   const checkpoints = brief
     ? projectPracticeCheckpoints(brief.brief)
     : (props.journey?.humanPlan?.milestones ?? []);

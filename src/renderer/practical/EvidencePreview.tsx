@@ -65,8 +65,8 @@ export function EvidencePreview({
         </pre>
       )}
       {preview?.status === 'unsupported-preview' && (
-        <p className="practical-copy" role="status">
-          {preview.message}
+        <p className="practical-copy">
+          <output>{preview.message}</output>
         </p>
       )}
       {(preview?.status === 'failed' || preview?.status === 'unavailable') && (

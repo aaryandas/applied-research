@@ -87,6 +87,19 @@ function loadedForActivity(
   return result;
 }
 
+function activityChooserProps(
+  props: Readonly<PracticalWorkspaceProps>,
+): Pick<PracticalWorkProps, 'availableActivities' | 'onSelectActivity'> {
+  return {
+    ...(props.availableActivities
+      ? { availableActivities: props.availableActivities }
+      : {}),
+    ...(props.onSelectActivity
+      ? { onSelectActivity: props.onSelectActivity }
+      : {}),
+  };
+}
+
 function LoadPracticalWorkspace(
   props: Readonly<PracticalWorkspaceProps>,
 ): ReactElement {
@@ -146,12 +159,7 @@ function LoadPracticalWorkspace(
         returnedEvidence={EMPTY_RETURNED_EVIDENCE}
         registerFlush={props.registerFlush}
         onReturnToLearning={props.onReturnToLearning}
-        {...(props.availableActivities
-          ? { availableActivities: props.availableActivities }
-          : {})}
-        {...(props.onSelectActivity
-          ? { onSelectActivity: props.onSelectActivity }
-          : {})}
+        {...activityChooserProps(props)}
       />
     );
   if (loaded.status === 'failed')
@@ -202,12 +210,7 @@ function LoadPracticalWorkspace(
       returnedEvidence={attempt?.returnedEvidence ?? EMPTY_RETURNED_EVIDENCE}
       registerFlush={props.registerFlush}
       onReturnToLearning={props.onReturnToLearning}
-      {...(props.availableActivities
-        ? { availableActivities: props.availableActivities }
-        : {})}
-      {...(props.onSelectActivity
-        ? { onSelectActivity: props.onSelectActivity }
-        : {})}
+      {...activityChooserProps(props)}
       {...(props.onResumeAttempt
         ? { onResumeAttempt: props.onResumeAttempt }
         : {})}

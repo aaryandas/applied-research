@@ -106,7 +106,7 @@ function MilestoneItem({
         Expected: {checkpoint.expectedResult}
       </p>
       <label className="practical-field">
-        Status
+        <span>Status</span>
         <select
           aria-label={`${checkpoint.title} status`}
           disabled={disabled}
@@ -123,7 +123,7 @@ function MilestoneItem({
         </select>
       </label>
       <label className="practical-field">
-        Human note
+        <span>Human note</span>
         <textarea
           className="practical-input"
           aria-label={`${checkpoint.title} note`}
@@ -133,7 +133,7 @@ function MilestoneItem({
         />
       </label>
       <label className="practical-field">
-        Selected evidence
+        <span>Selected evidence</span>
         <select
           aria-label={`${checkpoint.title} evidence`}
           disabled={disabled}
