@@ -64,7 +64,7 @@
     "three": "0.185.1"
   },
   "devDependencies": {
-    "@electron/rebuild": "4.0.1",
+    "@electron/rebuild": "4.2.0",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.63.0",
     "@sonar/scan": "5.0.0",
