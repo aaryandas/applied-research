@@ -63,9 +63,11 @@ unavailable fallback. Do not mint a new explanation or attempt ID inside the
 adapter. `commit` the same `explanationId` / `attemptId` AR-51 reserved.
 
 On `{ kind: 'unavailable' }` keep the previous useful retained result (AR-51
-already does this when `ready` is false). Persist `LearningOrigin` as supplied.
-The recipe JSON origin is a UUID projection (`projectId` / `sourceVersionId` /
-`questionId: null` / `lessonId`) and **must not** replace `path` / `entry`.
+already does this when `ready` is false). The recipe JSON origin is a UUID projection (`projectId` /
+`sourceVersionId` / `questionId: null` / `lessonId` from
+`origin.path?.lessonId` or `null`). Do **not** copy `highlightId` into
+`lessonId`. Persist the complete revision-bearing `LearningOrigin` as
+supplied; the recipe JSON **must not** replace `path` / `entry`.
 
 ## Result
 

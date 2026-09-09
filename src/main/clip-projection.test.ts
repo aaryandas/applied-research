@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import type { SupportedExplanationPlan } from '../contracts/explanation-artifacts';
+import {
+  decodeVerifiedClipMetadata,
+  type SupportedExplanationPlan,
+} from '../contracts/explanation-artifacts';
 import {
   clipResultFromRetained,
   isSupportedClipPlan,
@@ -56,6 +59,7 @@ describe('clip recipe projection', () => {
         pathId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
         pathRevision: 3,
         topicId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        lessonId: '99999999-9999-4999-8999-999999999999',
       },
       entry: {
         entryId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
@@ -80,11 +84,29 @@ describe('clip recipe projection', () => {
       projectId: PROJECT,
       sourceVersionId: origin.sourceRevisionId,
       questionId: null,
-      lessonId: origin.highlightId,
+      lessonId: origin.path.lessonId,
     });
     expect(parsed.origin).not.toHaveProperty('path');
     expect(parsed.origin).not.toHaveProperty('entry');
     expect(JSON.stringify(parsed)).not.toContain('artifactPath');
+  });
+
+  it('does not invent a recipe lesson id from a highlight', () => {
+    const mapped = recipeJsonFromClipPlan({
+      plan: linearPlan(),
+      requestId: REQUEST,
+      projectId: PROJECT,
+      origin: {
+        sourceRevisionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        highlightId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    });
+    expect(mapped.ok).toBe(true);
+    if (!mapped.ok) throw new Error('map');
+    expect(JSON.parse(mapped.json).origin.lessonId).toBeNull();
+    expect(JSON.parse(mapped.json).origin.sourceVersionId).toBe(
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    );
   });
 
   it('uses fixed ASCII titles and labels when planner copy cannot enter the recipe', () => {
@@ -120,6 +142,11 @@ describe('clip recipe projection', () => {
   it('projects a verified retained clip into the existing result fields', () => {
     const plan = linearPlan();
     const bytes = 64;
+    const recordStages = [
+      { name: 'Read the inputs', seconds: 0.1 },
+      { name: 'Transform continuously', seconds: 2 },
+      { name: 'Read the endpoint', seconds: 5 },
+    ];
     const record: RetainedClipRecord = {
       mediaId: randomUUID(),
       requestId: REQUEST,
@@ -136,7 +163,7 @@ describe('clip recipe projection', () => {
       width: 1280,
       height: 720,
       mediaType: 'video/mp4',
-      stages: [{ name: 'Read the inputs', seconds: 0 }],
+      stages: recordStages,
       endpoint: [2, 1],
       renderer: {
         name: 'manim-community',
@@ -164,13 +191,66 @@ describe('clip recipe projection', () => {
         width: 1280,
         height: 720,
         durationSeconds: 10,
-        stages: plan.stages,
+        stages: recordStages,
         renderer: record.renderer,
       },
     });
+    expect(result?.verified.stages).not.toEqual(plan.stages);
     expect(JSON.stringify(result)).not.toContain(record.accountId);
     expect(JSON.stringify(result)).not.toContain('artifactPath');
     expect(isSupportedClipPlan(plan)).toBe(true);
+  });
+
+  it('does not substitute generated plan stages when a 0s verified timestamp is rejected', () => {
+    const plan = linearPlan();
+    const record: RetainedClipRecord = {
+      mediaId: randomUUID(),
+      requestId: REQUEST,
+      attemptId: randomUUID(),
+      accountId: REQUEST,
+      recipe: 'linear-transform',
+      version: 1,
+      assetVersion: 'original-manim-1',
+      title: 'Linear transform',
+      recipeHash: 'a'.repeat(64),
+      sha256: 'b'.repeat(64),
+      bytes: 64,
+      durationSeconds: 10,
+      width: 1280,
+      height: 720,
+      mediaType: 'video/mp4',
+      stages: [
+        { name: 'Read the inputs', seconds: 0 },
+        { name: 'Transform continuously', seconds: 2 },
+        { name: 'Read the endpoint', seconds: 5 },
+      ],
+      endpoint: [2, 1],
+      renderer: {
+        name: 'manim-community',
+        version: '0.21.0',
+        image: PINNED,
+      },
+      origin: {
+        projectId: PROJECT,
+        sourceVersionId: null,
+        questionId: null,
+        lessonId: null,
+      },
+      timings: { queueMs: 1, computeMs: 2, verifyMs: 3, transferMs: 4 },
+    };
+    expect(
+      decodeVerifiedClipMetadata({
+        sha256: record.sha256,
+        mediaType: record.mediaType,
+        bytes: record.bytes,
+        width: record.width,
+        height: record.height,
+        durationSeconds: record.durationSeconds,
+        stages: record.stages,
+        renderer: record.renderer,
+      }).ok,
+    ).toBe(false);
+    expect(clipResultFromRetained(record, plan)).toBeNull();
   });
 
   it('maps weighted labels, rejects bad identity, and refuses mismatched retained clips', () => {

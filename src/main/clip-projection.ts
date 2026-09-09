@@ -85,7 +85,7 @@ export function clipResultFromRetained(
     width: record.width,
     height: record.height,
     durationSeconds: record.durationSeconds,
-    stages: plan.stages,
+    stages: record.stages,
     renderer: record.renderer,
   });
   if (!verified.ok) return null;
@@ -134,8 +134,8 @@ function recipeOrigin(
       ? (origin.sourceRevisionId ?? null)
       : null,
     questionId: null,
-    lessonId: UUID.test(origin.highlightId ?? '')
-      ? (origin.highlightId ?? null)
+    lessonId: UUID.test(origin.path?.lessonId ?? '')
+      ? (origin.path?.lessonId ?? null)
       : null,
   };
 }
