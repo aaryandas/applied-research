@@ -85,6 +85,9 @@ export function Shell({
   const settingsEntry = useRef<HTMLElement | null>(null);
   const returnDestination = useRef<WorkspaceDestination>('reader');
   const search = useRef<HTMLInputElement>(null);
+  const canvasSave = useRef<(() => Promise<boolean>) | null>(null);
+  const viewMoving = useRef(false);
+  const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
   const {
     registerReaderFlush,
     registerReaderViewFlush,
@@ -96,10 +99,20 @@ export function Shell({
     message,
     saving,
   } = useWorkspaceFlush();
+  const registerBoundCanvasFlush = useCallback(
+    (next: (() => Promise<boolean>) | null) => {
+      canvasSave.current = next;
+      registerCanvasFlush(next);
+    },
+    [registerCanvasFlush],
+  );
   useEffect(() => {
-    registerReaderViewFlush(
-      async () => (await reader.current?.flushViewNavigation()) ?? true,
-    );
+    // Same-project view changes keep this Reader mounted; never treat its
+    // incomplete draft as a failed view flush. Home/native close use registerFlush.
+    registerReaderViewFlush(async () => {
+      await reader.current?.flushViewNavigation();
+      return true;
+    });
     return () => registerReaderViewFlush(null);
   }, [registerReaderViewFlush]);
   useEffect(() => {
@@ -213,22 +226,37 @@ export function Shell({
   }
 
   function go(next: WorkspaceDestination): void {
-    stopNativePractical();
-    void navigate(
-      () => {
+    if (next === 'home') {
+      stopNativePractical();
+      void navigate(() => {
         setResearchVisible(false);
-        if (next === 'home') {
-          onHome();
-          return;
+        onHome();
+      }, 'workspace');
+      return;
+    }
+    if (viewMoving.current) return;
+    viewMoving.current = true;
+    const from = destination;
+    const hasAttempt = Boolean(attempt);
+    void (async () => {
+      try {
+        // Permissive: keep project-keyed Reader and the active Practical attempt
+        // mounted. Incomplete drafts stay in those hosts; typed Reader drafts still
+        // save through flushViewNavigation. Canvas unmounts, so save it separately.
+        await reader.current?.flushViewNavigation();
+        if (from === 'canvas' && next !== 'canvas') {
+          const saveCanvas = canvasSave.current;
+          if (saveCanvas && !(await saveCanvas())) return;
         }
-        if (next === 'settings' && destination !== 'settings') {
+        setResearchVisible(false);
+        if (next === 'settings' && from !== 'settings') {
           settingsEntry.current =
             document.activeElement instanceof HTMLElement
               ? document.activeElement
               : null;
-          returnDestination.current = destination;
+          returnDestination.current = from;
         }
-        if (next === 'practical' && !attempt) {
+        if (next === 'practical' && !hasAttempt) {
           const activity = practicalActivity(workspace, selectedPath);
           setAttempt({
             id: crypto.randomUUID(),
@@ -237,10 +265,14 @@ export function Shell({
           });
         }
         setDestination(next);
-      },
-      next === 'home' ? 'workspace' : 'view',
-    );
+      } finally {
+        viewMoving.current = false;
+      }
+    })();
   }
+  useEffect(() => {
+    goRef.current = go;
+  });
   function openOrigin(origin: LearningOrigin): void {
     stopNativePractical();
     void navigate(() => {
@@ -283,12 +315,12 @@ export function Shell({
     const findShortcut = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        void navigate(() => setDestination('find'), 'view');
+        goRef.current('find');
       }
     };
     window.addEventListener('keydown', findShortcut);
     return () => window.removeEventListener('keydown', findShortcut);
-  }, [navigate]);
+  }, []);
   const isCanvas = destination === 'canvas';
   const results = searchWorkspace(workspace, query);
   return (
@@ -421,7 +453,7 @@ export function Shell({
             onOpenOrigin={openOrigin}
             onEditEntry={editEntry}
             onMove={moveRecord}
-            registerFlush={registerCanvasFlush}
+            registerFlush={registerBoundCanvasFlush}
             onShellControls={setCanvasControls}
           />
         )}
