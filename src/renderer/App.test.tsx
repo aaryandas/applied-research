@@ -418,20 +418,6 @@ it('finds an originless note, a sourced note, a pending lesson and distinct same
   expect(document.activeElement).toHaveAttribute('id', 'reader-record-note-r1');
   fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
   fireEvent.change(await screen.findByRole('searchbox'), {
-    target: { value: 'pending title-only' },
-  });
-  fireEvent.click(
-    screen.getByRole('button', { name: /LessonPending title-only lesson/ }),
-  );
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', {
-        name: /Pending title-only lessonReadable content pending/,
-      }),
-    ).toHaveAttribute('aria-current', 'page'),
-  );
-  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-  fireEvent.change(await screen.findByRole('searchbox'), {
     target: { value: 'identical saved bodies' },
   });
   const twins = screen.getAllByRole('button', {
@@ -445,8 +431,24 @@ it('finds an originless note, a sourced note, a pending lesson and distinct same
       'reader-record-twin-a-r1',
     ),
   );
-  expect(screen.getByText('Identical saved bodies remain distinct records')).toBeVisible();
+  expect(document.activeElement?.closest('.reader-entry')).toHaveTextContent(
+    'Identical saved bodies remain distinct records',
+  );
   expect(screen.getByLabelText('Source text').textContent).toBe(reading);
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(await screen.findByRole('searchbox'), {
+    target: { value: 'pending title-only' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: /LessonPending title-only lesson/ }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', {
+        name: /Pending title-only lessonReadable content pending/,
+      }),
+    ).toHaveAttribute('aria-current', 'page'),
+  );
   expect(bridge.saveReadingNote).not.toHaveBeenCalled();
   expect(bridge.saveQuestion).not.toHaveBeenCalled();
   expect(bridge.saveInsight).not.toHaveBeenCalled();
