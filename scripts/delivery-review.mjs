@@ -4,22 +4,52 @@ import {
   CURSOR_AGENT_ORIGIN,
   FORBIDDEN_REVIEW_ROLES,
   INDEPENDENT_REVIEWER,
+  INDEPENDENT_REVIEW_NAME,
+  LAUNCH_RECEIPT_ENV,
+  LAUNCH_RECEIPT_KIND,
+  LAUNCH_RECEIPT_SCHEMA_VERSION,
   MISSING_CURSOR_API_KEY,
+  MISSING_LAUNCH_RECEIPT,
+  REQUIRED_MODEL_ID,
+  REQUIRED_MODEL_PARAMS,
   REQUIRED_REVIEW_DISPLAY,
+  REVIEW_CHECK_NAME,
   RUN_ID,
+  UNTRUSTED_CURSOR_CREDENTIAL,
   isFullSha,
   isSyntheticMergeRef,
+  modelParamsMatch,
   redactSecrets,
   ticketFromBranchOrBody,
 } from './delivery-constants.mjs';
 import {
+  assertPinnedStartingRef,
   createCloudReviewAgent,
   getAgent,
   getRun,
-  listAgentsForPr,
   listArtifacts,
   listModels,
 } from './delivery-cursor-api.mjs';
+import {
+  fetchCommitPulls,
+  fetchPullRequest,
+  listWorkflowFilesAtRef,
+  postCheckRun,
+  postIssueComment,
+} from './delivery-github.mjs';
+import {
+  assertTrustedCursorInvocation,
+  assertUntrustedMustNotCarryCursorKey,
+  cursorCredentialUseAllowed,
+  forbiddenCursorSecretWorkflows,
+  githubEventName,
+  idempotentReviewAgentId,
+  isUntrustedGithubEvent,
+  launchReceiptFailures,
+  parseLaunchReceipt,
+  requiredIsolationIds,
+  reviewIdempotencyKey,
+} from './delivery-trust.mjs';
 
 export const REVIEW_PROMPT = `You are the independent critic for Applied Research. You are not the implementer, not the cloud verifier, and not the demo recorder.
 
@@ -43,62 +73,46 @@ End with a single JSON object (no surrounding commentary after it) using this sh
   "resolutions": []
 }
 
-PASS on an axis requires no unresolved material findings on that axis.`;
+PASS on an axis requires no unresolved material findings on that axis.
+Do not treat your JSON role or model fields as authentication; the coordinator binds model identity via the launch receipt.`;
 
-export function grok46ExtraHighHaystack(model) {
-  return [
-    model?.id,
-    model?.runtime,
-    model?.originalModelName,
-    model?.displayName,
-    model?.picker,
-    ...(model?.aliases ?? []),
-    ...(model?.variants ?? []).map((variant) => variant.displayName),
-  ]
+export function catalogHasRequiredGrok46(catalog) {
+  const item = (catalog?.items ?? []).find(
+    (entry) => entry?.id === REQUIRED_MODEL_ID,
+  );
+  if (!item) return false;
+  const paramOk = REQUIRED_MODEL_PARAMS.every((need) => {
+    const definition = (item.params ?? []).find(
+      (param) => param.id === need.id,
+    );
+    if (definition?.values?.some((value) => value.value === need.value)) {
+      return true;
+    }
+    return (item.variants ?? []).some((variant) =>
+      modelParamsMatch(variant.params ?? [], [need]),
+    );
+  });
+  if (!paramOk) return false;
+  const hay = [item.id, item.displayName, ...(item.aliases ?? [])]
     .filter(Boolean)
     .join('\n')
     .toLowerCase();
-}
-
-export function isGrok46ExtraHigh(model) {
-  const hay = grok46ExtraHighHaystack(model);
-  if (!hay) return false;
-  if (/fable|claude-fable|composer-2|local runtime|headless/.test(hay)) {
-    return false;
-  }
-  return /grok[- _]?4\.6/.test(hay) && /xhigh|extra[- ]?high/.test(hay);
+  return !/fable|claude-fable|composer-2|local runtime|headless/.test(hay);
 }
 
 export function resolveReviewModel(catalog) {
-  const items = Array.isArray(catalog?.items) ? catalog.items : [];
-  for (const item of items) {
-    for (const variant of item.variants ?? [
-      { params: [], displayName: item.displayName },
-    ]) {
-      const candidate = {
-        ...item,
-        displayName: variant.displayName ?? item.displayName,
-        extraHighParams: variant.params ?? [],
-      };
-      if (isGrok46ExtraHigh(candidate)) {
-        return {
-          id: item.id,
-          displayName: candidate.displayName,
-          aliases: item.aliases ?? [],
-          extraHighParams: candidate.extraHighParams,
-        };
-      }
-    }
-    if (isGrok46ExtraHigh(item)) {
-      return {
-        id: item.id,
-        displayName: item.displayName ?? item.id,
-        aliases: item.aliases ?? [],
-        extraHighParams: [],
-      };
-    }
-  }
-  return null;
+  if (!catalogHasRequiredGrok46(catalog)) return null;
+  const item = catalog.items.find((entry) => entry.id === REQUIRED_MODEL_ID);
+  const variant = (item.variants ?? []).find((entry) =>
+    modelParamsMatch(entry.params ?? []),
+  );
+  return {
+    id: REQUIRED_MODEL_ID,
+    displayName:
+      variant?.displayName ?? item.displayName ?? REQUIRED_REVIEW_DISPLAY,
+    aliases: item.aliases ?? [],
+    extraHighParams: [...REQUIRED_MODEL_PARAMS],
+  };
 }
 
 export function parseReviewVerdict(resultText) {
@@ -127,29 +141,6 @@ export function agentUrlFor(agentId) {
   return `${CURSOR_AGENT_ORIGIN}/agents/${agentId}`;
 }
 
-function modelFromPlatform(agent, run, verdict) {
-  return {
-    id:
-      run?.model?.id ??
-      agent?.model?.id ??
-      run?.originalModelName ??
-      agent?.originalModelName ??
-      verdict?.model?.id,
-    displayName:
-      run?.model?.displayName ??
-      agent?.model?.displayName ??
-      verdict?.model?.displayName,
-    runtime:
-      run?.originalModelName ??
-      agent?.originalModelName ??
-      run?.model?.id ??
-      agent?.model?.id,
-    picker: agent?.model?.id ?? run?.model?.id,
-    aliases: [...(run?.model?.aliases ?? []), ...(agent?.model?.aliases ?? [])],
-    params: run?.model?.params ?? agent?.model?.params ?? [],
-  };
-}
-
 function unresolvedMaterial(findings) {
   if (!Array.isArray(findings)) return ['findings must be an array'];
   return findings.filter(
@@ -162,6 +153,22 @@ function unresolvedMaterial(findings) {
   );
 }
 
+export function commentIsNotProof(comment) {
+  const body = comment?.body ?? '';
+  const login = comment?.user?.login ?? '';
+  return {
+    forgedBot: login === 'cursor[bot]',
+    markerOnly:
+      /VERIFICATION_RESULT:\s*PASS/i.test(body) ||
+      /Fable 5\.1/i.test(body) ||
+      /INDEPENDENT_REVIEW_PASS/i.test(body),
+  };
+}
+
+export function commentsCannotProveReview(comments = []) {
+  return comments.length > 0;
+}
+
 export function evaluateIndependentReview({
   expectedHeadSha,
   prUrl,
@@ -172,9 +179,15 @@ export function evaluateIndependentReview({
   implementerAgentId,
   verifierAgentId,
   recorderAgentId,
+  launchReceipt,
+  comments = [],
 } = {}) {
   const failures = [];
   const fail = (reason) => failures.push(reason);
+
+  if (commentsCannotProveReview(comments)) {
+    fail('GitHub comments and marker strings are not independent-review proof');
+  }
 
   if (isSyntheticMergeRef(expectedHeadSha) || !isFullSha(expectedHeadSha)) {
     fail(
@@ -183,6 +196,21 @@ export function evaluateIndependentReview({
   }
   if (!agent || !AGENT_ID.test(agent.id ?? '')) {
     fail('Authenticated Cursor agent id (bc- UUID) is required');
+  }
+  if (!implementerAgentId || !verifierAgentId || !recorderAgentId) {
+    fail(
+      'IMPLEMENTER_AGENT_ID, VERIFIER_AGENT_ID, and RECORDER_AGENT_ID are required isolation ids',
+    );
+  } else {
+    if (!AGENT_ID.test(implementerAgentId)) {
+      fail('IMPLEMENTER_AGENT_ID is not a documented bc- UUID');
+    }
+    if (!AGENT_ID.test(verifierAgentId)) {
+      fail('VERIFIER_AGENT_ID is not a documented bc- UUID');
+    }
+    if (!AGENT_ID.test(recorderAgentId)) {
+      fail('RECORDER_AGENT_ID is not a documented bc- UUID');
+    }
   }
   if (agent?.id && implementerAgentId && agent.id === implementerAgentId) {
     fail(
@@ -199,18 +227,42 @@ export function evaluateIndependentReview({
       'Independent reviewer must be a different cloud agent than the recorder',
     );
   }
-  if (agent?.env?.type && agent.env.type !== 'cloud') {
-    fail(`Independent review must run on Cursor Cloud, not ${agent.env.type}`);
+  if (agent?.env?.type !== 'cloud') {
+    fail(
+      `Independent review must run on Cursor Cloud env.type=cloud (saw ${agent?.env?.type ?? 'missing'})`,
+    );
   }
-  if (prUrl && agent?.repos?.length) {
-    const matchesPr = agent.repos.some((repo) => repo.prUrl === prUrl);
-    if (!matchesPr) fail('Cursor agent is not bound to this pull request URL');
+
+  const name = String(agent?.name ?? '');
+  if (!INDEPENDENT_REVIEW_NAME.test(name)) {
+    fail(
+      'Authenticated agent.name must match /^Independent review\\b/i; JSON role is not identity',
+    );
   }
 
   const required = resolveReviewModel(catalog);
   if (!required) {
     fail(
-      `${REQUIRED_REVIEW_DISPLAY} is not present in GET /v1/models for this API key`,
+      `${REQUIRED_REVIEW_DISPLAY} (model id ${REQUIRED_MODEL_ID}, effort=xhigh, fast=false) is not present in GET /v1/models`,
+    );
+  }
+
+  for (const reason of launchReceiptFailures(launchReceipt, {
+    expectedHeadSha,
+    agent,
+    run,
+  })) {
+    fail(reason);
+  }
+
+  const undocumentedModel =
+    agent?.originalModelName ||
+    agent?.model ||
+    run?.originalModelName ||
+    run?.model;
+  if (undocumentedModel) {
+    fail(
+      'GET agent/run included undocumented model fields; ignore them and require a launch receipt instead',
     );
   }
 
@@ -220,48 +272,30 @@ export function evaluateIndependentReview({
       'Authenticated run result does not contain a parseable independent-review JSON verdict',
     );
   }
+  if (verdict?.model) {
+    fail('verdict.model is self-authored and is not model proof');
+  }
+  if (FORBIDDEN_REVIEW_ROLES.includes(verdict?.role)) {
+    fail(`Role ${verdict.role} cannot supply independent review`);
+  }
+  if (verdict?.headSha && verdict.headSha !== expectedHeadSha) {
+    fail(
+      `Verdict headSha ${verdict.headSha} does not match current PR head ${expectedHeadSha}`,
+    );
+  }
 
-  const role = verdict?.role ?? agent?.metadata?.role;
-  if (role !== INDEPENDENT_REVIEWER) {
-    fail(`Role must be ${INDEPENDENT_REVIEWER}; received ${role ?? 'missing'}`);
+  try {
+    if (agent) assertPinnedStartingRef(agent, expectedHeadSha);
+  } catch (error) {
+    fail(error.message);
   }
-  if (FORBIDDEN_REVIEW_ROLES.includes(role)) {
-    fail(`Role ${role} cannot supply independent review`);
-  }
-  const name = String(agent?.name ?? '').toLowerCase();
+
   if (
-    /\b(implement|verif|record|demo)\b/.test(name) &&
-    !/independent review/.test(name)
+    prUrl &&
+    agent?.repos?.some((repo) => repo.prUrl) &&
+    !agent.repos.some((repo) => repo.prUrl === prUrl)
   ) {
-    fail('Agent display name indicates implementer, verifier, or recorder');
-  }
-
-  const platformModel = modelFromPlatform(agent, run, verdict);
-  if (!isGrok46ExtraHigh(platformModel)) {
-    fail(
-      `Model picker/runtime evidence is not ${REQUIRED_REVIEW_DISPLAY} (saw ${platformModel.runtime ?? platformModel.id ?? 'missing'})`,
-    );
-  }
-  if (
-    required &&
-    platformModel.id &&
-    platformModel.id !== required.id &&
-    !(required.aliases ?? []).includes(platformModel.id)
-  ) {
-    fail(
-      `Runtime model id ${platformModel.id} does not match catalog id ${required.id}`,
-    );
-  }
-
-  const claimedSha = verdict?.headSha ?? agent?.repos?.[0]?.startingRef;
-  if (claimedSha !== expectedHeadSha) {
-    fail(
-      `Review SHA ${claimedSha ?? 'missing'} does not match current PR head ${expectedHeadSha}`,
-    );
-  }
-  const startingRef = agent?.repos?.[0]?.startingRef;
-  if (isFullSha(startingRef) && startingRef !== expectedHeadSha) {
-    fail('Agent startingRef SHA is stale relative to the current PR head');
+    fail('Cursor agent prUrl does not match this pull request URL');
   }
 
   if (run?.status && run.status !== 'FINISHED') {
@@ -269,6 +303,9 @@ export function evaluateIndependentReview({
   }
   if (run?.id && !RUN_ID.test(run.id) && !String(run.id).startsWith('run-')) {
     fail('Run identity is not a documented run id');
+  }
+  if (run?.agentId && agent?.id && run.agentId !== agent.id) {
+    fail('Run agentId does not match GET agent id');
   }
 
   if (verdict?.standards !== 'PASS' || verdict?.spec !== 'PASS') {
@@ -311,10 +348,10 @@ export function evaluateIndependentReview({
           agentUrl,
           artifactUrls,
           model: {
-            id: platformModel.id,
-            displayName: platformModel.displayName ?? required?.displayName,
-            runtime: platformModel.runtime,
-            picker: platformModel.picker,
+            id: launchReceipt.modelId,
+            displayName: required?.displayName,
+            params: launchReceipt.modelParams,
+            provenance: 'launch-receipt-bound-to-get-agent-run',
           },
           standards: verdict.standards,
           spec: verdict.spec,
@@ -325,77 +362,119 @@ export function evaluateIndependentReview({
   };
 }
 
-export function commentIsNotProof(comment) {
-  const body = comment?.body ?? '';
-  const login = comment?.user?.login ?? '';
-  return {
-    forgedBot: login === 'cursor[bot]',
-    markerOnly:
-      /VERIFICATION_RESULT:\s*PASS/i.test(body) ||
-      /Fable 5\.1/i.test(body) ||
-      /INDEPENDENT_REVIEW_PASS/i.test(body),
-  };
-}
-
 export function missingKeyResult() {
   return {
     passed: false,
     status: 'PENDING',
     failures: [MISSING_CURSOR_API_KEY],
-    setupDependency: 'repository secret CURSOR_API_KEY',
+    setupDependency: 'GitHub Environment trusted-cursor CURSOR_API_KEY',
     evidence: null,
   };
 }
 
-export function buildLaunchBody({ model, prUrl, repoUrl, headSha, ticket }) {
+export function untrustedPendingResult() {
+  return {
+    passed: false,
+    status: 'PENDING',
+    failures: [UNTRUSTED_CURSOR_CREDENTIAL],
+    setupDependency: 'trusted default-branch evaluator',
+    evidence: null,
+  };
+}
+
+export function buildLaunchBody({
+  model,
+  prUrl,
+  repoUrl,
+  headSha,
+  ticket,
+  repository,
+  prNumber,
+}) {
+  if (!isFullSha(headSha)) {
+    throw new Error(
+      'Launch startingRef must be the exact 40-character head SHA',
+    );
+  }
+  const resolved = model ?? {
+    id: REQUIRED_MODEL_ID,
+    extraHighParams: [...REQUIRED_MODEL_PARAMS],
+  };
+  if (resolved.id !== REQUIRED_MODEL_ID) {
+    throw new Error(`Launch model.id must be ${REQUIRED_MODEL_ID}`);
+  }
+  const params = resolved.extraHighParams?.length
+    ? resolved.extraHighParams
+    : [...REQUIRED_MODEL_PARAMS];
+  if (!modelParamsMatch(params)) {
+    throw new Error(
+      'Launch model.params must include effort=xhigh and fast=false',
+    );
+  }
   return {
     name: `Independent review ${ticket ?? ''} ${headSha.slice(0, 7)}`.trim(),
     prompt: {
-      text: `${REVIEW_PROMPT}\n\nPR: ${prUrl}\nExact head SHA: ${headSha}\nTicket: ${ticket ?? 'unknown'}`,
+      text: `${REVIEW_PROMPT}\n\nPR: ${prUrl}\nExact head SHA: ${headSha}\nTicket: ${ticket ?? 'unknown'}\nBind this review to the frozen SHA via startingRef; do not use prUrl on create because it ignores startingRef.`,
     },
     model: {
-      id: model.id,
-      ...(model.extraHighParams?.length
-        ? { params: model.extraHighParams }
-        : {}),
+      id: REQUIRED_MODEL_ID,
+      params,
     },
+    env: { type: 'cloud' },
     repos: [
       {
         url: repoUrl,
-        prUrl,
+        startingRef: headSha,
       },
     ],
     workOnCurrentBranch: false,
     autoCreatePR: false,
     skipReviewerRequest: true,
+    agentId: idempotentReviewAgentId({
+      repository,
+      prNumber,
+      headSha,
+    }),
   };
 }
 
-async function githubJson(path, { token, method = 'GET', body, fetchImpl }) {
-  const response = await fetchImpl(`https://api.github.com/${path}`, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(
-      redactSecrets(`GitHub ${method} ${path} returned ${response.status}`),
-    );
-  }
-  return payload;
+export function createLaunchReceipt({
+  agentId,
+  runId,
+  headSha,
+  prNumber,
+  prUrl,
+  repository,
+  githubRunId,
+  githubWorkflowSha,
+  source = 'trusted-launch-job',
+}) {
+  return {
+    schemaVersion: LAUNCH_RECEIPT_SCHEMA_VERSION,
+    kind: LAUNCH_RECEIPT_KIND,
+    source,
+    agentId,
+    runId,
+    headSha,
+    prNumber: Number(prNumber),
+    prUrl,
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    idempotencyKey: reviewIdempotencyKey({
+      repository,
+      prNumber,
+      headSha,
+    }),
+    githubRunId: githubRunId ?? null,
+    githubWorkflowSha: githubWorkflowSha ?? null,
+    launchedAt: new Date().toISOString(),
+  };
 }
 
 export async function resolvePrHead({
   repository,
   prNumber,
   envSha,
-  eventName,
   token,
   fetchImpl = fetch,
 }) {
@@ -403,12 +482,11 @@ export async function resolvePrHead({
     envSha = null;
   }
   if (!token || !prNumber) {
-    if (isFullSha(envSha) && eventName === 'pull_request') {
-      return { sha: envSha, pr: null };
-    }
-    throw new Error('Cannot resolve exact PR head SHA');
+    throw new Error(
+      'Cannot resolve exact PR head SHA without GitHub token and PR number',
+    );
   }
-  const pr = await githubJson(`repos/${repository}/pulls/${prNumber}`, {
+  const pr = await fetchPullRequest(repository, prNumber, {
     token,
     fetchImpl,
   });
@@ -430,58 +508,54 @@ export async function evaluateFromCursor({
   implementerAgentId,
   verifierAgentId,
   recorderAgentId,
+  launchReceipt,
+  env,
   fetchImpl = fetch,
 }) {
-  const catalog = await listModels({ apiKey, fetchImpl });
-  const listed = await listAgentsForPr(prUrl, { apiKey, fetchImpl });
-  const reports = [];
-  for (const item of listed) {
-    let agent;
-    let run;
-    let artifacts = { items: [] };
-    try {
-      agent = await getAgent(item.id, { apiKey, fetchImpl });
-      const runId = agent.latestRunId ?? item.latestRunId;
-      if (runId) run = await getRun(agent.id, runId, { apiKey, fetchImpl });
-      try {
-        artifacts = await listArtifacts(agent.id, { apiKey, fetchImpl });
-      } catch {
-        /* Artifact listing is optional; agent URL still required for PASS. */
-      }
-    } catch (error) {
-      reports.push({
-        agentId: item.id,
-        error: redactSecrets(error.message),
-      });
-      continue;
-    }
-    const result = evaluateIndependentReview({
-      expectedHeadSha,
-      prUrl,
-      catalog,
-      agent,
-      run,
-      artifacts,
-      implementerAgentId,
-      verifierAgentId,
-      recorderAgentId,
-    });
-    reports.push({ agentId: agent.id, ...result });
-    if (result.passed) return result;
+  assertTrustedCursorInvocation(env);
+  const catalog = await listModels({ apiKey, fetchImpl, env });
+  if (!launchReceipt?.agentId) {
+    return {
+      passed: false,
+      status: 'PENDING',
+      failures: [MISSING_LAUNCH_RECEIPT],
+      catalogHasRequiredModel: Boolean(resolveReviewModel(catalog)),
+      evidence: null,
+    };
   }
-  const failures = reports.flatMap((report) => report.failures ?? []);
-  return {
-    passed: false,
-    status: listed.length ? 'FAIL' : 'PENDING',
-    failures: failures.length
-      ? failures
-      : [
-          'No authentic Cursor Cloud independent-review agent exists for this PR URL and exact head SHA',
-        ],
-    reports,
-    catalogHasRequiredModel: Boolean(resolveReviewModel(catalog)),
-    evidence: null,
-  };
+  let agent;
+  let run;
+  let artifacts = { items: [] };
+  try {
+    agent = await getAgent(launchReceipt.agentId, { apiKey, fetchImpl, env });
+    assertPinnedStartingRef(agent, expectedHeadSha);
+    const runId = launchReceipt.runId ?? agent.latestRunId;
+    if (runId) run = await getRun(agent.id, runId, { apiKey, fetchImpl, env });
+    try {
+      artifacts = await listArtifacts(agent.id, { apiKey, fetchImpl, env });
+    } catch {
+      /* Artifact listing is optional; agent URL still required for PASS. */
+    }
+  } catch (error) {
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [redactSecrets(error.message)],
+      evidence: null,
+    };
+  }
+  return evaluateIndependentReview({
+    expectedHeadSha,
+    prUrl,
+    catalog,
+    agent,
+    run,
+    artifacts,
+    implementerAgentId,
+    verifierAgentId,
+    recorderAgentId,
+    launchReceipt,
+  });
 }
 
 export async function maybeLaunchReview({
@@ -492,41 +566,64 @@ export async function maybeLaunchReview({
   repoUrl,
   headSha,
   ticket,
+  repository,
+  prNumber,
+  env,
   fetchImpl = fetch,
 }) {
   if (!launch) {
     return {
       launched: false,
       reason:
-        'Launch is opt-in via repository variable CURSOR_REVIEW_LAUNCH=true after the API key exists',
+        'Launch is opt-in via repository variable CURSOR_REVIEW_LAUNCH=true on the trusted default-branch workflow only',
     };
   }
+  assertTrustedCursorInvocation(env);
   if (!model) {
     return {
       launched: false,
       reason: `${REQUIRED_REVIEW_DISPLAY} is not in GET /v1/models`,
     };
   }
-  const created = await createCloudReviewAgent(
-    buildLaunchBody({ model, prUrl, repoUrl, headSha, ticket }),
-    { apiKey, fetchImpl },
-  );
+  const body = buildLaunchBody({
+    model,
+    prUrl,
+    repoUrl,
+    headSha,
+    ticket,
+    repository,
+    prNumber,
+  });
+  const created = await createCloudReviewAgent(body, {
+    apiKey,
+    fetchImpl,
+    env,
+    idempotencyKey: reviewIdempotencyKey({
+      repository,
+      prNumber,
+      headSha,
+    }),
+  });
+  const agent = created?.agent;
+  const run = created?.run;
   return {
     launched: true,
-    agentId: created?.agent?.id,
-    runId: created?.run?.id,
-    agentUrl: created?.agent?.url,
+    agentId: agent?.id,
+    runId: run?.id ?? agent?.latestRunId,
+    agentUrl: agent?.url,
+    idempotentReplay: Boolean(created?.idempotentReplay),
+    receipt: createLaunchReceipt({
+      agentId: agent?.id,
+      runId: run?.id ?? agent?.latestRunId,
+      headSha,
+      prNumber,
+      prUrl,
+      repository,
+      githubRunId: env.GITHUB_RUN_ID,
+      githubWorkflowSha: env.GITHUB_SHA,
+      source: 'trusted-launch-job',
+    }),
   };
-}
-
-async function postPrComment({ repository, prNumber, token, body, fetchImpl }) {
-  if (!token || !prNumber) return;
-  await githubJson(`repos/${repository}/issues/${prNumber}/comments`, {
-    token,
-    method: 'POST',
-    body: { body },
-    fetchImpl,
-  });
 }
 
 export function formatReviewComment(result, { headSha, launch } = {}) {
@@ -534,14 +631,14 @@ export function formatReviewComment(result, { headSha, launch } = {}) {
     `Independent Cursor Cloud review of \`${headSha}\`: **${result.status}**`,
     '',
     `Required model/role: ${REQUIRED_REVIEW_DISPLAY} / ${INDEPENDENT_REVIEWER}.`,
-    'Proof is authenticated `GET https://api.cursor.com/v1/agents` + run payload, not this comment.',
+    'Proof is authenticated `GET https://api.cursor.com/v1/agents` + run payload bound to a launch receipt, not this comment.',
   ];
   if (result.evidence) {
     lines.push(
       '',
       `- Agent: ${result.evidence.agentUrl}`,
       `- Run: \`${result.evidence.runId}\``,
-      `- Runtime model: \`${result.evidence.model.runtime ?? result.evidence.model.id}\``,
+      `- Launch-receipt model: \`${result.evidence.model.id}\` (${JSON.stringify(result.evidence.model.params)})`,
       `- Standards: ${result.evidence.standards}; spec: ${result.evidence.spec}`,
     );
   } else {
@@ -559,38 +656,104 @@ export function formatReviewComment(result, { headSha, launch } = {}) {
   return lines.join('\n');
 }
 
-export async function main(env = process.env, deps = {}) {
+export async function scanPrWorkflows({
+  repository,
+  headSha,
+  token,
+  fetchImpl,
+}) {
+  const files = await listWorkflowFilesAtRef(repository, headSha, {
+    token,
+    fetchImpl,
+  });
+  const forbidden = forbiddenCursorSecretWorkflows(files);
+  if (forbidden.length) {
+    throw new Error(
+      `PR must not add secrets.CURSOR_API_KEY to ${forbidden.map((file) => file.path).join(', ')}; only default-branch ${'.github/workflows/independent-review-trusted.yml'} may reference the Cursor credential`,
+    );
+  }
+  return files;
+}
+
+async function publishCheck({ repository, token, headSha, result, fetchImpl }) {
+  if (!token) return;
+  await postCheckRun(
+    repository,
+    {
+      name: REVIEW_CHECK_NAME,
+      head_sha: headSha,
+      status: 'completed',
+      conclusion: result.passed ? 'success' : 'failure',
+      output: {
+        title: result.passed
+          ? 'Cursor Cloud Grok 4.6 Extra High PASS'
+          : `Independent review ${result.status}`,
+        summary: (result.failures ?? []).join('\n') || 'PASS',
+      },
+    },
+    { token, fetchImpl },
+  );
+}
+
+export async function mainUntrusted(env = process.env, deps = {}) {
+  const log = deps.log ?? console;
+  assertUntrustedMustNotCarryCursorKey(env);
+  const result = untrustedPendingResult();
+  log.log(formatReviewComment(result, { headSha: env.HEAD_SHA }));
+  process.exitCode = 0;
+  return result;
+}
+
+export async function mainEvaluate(env = process.env, deps = {}) {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const log = deps.log ?? console;
+  assertTrustedCursorInvocation(env);
+  if (isUntrustedGithubEvent(env)) {
+    throw new Error(UNTRUSTED_CURSOR_CREDENTIAL);
+  }
+  const providedComments = deps.comments ?? [];
+  if (
+    providedComments.length ||
+    providedComments.some(
+      (comment) =>
+        commentIsNotProof(comment).forgedBot ||
+        commentIsNotProof(comment).markerOnly,
+    )
+  ) {
+    throw new Error('GitHub comments are not independent-review proof');
+  }
+
   const prNumber = Number(env.PR_NUMBER);
   const repository = env.REPOSITORY ?? env.GITHUB_REPOSITORY;
   const token = env.GITHUB_TOKEN;
   const apiKey = env.CURSOR_API_KEY?.trim();
+  const isolation = requiredIsolationIds(env);
+
+  if (!repository || !prNumber) {
+    throw new Error('Trusted evaluation requires PR_NUMBER and repository');
+  }
+
+  const resolved = await resolvePrHead({
+    repository,
+    prNumber,
+    envSha: env.HEAD_SHA,
+    token,
+    fetchImpl,
+  });
+  const headSha = resolved.sha;
+  const pr = resolved.pr;
   const prUrl =
     env.PR_URL ??
-    (repository && prNumber
-      ? `https://github.com/${repository}/pull/${prNumber}`
-      : null);
+    pr?.html_url ??
+    `https://github.com/${repository}/pull/${prNumber}`;
 
-  let headSha = env.HEAD_SHA;
-  let pr = null;
-  if (token && prNumber) {
-    const resolved = await resolvePrHead({
-      repository,
-      prNumber,
-      envSha: env.HEAD_SHA,
-      eventName: env.EVENT_NAME ?? env.GITHUB_EVENT_NAME,
-      token,
-      fetchImpl,
-    });
-    headSha = resolved.sha;
-    pr = resolved.pr;
-  }
   if (isSyntheticMergeRef(headSha) || !isFullSha(headSha)) {
     throw new Error(
       'Refusing to evaluate a synthetic merge ref; exact PR head SHA is required',
     );
   }
+
+  await scanPrWorkflows({ repository, headSha, token, fetchImpl });
 
   const ticket = ticketFromBranchOrBody(
     env.HEAD_REF ?? pr?.head?.ref,
@@ -599,20 +762,34 @@ export async function main(env = process.env, deps = {}) {
 
   let result;
   let launch = { launched: false };
-  if (!apiKey) {
+  let launchReceipt = null;
+  try {
+    if (env[LAUNCH_RECEIPT_ENV]?.trim()) {
+      launchReceipt = parseLaunchReceipt(env[LAUNCH_RECEIPT_ENV]);
+    }
+  } catch (error) {
+    result = {
+      passed: false,
+      status: 'FAIL',
+      failures: [error.message],
+      evidence: null,
+    };
+  }
+
+  if (!result && !apiKey) {
     result = missingKeyResult();
-  } else {
+  } else if (!result) {
     result = await evaluateFromCursor({
       apiKey,
       prUrl,
       expectedHeadSha: headSha,
-      implementerAgentId: env.IMPLEMENTER_AGENT_ID,
-      verifierAgentId: env.VERIFIER_AGENT_ID,
-      recorderAgentId: env.RECORDER_AGENT_ID,
+      ...isolation,
+      launchReceipt,
+      env,
       fetchImpl,
     });
     if (!result.passed && env.CURSOR_REVIEW_LAUNCH === 'true') {
-      const catalog = await listModels({ apiKey, fetchImpl });
+      const catalog = await listModels({ apiKey, fetchImpl, env });
       launch = await maybeLaunchReview({
         apiKey,
         launch: true,
@@ -621,20 +798,46 @@ export async function main(env = process.env, deps = {}) {
         repoUrl: `https://github.com/${repository}`,
         headSha,
         ticket,
+        repository,
+        prNumber,
+        env,
         fetchImpl,
       });
-      result.status = result.status === 'FAIL' ? 'FAIL' : 'PENDING';
+      if (launch.receipt) {
+        launchReceipt = launch.receipt;
+        log.log(`LAUNCH_RECEIPT_JSON=${JSON.stringify(launch.receipt)}`);
+        result = await evaluateFromCursor({
+          apiKey,
+          prUrl,
+          expectedHeadSha: headSha,
+          ...isolation,
+          launchReceipt,
+          env,
+          fetchImpl,
+        });
+      }
+      if (!result.passed) {
+        result.status = result.status === 'FAIL' ? 'FAIL' : 'PENDING';
+      }
     }
   }
 
   const comment = formatReviewComment(result, { headSha, launch });
   log.log(comment);
   try {
-    await postPrComment({
+    await publishCheck({
       repository,
-      prNumber,
       token,
-      body: comment,
+      headSha,
+      result,
+      fetchImpl,
+    });
+  } catch (error) {
+    log.error(redactSecrets(error.message));
+  }
+  try {
+    await postIssueComment(repository, prNumber, comment, {
+      token,
       fetchImpl,
     });
   } catch (error) {
@@ -645,6 +848,43 @@ export async function main(env = process.env, deps = {}) {
     process.exitCode = 1;
   }
   return result;
+}
+
+export async function resolvePrNumberFromWorkflowRun(env, deps = {}) {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const repository = env.REPOSITORY ?? env.GITHUB_REPOSITORY;
+  const token = env.GITHUB_TOKEN;
+  if (env.PR_NUMBER) return Number(env.PR_NUMBER);
+  const sha = env.WORKFLOW_RUN_HEAD_SHA ?? env.HEAD_SHA;
+  if (!sha || !token || !repository) return null;
+  const pulls = await fetchCommitPulls(repository, sha, { token, fetchImpl });
+  const open = (Array.isArray(pulls) ? pulls : []).find(
+    (item) => item.state === 'open',
+  );
+  return open?.number ?? pulls?.[0]?.number ?? null;
+}
+
+export async function main(env = process.env, deps = {}) {
+  const command = deps.command ?? process.argv[2];
+  const event = githubEventName(env);
+  if (
+    command === 'untrusted' ||
+    (!command && isUntrustedGithubEvent(env)) ||
+    (!command && !cursorCredentialUseAllowed(env))
+  ) {
+    return mainUntrusted(env, deps);
+  }
+  if (command === 'evaluate' || cursorCredentialUseAllowed(env)) {
+    if (
+      !env.PR_NUMBER &&
+      (event === 'workflow_run' || env.WORKFLOW_RUN_HEAD_SHA)
+    ) {
+      const number = await resolvePrNumberFromWorkflowRun(env, deps);
+      if (number) env = { ...env, PR_NUMBER: String(number) };
+    }
+    return mainEvaluate(env, deps);
+  }
+  return mainUntrusted(env, deps);
 }
 
 if (

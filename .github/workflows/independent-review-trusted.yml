@@ -1,0 +1,76 @@
+name: Independent review
+
+# Trusted default-branch evaluator. GitHub always uses this file from the
+# default branch for workflow_run. workflow_dispatch is skipped unless the
+# ref is the default branch. Executable checkout is the default branch only;
+# PR number and SHA are data. CURSOR_API_KEY must not be referenced from
+# pull_request workflows. Launch stays off until this orchestration is
+# independently reviewed (CURSOR_REVIEW_LAUNCH).
+
+on:
+  workflow_run:
+    workflows: ['Independent review (untrusted pending)']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+      expected_sha:
+        description: Exact 40-character PR head SHA
+        required: true
+        type: string
+      launch_receipt_json:
+        description: Coordinator launch receipt JSON bound to agentId/runId/startingRef
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: independent-review-trusted-${{ github.event.workflow_run.head_branch || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Cursor Cloud Grok 4.6 Extra High
+    if: >-
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion != 'cancelled') ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: trusted-cursor
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Evaluate from trusted default-branch code
+        env:
+          TRUSTED_DEFAULT_BRANCH: 'true'
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_REVIEW_LAUNCH: ${{ vars.CURSOR_REVIEW_LAUNCH }}
+          CURSOR_LAUNCH_RECEIPT_JSON: ${{ inputs.launch_receipt_json }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ inputs.expected_sha || github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REF: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
+          VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
+          RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}
+        run: node scripts/delivery-review.mjs evaluate

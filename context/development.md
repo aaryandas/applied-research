@@ -10,7 +10,7 @@ Use Node 24 LTS and npm. `.node-version` works with version managers such as fnm
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
 | `npm run dev`           | Main/preload build, renderer hot reload, real Electron window                                       |
 | `npm run format`        | Format maintained code/config/current docs; excludes archives and visual references                 |
-| `npm run test:delivery` | Node 24 `node --test` for serialized delivery helpers (no Electron)                                 |
+| `npm run test:delivery` | Node 24 `node --test` for trusted-evaluator, review, queue, Cursor API, and workflow YAML helpers   |
 | `npm run check`         | Formatting, ESLint, both process type checks, delivery tests, unit tests/coverage, production build |
 | `npm run test:watch`    | Unit-test feedback while editing                                                                    |
 | `npm run test:e2e`      | Real Electron smoke test against `out/`; run `build` first                                          |

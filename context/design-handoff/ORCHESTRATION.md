@@ -1,8 +1,25 @@
 # Delivery orchestration
 
-Latest founder direction (9 September 2026) overrides older Fable / local-headless Cursor / native merge-queue language in [next-run](../next-run.md) and [Superset orchestration](SUPERSET-ORCHESTRATION.md). Independent review is **Cursor Cloud Grok 4.6 Extra High**. There is no Fable invocation and no local or headless Cursor inference. Merge and deploy activation stay off until this protocol itself is independently reviewed. Hosted Sonar remains owned by AR-45 / `cursor/enable-hosted-sonar-main-acd0`; this page does not change `sonar.yml`.
+Independent review is **Cursor Cloud Grok 4.6 Extra High** (`GET /v1/models` id `grok-4.6` with `effort=xhigh` and `fast=false`). There is no Fable invocation and no local or headless Cursor inference. Merge and deploy activation stay off until this protocol itself is independently reviewed. Hosted Sonar remains owned by AR-45 / `cursor/enable-hosted-sonar-main-acd0`; this page does not change `sonar.yml`.
 
 PR [#21](https://github.com/aaryandas/applied-research/pull/21) (`codex/ar-41-delivery-workflow`) is the prior Astra/Fable/Luna stack. This orchestration **supersedes** its Fable critic, automatic Claude review, and merge-activation path. It does **not** import that branch's dispatcher, hosted-Sonar worker, or `pull_request_target` gate rewrite.
+
+## Trust boundary
+
+Repo settings, workflow YAML, prompts, and PR payloads are separate trust classes.
+
+| Path                                                                                                     | Executable checkout                                   | `CURSOR_API_KEY`                                      | What it does                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/claude-review.yml` (`pull_request`)                                                   | PR head (tests only)                                  | **Never referenced**                                  | Runs `npm run test:delivery` and `node scripts/delivery-review.mjs untrusted`. Fails closed if a key is present. Does not evaluate agents.                                                                                        |
+| `.github/workflows/independent-review-trusted.yml` (`workflow_run` / default-branch `workflow_dispatch`) | **Default branch only**, `persist-credentials: false` | GitHub Environment `trusted-cursor`                   | Resolves live PR number/SHA as data, scans PR workflow YAML for stolen secret references, authenticates to `https://api.cursor.com/v1/*`, posts the `Independent review / Cursor Cloud Grok 4.6 Extra High` check on the PR head. |
+| `.github/workflows/delivery-queue.yml` `pull_request`                                                    | PR head                                               | No                                                    | Helper tests + untrusted notice. Does **not** load GitHub/Linear/`main`/checks.                                                                                                                                                   |
+| `.github/workflows/delivery-queue.yml` default-branch `workflow_dispatch`                                | Default branch                                        | No Cursor key; uses `GITHUB_TOKEN` + `LINEAR_API_KEY` | Live exact-head eligibility under concurrency group `delivery-queue-live` (`cancel-in-progress: false`). Never merges.                                                                                                            |
+
+`workflow_run` always executes the trusted workflow file from the default branch. `workflow_dispatch` is skipped unless `github.ref` is the default branch.
+
+**Residual platform hole (not claimed closed):** a same-repo PR can add a _new_ `pull_request` workflow that references a **repository** secret. Until `CURSOR_API_KEY` lives only as an environment secret on `trusted-cursor` restricted to the default branch, and the repository secret is deleted, that hole remains. This PR's `pull_request` workflows do not receive the key. The trusted job also fails a PR that adds `secrets.CURSOR_API_KEY` to any workflow other than `independent-review-trusted.yml` (too late for a first-run steal if the repo secret still exists).
+
+Until `independent-review-trusted.yml` exists on the default branch, `workflow_run` will not start this evaluator. Coordinator API launch remains the live critic path for this PR.
 
 ## Roles
 
@@ -12,68 +29,65 @@ PR [#21](https://github.com/aaryandas/applied-research/pull/21) (`codex/ar-41-de
 | Cloud verifier     | Existing Cursor cloud walkthrough (frozen revision)    | Independent standards/spec verdict                          |
 | Independent critic | Separate Cursor Cloud agent, model Grok 4.6 Extra High | Edit, push, merge, or verify the desktop journey            |
 | Recorder           | `linear-demo-record` with the actual desktop recorder  | Independent review                                          |
-| Coordinator        | Serialized queue helper                                | Force merge, lower gates, or treat merge refs as head proof |
+| Coordinator        | Default-branch queue dispatch + launch receipts        | Force merge, lower gates, or treat merge refs as head proof |
 
-## Independent review
+## Independent review (implemented)
 
-Workflow: `.github/workflows/claude-review.yml` (filename kept so the old Fable workflow is replaced, not left running in parallel). Helpers: `scripts/delivery-review.mjs`.
+Helpers: `scripts/delivery-review.mjs`, `scripts/delivery-trust.mjs`, `scripts/delivery-cursor-api.mjs`.
 
-1. Resolve the **exact PR head SHA** from GitHub (`pulls/{n}.head.sha`). `refs/pull/*/merge` and other synthetic refs are rejected.
-2. If repository secret `CURSOR_API_KEY` is missing, the check **fails closed** as `PENDING` and names the setup dependency. It does not post a fake PASS.
-3. If the key is present, retrieve `GET https://api.cursor.com/v1/models` and `GET https://api.cursor.com/v1/agents?prUrl=…`, then the agent, latest run, and artifacts. Only that authenticated payload is proof.
-4. PASS requires all of: Cursor Cloud runtime, Grok 4.6 Extra High picker **and** runtime identity, role `independent-reviewer` distinct from implementer/verifier/recorder ids, exact-head SHA, `FINISHED` run, standards PASS, spec PASS, no unresolved material findings, and an immutable `https://cursor.com/agents/bc-…` link.
-5. GitHub comments, `cursor[bot]` text, and marker strings (`VERIFICATION_RESULT: PASS`, `INDEPENDENT_REVIEW_PASS`) are **not** proof.
-6. Launching a reviewer is opt-in (`CURSOR_REVIEW_LAUNCH=true`) after the secret exists. CI does not wait for a long cloud run; it stays pending until retrieval sees an exact-head PASS.
+Documented Cloud Agents GET payloads (`V1Agent` / `V1Run`) include id, name, status, `env.type`, `repos[].startingRef`, url, dates, `latestRunId`, run `result`, `durationMs`, and `git`. They **do not** include `originalModelName` or `model`. This gate does not invent those fields.
 
-Documented API only: `https://api.cursor.com/v1/*` with Basic auth as in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints). No guessed private endpoints.
+PASS requires all of:
 
-## Serialized queue
+1. Trusted default-branch invocation (`TRUSTED_DEFAULT_BRANCH=true` and `workflow_run` / default-branch `workflow_dispatch`).
+2. Repository variables `IMPLEMENTER_AGENT_ID`, `VERIFIER_AGENT_ID`, and `RECORDER_AGENT_ID` set to documented `bc-` UUIDs. Empty values fail closed. Role identity is authenticated `agent.id` isolation plus `agent.name` matching `/^Independent review\b/i`. `run.result` JSON `role` is not identity (forbidden JSON roles still fail).
+3. Live GitHub PR `head.sha` (exact 40 characters). `refs/pull/*/merge` is rejected.
+4. `GET /v1/models` contains `grok-4.6` with params `effort=xhigh` and `fast=false`.
+5. A **launch receipt** (`kind: cursor-cloud-independent-review-launch`) bound to authenticated `GET /v1/agents/{id}` and `GET /v1/agents/{id}/runs/{runId}`: `receipt.agentId === agent.id`, `receipt.runId === run.id`, `receipt.headSha === live head === agent.repos[0].startingRef`. Receipt `modelId`/`modelParams` record what the trusted launcher POSTed (or what a coordinator attests they POSTed). `verdict.model` is rejected. Undocumented GET model fields are ignored and fail closed if present so tests cannot stub them as proof.
+6. `agent.env.type === 'cloud'` (missing type fails).
+7. FINISHED run, standards PASS, spec PASS, no unresolved material findings, immutable `https://cursor.com/agents/bc-…` URL.
 
-Helpers: `scripts/delivery-queue.mjs`. Workflow: `.github/workflows/delivery-queue.yml`.
+GitHub comments, `cursor[bot]` text, and marker strings are **not** proof. The trusted job posts a human comment and a check run; neither comment is authentication.
 
-One candidate at a time (exclusive `queue.lock`). Immediately before any merge the tick rechecks:
+### Launch (opt-in, still off)
 
-- live PR head SHA
-- current `main` ancestry (`main` is an ancestor of head; a moved `main` invalidates evidence)
-- lane label and Linear ticket **In Review**
-- resolved review conversations
-- macOS `checks / CI gate`
-- hosted Sonar at this SHA for application files (not waived; not run locally)
-- independent review PASS at this SHA
-- complete cloud acceptance evidence
+`CURSOR_REVIEW_LAUNCH` defaults unset/false. When a trusted job sets it to `true` after independent review of this orchestration:
 
-Head or `main` changes invalidate affected evidence. `DELIVERY_MERGE_ACTIVATION` defaults to false. `pull_request` events never merge even if the variable is later set to `true`. Native merge queues / `merge_group` refs are refused.
+- POST `/v1/agents` with `model.id=grok-4.6`, `params: [{id:"effort",value:"xhigh"},{id:"fast",value:"false"}]`, `env.type=cloud`, `repos[0].startingRef=<exact head SHA>`, `workOnCurrentBranch=false`, `autoCreatePR=false`, client-supplied `agentId` (UUID v5) and header `Idempotency-Key: independent-review:{repo}:{pr}:{sha}`.
+- **Create body omits `repos[].prUrl`.** Documented `prUrl` ignores `startingRef` and bases `workOnCurrentBranch=false` on the PR **base**. PR URL is bound on the receipt and in the prompt. Evaluation fails if GET `startingRef` ≠ live head.
+- 409 on the client-supplied id GETs the existing agent (bounded idempotent dispatch).
+
+A coordinator-controlled receipt is accepted on default-branch `workflow_dispatch` input `launch_receipt_json` when it binds to those GET identities. That is coordinator attestation for model params (the platform GET does not return them), not a substitute for agent/run/SHA binding. If no receipt exists, the gate stays PENDING/FAIL and names that remaining requirement.
+
+Documented API only: `https://api.cursor.com/v1/*` with Basic auth as in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints).
+
+## Serialized queue (implemented)
+
+Helpers: `scripts/delivery-queue.mjs`.
+
+Live evaluation is **only** `node scripts/delivery-queue.mjs evaluate` on default-branch `workflow_dispatch` with `TRUSTED_DEFAULT_BRANCH=true`. That job loads the live PR, default-branch SHA, `compare` ancestry, check runs, review threads, and Linear issue. It then runs `assessCandidate`. `DELIVERY_MERGE_ACTIVATION` defaults to false, so a fully eligible candidate still has `merge: false`. Cross-runner serialization is GitHub Actions concurrency group `delivery-queue-live`. Local `queue.lock` (`O_EXCL`) is same-filesystem only and is not the live lease.
+
+`pull_request` jobs log `untrusted-notice` and do not fetch. Native merge queues / `merge_group` refs are refused.
 
 ## Acceptance recordings
 
-Product PRs still need a nonempty MP4 from [linear-demo-record](../../.cursor/skills/linear-demo-record/SKILL.md) attached on the Linear ticket, bound to the exact head SHA, before In Review. Re-query In Testing per ticket. Do not move a ticket without the file.
-
-Known **partial** recordings (preserve the files; they are not PASS):
-
-- AR-17: insight save was disabled
-- AR-24: lacked WebGL orbit / picking / Capture
-- AR-19: showed only empty activity
-
-A separate existing cloud verifier is correcting those tickets; do not duplicate that run.
+Product PRs still need a nonempty MP4 from [linear-demo-record](../../.cursor/skills/linear-demo-record/SKILL.md) attached on the Linear ticket, bound to the exact head SHA, before In Review. Delivery-only PRs (no `src/`, `drizzle/`, or e2e/integration tests) are exempt from that MP4. Known **partial** recordings (AR-17/19/24) are not PASS; do not count them for this ticket.
 
 ## Deploy
 
 `bindDeployment` ties a release request to the **exact resulting main SHA**. Failed main CI or hosted Sonar, or a `main` that is no longer that SHA, **halts**. `DELIVERY_DEPLOY_ACTIVATION` defaults to false.
 
-After each actual merge or deploy, write a short retrospective (`captureRetrospective`): actual failure, cause, bounded process fix; keep activation off until that fix is reviewed.
-
 ## Current GitHub enforcement
 
-`main` protection currently requires only `checks / CI gate` with strict/admin enforcement. There is no required human approval, ruleset merge queue, or native merge queue (`auto-merge` is false). Do not add required checks or enable auto-merge from this change. Build and review this orchestration first.
+`main` protection currently requires only `checks / CI gate` with strict/admin enforcement. This change does **not** add required review/queue checks, enable auto-merge, or alter branch protection.
 
-## Setup dependencies (not yet enabled automation)
+## Setup (human / coordinator; not silently claimed done)
 
-1. Repository secret `CURSOR_API_KEY` from [Cursor API keys](https://cursor.com/dashboard/api).
-2. Optional repository variables: `IMPLEMENTER_AGENT_ID`, `VERIFIER_AGENT_ID`, `RECORDER_AGENT_ID` (bc- UUIDs) so the critic cannot be those runs; `CURSOR_REVIEW_LAUNCH=true` only when spend for cloud review agents is intended.
-3. After independent PASS of this PR, decide whether to require the `Independent review / Cursor Cloud Grok 4.6 Extra High` check on `main`.
-4. Only then consider `DELIVERY_MERGE_ACTIVATION=true` on workflow_dispatch, still one candidate at a time.
-5. Hosted Sonar remains AR-45. Do not copy `cursor/enable-hosted-sonar-main-acd0`.
-6. Do not self-merge or deploy from this work.
+1. Create GitHub Environment `trusted-cursor`, restrict deployment branches to the default branch, put `CURSOR_API_KEY` there, **delete the repository secret** so `pull_request` workflows cannot inject it.
+2. Repository variables (required for PASS): `IMPLEMENTER_AGENT_ID=bc-3fdd5333-ab18-489b-9451-d54173ecce33` (this PR's implementer), `VERIFIER_AGENT_ID=bc-ff6622d1-cb38-4688-8562-028b9761e3e0` (existing cloud verifier), `RECORDER_AGENT_ID` set to the recorder agent's `bc-` UUID when known.
+3. Keep `CURSOR_REVIEW_LAUNCH` unset until this orchestration is independently reviewed.
+4. After that PASS, decide whether to require the `Independent review / Cursor Cloud Grok 4.6 Extra High` check on `main`. Only then consider `DELIVERY_MERGE_ACTIVATION=true` on default-branch dispatch.
+5. Hosted Sonar remains AR-45. Do not copy `cursor/enable-hosted-sonar-main-acd0`. Do not self-merge or deploy from this work.
 
 ## Checks
 
@@ -82,4 +96,4 @@ npm run test:delivery
 npm run check
 ```
 
-No local Mac Playwright or Sonar. Cloud and GitHub CI own desktop journeys and hosted scans.
+No local Mac Playwright or Sonar. Cloud and GitHub CI own desktop journeys and hosted scans. `verify.yml` uploads coverage from **macOS** (gating platform) for Sonar consumers.

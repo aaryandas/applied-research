@@ -17,9 +17,13 @@ import {
   captureRetrospective,
   evaluateAcceptance,
   evaluateSonar,
+  loadLiveCandidate,
+  main,
   mergeActivationEnabled,
   releaseQueueLock,
+  reviewFromChecks,
   runQueueTick,
+  untrustedQueueNotice,
 } from './delivery-queue.mjs';
 
 const HEAD = 'cccccccccccccccccccccccccccccccccccccccc';
@@ -147,7 +151,7 @@ test('concurrent queue ticks refuse the second candidate', async () => {
     assert.equal(first.ok, true);
     const second = acquireQueueLock(dir);
     assert.equal(second.ok, false);
-    assert.match(second.reason, /one merge evaluation at a time/);
+    assert.match(second.reason, /same-filesystem/);
     releaseQueueLock(first);
     const third = acquireQueueLock(dir);
     assert.equal(third.ok, true);
@@ -309,6 +313,152 @@ test('retrospective requires a real failure, cause, and bounded fix', () => {
   assert.equal(note.sha, MAIN);
   assert.match(note.processFix, /Cursor Cloud/);
   assert.throws(() => captureRetrospective({ failure: 'x' }), /actual failure/);
+});
+
+test('F5: pull_request main does not load GitHub or claim live eligibility', async () => {
+  let fetched = false;
+  const result = await main(
+    {
+      EVENT_NAME: 'pull_request',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_TOKEN: 'ghs_test',
+      PR_NUMBER: '44',
+      REPOSITORY: 'aaryandas/applied-research',
+    },
+    {
+      command: 'untrusted',
+      log: { log() {}, error() {} },
+      fetchImpl: async () => {
+        fetched = true;
+        throw new Error('must not fetch');
+      },
+    },
+  );
+  assert.equal(result.live, false);
+  assert.equal(result.kind, 'untrusted-notice');
+  assert.equal(fetched, false);
+  assert.match(result.reason, /must not claim live eligibility/);
+  assert.match(
+    untrustedQueueNotice().reason,
+    /concurrency group delivery-queue-live/,
+  );
+});
+
+test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', async () => {
+  const calls = [];
+  const result = await main(
+    {
+      TRUSTED_DEFAULT_BRANCH: 'true',
+      EVENT_NAME: 'workflow_dispatch',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_DEFAULT_BRANCH: 'main',
+      GITHUB_TOKEN: 'ghs_test',
+      LINEAR_API_KEY: 'lin_api_test',
+      PR_NUMBER: '99',
+      REPOSITORY: 'aaryandas/applied-research',
+      DELIVERY_MERGE_ACTIVATION: 'false',
+    },
+    {
+      command: 'evaluate',
+      log: { log() {}, error() {} },
+      fetchImpl: async (url, init) => {
+        const href = String(url);
+        calls.push(href);
+        const json = (body) => ({
+          ok: true,
+          status: 200,
+          async json() {
+            return body;
+          },
+        });
+        if (href.includes('/pulls/99/files')) {
+          return json([{ filename: 'scripts/delivery-queue.mjs' }]);
+        }
+        if (href.includes('/pulls/99') && !href.includes('files')) {
+          return json({
+            state: 'open',
+            draft: false,
+            html_url: 'https://github.com/aaryandas/applied-research/pull/99',
+            body: 'Linear: AR-41',
+            head: {
+              sha: HEAD,
+              ref: 'codex/ar-41-cursor-cloud-orchestration-ce33',
+              repo: { full_name: 'aaryandas/applied-research' },
+            },
+            base: {
+              ref: 'main',
+              repo: { full_name: 'aaryandas/applied-research' },
+            },
+          });
+        }
+        if (href.includes('/git/ref/heads/main')) {
+          return json({ object: { sha: MAIN } });
+        }
+        if (href.includes('/compare/')) {
+          return json({ status: 'ahead' });
+        }
+        if (href.includes('/check-runs')) {
+          return json({ check_runs: passingChecks() });
+        }
+        if (href.includes('api.github.com/graphql')) {
+          return json({
+            data: {
+              repository: {
+                pullRequest: {
+                  reviewThreads: { nodes: [{ isResolved: true }] },
+                },
+              },
+            },
+          });
+        }
+        if (href.includes('api.linear.app/graphql')) {
+          assert.equal(init.method, 'POST');
+          return json({
+            data: {
+              issues: {
+                nodes: [
+                  {
+                    identifier: 'AR-41',
+                    state: { name: 'In Review' },
+                    attachments: { nodes: [] },
+                  },
+                ],
+              },
+            },
+          });
+        }
+        throw new Error(`unexpected fetch ${href}`);
+      },
+    },
+  );
+  assert.equal(result.live, true);
+  assert.equal(result.merge, false);
+  assert.equal(result.eligible, true);
+  assert.match(result.serializer, /delivery-queue-live/);
+  assert.equal(
+    calls.some((href) => href.includes('api.github.com')),
+    true,
+  );
+  assert.equal(
+    calls.some((href) => href.includes('api.linear.app')),
+    true,
+  );
+  assert.equal(reviewFromChecks(passingChecks(), HEAD).passed, true);
+});
+
+test('loadLiveCandidate refuses pull_request events', async () => {
+  await assert.rejects(
+    () =>
+      loadLiveCandidate({
+        TRUSTED_DEFAULT_BRANCH: 'true',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_TOKEN: 'ghs_test',
+        PR_NUMBER: '1',
+        REPOSITORY: 'aaryandas/applied-research',
+      }),
+    /cannot run on pull_request/,
+  );
 });
 
 test('lock directory is created with owner-only mode intent', async () => {

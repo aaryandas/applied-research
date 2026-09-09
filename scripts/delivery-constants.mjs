@@ -13,6 +13,7 @@ export const RUN_ID =
   /^run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const INDEPENDENT_REVIEWER = 'independent-reviewer';
+export const INDEPENDENT_REVIEW_NAME = /^Independent review\b/i;
 export const FORBIDDEN_REVIEW_ROLES = Object.freeze([
   'implementer',
   'verifier',
@@ -31,11 +32,54 @@ export const HOSTED_SONAR_NAMES = Object.freeze([
 ]);
 
 export const REQUIRED_REVIEW_DISPLAY = 'Cursor Cloud Grok 4.6 Extra High';
+export const REQUIRED_MODEL_ID = 'grok-4.6';
+export const REQUIRED_MODEL_PARAMS = Object.freeze([
+  { id: 'effort', value: 'xhigh' },
+  { id: 'fast', value: 'false' },
+]);
+
+export const LAUNCH_RECEIPT_KIND = 'cursor-cloud-independent-review-launch';
+export const LAUNCH_RECEIPT_SCHEMA_VERSION = 1;
+export const TRUSTED_DEFAULT_BRANCH_ENV = 'TRUSTED_DEFAULT_BRANCH';
+export const LAUNCH_RECEIPT_ENV = 'CURSOR_LAUNCH_RECEIPT_JSON';
+export const UNTRUSTED_GITHUB_EVENTS = Object.freeze([
+  'pull_request',
+  'pull_request_target',
+  'issue_comment',
+  'pull_request_review',
+  'pull_request_review_comment',
+]);
+export const TRUSTED_GITHUB_EVENTS = Object.freeze([
+  'workflow_dispatch',
+  'workflow_run',
+]);
+export const TRUSTED_WORKFLOW_FILE =
+  '.github/workflows/independent-review-trusted.yml';
+export const UNTRUSTED_REVIEW_WORKFLOW_NAME =
+  'Independent review (untrusted pending)';
+
+export const UNTRUSTED_CURSOR_CREDENTIAL = [
+  'This GitHub event is untrusted pull-request code and must not receive or use CURSOR_API_KEY.',
+  'Independent review runs only from default-branch workflow code (workflow_run / workflow_dispatch on the default branch),',
+  'checking out that ref as executable code and passing the PR number and SHA as data.',
+  'Do not treat GitHub comments, cursor[bot] text, or self-authored marker strings as a PASS.',
+].join(' ');
+
+export const MISSING_LAUNCH_RECEIPT = [
+  'Documented GET /v1/agents and GET /v1/agents/{id}/runs do not include model or originalModelName.',
+  'PASS requires a coordinator or trusted-launch receipt bound to authenticated agentId, runId, and repos[0].startingRef.',
+  'Do not accept verdict.model, agent.model, or undocumented fields as picker/runtime proof.',
+].join(' ');
+
+export const MISSING_ISOLATION_VARS = [
+  'IMPLEMENTER_AGENT_ID, VERIFIER_AGENT_ID, and RECORDER_AGENT_ID must be non-empty documented bc- UUIDs.',
+  'Role is taken from authenticated agent.id isolation plus agent.name matching /^Independent review\\b/i, not from run.result JSON.',
+].join(' ');
 
 export const MISSING_CURSOR_API_KEY = [
-  'CURSOR_API_KEY is not a GitHub Actions secret, so this workflow cannot retrieve or launch Cursor Cloud agents.',
-  `Add a user or service-account key from ${CURSOR_API_KEYS_URL} as repository secret CURSOR_API_KEY.`,
-  'Until then independent review stays fail-closed pending authentic GET https://api.cursor.com/v1/agents evidence.',
+  'Trusted default-branch evaluation has no CURSOR_API_KEY in this job environment.',
+  `Move the Cursor API key from ${CURSOR_API_KEYS_URL} into GitHub Environment trusted-cursor (deployment branch: default branch only) and delete the repository secret so pull_request workflows cannot inject it.`,
+  'Until the trusted job can authenticate, independent review stays fail-closed.',
   'Do not treat GitHub comments, cursor[bot] text, or self-authored marker strings as a PASS.',
 ].join(' ');
 
@@ -115,5 +159,14 @@ export function isSonarWorkflowPath(file) {
   return (
     file === '.github/workflows/sonar.yml' ||
     file.startsWith('scripts/hosted-sonar')
+  );
+}
+
+export function modelParamsMatch(
+  actual = [],
+  required = REQUIRED_MODEL_PARAMS,
+) {
+  return required.every((need) =>
+    actual.some((item) => item?.id === need.id && item?.value === need.value),
   );
 }

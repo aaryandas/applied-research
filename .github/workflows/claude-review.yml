@@ -1,37 +1,26 @@
-name: Independent review
+name: Independent review (untrusted pending)
 
-# Exact-head standards/spec review by Cursor Cloud Grok 4.6 Extra High.
-# This file replaces the previous Fable/Claude Code invocation. New PRs must
-# not call claude-fable-5-1. Proof is authenticated GET https://api.cursor.com/v1
-# agent/run payloads, never forged cursor[bot] comments or marker strings.
-# CURSOR_API_KEY is not yet a repository secret: missing/empty keys fail closed
-# with a concrete setup dependency instead of fake enabled automation.
+# Untrusted pull_request path. Checks out PR code only for helper tests.
+# Must never pass the Cursor Admin credential into this job. Independent
+# review evaluation runs in independent-review-trusted.yml from the default
+# branch only.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: Pull request number to re-evaluate
-        required: true
-        type: string
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
 
 concurrency:
-  group: independent-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  group: independent-review-untrusted-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  review:
-    name: Cursor Cloud Grok 4.6 Extra High
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.draft == false
+  pending:
+    name: Notice only
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -39,19 +28,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-      - name: Evaluate authentic exact-head review
+      - name: Delivery helper tests
+        run: npm run test:delivery
+      - name: Refuse untrusted Cursor evaluation
         env:
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          CURSOR_REVIEW_LAUNCH: ${{ vars.CURSOR_REVIEW_LAUNCH }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
-          VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
-          RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}
-        run: node scripts/delivery-review.mjs
+        run: node scripts/delivery-review.mjs untrusted

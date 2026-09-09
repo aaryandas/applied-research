@@ -24,7 +24,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - name: Delivery orchestration tests
-        run: node --test scripts/delivery-review.test.mjs scripts/delivery-queue.test.mjs scripts/delivery-cursor-api.test.mjs
+        run: npm run test:delivery
       - run: npm ci
       - name: Check formatting
         run: npm run format:check
@@ -52,8 +52,9 @@ jobs:
       - name: Packaged smoke test (Windows/macOS)
         if: runner.os != 'Linux'
         run: npm run test:packaged
+      # Gating platform; hosted Sonar consumers must read coverage from macOS, not Linux.
       - name: Save coverage
-        if: runner.os == 'Linux'
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage

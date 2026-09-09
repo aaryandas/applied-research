@@ -14,6 +14,7 @@ import {
   LINEAR_GATE_NAME,
   PARTIAL_ACCEPTANCE,
   REVIEW_CHECK_NAME,
+  TRUSTED_DEFAULT_BRANCH_ENV,
   isFullSha,
   isSonarWorkflowPath,
   isSyntheticMergeRef,
@@ -21,6 +22,19 @@ import {
   ticketFromBranchOrBody,
   touchesApplication,
 } from './delivery-constants.mjs';
+import {
+  fetchCommitCheckRuns,
+  fetchCompare,
+  fetchDefaultBranchSha,
+  fetchPullFiles,
+  fetchPullRequest,
+  fetchReviewThreads,
+} from './delivery-github.mjs';
+import {
+  assertTrustedCursorInvocation,
+  githubEventName,
+  isUntrustedGithubEvent,
+} from './delivery-trust.mjs';
 
 export const MERGE_ACTIVATION_ENV = 'DELIVERY_MERGE_ACTIVATION';
 export const DEPLOY_ACTIVATION_ENV = 'DELIVERY_DEPLOY_ACTIVATION';
@@ -297,7 +311,7 @@ export function acquireQueueLock(directory, { open = openSync } = {}) {
         ok: false,
         lockPath,
         reason:
-          'Serialized queue already holds a candidate; one merge evaluation at a time',
+          'Local same-filesystem queue.lock is held; this is not a cross-runner lease',
       };
     }
     throw error;
@@ -463,36 +477,208 @@ export function captureRetrospective({
   };
 }
 
-export async function main(env = process.env, deps = {}) {
+export function untrustedQueueNotice(env = process.env) {
+  return {
+    kind: 'untrusted-notice',
+    live: false,
+    activation: mergeActivationEnabled(env),
+    reason:
+      'pull_request jobs do not load GitHub/Linear/main/checks and must not claim live eligibility. Cross-runner serialization is the Actions concurrency group delivery-queue-live on default-branch workflow_dispatch. Local queue.lock is same-filesystem only.',
+  };
+}
+
+export async function fetchLinearIssue(
+  identifier,
+  { apiKey, fetchImpl = fetch },
+) {
+  if (!apiKey) {
+    throw new Error('LINEAR_API_KEY is required for trusted queue evaluation');
+  }
+  const match = String(identifier).match(/^AR-(\d+)$/);
+  if (!match) throw new Error(`Linear identifier ${identifier} is invalid`);
+  const response = await fetchImpl('https://api.linear.app/graphql', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: apiKey,
+    },
+    body: JSON.stringify({
+      query: `query($n: Float!) { issues(filter: { number: { eq: $n }, team: { key: { eq: "AR" } } }) { nodes { id identifier state { name } attachments { nodes { url title subtitle body contentType size filesize } } } } }`,
+      variables: { n: Number(match[1]) },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.errors) {
+    throw new Error(redactSecrets(`Linear lookup for ${identifier} failed`));
+  }
+  const issue = payload?.data?.issues?.nodes?.[0];
+  if (!issue) throw new Error(`${identifier} does not exist in team AR`);
+  return {
+    identifier: issue.identifier,
+    state: issue.state?.name,
+    attachments: issue.attachments?.nodes ?? [],
+  };
+}
+
+export function reviewFromChecks(checks, headSha) {
+  const check = checkAtHead(checks, REVIEW_CHECK_NAME, headSha);
+  return {
+    passed: actionsCheckOk(check, REVIEW_CHECK_NAME),
+    evidence: check ? { headSha: check.head_sha } : null,
+  };
+}
+
+export async function loadLiveCandidate(
+  env = process.env,
+  { fetchImpl = fetch } = {},
+) {
+  if (env[TRUSTED_DEFAULT_BRANCH_ENV] !== 'true') {
+    throw new Error(
+      'Live queue evaluation requires TRUSTED_DEFAULT_BRANCH=true on default-branch workflow_dispatch',
+    );
+  }
+  if (isUntrustedGithubEvent(env)) {
+    throw new Error('Live queue evaluation cannot run on pull_request events');
+  }
+  const repository = env.REPOSITORY ?? env.GITHUB_REPOSITORY;
+  const token = env.GITHUB_TOKEN;
+  const prNumber = Number(env.PR_NUMBER);
+  const defaultBranch = env.GITHUB_DEFAULT_BRANCH ?? 'main';
+  if (!repository || !token || !prNumber) {
+    throw new Error(
+      'Trusted queue evaluation requires repository, GITHUB_TOKEN, and PR_NUMBER',
+    );
+  }
+  const github = { token, fetchImpl };
+  const prPayload = await fetchPullRequest(repository, prNumber, github);
+  const headSha = prPayload.head?.sha;
+  const liveMainSha = await fetchDefaultBranchSha(
+    repository,
+    defaultBranch,
+    github,
+  );
+  const compare = await fetchCompare(
+    repository,
+    defaultBranch,
+    headSha,
+    github,
+  );
+  const files = await fetchPullFiles(repository, prNumber, github);
+  const checks = await fetchCommitCheckRuns(repository, headSha, github);
+  const reviewThreads = await fetchReviewThreads(repository, prNumber, github);
+  const ticket = ticketFromBranchOrBody(prPayload.head?.ref, prPayload.body);
+  const linear = ticket
+    ? await fetchLinearIssue(ticket, {
+        apiKey: env.LINEAR_API_KEY,
+        fetchImpl,
+      })
+    : null;
+  const pr = {
+    state:
+      prPayload.state === 'open'
+        ? 'OPEN'
+        : String(prPayload.state).toUpperCase(),
+    isDraft: Boolean(prPayload.draft),
+    isCrossRepository:
+      prPayload.head?.repo?.full_name !== prPayload.base?.repo?.full_name,
+    baseRefName: prPayload.base?.ref,
+    headRefName: prPayload.head?.ref,
+    headRefOid: headSha,
+    mainSha: liveMainSha,
+    upToDate: compare?.status === 'ahead' || compare?.status === 'identical',
+    body: prPayload.body,
+    files,
+    reviewThreads,
+  };
+  const acceptance = evaluateAcceptance({
+    ticket,
+    files,
+    attachments: linear?.attachments ?? [],
+    headSha,
+  });
+  const sonar = evaluateSonar({
+    files,
+    checks,
+    headSha,
+    mainSonar: null,
+  });
+  return {
+    pr,
+    checks,
+    linear,
+    review: reviewFromChecks(checks, headSha),
+    acceptance,
+    sonar,
+    liveMainSha,
+  };
+}
+
+export async function trustedEvaluate(env = process.env, deps = {}) {
   const log = deps.log ?? console;
-  const activation = mergeActivationEnabled(env);
-  const eventName = env.EVENT_NAME ?? env.GITHUB_EVENT_NAME;
+  if (env[TRUSTED_DEFAULT_BRANCH_ENV] !== 'true') {
+    throw new Error(
+      'Trusted queue evaluate refuses to run without TRUSTED_DEFAULT_BRANCH=true',
+    );
+  }
+  assertTrustedCursorInvocation({
+    ...env,
+    [TRUSTED_DEFAULT_BRANCH_ENV]: 'true',
+    GITHUB_EVENT_NAME:
+      env.GITHUB_EVENT_NAME ?? env.EVENT_NAME ?? 'workflow_dispatch',
+    GITHUB_REF:
+      env.GITHUB_REF ?? `refs/heads/${env.GITHUB_DEFAULT_BRANCH ?? 'main'}`,
+  });
+  const eventName = githubEventName(env);
   if (eventName === 'merge_group') {
     log.error('merge_group is not a reviewed-head proof');
     process.exitCode = 1;
     return { kind: 'infra' };
   }
-  if (eventName === 'pull_request' && activation) {
-    log.log(
-      JSON.stringify({
-        kind: 'ready',
-        action: 'evaluate-only',
-        reason:
-          'pull_request events never merge even if DELIVERY_MERGE_ACTIVATION=true',
-      }),
-    );
-    return { kind: 'ready', action: 'evaluate-only' };
+  const snapshot = await loadLiveCandidate(env, deps);
+  const activation =
+    mergeActivationEnabled(env) && eventName === 'workflow_dispatch';
+  const decision = assessCandidate({
+    ...snapshot,
+    activation,
+    eventName,
+  });
+  const result = {
+    kind: decision.eligible ? 'ready' : 'gate',
+    live: true,
+    serializer: 'github-actions-concurrency:delivery-queue-live',
+    action: 'evaluate-only',
+    merge: false,
+    ...decision,
+  };
+  log.log(JSON.stringify(result));
+  if (!decision.eligible) process.exitCode = 1;
+  return result;
+}
+
+export async function main(env = process.env, deps = {}) {
+  const log = deps.log ?? console;
+  const command = deps.command ?? process.argv[2];
+  const eventName = githubEventName(env);
+  if (eventName === 'merge_group') {
+    log.error('merge_group is not a reviewed-head proof');
+    process.exitCode = 1;
+    return { kind: 'infra' };
   }
-  log.log(
-    JSON.stringify({
-      kind: 'idle',
-      activation,
-      reason: activation
-        ? 'Dispatch this workflow with an injected candidate loader to merge'
-        : 'Merge activation is off; this workflow only documents eligibility',
-    }),
-  );
-  return { kind: 'idle', activation };
+  if (
+    command === 'untrusted' ||
+    (!command && isUntrustedGithubEvent(env)) ||
+    env[TRUSTED_DEFAULT_BRANCH_ENV] !== 'true'
+  ) {
+    const notice = untrustedQueueNotice(env);
+    log.log(JSON.stringify(notice));
+    return notice;
+  }
+  if (command === 'evaluate' || env[TRUSTED_DEFAULT_BRANCH_ENV] === 'true') {
+    return trustedEvaluate(env, deps);
+  }
+  const notice = untrustedQueueNotice(env);
+  log.log(JSON.stringify(notice));
+  return notice;
 }
 
 if (
