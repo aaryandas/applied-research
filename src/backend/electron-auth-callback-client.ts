@@ -18,7 +18,15 @@ const returnStatus = document.querySelector<HTMLElement>('#auth-return-status');
 
 if (returnButton && returnStatus) {
   const authorizationCode = authClient.electron.getAuthorizationCode();
-  if (authorizationCode) {
+  const validCode =
+    authorizationCode !== null &&
+    /^[A-Za-z0-9_-]+={0,2}$/.test(authorizationCode) &&
+    (authorizationCode.includes('=')
+      ? authorizationCode.length % 4 === 0
+      : authorizationCode.length % 4 !== 1);
+  if (validCode) {
+    // Better Auth pads its base64url output; the desktop accepts canonical form.
+    const callbackToken = authorizationCode.replace(/=+$/, '');
     const expiresAt = Date.now() + 120_000;
     returnButton.disabled = false;
     returnStatus.textContent = 'Open the app to finish signing in.';
@@ -33,7 +41,7 @@ if (returnButton && returnStatus) {
       document.cookie =
         'better-auth.electron=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/';
       window.location.replace(
-        `${DESKTOP_SCHEME}://auth/callback#token=${encodeURIComponent(authorizationCode)}`,
+        `${DESKTOP_SCHEME}://auth/callback#token=${callbackToken}`,
       );
       returnStatus.textContent =
         'Approve opening Applied Research if your browser asks. You can try the button again.';
