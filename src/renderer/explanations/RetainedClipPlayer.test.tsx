@@ -92,8 +92,18 @@ function mockMedia(): void {
 
 type HarnessMedia = HTMLMediaElement & { _paused?: boolean; _time?: number };
 
+function stubCaptionUrls(): void {
+  if (typeof URL.createObjectURL !== 'function') {
+    URL.createObjectURL = () => 'blob:http://localhost/captions';
+  }
+  if (typeof URL.revokeObjectURL !== 'function') {
+    URL.revokeObjectURL = () => undefined;
+  }
+}
+
 beforeEach(() => {
   mockMedia();
+  stubCaptionUrls();
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
@@ -177,9 +187,9 @@ describe('RetainedClipPlayer', () => {
     }
     render(<Pair />);
     await waitFor(() => expect(media.open).toHaveBeenCalled());
-    expect(screen.getAllByText(/starts paused \(reduced motion\)/).length).toBe(
-      2,
-    );
+    expect(
+      screen.getAllByText(/starts paused \(reduced motion\)/),
+    ).toHaveLength(2);
     const playButtons = screen.getAllByRole('button', { name: 'Play' });
     fireEvent.click(playButtons[0]!);
     fireEvent.click(playButtons[1]!);
@@ -208,19 +218,37 @@ describe('RetainedClipPlayer', () => {
     const media = access();
     render(<RetainedClipPlayer clip={clip} status="ready" access={media} />);
     await waitFor(() => expect(media.open).toHaveBeenCalled());
-    const region = screen.getByRole('region', {
-      name: 'Retained explanation clip',
-    });
-    fireEvent.keyDown(region, { key: 'k' });
+    const player = document.querySelector('video');
+    expect(player).toBeTruthy();
+    expect(player?.querySelector('track[kind="captions"]')).not.toBeNull();
+    fireEvent.keyDown(player!, { key: 'k' });
     expect(screen.getByRole('button', { name: 'Pause' })).toBeVisible();
-    fireEvent.keyDown(region, { key: 'ArrowLeft' });
-    fireEvent.keyDown(region, { key: 'ArrowRight' });
+    fireEvent.keyDown(player!, { key: 'ArrowLeft' });
+    fireEvent.keyDown(player!, { key: 'ArrowRight' });
     expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
-    fireEvent.keyDown(region, { key: 'ArrowRight' });
-    fireEvent.keyDown(region, { key: 'Home' });
-    fireEvent.keyDown(region, { key: 'e' });
+    fireEvent.keyDown(player!, { key: 'ArrowRight' });
+    fireEvent.keyDown(player!, { key: 'Home' });
+    fireEvent.keyDown(player!, { key: 'e' });
     expect(screen.getByRole('button', { name: 'Resume inline' })).toBeVisible();
-    fireEvent.keyDown(region, { key: 'Escape' });
+    fireEvent.keyDown(player!, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Enlarge' })).toBeVisible();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Enlarge' }), {
+      key: ' ',
+    });
+    expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Enlarge' })).toBeVisible();
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Transform continuously' }),
+      { key: ' ' },
+    );
+    expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+    fireEvent.input(screen.getByLabelText('Clip position'), {
+      target: { value: '2' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Clip position'), {
+      key: 'ArrowRight',
+    });
+    expect(screen.getByLabelText('Clip position')).toHaveValue('2');
     cleanup();
     const missing = access({ status: 'missing' });
     render(

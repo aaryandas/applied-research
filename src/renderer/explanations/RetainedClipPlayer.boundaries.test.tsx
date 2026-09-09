@@ -136,8 +136,18 @@ function videoSrc(): string | null {
   return document.querySelector('video')?.getAttribute('src') ?? null;
 }
 
+function stubCaptionUrls(): void {
+  if (typeof URL.createObjectURL !== 'function') {
+    URL.createObjectURL = () => 'blob:http://localhost/captions';
+  }
+  if (typeof URL.revokeObjectURL !== 'function') {
+    URL.revokeObjectURL = () => undefined;
+  }
+}
+
 beforeEach(() => {
   mockMedia();
+  stubCaptionUrls();
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
@@ -471,20 +481,19 @@ describe('RetainedClipPlayer playback and provenance', () => {
     expect(
       screen.getByText(/playback started after 240 ms in this view/),
     ).toBeVisible();
-    const region = screen.getByRole('region', {
-      name: 'Retained explanation clip',
-    });
-    fireEvent.keyDown(region, { key: ' ' });
+    const player = document.querySelector('video');
+    expect(player).toBeTruthy();
+    fireEvent.keyDown(player!, { key: ' ' });
     expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
     fireEvent.input(screen.getByLabelText('Clip position'), {
       target: { value: '0' },
     });
-    fireEvent.keyDown(region, { key: 'ArrowLeft' });
+    fireEvent.keyDown(player!, { key: 'ArrowLeft' });
     expect(screen.getByLabelText('Clip position')).toHaveValue('0');
     fireEvent.input(screen.getByLabelText('Clip position'), {
       target: { value: '10' },
     });
-    fireEvent.keyDown(region, { key: 'ArrowRight' });
+    fireEvent.keyDown(player!, { key: 'ArrowRight' });
     expect(screen.getByLabelText('Clip position')).toHaveValue('10');
   });
 });
