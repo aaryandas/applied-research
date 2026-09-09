@@ -848,11 +848,18 @@ export function Shell({
                     y: number;
                   }) => {
                     await contextualBridge.placeRetainedExplanation(input);
-                    setCanvasExplanationPlacements([
-                      ...(await contextualBridge.listExplanationPlacements({
+                    const placements =
+                      await contextualBridge.listExplanationPlacements({
                         projectId: input.projectId,
-                      })),
-                    ]);
+                      });
+                    setCanvasOverlay((current) => ({
+                      projectId: input.projectId,
+                      explanations:
+                        current?.projectId === input.projectId
+                          ? current.explanations
+                          : [],
+                      placements: [...placements],
+                    }));
                   },
                 }
               : {})}
