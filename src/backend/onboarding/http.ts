@@ -60,13 +60,16 @@ function unauthenticated(requestId: string | null): LearningOnboardingResponse {
   };
 }
 
-function unavailable(requestId: string | null): LearningOnboardingResponse {
+function unavailable(
+  requestId: string | null,
+  accounting: 'none' | 'released' | 'charged' | 'reservation-retained' = 'none',
+): LearningOnboardingResponse {
   return {
     outcome: 'unavailable',
     requestId,
     message: MESSAGES.unavailable,
-    retryable: true,
-    accounting: 'none',
+    retryable: accounting === 'none' || accounting === 'released',
+    accounting,
   };
 }
 
@@ -89,7 +92,35 @@ function publicEnvelope(
       request,
     );
   } catch {
-    return unavailable(request.requestId);
+    if (value.outcome === 'success') {
+      return unavailable(request.requestId, 'reservation-retained');
+    }
+    if (value.outcome === 'cancelled') {
+      return {
+        ...value,
+        retryable: false,
+        accounting:
+          value.accounting === 'released'
+            ? 'reservation-retained'
+            : value.accounting,
+      };
+    }
+    if (value.outcome === 'unavailable' && value.accounting !== 'none') {
+      return {
+        ...value,
+        retryable: false,
+      };
+    }
+    if (value.outcome === 'quota-exceeded') {
+      return {
+        outcome: 'quota-exceeded',
+        requestId: request.requestId,
+        message: MESSAGES.quotaExceeded,
+        quota: value.quota,
+        retryable: false,
+      };
+    }
+    return unavailable(request.requestId, 'reservation-retained');
   }
 }
 
@@ -164,7 +195,11 @@ export async function handleOnboardingRoute(
         'onboarding.execution-failed',
         cause,
       );
-      writeJson(response, 503, unavailable(parsed.requestId));
+      writeJson(
+        response,
+        503,
+        unavailable(parsed.requestId, 'reservation-retained'),
+      );
     }
     return true;
   } finally {

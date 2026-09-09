@@ -81,4 +81,20 @@ describe('PostgreSQL schema declarations', () => {
     expect(sql).not.toContain('250000');
     expect(sql).not.toContain(EMBEDDING_EVAL_ALLOWANCE_ID);
   });
+
+  it('adds a revision claim column without resetting the embedding ledger', () => {
+    const sql = readFileSync(
+      new URL(
+        './migrations/0004_onboarding_revision_claim.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(sql).toContain('claim_request_id');
+    expect(sql).toContain('onboarding_proposal');
+    expect(sql).not.toContain('embedding-eval');
+    expect(sql).not.toContain('250000');
+    expect(sql).not.toContain(EMBEDDING_EVAL_ALLOWANCE_ID);
+    expect(sql).not.toContain('generation-eval');
+  });
 });

@@ -70,16 +70,27 @@ function embeddingRequestId(
   return `emb_${digest.slice(0, 28)}`;
 }
 
-export function estimateIndexWriteBytes(
-  passages: readonly SourcePassage[],
+function conservativeFiniteVector(dimensions: number): number[] {
+  return Array.from({ length: dimensions }, () => -Number.MAX_VALUE);
+}
+
+function writePayloadBytes(
+  passages: readonly {
+    readonly locator: {
+      readonly quote: string;
+      readonly start: number;
+      readonly end: number;
+      readonly position: unknown;
+    };
+    readonly vector: readonly number[];
+  }[],
   dimensions: number,
 ): number {
-  const vector = Array.from({ length: dimensions }, () => 1);
   return Buffer.byteLength(
     JSON.stringify({
       upsert_rows: passages.map((passage) => ({
         id: '0'.repeat(64),
-        vector,
+        vector: passage.vector,
         text: passage.locator.quote,
         source_key: '0'.repeat(64),
         access_scope: 'public',
@@ -97,6 +108,17 @@ export function estimateIndexWriteBytes(
       },
     }),
     'utf8',
+  );
+}
+
+export function estimateIndexWriteBytes(
+  passages: readonly SourcePassage[],
+  dimensions: number,
+  vector: readonly number[] = conservativeFiniteVector(dimensions),
+): number {
+  return writePayloadBytes(
+    passages.map((passage) => ({ locator: passage.locator, vector })),
+    dimensions,
   );
 }
 
@@ -258,6 +280,13 @@ export async function indexAcquiredSource(
         }
         return 'unavailable';
       }
+    }
+    if (
+      writePayloadBytes(embeddedBatch, generation.dimensions) >
+      MAX_INDEX_REQUEST_BYTES
+    ) {
+      diagnostics.report('sourcing.index-failed');
+      return 'unavailable';
     }
     const write = await options.index.indexBatch(
       { generation, passages: embeddedBatch },

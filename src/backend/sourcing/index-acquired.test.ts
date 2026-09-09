@@ -1,6 +1,7 @@
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  estimateIndexWriteBytes,
   indexAcquiredSource,
   passagesReadyToIndex,
   planIndexWriteBatches,
@@ -14,6 +15,7 @@ import { PASSAGE_SEGMENTATION_VERSION } from './acquisition/types.js';
 import type { EmbeddingClient } from './embedding.js';
 import type { TurbopufferIndex } from './index/adapter.js';
 import { MAX_INDEX_BATCH_PASSAGES } from './index/writes.js';
+import { MAX_INDEX_REQUEST_BYTES } from './index/transport.js';
 import { MAX_EMBEDDING_BATCH } from '../policy.js';
 
 const permission = {
@@ -188,7 +190,7 @@ describe('acquired source indexing', () => {
     expect(index.indexBatch).not.toHaveBeenCalled();
   });
 
-  it('indexes 101 valid passages in write batches of at most 100 without embedding a doomed 101st write', async () => {
+  it('indexes 101 valid passages in conservative write batches without embedding a doomed leftover', async () => {
     const parts = Array.from(
       { length: 101 },
       (_, index) => `P${String(index).padStart(3, '0')}.`,
@@ -228,13 +230,28 @@ describe('acquired source indexing', () => {
         segmentationVersion: PASSAGE_SEGMENTATION_VERSION,
       };
     });
-    expect(passagesReadyToIndex(manySource, manyPassages)).toBe(true);
+    const dimensions = sourceIndexGeneration().dimensions;
+    const ones = Array.from({ length: dimensions }, () => 1);
     expect(
-      planIndexWriteBatches(
-        manyPassages,
-        sourceIndexGeneration().dimensions,
-      )?.map((batch) => batch.length),
-    ).toEqual([MAX_INDEX_BATCH_PASSAGES, 1]);
+      estimateIndexWriteBytes(manyPassages.slice(0, 8), dimensions),
+    ).toBeGreaterThan(
+      estimateIndexWriteBytes(manyPassages.slice(0, 8), dimensions, ones),
+    );
+    expect(JSON.stringify(-Number.MAX_VALUE).length).toBeGreaterThanOrEqual(
+      JSON.stringify(-Math.PI).length,
+    );
+    expect(passagesReadyToIndex(manySource, manyPassages)).toBe(true);
+    const planned = planIndexWriteBatches(manyPassages, dimensions);
+    expect(planned).not.toBeNull();
+    expect(planned?.flat()).toHaveLength(101);
+    expect(
+      Math.max(...(planned ?? []).map((batch) => batch.length)),
+    ).toBeLessThanOrEqual(MAX_INDEX_BATCH_PASSAGES);
+    for (const batch of planned ?? []) {
+      expect(estimateIndexWriteBytes(batch, dimensions)).toBeLessThanOrEqual(
+        MAX_INDEX_REQUEST_BYTES,
+      );
+    }
     const embedSizes: number[] = [];
     const writeSizes: number[] = [];
     const events: string[] = [];
@@ -294,14 +311,18 @@ describe('acquired source indexing', () => {
       },
     );
     expect(result).toBe('indexed');
-    expect(writeSizes).toEqual([MAX_INDEX_BATCH_PASSAGES, 1]);
+    expect(writeSizes).toEqual(planned?.map((batch) => batch.length));
     expect(embedSizes.reduce((sum, size) => sum + size, 0)).toBe(101);
     expect(Math.max(...embedSizes)).toBeLessThanOrEqual(MAX_EMBEDDING_BATCH);
-    expect(events.indexOf('write:100')).toBeGreaterThan(-1);
-    expect(events.indexOf('write:100')).toBeLessThan(
-      events.lastIndexOf('embed:1'),
+    const firstWrite = events.find((event) => event.startsWith('write:'));
+    const laterEmbed = events.find(
+      (event, index) =>
+        event.startsWith('embed:') &&
+        index > (firstWrite ? events.indexOf(firstWrite) : -1),
     );
-    expect(index.indexBatch).toHaveBeenCalledTimes(2);
+    expect(firstWrite).toBeDefined();
+    expect(laterEmbed).toBeDefined();
+    expect(index.indexBatch).toHaveBeenCalledTimes(planned?.length ?? 0);
   });
 
   it('does not re-embed after a failed index write', async () => {

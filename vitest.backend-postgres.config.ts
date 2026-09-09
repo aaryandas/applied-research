@@ -5,6 +5,7 @@ export default defineConfig({
     name: 'backend-postgres',
     environment: 'node',
     include: ['tests/backend-postgres/**/*.test.ts'],
+    fileParallelism: false,
     testTimeout: 20_000,
     hookTimeout: 20_000,
   },

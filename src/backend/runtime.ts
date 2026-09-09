@@ -15,6 +15,11 @@ import type { LearningService } from './learning.js';
 import { makeSourcedLearningApi } from './learning-api.js';
 import type { SourcedLearningApi } from './learning-api.js';
 import {
+  makeExplanationPlannerProvider,
+  makeExplanationPlannerService,
+  type ExplanationPlannerService,
+} from './explanations/index.js';
+import {
   makeOnboardingService,
   makePostgresOnboardingStore,
   type OnboardingService,
@@ -50,6 +55,7 @@ interface BackendServicesValue {
   readonly sourcing: SourcingService;
   readonly sourcedLearning: SourcedLearningApi;
   readonly onboarding: OnboardingService;
+  readonly explanationPlanner: ExplanationPlannerService;
   readonly ready: () => Promise<boolean>;
 }
 
@@ -90,13 +96,15 @@ function makeBackendLayer(
     Effect.gen(function* () {
       const database = yield* Database;
       const auth = yield* Authentication;
+      const accounting = makePostgresAccounting(database);
+      const generationEval = makePostgresGenerationEvalBudget(database);
       const learning = yield* makeLearningService({
-        accounting: makePostgresAccounting(database),
+        accounting,
         provider: makeOpenRouterProvider(config.openRouterApiKey, request),
         config,
         now: () => new Date(),
         diagnostics,
-        generationEval: makePostgresGenerationEvalBudget(database),
+        generationEval,
       });
       const runEffect = <A, E>(
         effect: Effect.Effect<A, E>,
@@ -185,8 +193,20 @@ function makeBackendLayer(
         operations,
         proposals: makePostgresOnboardingStore(database),
         selectEvidence: evidenceSelector,
+        sourcing,
         runEffect,
         diagnostics,
+      });
+      const explanationPlanner = yield* makeExplanationPlannerService({
+        accounting,
+        provider: makeExplanationPlannerProvider({
+          apiKey: config.openRouterApiKey,
+          request,
+        }),
+        config,
+        now: () => new Date(),
+        diagnostics,
+        generationEval,
       });
       return {
         auth,
@@ -194,6 +214,7 @@ function makeBackendLayer(
         sourcing,
         sourcedLearning,
         onboarding,
+        explanationPlanner,
         ready: async () => {
           try {
             const migration = await database.pool.query(
@@ -290,6 +311,7 @@ export async function startBackend(
         sourcing: services.sourcing,
         sourcedLearning: services.sourcedLearning,
         onboarding: services.onboarding,
+        explanationPlanner: services.explanationPlanner,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
         runEffect: (effect, signal) =>

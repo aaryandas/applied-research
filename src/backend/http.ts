@@ -16,6 +16,10 @@ import {
   type OnboardingService,
 } from './onboarding/index.js';
 import {
+  handleExplanationPlanRoute,
+  type ExplanationPlannerService,
+} from './explanations/index.js';
+import {
   API_ORIGIN,
   ELECTRON_AUTH_CALLBACK_PATH,
   ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
@@ -37,6 +41,7 @@ export interface HttpDependencies {
   readonly sourcing?: SourcingService;
   readonly sourcedLearning?: SourcedLearningApi;
   readonly onboarding?: OnboardingService;
+  readonly explanationPlanner?: ExplanationPlannerService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -274,6 +279,14 @@ export function createHttpHandler(
         disconnect.signal,
       );
       if (onboardingHandled) return;
+      const planned = await handleExplanationPlanRoute(
+        url.pathname,
+        request,
+        response,
+        dependencies,
+        disconnect.signal,
+      );
+      if (planned) return;
       const handled = await handleSourceRoute(
         url.pathname,
         request,

@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   LearningOnboardingRequest,
   OnboardingSyllabus,
@@ -13,6 +13,7 @@ import {
 import { createLearningOnboardingValidation } from '../../contracts/learning-onboarding-validation.js';
 import type {
   AcquiredSource,
+  MetadataOnlySource,
   RetrievalEvidence,
 } from '../../contracts/sourcing.js';
 import { SOURCING_PUBLIC_MESSAGES } from '../../contracts/sourcing.js';
@@ -28,8 +29,10 @@ import type { ProviderCompletion, ProviderService } from '../provider.js';
 import { startHttpServer } from '../runtime.js';
 import { sha256Text } from '../validation-primitives.js';
 import { makeMemorySourceOperations } from '../sourcing/operations.js';
+import type { SourcingService } from '../sourcing/service.js';
 import type { SelectedLearningEvidence } from '../sourced-learning/types.js';
 import { makeOnboardingService } from './service.js';
+import type { OnboardingService } from './service.js';
 import { makeMemoryOnboardingStore } from './store.js';
 
 const validation = createLearningOnboardingValidation(sha256Text);
@@ -203,6 +206,12 @@ function pathSteps(titlePrefix: string) {
       citations: [CITATION],
     },
     {
+      title: `${titlePrefix} setup the comparison environment`,
+      objective,
+      activity,
+      citations: [CITATION],
+    },
+    {
       title: `${titlePrefix} decimal examples`,
       objective,
       activity,
@@ -215,13 +224,7 @@ function pathSteps(titlePrefix: string) {
       citations: [CITATION],
     },
     {
-      title: `${titlePrefix} comparison traps`,
-      objective,
-      activity,
-      citations: [CITATION],
-    },
-    {
-      title: `${titlePrefix} local reproduction`,
+      title: `${titlePrefix} implement local reproduction`,
       objective,
       activity,
       citations: [CITATION],
@@ -242,11 +245,26 @@ function provider(titlePrefix = 'Cited'): ProviderService {
         ? 'Revised'
         : titlePrefix;
       if (learningRequest.operation.kind === 'generate-learning-path') {
+        const emptySources = learningRequest.operation.sources.length === 0;
         const completion: ProviderCompletion = {
           contribution: {
             kind: 'learning-path',
-            title: `${prefix} floating-point syllabus`,
-            steps: pathSteps(prefix),
+            title: emptySources
+              ? `${prefix} diagnostic prompt`
+              : `${prefix} floating-point syllabus`,
+            steps: emptySources
+              ? [
+                  {
+                    title:
+                      'What currently happens when you add 0.1 and 0.2, and why might that surprise you?',
+                    objective:
+                      "Assess the learner's current understanding without claiming mastery.",
+                    activity:
+                      'Answer in your own words. Do not invent sources or citations.',
+                    citations: [],
+                  },
+                ]
+              : pathSteps(prefix),
           },
           providerRequestId: `generation-${learningRequest.requestId}`.slice(
             0,
@@ -342,6 +360,8 @@ async function startOnboarding(options?: {
   readonly provider?: ProviderService;
   readonly accounting?: AccountingStore;
   readonly evidence?: (requestId: string) => SelectedLearningEvidence;
+  readonly sourcing?: SourcingService;
+  readonly onboarding?: OnboardingService;
 }) {
   const generationEval = makeMemoryGenerationEvalBudget();
   const learning = await Effect.runPromise(
@@ -359,16 +379,19 @@ async function startOnboarding(options?: {
       now: () => new Date(AT),
     }),
   );
-  const onboarding = makeOnboardingService({
-    learning,
-    operations: makeMemorySourceOperations(),
-    proposals: makeMemoryOnboardingStore(),
-    selectEvidence: async (query) =>
-      (options?.evidence ?? admittedEvidence)(query.requestId),
-    runEffect: (effect, signal) =>
-      Effect.runPromise(effect, signal ? { signal } : undefined),
-    clock: () => new Date(AT),
-  });
+  const onboarding =
+    options?.onboarding ??
+    makeOnboardingService({
+      learning,
+      operations: makeMemorySourceOperations(),
+      proposals: makeMemoryOnboardingStore(),
+      selectEvidence: async (query) =>
+        (options?.evidence ?? admittedEvidence)(query.requestId),
+      sourcing: options?.sourcing,
+      runEffect: (effect, signal) =>
+        Effect.runPromise(effect, signal ? { signal } : undefined),
+      clock: () => new Date(AT),
+    });
   const backend = await startHttpServer(
     {
       auth: {
@@ -450,8 +473,10 @@ describe('POST /v1/learning/onboarding', () => {
       throw new Error('expected interview success');
     }
     expect(interview).not.toHaveProperty('syllabus');
+    expect(interview.prompt.text).toMatch(/0\.1 and 0\.2/);
     expect(interview.prompt.provenance.author).toBe('ai');
     expect(interview.prompt.provenance.provider).toBe('openrouter');
+    expect(interview.prompt.provenance.sourceRevisions).toEqual([]);
     expect(interview.assessment).toBeNull();
 
     const proposeRequest = {
@@ -493,8 +518,35 @@ describe('POST /v1/learning/onboarding', () => {
     expect(proposed.firstLesson.stepId).toBe(lessons[0]?.stepId);
     expect(proposed.firstLesson.source.title).toBe(lessons[0]?.title);
     expect(
+      proposed.firstLesson.paragraphs.every(
+        (item) => item.kind === 'ai-explanation',
+      ),
+    ).toBe(true);
+    expect(
+      proposed.firstLesson.paragraphs.some(
+        (item) => (item as { kind: string }).kind === 'human-note',
+      ),
+    ).toBe(false);
+    expect(
+      proposed.firstLesson.paragraphs.every((item) =>
+        item.citations.every((citation) => item.text.includes(citation.quote)),
+      ),
+    ).toBe(true);
+    expect(
+      proposed.firstLesson.paragraphs.flatMap((item) => item.citations),
+    ).toEqual([]);
+    expect(
       proposed.firstLesson.paragraphs.map((item) => item.text).join('\n\n'),
     ).toBe(proposed.firstLesson.source.canonicalText);
+    const practiceTool = lessons.find((lesson) => lesson.role === 'practice')
+      ?.practice?.tool;
+    expect(practiceTool).toMatchObject({
+      kind: 'learner-external',
+      toolName: 'CPython REPL',
+    });
+    expect(practiceTool).not.toMatchObject({
+      toolName: 'Python and a local editor',
+    });
     expect(proposed.personalization.author).toBe('ai');
     expect(proposed.personalization.masteryEstablished).toBe(false);
     expect(proposed.provenance[0]?.requestVersion).toBe('2026-09-08');
@@ -654,6 +706,154 @@ describe('POST /v1/learning/onboarding', () => {
       outcome: 'cancelled',
       retryable: false,
       requestId: 'onboard-cncl01',
+    });
+  });
+
+  it('keeps interview available with no admitted sources and does not discover', async () => {
+    const discoverCandidates = vi.fn(async () => {
+      throw new Error('interview must not discover sources');
+    });
+    const backend = await startOnboarding({
+      evidence: (requestId) => ({
+        sources: [],
+        retrieval: {
+          outcome: 'no-evidence',
+          requestId,
+          message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+        },
+      }),
+      sourcing: {
+        discoverCandidates,
+        acquireCanonicalSource: async () => {
+          throw new Error('interview must not acquire sources');
+        },
+        retrieveEvidence: async () => {
+          throw new Error('interview must not retrieve');
+        },
+      },
+    });
+    const response = await post(backend.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-intv02',
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      outcome: 'success',
+      scope: 'interview-prompt',
+      requestId: 'onboard-intv02',
+    });
+    expect(body.prompt.provenance.sourceRevisions).toEqual([]);
+    expect(discoverCandidates).not.toHaveBeenCalled();
+  });
+
+  it('prepares permitted public sources before a sourced syllabus', async () => {
+    const discovered: MetadataOnlySource = {
+      ...acquired,
+      content: { state: 'metadata-only' },
+    };
+    const discoverIds: string[] = [];
+    const acquireIds: string[] = [];
+    let selections = 0;
+    const backend = await startOnboarding({
+      evidence: (requestId) => {
+        selections += 1;
+        if (selections === 1) {
+          return {
+            sources: [],
+            retrieval: {
+              outcome: 'no-evidence',
+              requestId,
+              message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+            },
+          };
+        }
+        return admittedEvidence(requestId);
+      },
+      sourcing: {
+        discoverCandidates: async (request) => {
+          discoverIds.push(request.requestId);
+          return {
+            outcome: 'success',
+            requestId: request.requestId,
+            candidates: [discovered],
+          };
+        },
+        acquireCanonicalSource: async (request) => {
+          acquireIds.push(request.requestId);
+          expect(request.sourceId).toBe(SOURCE_ID);
+          return {
+            outcome: 'success',
+            requestId: request.requestId,
+            source: acquired,
+          };
+        },
+        retrieveEvidence: async () => {
+          throw new Error('prepare uses selectEvidence, not retrieveEvidence');
+        },
+      },
+    });
+    const request = {
+      ...envelope('propose-course'),
+      requestId: 'onboard-prep01',
+    };
+    const response = await post(backend.origin, request);
+    expect(response.status).toBe(200);
+    const proposed = validation.parseLearningOnboardingResponse(
+      await response.json(),
+      validation.parseLearningOnboardingRequest(request),
+    );
+    expect(proposed.outcome).toBe('success');
+    expect(discoverIds).toEqual(['onboard-prep01-dsc']);
+    expect(acquireIds).toEqual(['onboard-prep01-aq0']);
+    expect(selections).toBe(2);
+  });
+
+  it('does not claim none after an invalid success envelope', async () => {
+    const backend = await startOnboarding({
+      onboarding: {
+        handle: async (_account, request) =>
+          ({
+            outcome: 'success',
+            requestId: request.requestId,
+            scope: 'interview-prompt',
+            prompt: { id: 'prompt-x', text: 'Incomplete' },
+            assessment: null,
+            quota,
+          }) as never,
+      },
+    });
+    const response = await post(backend.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-wire01',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      outcome: 'unavailable',
+      requestId: 'onboard-wire01',
+      retryable: false,
+      accounting: 'reservation-retained',
+    });
+  });
+
+  it('does not claim none when onboarding throws after admission', async () => {
+    const backend = await startOnboarding({
+      onboarding: {
+        handle: async () => {
+          throw new Error('synthetic execution failure');
+        },
+      },
+    });
+    const response = await post(backend.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-throw01',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      outcome: 'unavailable',
+      requestId: 'onboard-throw01',
+      retryable: false,
+      accounting: 'reservation-retained',
     });
   });
 });

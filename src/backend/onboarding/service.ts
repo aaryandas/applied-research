@@ -39,9 +39,22 @@ import {
   clientVisibleInputHash,
   type SourceOperationStore,
 } from '../sourcing/operations.js';
-import type { SourcingInvocation } from '../sourcing/service.js';
+import type {
+  SourcingInvocation,
+  SourcingService,
+} from '../sourcing/service.js';
+import {
+  cancelledAccounting,
+  mergePaidAccounting,
+  paidAccountingFromLearning,
+  paidAccountingFromOnboarding,
+  unavailableAccounting,
+  type PaidAccounting,
+} from './paid-accounting.js';
+import { prepareOnboardingSources } from './prepare-sources.js';
 import {
   assembleOnboardingSyllabus,
+  citationsForParagraph,
   diagnosticPersonalization,
 } from './syllabus.js';
 import type { OnboardingProposalStore } from './store.js';
@@ -62,6 +75,7 @@ export interface OnboardingServiceOptions {
     query: LearningEvidenceQuery,
     invocation: SourcingInvocation,
   ) => Promise<SelectedLearningEvidence>;
+  readonly sourcing?: SourcingService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -122,6 +136,52 @@ function cancelled(
     retryable: false,
     accounting,
   };
+}
+
+function stale(
+  requestId: string,
+  expectedRevision: number,
+  currentRevision: number,
+): LearningOnboardingResponse {
+  return {
+    outcome: 'stale-revision',
+    requestId,
+    message: MESSAGES.staleRevision,
+    expectedRevision,
+    currentRevision,
+    retryable: false,
+  };
+}
+
+function conflict(requestId: string): LearningOnboardingResponse {
+  return {
+    outcome: 'conflict',
+    requestId,
+    message: MESSAGES.conflict,
+    retryable: false,
+  };
+}
+
+function applyPaidAccounting(
+  response: LearningOnboardingResponse,
+  paid: PaidAccounting,
+): LearningOnboardingResponse {
+  if (response.outcome === 'cancelled') {
+    return cancelled(response.requestId, cancelledAccounting(paid));
+  }
+  if (response.outcome === 'unavailable') {
+    return unavailable(
+      response.requestId ?? 'onboarding',
+      unavailableAccounting(paid),
+    );
+  }
+  if (
+    response.outcome === 'quota-exceeded' &&
+    (paid === 'charged' || paid === 'reservation-retained')
+  ) {
+    return unavailable(response.requestId, paid);
+  }
+  return response;
 }
 
 function mapLearningOutcome(
@@ -334,7 +394,7 @@ function generatedLessonFromTutor(input: {
     .map((text) => ({
       text,
       kind: 'ai-explanation' as const,
-      citations: input.contribution.citations,
+      citations: citationsForParagraph(text, input.contribution.citations),
     }));
   const source = generatedLessonSource({
     requestId: input.requestId,
@@ -369,25 +429,21 @@ function courseFocus(request: LearningOnboardingRequest): {
   };
 }
 
+function shouldReleaseClaim(result: LearningOnboardingResponse): boolean {
+  return (
+    result.outcome !== 'success' &&
+    !(
+      result.outcome === 'unavailable' &&
+      result.accounting === 'reservation-retained'
+    )
+  );
+}
+
 export function makeOnboardingService(
   options: OnboardingServiceOptions,
 ): OnboardingService {
   const diagnostics = options.diagnostics ?? silentDiagnostics;
   const clock = options.clock ?? (() => new Date());
-
-  async function select(
-    account: PublicAccount,
-    request: LearningOnboardingRequest,
-    signal: AbortSignal,
-  ): Promise<SelectedLearningEvidence> {
-    const query: LearningEvidenceQuery = {
-      requestId: request.requestId,
-      query: request.operation.human.goal,
-      intent: 'learning',
-      maxPassages: 12,
-    };
-    return options.selectEvidence(query, { account, signal });
-  }
 
   async function completeLearning(
     account: PublicAccount,
@@ -402,9 +458,100 @@ export function makeOnboardingService(
     request: LearningOnboardingRequest,
     signal: AbortSignal,
   ): Promise<LearningOnboardingResponse> {
+    let paid: PaidAccounting = 'none';
+    const record = (response: LearningResponse): void => {
+      paid = mergePaidAccounting(paid, paidAccountingFromLearning(response));
+    };
+    const abortResult = (): LearningOnboardingResponse | null =>
+      signal.aborted
+        ? cancelled(request.requestId, cancelledAccounting(paid))
+        : null;
     if (signal.aborted) return cancelled(request.requestId, 'released');
-    const selected = await select(account, request, signal);
-    if (signal.aborted) return cancelled(request.requestId, 'released');
+    const learnerContext = humanContext(request);
+    if (request.operation.kind === 'interview-prompt') {
+      const inner: LearningRequest = {
+        apiVersion: LEARNING_API_VERSION,
+        requestId: phaseRequestId(request.requestId, 'prompt'),
+        model: request.model,
+        operation: {
+          kind: 'generate-learning-path',
+          goal: `Compose exactly one diagnostic step. The step title is a short open-ended question about the learner's current understanding of: ${request.operation.human.goal}. Do not claim mastery. Do not invent sources or citations.`.slice(
+            0,
+            2_000,
+          ),
+          sources: [],
+          learnerContext,
+        },
+      };
+      const response = await completeLearning(account, inner, signal);
+      record(response);
+      const aborted = abortResult();
+      if (aborted) return aborted;
+      const mapped = mapLearningOutcome(request, response);
+      if (mapped) return applyPaidAccounting(mapped, paid);
+      if (response.outcome !== 'success') {
+        return unavailable(request.requestId, unavailableAccounting(paid));
+      }
+      if (response.contribution.kind !== 'learning-path') {
+        return unavailable(request.requestId, 'charged');
+      }
+      const promptText =
+        response.contribution.steps[0]?.title ?? response.contribution.title;
+      return {
+        outcome: 'success',
+        requestId: request.requestId,
+        scope: 'interview-prompt',
+        prompt: {
+          id: `pmt-${request.requestId.slice(0, 12)}`.slice(0, 100),
+          text: promptText.slice(0, 2_000),
+          provenance: stripCanonical({
+            ...response.provenance,
+            sourceRevisions: [],
+          }),
+        },
+        assessment: null,
+        quota: response.quota,
+      };
+    }
+
+    let selected: SelectedLearningEvidence;
+    if (options.sourcing) {
+      const prepared = await prepareOnboardingSources({
+        account,
+        request,
+        signal,
+        sourcing: options.sourcing,
+        selectEvidence: options.selectEvidence,
+      });
+      const aborted = abortResult();
+      if (aborted) return aborted;
+      if (prepared.kind === 'cancelled') {
+        return cancelled(request.requestId, cancelledAccounting(paid));
+      }
+      if (prepared.kind === 'unavailable') {
+        return unavailable(request.requestId, unavailableAccounting(paid));
+      }
+      if (prepared.kind === 'coverage-pending') {
+        return coveragePending(
+          request,
+          [{ kind: 'retrieval', message: prepared.message }],
+          null,
+        );
+      }
+      selected = prepared.evidence;
+    } else {
+      selected = await options.selectEvidence(
+        {
+          requestId: request.requestId,
+          query: request.operation.human.goal,
+          intent: 'learning',
+          maxPassages: 12,
+        },
+        { account, signal },
+      );
+    }
+    const abortedAfterSelect = abortResult();
+    if (abortedAfterSelect) return abortedAfterSelect;
     if (
       selected.retrieval.outcome !== 'success' &&
       selected.retrieval.outcome !== 'partial'
@@ -421,7 +568,7 @@ export function makeOnboardingService(
           null,
         );
       }
-      return unavailable(request.requestId, 'none');
+      return unavailable(request.requestId, unavailableAccounting(paid));
     }
     if (selected.sources.length === 0) {
       return coveragePending(
@@ -438,77 +585,18 @@ export function makeOnboardingService(
     }
     const sources = generationSources(selected);
     const evidence = evidenceList(selected);
-    const learnerContext = humanContext(request);
-    if (request.operation.kind === 'interview-prompt') {
-      const inner: LearningRequest = {
-        apiVersion: LEARNING_API_VERSION,
-        requestId: phaseRequestId(request.requestId, 'prompt'),
-        model: request.model,
-        operation: {
-          kind: 'source-grounded-tutor',
-          question:
-            `Ask one short open-ended diagnostic question about the learner's current understanding of: ${request.operation.human.goal}. Do not claim mastery.`.slice(
-              0,
-              2_000,
-            ),
-          sources,
-          learnerContext,
-        },
-      };
-      const response = await completeLearning(account, inner, signal);
-      const mapped = mapLearningOutcome(request, response);
-      if (mapped) return mapped;
-      if (response.outcome !== 'success')
-        return unavailable(request.requestId, 'none');
-      if (response.contribution.kind !== 'source-grounded-tutor') {
-        return unavailable(request.requestId, 'charged');
-      }
-      return {
-        outcome: 'success',
-        requestId: request.requestId,
-        scope: 'interview-prompt',
-        prompt: {
-          id: `pmt-${request.requestId.slice(0, 12)}`.slice(0, 100),
-          text: response.contribution.body.slice(0, 2_000),
-          provenance: stripCanonical(response.provenance),
-        },
-        assessment: null,
-        quota: response.quota,
-      };
-    }
     if (request.operation.kind === 'generate-selected-lesson') {
       const selectedTarget = request.operation.target;
       const ref = selectedTarget.acceptedProposal;
       const stored = await options.proposals.get(account.id, ref.id);
-      if (!stored) {
-        return {
-          outcome: 'conflict',
-          requestId: request.requestId,
-          message: MESSAGES.conflict,
-          retryable: false,
-        };
-      }
+      if (!stored) return conflict(request.requestId);
       if (stored.revision !== ref.revision) {
-        return {
-          outcome: 'stale-revision',
-          requestId: request.requestId,
-          message: MESSAGES.staleRevision,
-          expectedRevision: ref.revision,
-          currentRevision: stored.revision,
-          retryable: false,
-        };
+        return stale(request.requestId, ref.revision, stored.revision);
       }
       const target = stored.syllabus.topics
         .flatMap((topic) => topic.lessons)
         .find((lesson) => lesson.stepId === selectedTarget.remoteStepId);
-      if (!target) {
-        return {
-          outcome: 'conflict',
-          requestId: request.requestId,
-          message: MESSAGES.conflict,
-          retryable: false,
-        };
-      }
+      if (!target) return conflict(request.requestId);
       const generated = await generateLesson(
         account,
         request,
@@ -516,8 +604,12 @@ export function makeOnboardingService(
         selected,
         target,
         learnerContext,
+        record,
+        () => paid,
       );
-      if ('outcome' in generated) return generated;
+      const aborted = abortResult();
+      if (aborted) return aborted;
+      if ('outcome' in generated) return applyPaidAccounting(generated, paid);
       const listed = bibliographyFor(stored.syllabus, selected.sources);
       return {
         outcome: 'success',
@@ -535,28 +627,28 @@ export function makeOnboardingService(
     let prior: OnboardingSyllabus | null = null;
     let revision = 1;
     let proposalId = request.requestId;
+    let claimedFrom: number | null = null;
     if (request.operation.kind === 'revise-course') {
       const ref = request.operation.model.priorProposal;
       proposalId = ref.id;
       const stored = await options.proposals.get(account.id, ref.id);
-      if (!stored) {
-        return {
-          outcome: 'conflict',
-          requestId: request.requestId,
-          message: MESSAGES.conflict,
-          retryable: false,
-        };
-      }
+      if (!stored) return conflict(request.requestId);
       if (stored.revision !== ref.revision) {
-        return {
-          outcome: 'stale-revision',
-          requestId: request.requestId,
-          message: MESSAGES.staleRevision,
-          expectedRevision: ref.revision,
-          currentRevision: stored.revision,
-          retryable: false,
-        };
+        return stale(request.requestId, ref.revision, stored.revision);
       }
+      const claimed = await options.proposals.claim(
+        account.id,
+        ref.id,
+        ref.revision,
+        request.requestId,
+        clock(),
+      );
+      if (claimed.kind === 'missing') return conflict(request.requestId);
+      if (claimed.kind === 'stale') {
+        return stale(request.requestId, ref.revision, claimed.currentRevision);
+      }
+      if (claimed.kind === 'conflict') return conflict(request.requestId);
+      claimedFrom = claimed.revision;
       prior = stored.syllabus;
       revision = stored.revision + 1;
     }
@@ -576,11 +668,52 @@ export function makeOnboardingService(
       },
     };
     const pathResponse = await completeLearning(account, pathRequest, signal);
+    record(pathResponse);
+    const abortedPath = abortResult();
+    if (abortedPath) {
+      if (claimedFrom !== null) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
+      return abortedPath;
+    }
     const pathFailure = mapLearningOutcome(request, pathResponse);
-    if (pathFailure) return pathFailure;
-    if (pathResponse.outcome !== 'success')
-      return unavailable(request.requestId, 'none');
+    if (pathFailure) {
+      const accounted = applyPaidAccounting(pathFailure, paid);
+      if (claimedFrom !== null && shouldReleaseClaim(accounted)) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
+      return accounted;
+    }
+    if (pathResponse.outcome !== 'success') {
+      if (claimedFrom !== null) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
+      return unavailable(request.requestId, unavailableAccounting(paid));
+    }
     if (pathResponse.contribution.kind !== 'learning-path') {
+      if (claimedFrom !== null) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
       return unavailable(request.requestId, 'charged');
     }
     const syllabus = assembleOnboardingSyllabus({
@@ -590,6 +723,14 @@ export function makeOnboardingService(
     });
     const first = syllabus.topics[0]?.lessons[0];
     if (!first) {
+      if (claimedFrom !== null) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
       return coveragePending(
         request,
         [
@@ -608,8 +749,33 @@ export function makeOnboardingService(
       selected,
       first,
       learnerContext,
+      record,
+      () => paid,
     );
-    if ('outcome' in generated) return generated;
+    const abortedLesson = abortResult();
+    if (abortedLesson) {
+      if (claimedFrom !== null) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
+      return abortedLesson;
+    }
+    if ('outcome' in generated) {
+      const accounted = applyPaidAccounting(generated, paid);
+      if (claimedFrom !== null && shouldReleaseClaim(accounted)) {
+        await options.proposals.releaseClaim(
+          account.id,
+          proposalId,
+          request.requestId,
+          clock(),
+        );
+      }
+      return accounted;
+    }
     const personalization = diagnosticPersonalization({
       goal: request.operation.human.goal,
       focus,
@@ -644,7 +810,7 @@ export function makeOnboardingService(
       ],
       quota: generated.quota,
     };
-    await options.proposals.save(
+    const committed = await options.proposals.commit(
       account.id,
       {
         proposalId,
@@ -652,8 +818,14 @@ export function makeOnboardingService(
         syllabus,
         diagnostic: personalization,
       },
+      claimedFrom,
+      request.requestId,
       clock(),
     );
+    if (committed === 'stale') {
+      return stale(request.requestId, revision - 1, revision);
+    }
+    if (committed === 'conflict') return conflict(request.requestId);
     return envelope;
   }
 
@@ -664,6 +836,8 @@ export function makeOnboardingService(
     selected: SelectedLearningEvidence,
     step: OnboardingSyllabus['topics'][number]['lessons'][number],
     learnerContext: ReturnType<typeof humanContext>,
+    record: (response: LearningResponse) => void,
+    getPaid: () => PaidAccounting,
   ): Promise<
     | {
         readonly lesson: OnboardingGeneratedLesson;
@@ -678,23 +852,22 @@ export function makeOnboardingService(
       model: request.model,
       operation: {
         kind: 'source-grounded-tutor',
-        question: SOURCED_LESSON_QUESTION,
+        question:
+          `${SOURCED_LESSON_QUESTION} Target step "${step.title}". Objective: ${step.objective}. Role: ${step.role}.`.slice(
+            0,
+            2_000,
+          ),
         sources: generationSources(selected),
-        learnerContext: [
-          ...learnerContext,
-          {
-            id: 'steptitle',
-            kind: 'human-note',
-            text: `${step.title}: ${step.objective}`.slice(0, 4_000),
-          },
-        ],
+        learnerContext,
       },
     };
     const response = await completeLearning(account, inner, signal);
+    record(response);
     const mapped = mapLearningOutcome(request, response);
-    if (mapped) return mapped;
-    if (response.outcome !== 'success')
-      return unavailable(request.requestId, 'none');
+    if (mapped) return applyPaidAccounting(mapped, getPaid());
+    if (response.outcome !== 'success') {
+      return unavailable(request.requestId, unavailableAccounting(getPaid()));
+    }
     if (response.contribution.kind !== 'source-grounded-tutor') {
       return unavailable(request.requestId, 'charged');
     }
@@ -727,14 +900,7 @@ export function makeOnboardingService(
           now,
         }),
       );
-      if (decision.kind === 'conflict') {
-        return {
-          outcome: 'conflict',
-          requestId: request.requestId,
-          message: MESSAGES.conflict,
-          retryable: false,
-        };
-      }
+      if (decision.kind === 'conflict') return conflict(request.requestId);
       if (decision.kind === 'in-progress') {
         return unavailable(request.requestId, 'reservation-retained');
       }
@@ -767,8 +933,11 @@ export function makeOnboardingService(
         );
         return result;
       } catch (cause) {
+        const paid = signal.aborted
+          ? cancelledAccounting('reservation-retained')
+          : 'reservation-retained';
         if (signal.aborted) {
-          const aborted = cancelled(request.requestId, 'released');
+          const aborted = cancelled(request.requestId, paid);
           await options.runEffect(
             options.operations.complete({
               accountId: account.id,
@@ -794,3 +963,5 @@ export function makeOnboardingService(
     },
   };
 }
+
+export { paidAccountingFromOnboarding };
