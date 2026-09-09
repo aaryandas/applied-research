@@ -346,7 +346,7 @@ function CanvasSession({
                 className="workspace-canvas-controls"
               >
                 <button
-                  className="ui-button ui-button--icon ui-button--small"
+                  className="ui-button ui-button--icon"
                   aria-label="Zoom out"
                   onClick={() => void flow.zoomOut()}
                 >
@@ -354,13 +354,13 @@ function CanvasSession({
                 </button>
                 <output aria-label="Zoom">{Math.round(zoom * 100)}%</output>
                 <button
-                  className="ui-button ui-button--icon ui-button--small"
+                  className="ui-button ui-button--icon"
                   aria-label="Zoom in"
                   onClick={() => void flow.zoomIn()}
                 >
                   +
                 </button>
-                <button className="ui-button ui-button--small" onClick={fitMap}>
+                <button className="ui-button" onClick={fitMap}>
                   Fit map
                 </button>
               </Panel>
