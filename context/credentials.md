@@ -39,6 +39,15 @@ opens GitHub's direct `/electron/init-oauth-proxy` provider flow, renews via
 public state. Cookies, callback tokens, PKCE values and raw request controls stay
 in main.
 
+AR-40 routes SDK `/api/auth/*` calls through Node's main-process global `fetch`:
+Electron `net.fetch` filters `Set-Cookie`, preventing the supported SDK from
+capturing exchanged or renewed session cookies. The wrapper retains the fixed
+origin/auth-path allowlist, manual redirect rejection, ten-second deadline and
+256 KiB response limit. `/v1/account` keeps its existing Electron transport.
+Unit and real Electron lifecycle tests use synthetic loopback HTTP responses
+through Node fetch to verify cookie capture; they do not establish live GitHub
+or deployed-backend acceptance.
+
 The SDK encrypts session values with Electron `safeStorage`; a synchronous narrow
 adapter atomically stores only its two allowlisted ciphertext keys with mode
 `0600`. Sign-in fails closed when encryption is unavailable or Linux reports
