@@ -1,0 +1,56 @@
+name: Desktop smoke feedback
+
+# Independent early feedback while the full CI gate runs. This job does not
+# replace any formatting, type, coverage, build, or packaged check in verify.yml.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'drizzle/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'electron*'
+      - 'playwright.config.ts'
+      - '.github/workflows/desktop-smoke-feedback.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-smoke-feedback-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: macOS desktop and packaged smoke
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Build application
+        run: npm run build
+      - name: Desktop smoke
+        run: npm run test:e2e
+      - name: Package candidate
+        run: npx --no-install electron-builder --dir --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Packaged smoke
+        run: npm run test:packaged
+      - name: Save desktop evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: early-desktop-${{ github.event.pull_request.head.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

@@ -136,4 +136,175 @@ export const learningRequest = pgTable(
   ],
 );
 
+export const sourceDescriptor = pgTable(
+  'source_descriptor',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id').notNull(),
+    provider: text('provider').notNull(),
+    providerKey: text('provider_id').notNull(),
+    descriptor: jsonb('descriptor').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.sourceId] }),
+    uniqueIndex('source_descriptor_provider_unique').on(
+      table.accountId,
+      table.provider,
+      table.providerKey,
+    ),
+  ],
+);
+
+export const sourceRevision = pgTable(
+  'source_revision',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id').notNull(),
+    revisionId: text('revision_id').notNull(),
+    sha256: text('sha256').notNull(),
+    canonicalizationVersion: text('canonicalization_version').notNull(),
+    embeddingGeneration: text('embedding_generation'),
+    acquired: jsonb('acquired').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.accountId, table.sourceId, table.revisionId],
+    }),
+    uniqueIndex('source_revision_content_unique').on(
+      table.accountId,
+      table.sourceId,
+      table.sha256,
+      table.canonicalizationVersion,
+    ),
+  ],
+);
+
+export const sourceIndexState = pgTable(
+  'source_index_state',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id').notNull(),
+    revisionId: text('revision_id').notNull(),
+    embeddingGeneration: text('embedding_generation').notNull(),
+    passageCount: bigint('passage_count', { mode: 'number' }).notNull(),
+    indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.accountId,
+        table.sourceId,
+        table.revisionId,
+        table.embeddingGeneration,
+      ],
+    }),
+  ],
+);
+
+export const sourceOperation = pgTable(
+  'source_operation',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    requestId: text('request_id').notNull(),
+    kind: text('kind').notNull(),
+    inputHash: text('input_hash').notNull(),
+    state: text('state').notNull(),
+    publicResponse: jsonb('public_response'),
+    frozenPayload: jsonb('frozen_payload'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.requestId] }),
+    index('source_operation_kind_index').on(table.accountId, table.kind),
+  ],
+);
+
+export const providerBudget = pgTable(
+  'provider_budget',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    periodStart: date('period_start', { mode: 'string' }).notNull(),
+    committedMicrousd: bigint('committed_microusd', { mode: 'number' })
+      .notNull()
+      .default(0),
+    reservedMicrousd: bigint('reserved_microusd', { mode: 'number' })
+      .notNull()
+      .default(0),
+    limitMicrousd: bigint('limit_microusd', { mode: 'number' }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.accountId, table.provider, table.periodStart],
+    }),
+  ],
+);
+
+export const providerBudgetRequest = pgTable(
+  'provider_budget_request',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    requestId: text('request_id').notNull(),
+    provider: text('provider').notNull(),
+    requestHash: text('request_hash').notNull(),
+    periodStart: date('period_start', { mode: 'string' }).notNull(),
+    state: text('state').notNull(),
+    reservedMicrousd: bigint('reserved_microusd', { mode: 'number' }).notNull(),
+    actualMicrousd: bigint('actual_microusd', { mode: 'number' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.accountId, table.requestId, table.provider],
+    }),
+  ],
+);
+
+export const sharedBudget = pgTable('shared_budget', {
+  name: text('name').primaryKey(),
+  committedMicrousd: bigint('committed_microusd', { mode: 'number' })
+    .notNull()
+    .default(0),
+  reservedMicrousd: bigint('reserved_microusd', { mode: 'number' })
+    .notNull()
+    .default(0),
+  limitMicrousd: bigint('limit_microusd', { mode: 'number' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+});
+
+export const sharedBudgetRequest = pgTable(
+  'shared_budget_request',
+  {
+    name: text('name')
+      .notNull()
+      .references(() => sharedBudget.name, { onDelete: 'cascade' }),
+    requestId: text('request_id').notNull(),
+    requestHash: text('request_hash').notNull(),
+    state: text('state').notNull(),
+    reservedMicrousd: bigint('reserved_microusd', { mode: 'number' }).notNull(),
+    actualMicrousd: bigint('actual_microusd', { mode: 'number' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.name, table.requestId] })],
+);
+
 export const authSchema = { user, session, account, verification };

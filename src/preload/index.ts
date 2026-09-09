@@ -1,3 +1,22 @@
+import {
+  SOURCE_CHANNELS,
+  type SourceDesktopBridge,
+} from '../contracts/source-desktop';
+import { RECORD_PRACTICAL_RESULT_CHANNEL } from '../contracts/practical-work';
+import {
+  LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+  SELECT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_FILE_CHANNEL,
+  LIST_PRACTICAL_ATTEMPTS_CHANNEL,
+  PREVIEW_PRACTICAL_FILE_CHANNEL,
+  EXPORT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_EXPORT_CHANNEL,
+  LOAD_PRACTICAL_JOURNEY_CHANNEL,
+  RECORD_PRACTICAL_PROGRESS_CHANNEL,
+  RECORD_PRACTICAL_WORK_CHOICE_CHANNEL,
+  SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL,
+  type PracticalWorkspaceBridge,
+} from '../contracts/practical-records';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopBridge } from '../contracts/desktop';
 import {
@@ -10,7 +29,46 @@ import {
 } from '../contracts/learning-records';
 import { CHANNELS, type ToolState } from '../contracts/workspace';
 
-const desktop: DesktopBridge & LearningRecordsBridge = {
+const desktop: DesktopBridge &
+  LearningRecordsBridge &
+  PracticalWorkspaceBridge &
+  SourceDesktopBridge = {
+  generateSourcedLearning: (input) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.generate, input),
+  activateSourceWorkspace: (projectId) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.activate, projectId),
+  discoverSources: (input) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.discover, input),
+  acquireAndSaveSource: (input) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.acquire, input),
+  cancelSourceOperation: (input) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.cancel, input),
+  openSourceOriginal: (input) =>
+    ipcRenderer.invoke(SOURCE_CHANNELS.original, input),
+  recordPracticalResult: (input) =>
+    ipcRenderer.invoke(RECORD_PRACTICAL_RESULT_CHANNEL, input),
+  loadPracticalAttempt: (input) =>
+    ipcRenderer.invoke(LOAD_PRACTICAL_ATTEMPT_CHANNEL, input),
+  selectPracticalFile: (input) =>
+    ipcRenderer.invoke(SELECT_PRACTICAL_FILE_CHANNEL, input),
+  cancelPracticalFileSelection: () =>
+    ipcRenderer.invoke(CANCEL_PRACTICAL_FILE_CHANNEL),
+  listPracticalAttempts: (input) =>
+    ipcRenderer.invoke(LIST_PRACTICAL_ATTEMPTS_CHANNEL, input),
+  previewPracticalFile: (input) =>
+    ipcRenderer.invoke(PREVIEW_PRACTICAL_FILE_CHANNEL, input),
+  exportPracticalFile: (input) =>
+    ipcRenderer.invoke(EXPORT_PRACTICAL_FILE_CHANNEL, input),
+  cancelPracticalExport: () =>
+    ipcRenderer.invoke(CANCEL_PRACTICAL_EXPORT_CHANNEL),
+  loadPracticalJourney: (input) =>
+    ipcRenderer.invoke(LOAD_PRACTICAL_JOURNEY_CHANNEL, input),
+  recordPracticalProgress: (input) =>
+    ipcRenderer.invoke(RECORD_PRACTICAL_PROGRESS_CHANNEL, input),
+  recordPracticalWorkChoice: (input) =>
+    ipcRenderer.invoke(RECORD_PRACTICAL_WORK_CHOICE_CHANNEL, input),
+  savePracticalHumanPlan: (input) =>
+    ipcRenderer.invoke(SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL, input),
   info: {
     platform: process.platform,
     electronVersion: process.versions.electron,

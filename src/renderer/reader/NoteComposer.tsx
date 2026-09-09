@@ -43,9 +43,12 @@ export function NoteComposer({
         {state.notice}
       </output>
       {!draft && state.error && (
-        <p role="alert">
+        <p role="alert" className="ui-alert ui-alert--error">
           {state.error}
-          <button onClick={() => void session.reloadConflict()}>
+          <button
+            className="ui-button ui-button--quiet"
+            onClick={() => void session.reloadConflict()}
+          >
             Reload saved records
           </button>
         </p>
@@ -79,9 +82,10 @@ export function NoteComposer({
               </blockquote>
             );
           })}
-          <label>
-            <span>Title</span>
+          <label className="ui-field">
+            <span className="ui-field__label">Title</span>
             <input
+              className="ui-input"
               value={draft.input.title}
               readOnly={state.saving}
               aria-busy={state.saving}
@@ -93,9 +97,10 @@ export function NoteComposer({
               }
             />
           </label>
-          <label>
-            <span>In your own words</span>
+          <label className="ui-field">
+            <span className="ui-field__label">In your own words</span>
             <textarea
+              className="ui-textarea ui-textarea--reading"
               ref={body}
               value={draft.input.body}
               readOnly={state.saving}
@@ -108,7 +113,11 @@ export function NoteComposer({
               }
             />
           </label>
-          {state.error && <p role="alert">{state.error}</p>}
+          {state.error && (
+            <p role="alert" className="ui-alert ui-alert--error">
+              {state.error}
+            </p>
+          )}
           {state.conflict && (
             <div>
               <p>
@@ -118,19 +127,26 @@ export function NoteComposer({
                 )?.current.body ?? 'Saved text could not be loaded.'}
               </p>
               {state.conflictLoaded ? (
-                <button onClick={() => void session.retryWithCurrentRevision()}>
+                <button
+                  className="ui-button"
+                  onClick={() => void session.retryWithCurrentRevision()}
+                >
                   Retry my draft against revision{' '}
                   {state.conflict.currentRevision}
                 </button>
               ) : (
-                <button onClick={() => void session.reloadConflict()}>
+                <button
+                  className="ui-button"
+                  onClick={() => void session.reloadConflict()}
+                >
                   Reload saved records
                 </button>
               )}
             </div>
           )}
-          <div className="reader-actions">
+          <div className="ui-action-row">
             <button
+              className="ui-button ui-button--primary"
               disabled={Boolean(state.conflict)}
               aria-disabled={state.saving}
               onClick={() => {
@@ -140,6 +156,7 @@ export function NoteComposer({
               {state.saving ? 'Saving…' : `Save ${draft.kind}`}
             </button>
             <button
+              className="ui-button ui-button--text"
               aria-disabled={state.saving}
               onClick={() => session.discard()}
             >

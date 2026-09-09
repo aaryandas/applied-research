@@ -13,6 +13,14 @@ export class IndexOperationError extends Error {
   }
 }
 
+/** Typed public write/search reason, including `not-eligible`. Do not collapse to a string. */
+export function typedIndexOperationError(
+  reason: IndexFailureReason,
+  options?: { cause?: unknown },
+): IndexOperationError {
+  return new IndexOperationError(reason, options);
+}
+
 export interface IndexSearchResult {
   /** `partial`: valid evidence returned while some provider rows were suppressed. */
   readonly status: 'ready' | 'partial' | IndexFailureReason;

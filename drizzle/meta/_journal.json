@@ -15,6 +15,27 @@
       "when": 1788890400000,
       "tag": "0001_learning_records",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788915600000,
+      "tag": "0002_source_adoption",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788922800000,
+      "tag": "0003_practical_records",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788930000000,
+      "tag": "0004_practical_journey",
+      "breakpoints": true
     }
   ]
 }

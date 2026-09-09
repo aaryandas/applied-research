@@ -80,8 +80,41 @@ export function utcMonthStart(now: Date): string {
     .padStart(2, '0')}-01`;
 }
 
+function canonicalLearningRequest(request: LearningRequest): unknown {
+  if (!('evidenceContext' in request)) return request;
+  const evidenceContext = (
+    request as LearningRequest & {
+      evidenceContext?: {
+        evidence: Array<{
+          sourceVersion: unknown;
+          locator: unknown;
+        }>;
+        sourceScopes: unknown;
+        targetStep?: unknown;
+      };
+    }
+  ).evidenceContext;
+  if (evidenceContext === undefined) return request;
+  return {
+    apiVersion: request.apiVersion,
+    requestId: request.requestId,
+    model: request.model,
+    operation: request.operation,
+    evidenceContext: {
+      sourceScopes: evidenceContext.sourceScopes,
+      targetStep: evidenceContext.targetStep ?? null,
+      evidence: evidenceContext.evidence.map((item) => ({
+        sourceVersion: item.sourceVersion,
+        locator: item.locator,
+      })),
+    },
+  };
+}
+
 export function requestHash(request: LearningRequest): string {
-  return createHash('sha256').update(JSON.stringify(request)).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalLearningRequest(request)))
+    .digest('hex');
 }
 
 function quotaView(

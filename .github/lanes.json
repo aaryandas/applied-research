@@ -20,16 +20,47 @@
       "src/renderer/tokens.css"
     ],
     "reader": ["src/renderer/reader/**"],
-    "canvas": ["src/renderer/canvas/**"],
-    "practical": ["src/renderer/practical/**"],
+    "canvas": [
+      "src/renderer/canvas/**",
+      "src/renderer/reader/ReaderSidebar.tsx",
+      "src/renderer/reader/ReaderSidebar.test.tsx",
+      "src/renderer/reader/sidebar-collapse.css"
+    ],
+    "practical": [
+      "src/renderer/practical/**",
+      "src/main/practical-*.ts",
+      "src/contracts/practical*.ts",
+      "src/renderer/shell/PracticalSession.tsx",
+      "src/renderer/shell/PracticalSession.test.tsx",
+      "src/renderer/shell/PracticalToolHost.tsx",
+      "src/renderer/shell/PracticalToolHost.test.tsx",
+      "src/renderer/shell/practical-session.ts",
+      "src/renderer/shell/practical-session.test.ts",
+      "tests/integration/source-practical-wiring.test.ts",
+      "tests/integration/practical-course.test.ts"
+    ],
     "research": ["src/renderer/research/**"],
     "settings": ["src/renderer/settings/**"],
-    "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
+    "explanations": [
+      "src/renderer/explanations/**",
+      "src/render-worker/**",
+      "src/backend/render-delivery/**",
+      "src/main/retained-media-*.ts",
+      "src/main/clip-*.ts",
+      "src/main/contextual-help-*.ts",
+      "src/main/explanation-*.ts",
+      "src/backend/explanations/**",
+      "drizzle/0006_contextual_retention.sql"
+    ],
     "opening": [
       "src/renderer/Opening.tsx",
       "src/renderer/Opening.test.tsx",
       "src/renderer/FieldAtlas.tsx",
-      "src/renderer/assets/**"
+      "src/renderer/assets/**",
+      "src/renderer/onboarding/**",
+      "src/renderer/settings/LearnerProfile*",
+      "src/main/learning-onboarding*.ts",
+      "drizzle/0005_learning_onboarding.sql"
     ],
     "storage": [
       "src/main/workspace-*.ts",
@@ -57,10 +88,17 @@
       "src/main/index.ts",
       "src/main/startup-error.ts",
       "src/main/validation.ts",
+      "src/main/validation.test.ts",
       "src/main/tutor.ts",
       "src/preload/**"
     ],
-    "contracts": ["src/contracts/**"],
+    "contracts": [
+      "src/contracts/**",
+      "src/main/learning-record-validation.ts",
+      "src/main/learning-record-validation.test.ts",
+      "src/main/practical-validation.ts",
+      "src/main/practical-validation.test.ts"
+    ],
     "delivery": [
       "scripts/**",
       "electron-builder.yml",
@@ -70,6 +108,11 @@
       "playwright.config.ts",
       "tsconfig*.json",
       ".prettierignore"
+    ],
+    "companion": [
+      "src/renderer/companion/**",
+      "src/main/guidance-*.ts",
+      "src/backend/companion/**"
     ]
   }
 }

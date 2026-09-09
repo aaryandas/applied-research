@@ -61,10 +61,19 @@ export async function send(
   url: string,
   body: string,
   signal: AbortSignal,
+  authorization: string,
   beforeDispatch: () => void = () => undefined,
 ): Promise<unknown> {
   if (Buffer.byteLength(body) > MAX_REQUEST_BYTES)
     throw new IndexOperationError('limit-exceeded');
+  if (
+    authorization.length === 0 ||
+    authorization.length > 4_096 ||
+    authorization.includes('\r') ||
+    authorization.includes('\n')
+  ) {
+    throw new IndexOperationError('invalid-input');
+  }
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     signal.throwIfAborted();
     beforeDispatch();
@@ -79,7 +88,7 @@ export async function send(
           signal,
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer fixture-only',
+            Authorization: `Bearer ${authorization}`,
           },
           body,
         });

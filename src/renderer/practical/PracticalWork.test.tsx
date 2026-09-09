@@ -12,6 +12,8 @@ import type {
   PracticalFlushResult,
   RecordPracticalResultInput,
 } from '../../contracts/practical-work';
+import { COURSE_PRACTICE_BRIEF_KIND } from '../../contracts/practical-brief';
+import type { PracticalAttemptJourney } from '../../contracts/practical-records';
 import { PracticalWork, type PracticalWorkProps } from './PracticalWork';
 
 function props(): PracticalWorkProps {
@@ -51,10 +53,45 @@ function commit(input: RecordPracticalResultInput) {
   });
 }
 
+it('revokes activity guidance when the mounted activity is unexpectedly disposed', () => {
+  const stop = vi.fn(async () => {});
+  const mounted = render(
+    <PracticalWork
+      {...props()}
+      activityGuidance={{ status: 'active', start: async () => {}, stop }}
+    />,
+  );
+  mounted.unmount();
+  expect(stop).toHaveBeenCalled();
+});
+
 it('shows an honest empty state without activity controls', () => {
   render(<PracticalWork {...props()} activity={null} />);
   expect(screen.getByText(/Choose a lesson with an activity/)).toBeVisible();
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+});
+
+it('offers an honest chooser of saved lesson activities when none is selected', () => {
+  const onSelect = vi.fn();
+  const activity = props().activity!;
+  render(
+    <PracticalWork
+      {...props()}
+      activity={null}
+      availableActivities={[activity]}
+      onSelectActivity={onSelect}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Synthetic activity/ }));
+  expect(onSelect).toHaveBeenCalledWith(activity);
+});
+
+it('does not claim a generated capstone when no accepted brief is retained', () => {
+  render(<PracticalWork {...props()} />);
+  expect(
+    screen.getByText(/generated course brief or capstone is not available/i),
+  ).toBeVisible();
+  expect(screen.getByRole('textbox', { name: /Outcome/ })).toBeVisible();
 });
 
 it('retains unavailable drafts and does not leave on a blocked save', async () => {
@@ -407,7 +444,7 @@ it('offers explicit selected-result guidance for human-reported text and detache
   expect(guidance.mock.calls[0]?.[0].target.target).toBe('selected-result');
   expect(options.activity?.title).toBe('Synthetic activity');
   expect(
-    screen.getByRole('heading', { name: 'Synthetic activity' }),
+    screen.getByRole('heading', { level: 1, name: 'Synthetic activity' }),
   ).toBeVisible();
 });
 
@@ -677,4 +714,727 @@ it('blocks navigation when guidance cannot stop and preserves draft text', async
     'Keep this draft',
   );
   expect(screen.queryByText('private adapter detail')).not.toBeInTheDocument();
+});
+
+it('registers the mounted producer resolver and exposes current writing, then revokes it on replacement', async () => {
+  const options = props();
+  const uuid = (digit: string) =>
+    `${digit.repeat(8)}-${digit.repeat(4)}-${digit.repeat(4)}-${digit.repeat(4)}-${digit.repeat(12)}`;
+  options.activity = {
+    projectId: uuid('1'),
+    origin: {
+      path: {
+        pathId: uuid('2'),
+        pathRevision: 1,
+        topicId: uuid('3'),
+        lessonId: uuid('4'),
+      },
+    },
+    title: 'Owned activity',
+    objective: 'Compare',
+    instructions: 'Try one input',
+  };
+  options.attemptId = uuid('5');
+  let resolveTarget: import('./context-resolver').PracticalContextResolver['resolveTarget'] =
+    async () => ({ status: 'unavailable', message: 'Not mounted' });
+  const unregister = vi.fn();
+  const registerResolver = vi.fn((resolve: typeof resolveTarget) => {
+    resolveTarget = resolve;
+    return unregister;
+  });
+  const mounted = render(
+    <PracticalWork {...options} companionContext={{ registerResolver }} />,
+  );
+  const target = {
+    trigger: 'explicit-action' as const,
+    target: {
+      scope: 'applied-research' as const,
+      surface: 'practical-work' as const,
+      activity: options.activity,
+      attemptId: options.attemptId,
+      target: 'reflection' as const,
+    },
+  };
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Your interpretation/ }),
+    { target: { value: '  My fresh wording\n' } },
+  );
+  expect(
+    await resolveTarget(target, new AbortController().signal),
+  ).toMatchObject({
+    context: {
+      text: '  My fresh wording\n',
+      version: { kind: 'unsaved-draft', lastAcknowledgedRevision: null },
+    },
+  });
+  expect(registerResolver).toHaveBeenCalledTimes(1);
+  mounted.unmount();
+  expect(unregister).toHaveBeenCalledOnce();
+  expect(
+    await resolveTarget(target, new AbortController().signal),
+  ).toMatchObject({ status: 'cancelled' });
+});
+
+function retainedBriefJourney(
+  activity: NonNullable<PracticalWorkProps['activity']>,
+): PracticalAttemptJourney {
+  return {
+    workChoice: null,
+    humanPlan: null,
+    humanPlanRevision: 0,
+    brief: {
+      briefId: 'synthetic-brief',
+      briefRevision: 2,
+      activity,
+      brief: {
+        kind: COURSE_PRACTICE_BRIEF_KIND,
+        author: 'ai',
+        masteryEstablished: false,
+        intendedOutcome: 'Return a usable output from one changed input.',
+        setup: 'Prepare one input pair in your own notebook.',
+        tool: {
+          kind: 'learner-external',
+          toolName: 'Own notebook',
+          intendedUse: 'Work outside the app. It will not auto-launch.',
+        },
+        instructions: 'Change one input and keep the output file.',
+        observableCheckpoints: ['Produce the output'],
+        expectedArtifact: 'A retained output file from the trial.',
+        reflectionPrompt: 'What would you change next?',
+        sourceIds: ['sourceid01'],
+      },
+      provenance: {
+        kind: 'accepted-course-brief',
+        producer: 'ar-52',
+        authorKind: 'ai',
+        mapping: {
+          projectId: activity.projectId,
+          pathId: activity.origin.path.pathId,
+          acceptedProposalId: 'synthetic-proposal',
+          acceptedProposalRevision: 2,
+          remoteStepId: 'synthetic-step',
+          localTopicId: activity.origin.path.topicId,
+          localLessonId: activity.origin.path.lessonId,
+        },
+        capstone: null,
+      },
+      recordedAt: '2026-09-09T12:00:00Z',
+    },
+    milestones: [],
+  };
+}
+
+it('saves a human-authored plan without treating it as a generated capstone', async () => {
+  const savePlan = vi.fn(async () => {});
+  render(<PracticalWork {...props()} onSaveHumanPlan={savePlan} />);
+  expect(
+    screen.getByText(/generated course brief or capstone is not available/i),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('region', { name: 'Human-authored plan' }),
+  ).toBeVisible();
+  fireEvent.change(screen.getByRole('textbox', { name: /^Outcome/ }), {
+    target: { value: 'Keep one comparable output file' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: /^Setup/ }), {
+    target: { value: 'Change one input in my notebook' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: /^Deliverable/ }), {
+    target: { value: 'A retained txt file' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add a milestone' }));
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /^Milestone 1 title/ }),
+    {
+      target: { value: 'Produce the file' },
+    },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save human plan' }));
+  await waitFor(() =>
+    expect(savePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'Keep one comparable output file',
+        setup: 'Change one input in my notebook',
+        deliverable: 'A retained txt file',
+        milestones: [
+          expect.objectContaining({
+            title: 'Produce the file',
+            description: '',
+            expectedResult: '',
+          }),
+        ],
+      }),
+    ),
+  );
+  expect(screen.queryByText(/mastery/i)).not.toHaveTextContent(
+    /app-measured mastery|mastery established/i,
+  );
+});
+
+it('records a brief checkpoint as user-reported complete and does not claim mastery', async () => {
+  const progress = vi.fn(async () => {});
+  const options = props();
+  render(
+    <PracticalWork
+      {...options}
+      journey={retainedBriefJourney(options.activity!)}
+      onRecordProgress={progress}
+    />,
+  );
+  expect(
+    screen.getByText(/not a reviewed AR-52 producer result/i),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('region', { name: 'Human-authored plan' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('heading', { name: 'Produce the output' }),
+  ).toBeVisible();
+  expect(screen.getByText(/not a mastery claim/i)).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Produce the output status'), {
+    target: { value: 'user-reported-complete' },
+  });
+  fireEvent.change(screen.getByLabelText('Produce the output note'), {
+    target: { value: 'I produced the file in my notebook.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save checkpoint' }));
+  await waitFor(() =>
+    expect(progress).toHaveBeenCalledWith({
+      checkpointId: 'checkpoint:0',
+      expectedRevision: 0,
+      status: 'user-reported-complete',
+      note: 'I produced the file in my notebook.',
+      evidenceSelectionId: null,
+    }),
+  );
+});
+
+it('flushes a dirty draft before resuming or starting another attempt', async () => {
+  const save = vi.fn(commit);
+  const resume = vi.fn();
+  const startNew = vi.fn();
+  const otherAttempt = 'other-attempt';
+  render(
+    <PracticalWork
+      {...props()}
+      recordPracticalResult={save}
+      attempts={[
+        {
+          attemptId: 'synthetic-attempt',
+          currentRevision: 0,
+          updatedAt: '2026-09-09T12:00:00Z',
+          fileCount: 0,
+        },
+        {
+          attemptId: otherAttempt,
+          currentRevision: 2,
+          updatedAt: '2026-09-09T11:00:00Z',
+          fileCount: 1,
+        },
+      ]}
+      onResumeAttempt={resume}
+      onStartNewAttempt={startNew}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'Keep this draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Resume this attempt/ }));
+  await waitFor(() => expect(resume).toHaveBeenCalledWith(otherAttempt));
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0]?.[0].draft.prediction).toBe('Keep this draft');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Start a distinct attempt' }),
+  );
+  await waitFor(() => expect(startNew).toHaveBeenCalledTimes(1));
+});
+
+it('does not resume another attempt when a dirty draft cannot flush', async () => {
+  const resume = vi.fn();
+  render(
+    <PracticalWork
+      {...props()}
+      attempts={[
+        {
+          attemptId: 'other-attempt',
+          currentRevision: 1,
+          updatedAt: '2026-09-09T11:00:00Z',
+          fileCount: 0,
+        },
+      ]}
+      onResumeAttempt={resume}
+      onStartNewAttempt={() => {}}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+    target: { value: 'Unsaved words' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Resume this attempt/ }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('status', { name: 'Save status' }),
+    ).toHaveTextContent('Saving is unavailable'),
+  );
+  expect(resume).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Expected outcome')).toHaveValue(
+    'Unsaved words',
+  );
+});
+
+it('previews retained text and exports the exact selected file without calling it a measurement', async () => {
+  const preview = vi.fn(async () => ({
+    status: 'ready' as const,
+    selectionId: 'synthetic-selection',
+    displayName: 'trial.txt',
+    mediaType: 'text/plain' as const,
+    byteLength: 12,
+    provenanceId: 'synthetic-provenance',
+    completeness: 'complete' as const,
+    text: 'observed,12',
+  }));
+  const exported = vi.fn(async () => {});
+  render(
+    <PracticalWork
+      {...props()}
+      returnedEvidence={[
+        {
+          kind: 'user-selected-file',
+          selectionId: 'synthetic-selection',
+          displayName: 'trial.txt',
+          mediaType: 'text/plain',
+          byteLength: 12,
+        },
+      ]}
+      previewFile={preview}
+      exportFile={exported}
+    />,
+  );
+  expect(
+    screen.getByText(/user-selected evidence, not an app measurement/i),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  expect(
+    await screen.findByLabelText('Retained file preview'),
+  ).toHaveTextContent('observed,12');
+  expect(preview).toHaveBeenCalledWith('synthetic-selection');
+  fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
+  await waitFor(() =>
+    expect(exported).toHaveBeenCalledWith('synthetic-selection'),
+  );
+});
+
+it('shows an unavailable activity separately from an empty chooser', () => {
+  render(
+    <PracticalWork {...props()} activity={null} activityStatus="unavailable" />,
+  );
+  expect(screen.getByText(/This activity could not be loaded/)).toBeVisible();
+  expect(
+    screen.queryByText(/Choose a lesson with an activity/),
+  ).not.toBeInTheDocument();
+});
+
+it('keeps the first human milestone exact while editing the second', async () => {
+  const savePlan = vi.fn(async () => {});
+  const options = props();
+  render(
+    <PracticalWork
+      {...options}
+      journey={{
+        workChoice: null,
+        humanPlan: {
+          outcome: 'Keep one comparable output file',
+          setup: 'Change one input',
+          deliverable: 'A retained txt file',
+          evaluation: '',
+          reflectionPrompt: '',
+          milestones: [
+            {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              title: 'First milestone',
+              description: 'Do not change this description',
+              expectedResult: 'Exact first result',
+            },
+            {
+              id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              title: 'Second milestone',
+              description: 'Original second description',
+              expectedResult: 'Original second result',
+            },
+          ],
+        },
+        humanPlanRevision: 1,
+        brief: null,
+        milestones: [],
+      }}
+      onSaveHumanPlan={savePlan}
+    />,
+  );
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /^Milestone 2 title/ }),
+    { target: { value: 'Updated second title' } },
+  );
+  fireEvent.change(
+    screen.getAllByRole('textbox', { name: /^Description/ })[1]!,
+    { target: { value: 'Updated second description' } },
+  );
+  fireEvent.change(
+    screen.getAllByRole('textbox', { name: /^Expected result/ })[1]!,
+    { target: { value: 'Updated second result' } },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save human plan' }));
+  await waitFor(() => expect(savePlan).toHaveBeenCalledTimes(1));
+  expect(savePlan).toHaveBeenCalledWith(
+    expect.objectContaining({
+      milestones: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          title: 'First milestone',
+          description: 'Do not change this description',
+          expectedResult: 'Exact first result',
+        },
+        {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          title: 'Updated second title',
+          description: 'Updated second description',
+          expectedResult: 'Updated second result',
+        },
+      ],
+    }),
+  );
+});
+
+it('restores only the matching checkpoint, source kind, and revision', () => {
+  const options = props();
+  render(
+    <PracticalWork
+      {...options}
+      journey={{
+        workChoice: null,
+        humanPlan: {
+          outcome: 'Plan',
+          setup: '',
+          deliverable: '',
+          evaluation: '',
+          reflectionPrompt: '',
+          milestones: [
+            {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              title: 'Produce the file',
+              description: '',
+              expectedResult: '',
+            },
+            {
+              id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              title: 'Compare the file',
+              description: '',
+              expectedResult: '',
+            },
+          ],
+        },
+        humanPlanRevision: 2,
+        brief: null,
+        milestones: [
+          {
+            checkpointId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            source: { kind: 'human-plan', planRevision: 2 },
+            status: 'user-reported-complete',
+            note: 'Matched current plan',
+            evidence: null,
+            revision: 1,
+            recordedAt: '2026-09-09T12:00:00Z',
+          },
+          {
+            checkpointId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            source: { kind: 'human-plan', planRevision: 1 },
+            status: 'in-progress',
+            note: 'Old plan revision',
+            evidence: null,
+            revision: 1,
+            recordedAt: '2026-09-08T12:00:00Z',
+          },
+          {
+            checkpointId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            source: { kind: 'accepted-brief', briefRevision: 2 },
+            status: 'in-progress',
+            note: 'Wrong source kind',
+            evidence: null,
+            revision: 1,
+            recordedAt: '2026-09-08T12:00:00Z',
+          },
+          {
+            checkpointId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            source: { kind: 'human-plan', planRevision: 2 },
+            status: 'in-progress',
+            note: 'Other checkpoint',
+            evidence: null,
+            revision: 1,
+            recordedAt: '2026-09-09T11:00:00Z',
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByLabelText('Produce the file note')).toHaveValue(
+    'Matched current plan',
+  );
+  expect(screen.getByLabelText('Produce the file status')).toHaveValue(
+    'user-reported-complete',
+  );
+  expect(screen.getByLabelText('Compare the file note')).toHaveValue(
+    'Other checkpoint',
+  );
+  expect(
+    screen.queryByDisplayValue('Old plan revision'),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByDisplayValue('Wrong source kind'),
+  ).not.toBeInTheDocument();
+});
+
+it('surfaces truncated, unsupported, failed, and rejected preview or export outcomes', async () => {
+  const preview = vi
+    .fn<NonNullable<PracticalWorkProps['previewFile']>>()
+    .mockResolvedValueOnce({
+      status: 'ready',
+      selectionId: 'synthetic-selection',
+      displayName: 'trial.txt',
+      mediaType: 'text/plain',
+      byteLength: 12,
+      provenanceId: 'synthetic-provenance',
+      completeness: 'truncated',
+      text: 'partial-bytes',
+    })
+    .mockResolvedValueOnce({
+      status: 'unsupported-preview',
+      selectionId: 'synthetic-selection',
+      displayName: 'trial.txt',
+      mediaType: 'application/pdf',
+      byteLength: 12,
+      message: 'This retained file cannot be previewed as text.',
+    })
+    .mockResolvedValueOnce({ status: 'failed' })
+    .mockResolvedValueOnce({ status: 'unavailable' })
+    .mockRejectedValueOnce(new Error('private preview detail'));
+  const exported = vi
+    .fn<NonNullable<PracticalWorkProps['exportFile']>>()
+    .mockRejectedValueOnce(new Error('private export detail'));
+  render(
+    <PracticalWork
+      {...props()}
+      returnedEvidence={[
+        {
+          kind: 'user-selected-file',
+          selectionId: 'synthetic-selection',
+          displayName: 'trial.txt',
+          mediaType: 'text/plain',
+          byteLength: 12,
+        },
+      ]}
+      previewFile={preview}
+      exportFile={exported}
+    />,
+  );
+  const previewButton = screen.getByRole('button', { name: 'Preview' });
+  fireEvent.click(previewButton);
+  expect(
+    await screen.findByLabelText('Retained file preview'),
+  ).toHaveTextContent('partial-bytes');
+  expect(
+    screen.getByText(/Preview truncated · retained file is complete/),
+  ).toBeVisible();
+  fireEvent.click(previewButton);
+  expect(
+    await screen.findByText('This retained file cannot be previewed as text.'),
+  ).toBeVisible();
+  fireEvent.click(previewButton);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'This retained file could not be previewed.',
+  );
+  fireEvent.click(previewButton);
+  await waitFor(() => expect(preview).toHaveBeenCalledTimes(4));
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'This retained file could not be previewed.',
+  );
+  fireEvent.click(previewButton);
+  expect(
+    await screen.findByText('This retained file could not be previewed.'),
+  ).toBeVisible();
+  expect(screen.queryByText('private preview detail')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
+  expect(
+    await screen.findByText('The exact file could not be exported.'),
+  ).toBeVisible();
+  expect(screen.queryByText('private export detail')).not.toBeInTheDocument();
+  expect(screen.getAllByText(/trial.txt/).length).toBeGreaterThan(0);
+});
+
+it('does not preview or export while another action is busy', async () => {
+  let finish = () => {};
+  const preview = vi.fn(async () => ({ status: 'unavailable' as const }));
+  const exported = vi.fn(async () => {});
+  render(
+    <PracticalWork
+      {...props()}
+      selectFile={() =>
+        new Promise((resolve) => {
+          finish = () => resolve(null);
+        })
+      }
+      returnedEvidence={[
+        {
+          kind: 'user-selected-file',
+          selectionId: 'synthetic-selection',
+          displayName: 'trial.txt',
+          mediaType: 'text/plain',
+          byteLength: 12,
+        },
+      ]}
+      previewFile={preview}
+      exportFile={exported}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Select a result file' }));
+  expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save a copy' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
+  expect(preview).not.toHaveBeenCalled();
+  expect(exported).not.toHaveBeenCalled();
+  finish();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+  );
+});
+
+it('does not start a second file selection while one is already pending', async () => {
+  const selectFile = vi.fn(() => new Promise<null>(() => {}));
+  render(<PracticalWork {...props()} selectFile={selectFile} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Select a result file' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Select a result file' }));
+  expect(selectFile).toHaveBeenCalledTimes(1);
+});
+
+it('does not save a human plan when no persistence callback is supplied', async () => {
+  render(<PracticalWork {...props()} />);
+  fireEvent.change(screen.getByRole('textbox', { name: /^Outcome/ }), {
+    target: { value: 'Keep local only' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save human plan' }));
+  expect(screen.getByRole('textbox', { name: /^Outcome/ })).toHaveValue(
+    'Keep local only',
+  );
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps returned evidence unavailable distinct from an empty selection', () => {
+  render(<PracticalWork {...props()} evidenceStatus="unavailable" />);
+  expect(
+    screen.getByText(/Returned evidence could not be loaded/),
+  ).toBeVisible();
+});
+
+it('shows a stop failure without exposing adapter details', async () => {
+  render(
+    <PracticalWork
+      {...props()}
+      activityGuidance={{
+        status: 'active',
+        start: async () => {},
+        stop: async () => {
+          throw new Error('private stop detail');
+        },
+      }}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Stop activity guidance' }),
+  );
+  expect(
+    await screen.findByText(
+      'Guidance could not stop. Keep this activity open and try again.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText('private stop detail')).not.toBeInTheDocument();
+});
+
+it('keeps checkpoint writing when progress persistence is refused', async () => {
+  const progress = vi.fn(async () => {
+    throw new Error('private progress detail');
+  });
+  const options = props();
+  render(
+    <PracticalWork
+      {...options}
+      journey={retainedBriefJourney(options.activity!)}
+      onRecordProgress={progress}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Produce the output note'), {
+    target: { value: 'I still have this note.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save checkpoint' }));
+  expect(
+    await screen.findByText(
+      'Checkpoint progress could not be saved. Your draft is here; try again.',
+    ),
+  ).toBeVisible();
+  expect(screen.getByLabelText('Produce the output note')).toHaveValue(
+    'I still have this note.',
+  );
+  expect(screen.queryByText('private progress detail')).not.toBeInTheDocument();
+});
+
+it('renders a supported in-app brief and an external capstone using the typed fixture', () => {
+  const options = props();
+  const base = retainedBriefJourney(options.activity!);
+  const supported = {
+    ...base,
+    brief: {
+      ...base.brief!,
+      brief: {
+        ...base.brief!.brief,
+        tool: {
+          kind: 'app-hosted-catalog' as const,
+          toolId: 'desmos-graphing' as const,
+        },
+      },
+    },
+  };
+  const view = render(<PracticalWork {...options} journey={supported} />);
+  expect(
+    screen.getByText(/Supported in-app tool: Desmos Graphing Calculator/),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      /No generated capstone is included in this accepted brief/,
+    ),
+  ).toBeVisible();
+  const snapshot = retainedBriefJourney(options.activity!);
+  view.rerender(
+    <PracticalWork
+      {...options}
+      journey={{
+        ...snapshot,
+        brief: {
+          ...snapshot.brief!,
+          provenance: {
+            ...snapshot.brief!.provenance,
+            capstone: {
+              stepId: snapshot.brief!.provenance.mapping.remoteStepId,
+              outcome: 'One end-to-end trial artifact.',
+              substantial: true,
+            },
+          },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Capstone' })).toBeVisible();
+  expect(screen.getByText('One end-to-end trial artifact.')).toBeVisible();
+  expect(
+    screen.getByText(/External setup \(does not auto-launch\): Own notebook/),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/not a reviewed AR-52 producer result/i),
+  ).toBeVisible();
 });

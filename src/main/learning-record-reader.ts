@@ -1,3 +1,7 @@
+import {
+  readGeneratedSourceVersion,
+  readDiscoveredSourceVersion,
+} from './source-persistence-reader';
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -179,7 +183,12 @@ function readEntries(
 
 function sourceVersion(
   item: typeof sourceVersions.$inferSelect,
+  originals: Array<typeof sourceVersions.$inferSelect>,
 ): SourceVersion {
+  if (item.provenance === 'generated')
+    return readGeneratedSourceVersion(item, originals);
+  if (item.provenance === 'discovered')
+    return readDiscoveredSourceVersion(item);
   const canonicalText = decodeText(
     item.canonicalText,
     'source text',
@@ -237,7 +246,7 @@ function readSources(
   return records.map((record) => {
     const history = versions
       .filter((item) => item.sourceId === record.id)
-      .map(sourceVersion);
+      .map((item) => sourceVersion(item, versions));
     const currentVersion = history.find(
       (item) =>
         item.revision === record.currentRevision &&

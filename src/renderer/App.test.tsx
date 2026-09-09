@@ -201,10 +201,37 @@ it('keeps incomplete Reader drafts mounted when navigation or quit cannot save',
   render(<App bridge={bridge} />);
   await reopen(project);
   fireEvent.click(screen.getByRole('button', { name: 'Save a question' }));
-  await screen.findByLabelText('In your own words');
+  const draft = await screen.findByLabelText('In your own words');
+  fireEvent.change(screen.getByLabelText('Title'), {
+    target: { value: '  Exact unfinished question 😀' },
+  });
   fireEvent.click(screen.getByLabelText('Canvas'));
-  await screen.findByText(/Your work is still open/);
-  expect(screen.getByLabelText('In your own words')).toBeVisible();
+  await screen.findByRole('region', { name: 'Learning canvas' });
+  expect(screen.queryByText(/Your work is still open/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Title')).toHaveValue(
+    '  Exact unfinished question 😀',
+  );
+  fireEvent.click(screen.getByLabelText('Practical'));
+  await screen.findByText(/Choose a lesson with an activity/);
+  expect(screen.getByLabelText('Title')).toHaveValue(
+    '  Exact unfinished question 😀',
+  );
+  fireEvent.click(screen.getByLabelText('Reading'));
+  await waitFor(() => expect(draft).toBeVisible());
+  expect(screen.getByLabelText('Title')).toHaveValue(
+    '  Exact unfinished question 😀',
+  );
+  expect(draft).toHaveValue('');
+  fireEvent.click(screen.getByLabelText('Applied Research home'));
+  await screen.findByText(
+    'A draft needs attention. Save or discard it before closing this project.',
+  );
+  expect(
+    screen.queryByLabelText('What do you want to learn about?'),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Title')).toHaveValue(
+    '  Exact unfinished question 😀',
+  );
   const event = new Event('beforeunload', { cancelable: true });
   act(() => {
     window.dispatchEvent(event);
@@ -237,16 +264,38 @@ it('opens real lesson content and blocks replacement of an unsaved practical att
     name: 'Joint angles and hand position',
   });
   expect(screen.getByText('Compare two configurations.')).toBeVisible();
-  fireEvent.change(screen.getByLabelText('Expected outcome'), {
+  const prediction = screen.getByLabelText('Expected outcome');
+  fireEvent.change(prediction, {
     target: { value: 'I expect a larger displacement.' },
   });
-  fireEvent.click(screen.getByLabelText('Profile and settings'));
-  await screen.findByText(/Your work is still open/);
-  expect(screen.getByLabelText('Expected outcome')).toHaveValue(
-    'I expect a larger displacement.',
+  fireEvent.click(screen.getByLabelText('Reading'));
+  await waitFor(() =>
+    expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
   );
+  expect(prediction).toHaveValue('I expect a larger displacement.');
+  fireEvent.click(screen.getByLabelText('Canvas'));
+  await screen.findByRole('region', { name: 'Learning canvas' });
+  expect(prediction).toHaveValue('I expect a larger displacement.');
+  fireEvent.click(screen.getByLabelText('Profile and settings'));
+  await screen.findByRole('heading', { name: 'Settings' });
+  expect(prediction).toHaveValue('I expect a larger displacement.');
+  fireEvent.click(screen.getByRole('button', { name: 'Back to work' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Canvas')).toHaveAttribute(
+      'aria-current',
+      'page',
+    ),
+  );
+  fireEvent.click(screen.getByLabelText('Practical'));
+  await waitFor(() => expect(prediction).toBeVisible());
+  expect(prediction).toHaveValue('I expect a larger displacement.');
+  fireEvent.click(screen.getByLabelText('Applied Research home'));
+  await screen.findByText(
+    'A draft needs attention. Save or discard it before closing this project.',
+  );
+  expect(prediction).toHaveValue('I expect a larger displacement.');
   expect(
-    screen.queryByRole('heading', { name: 'Settings' }),
+    screen.queryByLabelText('What do you want to learn about?'),
   ).not.toBeInTheDocument();
   expect(bridge.saveEntry).not.toHaveBeenCalled();
 });

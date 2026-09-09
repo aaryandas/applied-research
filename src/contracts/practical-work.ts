@@ -8,7 +8,9 @@ import type {
 /** Producer checkpoint for AR-19; not a persistence schema or IPC registration. */
 export interface PracticalActivity {
   projectId: LearningWorkspace['project']['id'];
-  origin: LearningOrigin & { path: PathOrigin & { lessonId: string } };
+  origin: Omit<LearningOrigin, 'entry'> & {
+    path: PathOrigin & { lessonId: string };
+  };
   title: string;
   instructions: string;
   objective: string;
@@ -156,7 +158,9 @@ function practicalOrigin(value: unknown): boolean {
     Number(path.pathRevision) >= 1
   );
 }
-function practicalActivity(value: unknown): boolean {
+export function isPracticalActivity(
+  value: unknown,
+): value is PracticalActivity {
   return (
     isPracticalObject(value) &&
     practicalKeys(value, [
@@ -227,7 +231,7 @@ export function isRecordPracticalResultInput(
       'expectedRevision',
       'draft',
     ]) &&
-    practicalActivity(value.activity) &&
+    isPracticalActivity(value.activity) &&
     practicalUuid(value.attemptId) &&
     practicalRevision(value.expectedRevision) &&
     practicalDraft(value.draft)

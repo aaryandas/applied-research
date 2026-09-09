@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ConfigurationError,
-  loadBackendConfig,
-  loadDatabaseUrl,
-} from './config.js';
+import { ConfigurationError, loadBackendConfig } from './config.js';
 import { API_ORIGIN, MONTHLY_LIMIT_MICROUSD } from './policy.js';
 
 const validEnvironment: NodeJS.ProcessEnv = {
@@ -26,6 +22,9 @@ describe('backend configuration', () => {
       aiEnabled: false,
       monthlyLimitMicrousd: MONTHLY_LIMIT_MICROUSD,
       model: 'google/gemini-3.8-flash',
+      sourceIndexLive: false,
+      turbopufferApiKey: null,
+      openAlexApiKey: null,
     });
   });
 
@@ -36,6 +35,9 @@ describe('backend configuration', () => {
     ['AI_MONTHLY_LIMIT_USD', '20.000001'],
     ['AI_MONTHLY_LIMIT_USD', '21'],
     ['AI_MODEL', 'unapproved/model'],
+    ['SOURCE_INDEX_LIVE', 'yes'],
+    ['TURBOPUFFER_REGION', 'gcp-us-central1'],
+    ['EMBEDDING_EVAL_LIMIT_USD', '1'],
   ])('rejects unsafe %s configuration', (name, value) => {
     expect(() =>
       loadBackendConfig({ ...validEnvironment, [name]: value }),
@@ -76,9 +78,35 @@ describe('backend configuration', () => {
     ).toBe('http://127.0.0.1:3000');
   });
 
-  it('loads migration configuration without reading unrelated services', () => {
+  it('fails closed when OpenAlex key and monthly limit are not paired', () => {
+    expect(() =>
+      loadBackendConfig({
+        ...validEnvironment,
+        OPENALEX_API_KEY: 'openalex-key',
+      }),
+    ).toThrow('together');
+    expect(() =>
+      loadBackendConfig({
+        ...validEnvironment,
+        OPENALEX_MONTHLY_LIMIT_USD: '1',
+      }),
+    ).toThrow('together');
+  });
+
+  it('requires Oregon turbopuffer configuration before enabling live indexing', () => {
+    expect(() =>
+      loadBackendConfig({
+        ...validEnvironment,
+        SOURCE_INDEX_LIVE: 'true',
+      }),
+    ).toThrow('TURBOPUFFER_API_KEY');
     expect(
-      loadDatabaseUrl({ DATABASE_URL: validEnvironment.DATABASE_URL }),
-    ).toBe(validEnvironment.DATABASE_URL);
+      loadBackendConfig({
+        ...validEnvironment,
+        SOURCE_INDEX_LIVE: 'true',
+        TURBOPUFFER_API_KEY: 'tpuf-key',
+        TURBOPUFFER_REGION: 'aws-us-west-2',
+      }).turbopufferRegion,
+    ).toBe('aws-us-west-2');
   });
 });

@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_890_400_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_930_000_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -48,6 +48,9 @@ const EXPECTED_TABLE_COLUMNS = {
     'acquired_at',
     'provenance',
     'locator',
+    'remote_source_id',
+    'remote_revision_id',
+    'provenance_json',
   ],
   source_highlights: [
     'id',
@@ -129,6 +132,71 @@ const EXPECTED_TABLE_COLUMNS = {
     'x',
     'y',
     'updated_at',
+  ],
+  practical_attempts: [
+    'id',
+    'project_id',
+    'activity_json',
+    'current_revision',
+    'saved_revision',
+    'path_id',
+    'path_revision',
+    'topic_id',
+    'lesson_id',
+    'source_revision_id',
+    'highlight_id',
+    'created_at',
+    'updated_at',
+  ],
+  practical_attempt_revisions: [
+    'attempt_id',
+    'project_id',
+    'revision',
+    'draft_json',
+    'selection_id',
+    'recorded_at',
+  ],
+  practical_files: [
+    'id',
+    'project_id',
+    'attempt_id',
+    'display_name',
+    'media_type',
+    'byte_length',
+    'content_sha256',
+    'content',
+    'imported_at',
+  ],
+  practical_accepted_briefs: [
+    'id',
+    'project_id',
+    'activity_json',
+    'brief_revision',
+    'brief_json',
+    'provenance_json',
+    'recorded_at',
+  ],
+  practical_attempt_journey: [
+    'attempt_id',
+    'project_id',
+    'brief_id',
+    'brief_revision',
+    'work_choice_json',
+    'human_plan_json',
+    'human_plan_revision',
+    'updated_at',
+  ],
+  practical_milestone_progress: [
+    'attempt_id',
+    'checkpoint_id',
+    'project_id',
+    'source_kind',
+    'source_revision',
+    'status',
+    'note',
+    'evidence_selection_id',
+    'revision',
+    'recorded_at',
   ],
   __drizzle_migrations: ['id', 'hash', 'created_at'],
 } as const;
@@ -257,7 +325,7 @@ function tableNames(database: Database.Database): string[] {
 }
 
 function tableColumns(database: Database.Database, table: string): string[] {
-  const rows = database.pragma(`table_info(${table})`) as Array<{
+  const rows = database.pragma(`table_xinfo(${table})`) as Array<{
     name: unknown;
   }>;
   return rows.map((row) => String(row.name));
@@ -476,6 +544,12 @@ function runPendingMigrations(
   migrationsFolder: string,
 ): void {
   const migrationTableExisted = tableNames(database).includes(MIGRATIONS_TABLE);
+  // SQLite's generalized ALTER TABLE procedure requires this outside the
+  // transaction. Migration 0002 checks every foreign key before it can commit.
+  const foreignKeys = database.pragma('foreign_keys', { simple: true });
+  const rebuildsSourceVersions =
+    (migrationTimestamp(database) ?? 0) < 1_788_915_600_000;
+  if (rebuildsSourceVersions) database.pragma('foreign_keys = OFF');
   try {
     migrate(drizzle(database), { migrationsFolder });
   } catch (error_) {
@@ -484,6 +558,10 @@ function runPendingMigrations(
       code: 'migration-execution-failed',
       cause: error_,
     });
+  } finally {
+    database.pragma(
+      foreignKeys === 1 ? 'foreign_keys = ON' : 'foreign_keys = OFF',
+    );
   }
 }
 

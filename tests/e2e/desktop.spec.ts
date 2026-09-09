@@ -9,10 +9,20 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { ToolState } from '../../src/contracts/workspace';
 import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+import {
+  GUEST_COMMIT_TIMEOUT_MS,
+  MATRIX_LAB_TITLE,
+  MATRIX_LAB_URL,
+  committedLearningToolsGuest,
+  installGuestLifecycleProbe,
+  readGuestLifecycle,
+  settleActivatedWorkspace,
+} from './guest-lifecycle';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
@@ -223,6 +233,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
   const directory = mkdtempSync(join(tmpdir(), 'applied-electron-ai-'));
   const application = await launch(directory, 'test-only-not-a-real-key');
   try {
+    await installGuestLifecycleProbe(application);
     await application.evaluate(({ session }) => {
       session
         .fromPartition('persist:learning-tools')
@@ -230,7 +241,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
           'https',
           () =>
             new Response(
-              '<html><head><title>Matrix Lab</title></head><body><h1>Matrix Lab</h1><p>Change a matrix coefficient and observe the square.</p></body></html>',
+              '<!doctype html><html><head><title>Matrix Lab</title></head><body><h1>Matrix Lab</h1><p>Change a matrix coefficient and observe the square.</p></body></html>',
               { headers: { 'content-type': 'text/html' } },
             ),
         );
@@ -273,6 +284,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
       .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Build an intuition for linear algebra');
     await page.getByRole('button', { name: 'Start learning' }).click();
+    await settleActivatedWorkspace(page);
     // Guest and development tutor controls are no longer shell destinations.
     // Exercise their supported named preload operations against real main and SQLite.
     // The direct OpenRouter path exists only in development; the packaged app
@@ -313,24 +325,78 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
         },
       ]);
     }
-    await page.evaluate(async () => {
+    // Subscribe before openTool, matching ToolHost/practical-tools. Combining
+    // subscribe+open+resize in one evaluate left packaged CI with only the
+    // did-start-loading snapshot after loadURL resolved.
+    const recordedToolStates: ToolState[] = [];
+    await page.exposeFunction('reportDesktopToolState', (state: ToolState) => {
+      recordedToolStates.push(state);
+    });
+    await page.evaluate(() => {
       Reflect.set(window, 'toolStates', []);
-      window.desktop.onToolState((state) =>
-        Reflect.get(window, 'toolStates').push(state),
-      );
-      await window.desktop.openTool('https://learning.test/');
-      await window.desktop.resizeTool({
+      window.desktop.onToolState((state) => {
+        Reflect.get(window, 'toolStates').push(state);
+        void Reflect.get(window, 'reportDesktopToolState')(state);
+      });
+    });
+    await page.evaluate(() =>
+      window.desktop.openTool('https://learning.test/'),
+    );
+    await expect
+      .poll(
+        async () => {
+          const lifecycle = await readGuestLifecycle(application);
+          const guest = committedLearningToolsGuest(lifecycle, MATRIX_LAB_URL);
+          const toolsGuest = lifecycle.contents.find(
+            (contents) => contents.partition === 'persist:learning-tools',
+          );
+          return {
+            guest: guest
+              ? {
+                  present: true,
+                  url: guest.url,
+                  title: guest.title,
+                  loading: guest.loading,
+                }
+              : {
+                  present: Boolean(toolsGuest) && !toolsGuest?.destroyed,
+                  url: toolsGuest?.url ?? '',
+                  title: toolsGuest?.title ?? '',
+                  loading: toolsGuest?.loading ?? false,
+                  destroyed: toolsGuest?.destroyed ?? true,
+                  childViews: lifecycle.childViews,
+                  events: lifecycle.events,
+                },
+            recorded: JSON.stringify(recordedToolStates),
+            renderer: await page.evaluate(() =>
+              JSON.stringify(Reflect.get(window, 'toolStates')),
+            ),
+          };
+        },
+        {
+          timeout: GUEST_COMMIT_TIMEOUT_MS,
+          message:
+            'Wait until a live persist:learning-tools guest has https://learning.test/, title Matrix Lab, loading false, and recorded tool:state. Missing guests are not reported as loading.',
+        },
+      )
+      .toEqual({
+        guest: {
+          present: true,
+          url: MATRIX_LAB_URL,
+          title: MATRIX_LAB_TITLE,
+          loading: false,
+        },
+        recorded: expect.stringContaining(MATRIX_LAB_TITLE),
+        renderer: expect.stringContaining(MATRIX_LAB_TITLE),
+      });
+    await page.evaluate(() =>
+      window.desktop.resizeTool({
         x: 320,
         y: 80,
         width: 480,
         height: 500,
-      });
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(() => JSON.stringify(Reflect.get(window, 'toolStates'))),
-      )
-      .toContain('Matrix Lab');
+      }),
+    );
     const isolation = await application.evaluate(async ({ webContents }) => {
       const guest = webContents
         .getAllWebContents()

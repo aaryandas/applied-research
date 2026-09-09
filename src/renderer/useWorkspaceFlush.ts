@@ -2,18 +2,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RegisterPracticalFlush } from '../contracts/practical-work';
 
 type Flush = () => Promise<boolean>;
+type SaveScope = 'view' | 'workspace';
 
 /** One save barrier for view changes, project replacement and native window close. */
 export function useWorkspaceFlush() {
   const reader = useRef<Flush | null>(null);
+  const readerView = useRef<Flush | null>(null);
   const canvas = useRef<Flush | null>(null);
   const practical = useRef<Flush | null>(null);
-  const pending = useRef<Promise<boolean> | null>(null);
+  const pending = useRef<{
+    scope: SaveScope;
+    result: Promise<boolean>;
+  } | null>(null);
   const navigating = useRef(false);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const registerReaderFlush = useCallback((flush: Flush | null) => {
     reader.current = flush;
+  }, []);
+  const registerReaderViewFlush = useCallback((flush: Flush | null) => {
+    readerView.current = flush;
   }, []);
   const registerCanvasFlush = useCallback((flush: Flush | null) => {
     canvas.current = flush;
@@ -29,24 +37,33 @@ export function useWorkspaceFlush() {
     },
     [],
   );
-  const flush = useCallback((): Promise<boolean> => {
-    if (pending.current) return pending.current;
+  const save = useCallback(function save(scope: SaveScope): Promise<boolean> {
+    if (pending.current) {
+      const current = pending.current;
+      return current.scope === 'view' && scope === 'workspace'
+        ? current.result.then(() => save('workspace'))
+        : current.result;
+    }
     setSaving(true);
-    pending.current = (async () => {
+    const result = (async () => {
       try {
         for (const callback of [
-          reader.current,
+          scope === 'view'
+            ? (readerView.current ?? reader.current)
+            : reader.current,
           canvas.current,
           practical.current,
         ]) {
           if (callback && !(await callback())) {
             setMessage(
-              'Your work is still open. Finish saving or resolve the unsaved draft before leaving.',
+              scope === 'workspace'
+                ? 'A draft needs attention. Save or discard it before closing this project.'
+                : 'A draft needs attention. Save or discard it before continuing.',
             );
             return false;
           }
         }
-        setMessage('Work saved.');
+        setMessage(scope === 'workspace' ? 'Work saved.' : '');
         return true;
       } catch {
         setMessage(
@@ -58,14 +75,20 @@ export function useWorkspaceFlush() {
       pending.current = null;
       setSaving(false);
     });
-    return pending.current;
+    pending.current = { scope, result };
+    return result;
   }, []);
+  const flush = useCallback(() => save('workspace'), [save]);
+  const flushView = useCallback(() => save('view'), [save]);
   const navigate = useCallback(
-    async (action: () => void): Promise<void> => {
+    async (
+      action: () => void,
+      scope: SaveScope = 'workspace',
+    ): Promise<void> => {
       if (navigating.current) return;
       navigating.current = true;
       try {
-        if (await flush()) {
+        if (await save(scope)) {
           setMessage('');
           action();
         }
@@ -73,7 +96,7 @@ export function useWorkspaceFlush() {
         navigating.current = false;
       }
     },
-    [flush],
+    [save],
   );
   useEffect(() => {
     let allowClose = false;
@@ -109,9 +132,11 @@ export function useWorkspaceFlush() {
   }, [flush]);
   return {
     registerReaderFlush,
+    registerReaderViewFlush,
     registerCanvasFlush,
     registerPracticalFlush,
     flush,
+    flushView,
     navigate,
     message,
     saving,

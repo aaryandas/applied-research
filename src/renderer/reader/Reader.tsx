@@ -24,7 +24,7 @@ import { DraftSession } from './draft-session';
 import { ReaderContext } from './ReaderContext';
 import { isHumanSupport } from './human-support';
 import { ReaderSidebar, type WorkspaceDestination } from './ReaderSidebar';
-import { SourceImport } from './SourceImport';
+import { SourceImport, type SourceImportState } from './SourceImport';
 import { SourcePane } from './SourcePane';
 import { isExactSpan, resolveOrigin, type TextSpan } from './reading-location';
 import './reader.css';
@@ -40,9 +40,18 @@ export interface ReaderProps {
   sidebar?: ReactNode;
   explanation?: ReactNode;
   onPathChange?: (path: PathOrigin | undefined) => void;
+  onExplainSelection?: (request: ReaderExplanationRequest) => Promise<void>;
+}
+
+export interface ReaderExplanationRequest {
+  kind: 'text' | 'visual';
+  origin: LearningOrigin;
+  quote: string;
 }
 
 export interface ReaderNavigationControls {
+  /** Use only while this project-keyed Reader remains mounted. Home/close use registerFlush. */
+  flushViewNavigation: () => Promise<boolean>;
   openOrigin: (origin: LearningOrigin) => void;
   editEntry: (entry: EntryRevisionReference) => void;
 }
@@ -62,6 +71,7 @@ function ProjectReader({
   sidebar,
   explanation,
   onPathChange,
+  onExplainSelection,
 }: Readonly<ReaderProps>): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
   const [receivedWorkspace, setReceivedWorkspace] = useState(initial);
@@ -102,14 +112,20 @@ function ProjectReader({
   const [importing, setImporting] = useState<false | 'new' | SourceRecord>(
     false,
   );
+  const [importVisible, setImportVisible] = useState(false);
+  const [importState, setImportState] = useState<SourceImportState>({
+    dirty: false,
+    saving: false,
+  });
   const [supports, setSupports] = useState<string[]>([]);
   const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
-  const isOccupied = busy || Boolean(importing);
+  const isOccupied = busy || importState.saving;
   function selectPath(next: PathOrigin | undefined): void {
     setPath(next);
     onPathChange?.(next);
   }
   useImperativeHandle(navigationRef, () => ({
+    flushViewNavigation,
     openOrigin,
     editEntry: (reference) => {
       const entry = workspace.entries.find(
@@ -136,21 +152,65 @@ function ProjectReader({
   }, []);
   useEffect(() => {
     registerFlush(async () => {
-      if (isOccupied) {
-        setMessage('Finish or discard the source import before leaving.');
+      if (importState.dirty || importState.saving) {
+        setImportVisible(true);
+        setMessage(
+          'Import or discard your source draft before closing this project.',
+        );
         return false;
       }
-      return session.flush();
+      return flushViewNavigation();
     });
     return () => registerFlush(null);
-  }, [registerFlush, session, isOccupied]);
+  });
 
-  async function beforeNavigation(action: () => void): Promise<void> {
+  async function flushViewNavigation(): Promise<boolean> {
     if (isOccupied) {
-      setMessage('Finish or discard the current action before leaving.');
-      return;
+      setMessage('Finishing the current save. Try again in a moment.');
+      return false;
     }
-    if ((await session.flush()) && active.current) action();
+    const ready = await session.flush();
+    if (ready && active.current) setMessage(null);
+    return ready && active.current;
+  }
+  async function beforeNavigation(action: () => void): Promise<void> {
+    if (await flushViewNavigation()) action();
+  }
+  function openImport(source: 'new' | SourceRecord): void {
+    // Reopening resumes the exact draft instead of replacing it with another source.
+    if (!importing) setImporting(source);
+    setImportVisible(true);
+  }
+  function discardImport(): void {
+    setImporting(false);
+    setImportVisible(false);
+    setImportState({ dirty: false, saving: false });
+    setMessage(null);
+  }
+  async function explainSelection(
+    kind: ReaderExplanationRequest['kind'],
+  ): Promise<void> {
+    if (!version || !span || !onExplainSelection || isOccupied) return;
+    const selection = { version, span, path };
+    if (!(await session.flush()) || !active.current) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const retained = await captureDraftOrigin('question', selection);
+      if (retained.origin && active.current)
+        await onExplainSelection({
+          kind,
+          origin: retained.origin,
+          quote: selection.span.quote,
+        });
+    } catch {
+      if (active.current)
+        setMessage(
+          'Could not open this explanation. Your selection is preserved. Try again.',
+        );
+    } finally {
+      if (active.current) setBusy(false);
+    }
   }
   async function openLesson(origin: PathOrigin): Promise<void> {
     await beforeNavigation(() => {
@@ -312,32 +372,6 @@ function ProjectReader({
     });
   }
   function renderSourceContent(): ReactElement {
-    if (importing)
-      return (
-        <SourceImport
-          bridge={bridge}
-          projectId={workspace.project.id}
-          source={importing === 'new' ? undefined : importing}
-          onCancel={() => setImporting(false)}
-          onImported={(record) => {
-            if (!active.current) return;
-            const next = {
-              ...workspace,
-              sources: [
-                ...workspace.sources.filter(
-                  (source) => source.id !== record.id,
-                ),
-                record,
-              ],
-            };
-            publishWorkspace(next);
-            setVersion(record.currentVersion);
-            setSpan(null);
-            setReveal(null);
-            setImporting(false);
-          }}
-        />
-      );
     if (version)
       return (
         <SourcePane
@@ -356,21 +390,34 @@ function ProjectReader({
               setReveal(null);
             })
           }
-          onUpdate={(source) =>
-            void beforeNavigation(() => setImporting(source))
-          }
+          onUpdate={(source) => void beforeNavigation(() => openImport(source))}
           onNote={() => void retainSelectionAndBegin('note')}
           onQuestion={() => void retainSelectionAndBegin('question')}
+          {...(onExplainSelection
+            ? {
+                onExplainText: () => void explainSelection('text'),
+                onExplainVisual: () => void explainSelection('visual'),
+              }
+            : {})}
         />
       );
     return (
-      <>
-        <h2>Start with a source</h2>
-        <p>Add pasted text to read and keep notes in your own words.</p>
-        <button onClick={() => void retainSelectionAndBegin('question')}>
-          Save a question
-        </button>
-      </>
+      <div className="ui-empty-state">
+        <h2 className="ui-heading ui-empty-state__title">
+          Start with a source
+        </h2>
+        <p className="ui-empty-state__body">
+          Add pasted text to read and keep notes in your own words.
+        </p>
+        <div className="ui-empty-state__action">
+          <button
+            className="ui-button ui-button--text"
+            onClick={() => void retainSelectionAndBegin('question')}
+          >
+            Save a question
+          </button>
+        </div>
+      </div>
     );
   }
   return (
@@ -379,9 +426,16 @@ function ProjectReader({
         <ReaderSidebar
           workspace={workspace}
           selectedLessonId={path?.lessonId}
-          onNavigate={(destination) =>
-            void beforeNavigation(() => onNavigate(destination))
-          }
+          onNavigate={(destination) => {
+            if (destination === 'home' && importState.dirty) {
+              setImportVisible(true);
+              setMessage(
+                'Import or discard your source draft before closing this project.',
+              );
+              return;
+            }
+            void beforeNavigation(() => onNavigate(destination));
+          }}
           onLesson={(origin) => void openLesson(origin)}
         />
       ) : (
@@ -389,21 +443,65 @@ function ProjectReader({
       )}
       <main className="reader-main">
         <header className="reader-header">
-          <h1>Reading</h1>
+          <h1 className="ui-sr-only">Reading</h1>
           <button
-            onClick={() => void beforeNavigation(() => setImporting('new'))}
+            className="ui-button ui-button--secondary"
+            onClick={() => void beforeNavigation(() => openImport('new'))}
+            aria-expanded={importVisible}
+            aria-controls="reader-source-import"
           >
-            Add source
+            {importing ? 'Resume source import' : 'Add source'}
           </button>
         </header>
         {workspace.unreadableProjects.map((diagnostic, index) => (
-          <p role="alert" key={`${diagnostic.projectId}-${index}`}>
+          <p
+            role="alert"
+            className="ui-alert ui-alert--error"
+            key={`${diagnostic.projectId}-${index}`}
+          >
             Saved project content could not be read: {diagnostic.reason}
           </p>
         ))}
         <output className="reader-status">{message}</output>
         <div className="reader-layout">
-          <article>
+          <article className="reader-document">
+            {importing && (
+              <section
+                id="reader-source-import"
+                className="reader-source-import"
+                hidden={!importVisible}
+                aria-label="Source import"
+              >
+                <SourceImport
+                  bridge={bridge}
+                  projectId={workspace.project.id}
+                  source={importing === 'new' ? undefined : importing}
+                  onStateChange={setImportState}
+                  onClose={() => setImportVisible(false)}
+                  onCancel={discardImport}
+                  onImported={(record) => {
+                    if (!active.current) return;
+                    const current = currentWorkspace.current;
+                    publishWorkspace({
+                      ...current,
+                      sources: [
+                        ...current.sources.filter(
+                          (item) => item.id !== record.id,
+                        ),
+                        record,
+                      ],
+                    });
+                    if (!version) {
+                      setVersion(record.currentVersion);
+                      setSpan(null);
+                      setReveal(null);
+                      selectPath(undefined);
+                    }
+                    discardImport();
+                  }}
+                />
+              </section>
+            )}
             {renderSourceContent()}
             {explanation}
           </article>

@@ -28,6 +28,46 @@ async function setup() {
 }
 
 describe('native source selection and explicit origin reveal', () => {
+  it.each([
+    { anchorOffset: 8, focusOffset: 12, left: '120px' },
+    { anchorOffset: 12, focusOffset: 8, left: '80px' },
+  ])(
+    'positions actions at the focus endpoint for $anchorOffset → $focusOffset selection',
+    async ({ anchorOffset, focusOffset, left }) => {
+      const props = await setup();
+      const originalCreateRange = document.createRange.bind(document);
+      const createRange = vi
+        .spyOn(document, 'createRange')
+        .mockImplementation(() => {
+          const range = originalCreateRange();
+          Object.defineProperty(range, 'getClientRects', {
+            value: () => [{ left: range.startOffset * 10, bottom: 100 }],
+          });
+          return range;
+        });
+      try {
+        render(
+          <SourcePane {...props} span={{ start: 8, end: 12, quote: 'same' }} />,
+        );
+        const text = screen.getByLabelText('Source text').firstChild!;
+        document
+          .getSelection()!
+          .setBaseAndExtent(text, anchorOffset, text, focusOffset);
+        fireEvent(document, new Event('selectionchange'));
+        expect(
+          screen.getByRole('group', { name: 'Selected passage actions' }),
+        ).toHaveStyle({ left, top: '110px' });
+        expect(props.onSelection).toHaveBeenLastCalledWith({
+          start: 8,
+          end: 12,
+          quote: 'same',
+        });
+        expect(screen.getByLabelText('Source text').firstChild).toBe(text);
+      } finally {
+        createRange.mockRestore();
+      }
+    },
+  );
   it('captures release outside the prose, preserves DOM and scroll position, and cleans up its listener', async () => {
     const props = await setup();
     const view = render(<SourcePane {...props} />);

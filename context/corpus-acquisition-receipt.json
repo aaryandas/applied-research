@@ -1,0 +1,26 @@
+{
+  "outcome": "success",
+  "acquiredAt": "2026-09-09T01:01:45.815Z",
+  "receipt": {
+    "requestedUrl": "https://docs.python.org/release/3.14.7/tutorial/floatingpoint.html",
+    "acquiredUrl": "https://docs.python.org/release/3.14.7/tutorial/floatingpoint.html",
+    "mediaType": "text/html",
+    "sourceBytes": 44964,
+    "sourceBytesSha256": "3e30be2b838466b39de0ef64c15d5dbee765454362fca983900310c560ad64a7",
+    "redirectCount": 0
+  },
+  "revisionId": "revision_3c4d0f52189a1af61828be3ce6b07154a4bb02a3e6cd40e11dfaf37b14a07ef0",
+  "canonicalizationVersion": "canonical-text-v1",
+  "canonicalSha256": "2d1e157d0f663e71b9abef9c8e22c2b1059222633b0d85d9f6feb596e109fd20",
+  "canonicalCharacters": 11843,
+  "extraction": {
+    "method": "structured-html-v1 (parse5 8.0.1)",
+    "coverage": "complete",
+    "note": "Executable, navigation, form, style, and embedded media elements were excluded."
+  },
+  "passages": 7,
+  "exactSpanRoundtrips": true,
+  "indexedRemotely": false,
+  "providerRequests": 0,
+  "storageOrEmbeddingSpend": 0
+}

@@ -18,10 +18,16 @@ export interface DockerRuntime {
   context: string;
   run: ProcessRunner;
 }
+/** Context names are argv values, never flags; reject shell/path characters. */
+export function trustedDockerContext(context: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(context))
+    throw new Error('Docker context name is not a trusted identifier.');
+  return context;
+}
 export function renderArguments(job: DockerJob, context: string): string[] {
   return [
     '--context',
-    context,
+    trustedDockerContext(context),
     'run',
     '--rm',
     '--name',

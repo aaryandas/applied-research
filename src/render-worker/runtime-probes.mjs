@@ -18,10 +18,17 @@ const { AnimationRenderWorker } = await import(moduleUrl('worker.js'));
 const { LINEAR_EXAMPLE } = await import(moduleUrl('fixtures.js'));
 const { verifyMedia } = await import(moduleUrl('media.js'));
 const { runProcess } = await import(moduleUrl('process.js'));
+const { resolveTrustedWorkerRuntime, workerCreateOptions, dockerCliArgs } =
+  await import(moduleUrl('trusted-runtime.js'));
+const runtime = await resolveTrustedWorkerRuntime(process.argv.slice(3));
+const workerRuntime = workerCreateOptions(runtime);
 const root = await mkdtemp(join(evidence, 'probe-'));
 const receipt = {};
 try {
-  const worker = await AnimationRenderWorker.create({ temporaryRoot: root });
+  const worker = await AnimationRenderWorker.create({
+    ...workerRuntime,
+    temporaryRoot: root,
+  });
   const cancel = new AbortController();
   const rendering = worker.render(
     JSON.stringify(LINEAR_EXAMPLE),
@@ -41,6 +48,7 @@ try {
   assert.equal(receipt.activeCancellation.status, 'cancelled');
   await worker.close();
   const deadline = await AnimationRenderWorker.create({
+    ...workerRuntime,
     temporaryRoot: root,
     timeoutMs: 1000,
   });
@@ -48,6 +56,7 @@ try {
   assert.equal(receipt.timeout.reason, 'timeout');
   await deadline.close();
   const broken = await AnimationRenderWorker.create({
+    ...workerRuntime,
     temporaryRoot: root,
     docker: '/no/ar/docker',
   });
@@ -56,16 +65,24 @@ try {
   assert.equal(receipt.unavailable.reason, 'runtime');
   assert.equal(receipt.unavailable.diagnostics.stderr, 'Executable not found');
   await broken.close();
-  // A real Docker CLI pointed at a nonexistent private socket, without changing any context/daemon.
+  // Point only at a nonexistent private socket. Docker rejects --context together
+  // with --host ("conflicting options") before any daemon connection is attempted.
   const offlineSocket = `unix://${root}/absent.sock`;
   const disconnected = await AnimationRenderWorker.create({
+    ...workerRuntime,
     temporaryRoot: root,
     run: (request) =>
       runProcess(
-        request.command === 'docker'
+        request.command === runtime.docker
           ? {
               ...request,
-              args: ['--host', offlineSocket, ...request.args.slice(2)],
+              args: [
+                '--host',
+                offlineSocket,
+                ...(request.args[0] === '--context'
+                  ? request.args.slice(2)
+                  : request.args),
+              ],
             }
           : request,
       ),
@@ -90,29 +107,33 @@ try {
   await assert.rejects(
     verifyMedia(damaged, new AbortController().signal, {
       run: runProcess,
-      ffprobe: 'ffprobe',
-      ffmpeg: 'ffmpeg',
+      ffprobe: runtime.ffprobe,
+      ffmpeg: runtime.ffmpeg,
     }),
   );
   receipt.truncatedActualMp4 = 'rejected';
   const containers = await runProcess({
-    command: 'docker',
-    args: [
-      '--context',
-      'orbstack',
+    command: runtime.docker,
+    args: dockerCliArgs(runtime.dockerContext, [
       'ps',
       '-a',
       '--filter',
       'name=ar-manim-',
       '--format',
       '{{.Names}}',
-    ],
+    ]),
     signal: new AbortController().signal,
     timeoutMs: 5000,
   });
   assert.equal(containers.code, 0);
   assert.equal(containers.stdout.trim(), '');
   receipt.remainingContainers = [];
+  receipt.runtime = {
+    docker: runtime.docker,
+    dockerContext: runtime.dockerContext,
+    ffmpeg: runtime.ffmpeg,
+    ffprobe: runtime.ffprobe,
+  };
   await writeFile(
     join(evidence, 'runtime-probes.json'),
     JSON.stringify(receipt, null, 2),

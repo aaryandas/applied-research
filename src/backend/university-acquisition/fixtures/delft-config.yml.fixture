@@ -1,0 +1,106 @@
+# Book settings
+# Learn more at https://jupyterbook.org/v1/customize/config.html
+
+title: Introduction to quantum mechanics
+author: Timon Idema
+logo: content/images/TUDelft.svg
+description: Introduction-level quantum mechanics covering topics typically treated in physics textbooks (Schrödinger equation, basic formalism, one-dimensional solutions, hydrogen atom, perturbation theory, variational principle), some covered in chemistry textbooks but typically not in physics (molecular orbitals), an excursion into relativistic quantum mechanics, and applications throughout. The book was developed for a course in the Nanobiology program.
+copyright: Delft University of Technology, CC BY 4.0
+
+# Only build files in the ToC to avoid building README, etc.
+only_build_toc_files: true
+
+# Force re-execution of notebooks on each build.
+# See https://jupyterbook.org/content/execute.html
+execute:
+  execute_notebooks: force
+
+# Define the name of the latex output file for PDF builds
+latex:
+  latex_documents:
+    targetname: QMbook.tex
+
+# Add a bibtex file so that we can create citations
+bibtex_bibfiles:
+  - QMbook.bib
+
+# Sphinx, for html formatting. Needs checking version.
+# Mathjax config allows us to define tex macros. Note that we need to escape the \ in a latex math command with an extra \.
+# The bibtex_reference_style is 'Use numeric reference labels, citations are sorted by order of appearance.' Alternatives include alpha, plain, and unsrtalpha. See https://jupyterbook.org/en/stable/content/citations.html Sadly it seems that changing this setting results in an error.
+# The sphinx_proof extension requires installing the sphinx-proof package, see https://jupyterbook.org/en/stable/content/proof.html
+# Likewise, the sphinx_exercise requires installing the sphinx-exercise package.
+sphinx:
+  config:
+    language: en
+    # See https://github.com/executablebooks/jupyter-book/issues/1950
+    suppress_warnings: ["mystnb.unknown_mime_type"]
+    # html_js_files necessary for interactive plot (plotly).
+    html_js_files:
+    - https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js
+    mathjax3_config:
+      #loader: {load: ['[tex]/ams', '[tex]/physics', '[tex]/boldsymbol']}
+      loader: {load: ['[tex]/autoload', '[tex]/ams'], '[tex]/physics'}
+      tex:
+        packages: {'[+]': ['autoload', 'ams', 'physics', 'boldsymbol']}
+        tags: 'ams'
+        macros:
+          "kB" : "k_\\mathrm{B}"
+          "Rn" : "\\mathrm{Re}"
+          #"bm" : "\\boldsymbol"
+          #"bm": "\\vb*"
+          "bm": "\\mathbf"
+          "inprod" : "\\innerproduct"
+          "diff" : "\\pdv"
+          "me": "m_\\mathrm{e}"
+      # Render text in math blocks in same font as other text.
+      chtml:
+        {'mtextInheritFont' : 'true'}
+    #bibtex_reference_style: author_year # or unsrt, alpha, ...
+    
+    html_extra_path: ['pdf']
+
+    # Light and dark version of logo. NB: including this removes the repo button - no clue yet how to fix that.
+    html_theme_options:
+      repository_url: https://gitlab.tudelft.nl/opentextbooks/quantum-mechanics-for-nanobiology/
+      use_issues_button: true
+      use_repository_button: true
+      home_page_in_toc: true
+      show_toc_level: 2
+#      logo:
+#        image_light: content/images/TUDelft.svg
+#        image_dark: content/images/TUDelft-dark.svg
+  extra_extensions:
+    - sphinx_proof
+    - sphinx_exercise
+    - sphinx_togglebutton
+    - teachbooks_zoomies
+#    - sphinx_tojupyter
+
+
+# Parse, for processing LaTeX-style math. See https://jupyterbook.org/en/stable/content/math.html#latex-style-math and https://myst-parser.readthedocs.io/en/latest/syntax/optional.html#syntax-amsmath
+parse:
+  myst_enable_extensions:
+    # don't forget to list any other extensions you want enabled,
+    # including those that are enabled by default!
+    # meaning that we have to explicitly include dollarmath!
+    # Colon-fence is to allow for ::: instead of ``` blocks.
+    - amsmath
+    - dollarmath
+
+# Information about where the book exists on the web
+repository:
+  url: https://gitlab.tudelft.nl/opentextbooks/quantum-mechanics-for-nanobiology/  # Online location of your book
+  # path_to_book: docs  # Optional path to your book, relative to the repository root
+  branch: master  # Which branch of the repository should be used when creating links (optional)
+
+# HTML specific settings - see https://jupyterbook.org/en/stable/customize/config.html
+# Add GitHub / GitLab buttons to your book
+# See https://jupyterbook.org/customize/config.html#add-a-link-to-your-repository
+html:
+  favicon: "content/images/favicon.ico"
+  #use_issues_button: true
+  use_edit_page_button: true
+  use_repository_button: true
+  extra_navbar: "" # Will be displayed underneath the left navbar. This setting overrides the default 'powered by Jupyter Book'
+  comments:
+    hypothesis: false # Hypothesis for comments

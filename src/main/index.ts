@@ -1,3 +1,22 @@
+import { SourceDesktopOperations } from './source-desktop';
+import { makeAuthenticatedSourceTransport } from './source-transport';
+import { SOURCE_CHANNELS } from '../contracts/source-desktop';
+import { PracticalDesktopOperations } from './practical-operations';
+import { RECORD_PRACTICAL_RESULT_CHANNEL } from '../contracts/practical-work';
+import {
+  LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+  SELECT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_FILE_CHANNEL,
+  LIST_PRACTICAL_ATTEMPTS_CHANNEL,
+  PREVIEW_PRACTICAL_FILE_CHANNEL,
+  EXPORT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_EXPORT_CHANNEL,
+  LOAD_PRACTICAL_JOURNEY_CHANNEL,
+  RECORD_PRACTICAL_PROGRESS_CHANNEL,
+  RECORD_PRACTICAL_WORK_CHOICE_CHANNEL,
+  SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL,
+  PRACTICAL_FILE_EXTENSIONS,
+} from '../contracts/practical-records';
 import {
   app,
   BrowserWindow,
@@ -18,6 +37,7 @@ import {
   entryDraft,
   entryPosition,
   identifier,
+  planWorkspaceActivate,
   text,
   toolBounds,
   tutorRequest,
@@ -182,6 +202,77 @@ async function createWindow(): Promise<void> {
       text: text(pageText, 12_000),
     };
   }
+  let authenticated = false;
+  let selectedWorkspaceId: string | null = null;
+  const practicalOperations = new PracticalDesktopOperations({
+    store,
+    isSelectedWorkspace: (projectId) => projectId === selectedWorkspaceId,
+    windowAlive: () => !window.isDestroyed(),
+    chooseOpenFile: async (signal) => {
+      if (signal.aborted || window.isDestroyed()) return null;
+      const result = await dialog.showOpenDialog(window, {
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'Returned evidence',
+            extensions: [...PRACTICAL_FILE_EXTENSIONS],
+          },
+        ],
+      });
+      if (signal.aborted || window.isDestroyed() || result.canceled)
+        return null;
+      return result.filePaths.length === 1 ? result.filePaths[0]! : null;
+    },
+    chooseSaveFile: async (displayName, signal) => {
+      if (signal.aborted || window.isDestroyed()) return null;
+      const result = await dialog.showSaveDialog(window, {
+        defaultPath: displayName,
+        filters: [
+          {
+            name: 'Returned evidence',
+            extensions: [...PRACTICAL_FILE_EXTENSIONS],
+          },
+        ],
+      });
+      if (signal.aborted || window.isDestroyed() || result.canceled)
+        return null;
+      return result.filePath || null;
+    },
+  });
+  const PRACTICAL_CHANNELS = [
+    RECORD_PRACTICAL_RESULT_CHANNEL,
+    LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+    SELECT_PRACTICAL_FILE_CHANNEL,
+    CANCEL_PRACTICAL_FILE_CHANNEL,
+    LIST_PRACTICAL_ATTEMPTS_CHANNEL,
+    PREVIEW_PRACTICAL_FILE_CHANNEL,
+    EXPORT_PRACTICAL_FILE_CHANNEL,
+    CANCEL_PRACTICAL_EXPORT_CHANNEL,
+    LOAD_PRACTICAL_JOURNEY_CHANNEL,
+    RECORD_PRACTICAL_PROGRESS_CHANNEL,
+    RECORD_PRACTICAL_WORK_CHOICE_CHANNEL,
+    SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL,
+  ] as const;
+  const sourceOperations = new SourceDesktopOperations({
+    store,
+    authenticated: () => authenticated,
+    transport: makeAuthenticatedSourceTransport({
+      request: globalThis.fetch,
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
+    openOriginal: (url) => shell.openExternal(url),
+  });
+  const revokeWorkspaceOperations = (): void => {
+    sourceOperations.revoke();
+    practicalOperations.replaceWorkspace();
+    closeTool();
+  };
+  window.on('close', revokeWorkspaceOperations);
+  window.webContents.on('render-process-gone', revokeWorkspaceOperations);
+  window.webContents.on('will-navigate', revokeWorkspaceOperations);
   function handle(
     channel: string,
     operation: (value: unknown) => unknown,
@@ -195,6 +286,58 @@ async function createWindow(): Promise<void> {
       return operation(value);
     });
   }
+  handle(SOURCE_CHANNELS.activate, (value) => {
+    const plan = planWorkspaceActivate(selectedWorkspaceId, value);
+    if (plan.revokeOperations) {
+      practicalOperations.replaceWorkspace();
+      closeTool();
+    }
+    sourceOperations.activate(value);
+    selectedWorkspaceId = plan.nextId;
+  });
+  handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
+  handle(SOURCE_CHANNELS.discover, (value) => sourceOperations.discover(value));
+  handle(SOURCE_CHANNELS.acquire, (value) => sourceOperations.acquire(value));
+  handle(SOURCE_CHANNELS.cancel, (value) => sourceOperations.cancel(value));
+  handle(SOURCE_CHANNELS.original, (value) =>
+    sourceOperations.openOriginal(value),
+  );
+  handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
+    practicalOperations.recordPracticalResult(value),
+  );
+  handle(LOAD_PRACTICAL_ATTEMPT_CHANNEL, (value) =>
+    practicalOperations.loadPracticalAttempt(value),
+  );
+  handle(SELECT_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.selectPracticalFile(value),
+  );
+  handle(CANCEL_PRACTICAL_FILE_CHANNEL, () =>
+    practicalOperations.cancelPracticalFileSelection(),
+  );
+  handle(LIST_PRACTICAL_ATTEMPTS_CHANNEL, (value) =>
+    practicalOperations.listPracticalAttempts(value),
+  );
+  handle(PREVIEW_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.previewPracticalFile(value),
+  );
+  handle(EXPORT_PRACTICAL_FILE_CHANNEL, (value) =>
+    practicalOperations.exportPracticalFile(value),
+  );
+  handle(CANCEL_PRACTICAL_EXPORT_CHANNEL, () =>
+    practicalOperations.cancelPracticalExport(),
+  );
+  handle(LOAD_PRACTICAL_JOURNEY_CHANNEL, (value) =>
+    practicalOperations.loadPracticalJourney(value),
+  );
+  handle(RECORD_PRACTICAL_PROGRESS_CHANNEL, (value) =>
+    practicalOperations.recordPracticalProgress(value),
+  );
+  handle(RECORD_PRACTICAL_WORK_CHOICE_CHANNEL, (value) =>
+    practicalOperations.recordPracticalWorkChoice(value),
+  );
+  handle(SAVE_PRACTICAL_HUMAN_PLAN_CHANNEL, (value) =>
+    practicalOperations.savePracticalHumanPlan(value),
+  );
   handle(CHANNELS.list, () => {
     const listing = store.listWithDiagnostics();
     for (const unreadable of listing.unreadableProjects) {
@@ -235,8 +378,15 @@ async function createWindow(): Promise<void> {
   handle(AUTH_CHANNELS.accountStatus, () => authController.accountStatus());
   handle(AUTH_CHANNELS.signIn, () => authController.signIn());
   handle(AUTH_CHANNELS.cancelSignIn, () => authController.cancelSignIn());
-  handle(AUTH_CHANNELS.signOut, () => authController.signOut());
+  handle(AUTH_CHANNELS.signOut, () => {
+    authenticated = false;
+    selectedWorkspaceId = null;
+    revokeWorkspaceOperations();
+    return authController.signOut();
+  });
   const unsubscribeAccountState = authController.subscribe((state) => {
+    authenticated = state.session === 'signed-in';
+    if (!authenticated) revokeWorkspaceOperations();
     if (!window.isDestroyed()) {
       window.webContents.send(AUTH_CHANNELS.accountState, state);
     }
@@ -316,6 +466,10 @@ async function createWindow(): Promise<void> {
     )
       throw new Error('Tool panel is outside the window.');
     guest?.setBounds(bounds);
+    if (guest && bounds.width > 0 && bounds.height > 0) {
+      guest.setVisible(true);
+      guest.webContents.invalidate();
+    }
   });
   handle(CHANNELS.openTool, async (value) => {
     const url = webUrl(value);
@@ -380,6 +534,12 @@ async function createWindow(): Promise<void> {
     if (!isAllowedNavigation(url, rendererUrl)) event.preventDefault();
   });
   window.on('closed', () => {
+    revokeWorkspaceOperations();
+    for (const channel of [
+      ...Object.values(SOURCE_CHANNELS),
+      ...PRACTICAL_CHANNELS,
+    ])
+      ipcMain.removeHandler(channel);
     unsubscribeAccountState();
     if (mainWindow === window) mainWindow = null;
     pending?.abort();

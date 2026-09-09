@@ -1,5 +1,7 @@
 # Practical Work checkpoint
 
+September 9 AR-50: the local Practical journey is connected through Shell → PracticalSession → PracticalWorkspace and SQLite `0003`/`0004`. [The owning contract](../../../context/practical-work.md) is current. A generated capstone is not claimed. AR-52 PR #45 is not accepted producer input.
+
 Import `PracticalWork` from `./PracticalWork`. It renders supplied activity context, prediction, attempt, reported result, a single selected evidence reference, separately authored reflection and an explicit return action. No example curriculum or production adapter is supplied. The READY `PracticalTarget`, `PracticalGuidanceRequest` and `PracticalActivity` contract shapes remain unchanged by the component repairs.
 
 ## Scope and loading
@@ -26,11 +28,11 @@ File selection is a named main selection/import callback returning opaque metada
 
 Tool adapters supply supported embedded open/content and/or external open callbacks. Embedded content mounts in `.practical-embedded` only after a successful open. Practical styling uses explicit owned classes, so composed ToolPanel buttons/labels/forms/sections retain their own styles and layout. The shell owns guest lifecycle and navigation policy. LocalExplanations currently drops captures and is not a result adapter. This module neither edits nor silently connects those components.
 
-## Guidance and companion-owned context
+## Guidance and scoped producer context
 
 One-shot guidance requests occur only when the learner clicks an available “Ask about…” action. Human-reported text alone makes selected-result guidance available; it remains explicitly user-reported and is never promoted to measured evidence. The request identifies the original activity/attempt and one existing app-scoped target, without collecting content, subscribing to observation or authorizing outside-app control. DOM attributes are positioning/test hooks, not a context API.
 
-Saved-versus-draft reflection must come from the producer-owned context resolver, not the request. The companion author owns `CompanionResolution`, `CompanionContext` and `CompanionVersion` in its separately frozen contract checkpoint. Wait for root Fable review/release before implementing Practical’s optional resolver registration against that contract. The coordinator has explicitly separated that additive patch from these component repairs. No duplicate target/context enum or resolver is introduced here; an earlier temporary proposal is superseded and must not be consumed.
+The producer-owned `context-resolver.ts` now supplies exact saved-versus-draft reflection/result context through the optional stable `companionContext.registerResolver` prop. It reads the actual save session on explicit resolution, validates full scope, binds host tool sessions, separates trusted selected evidence from human reports, and refuses cancelled/stale results. AR-25 owns `CompanionResolution`, `CompanionContext` and `CompanionVersion`; its `59f71fd` public contract remains an explicitly pending dependency, checked for type assignability without copying its types or runtime. See [the detailed lifecycle/registration handoff](../../../context/practical-work.md#producer-owned-companion-context--september-9-repair). No duplicate Companion contract is introduced.
 
 Tests use synthetic adapters only. Full coverage, actual ToolPanel native/visual capture, real producers, durable reopen, integrated checks/Sonar and critic 9200f1db's repair review remain PM/coordinator gates.
 
@@ -48,4 +50,4 @@ Coordinator/main owner: add the named method to the existing isolated desktop br
 
 Within that transaction, revalidate the project and attempt ownership; resolve the exact path/topic/lesson revision and optional source/highlight origin; compare the immutable stored origin with the submitted origin; and derive or compare activity instructions/objective against that origin. Enforce expected revision atomically. Resolve file selection/capture IDs only as opaque keys owned by this attempt/project, never as filesystem paths. File imports must already have durable bounded content; measured captures must have trusted producer provenance. Keep reported text explicitly user-reported and reflection separately human-authored. Commit the result and its revision atomically and acknowledge only after successful durability. Same-content retries after an ambiguous response must return the durable revision with `changed: false`; stale different-content attempts return conflict. Map safe failure/cancellation outcomes without exposing raw storage errors.
 
-The actual main handler, preload registration, storage transaction, imported-file producer and trusted capture producer remain coordinator-owned and are not connected by this component patch. Independent review and a real durable save/reopen test remain required before claiming that recorded results persist.
+The main handler and preload registration remain AR-37-owned. AR-19 now supplies the real storage transaction and imported-file producer, exercised with isolated SQLite close/reopen tests; a trusted measured-capture producer remains unavailable. Shared activation, independent review and a connected desktop save/reopen test remain required before claiming that the shipped application persists recorded results.

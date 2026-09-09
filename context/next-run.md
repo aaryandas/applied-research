@@ -1,5 +1,7 @@
 # Next-run workflow
 
+> Current execution: [September 9 delivery policy](current-delivery.md) supersedes conflicting Fable, local execution, review, concurrency and Sonar instructions below. The remaining text records the original workflow design; automated activation is not yet proven.
+
 **9 September 2026 founder override:** independent review is Cursor Cloud Grok 4.6 Extra High. Do not invoke Fable or local/headless Cursor inference. Merge/deploy activation stays off until the orchestration in [ORCHESTRATION.md](design-handoff/ORCHESTRATION.md) is reviewed. Hosted Sonar and macOS `checks / CI gate` stay in force; do not edit the AR-45 Sonar worker branch.
 
 The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. The unit of work is a pull request against the integration branch. Linear status changes trigger machines. One coordinator merges and resolves ambiguity; nothing else is serialized on a person or a laptop.

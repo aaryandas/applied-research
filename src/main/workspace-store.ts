@@ -1,3 +1,25 @@
+import { adoptSourcedLearning } from './source-learning-adoption';
+import { PracticalRecords } from './practical-records';
+import type {
+  PracticalFileContent,
+  RetainedPracticalFile,
+} from './practical-files';
+import type {
+  ImportPracticalFileResult,
+  ListPracticalAttemptsResult,
+  LoadPracticalAttemptResult,
+  LoadPracticalJourneyResult,
+  PracticalFilePreviewResult,
+  PracticalHumanPlanResult,
+  PracticalProgressResult,
+} from '../contracts/practical-records';
+import type { PracticalCommitResult } from '../contracts/practical-work';
+import { decodeAcquiredSourceAcceptance } from './source-adoption-validation';
+import {
+  decodeGeneratedLesson,
+  generatedProvenance,
+} from './source-generated-validation';
+import { writeAcquiredSource, writeTrustedSource } from './source-persistence';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { and, asc, desc, eq } from 'drizzle-orm';
@@ -50,6 +72,7 @@ import {
 } from './trusted-learning-records';
 import {
   decodeCanvasCoordinate,
+  decodeRecord,
   decodeEntryContent,
   decodeLegacyProject,
   decodeStoredEntryRevision,
@@ -67,6 +90,7 @@ import {
   projects,
   recordPlacements,
   workspaceSchema,
+  sourceVersions,
   type WorkspaceDatabase,
   type WorkspaceTransaction,
 } from './workspace-schema';
@@ -201,6 +225,57 @@ export function classifyStoredProjectFailure(
 export class WorkspaceStore {
   private readonly database: Database.Database;
   private readonly orm: WorkspaceDatabase;
+  private readonly practical: PracticalRecords;
+
+  acceptSourcedLearning(value: unknown): CommitResult<LearningPathRecord> {
+    return this.database
+      .transaction(() => adoptSourcedLearning(this, value))
+      .immediate();
+  }
+
+  recordPracticalResult(value: unknown): PracticalCommitResult {
+    return this.practical.recordPracticalResult(value);
+  }
+  loadPracticalAttempt(value: unknown): LoadPracticalAttemptResult {
+    return this.practical.loadPracticalAttempt(value);
+  }
+  listPracticalAttempts(value: unknown): ListPracticalAttemptsResult {
+    return this.practical.listPracticalAttempts(value);
+  }
+  previewPracticalFile(value: unknown): PracticalFilePreviewResult {
+    return this.practical.previewPracticalFile(value);
+  }
+  loadPracticalJourney(value: unknown): LoadPracticalJourneyResult {
+    return this.practical.loadPracticalJourney(value);
+  }
+  retainAcceptedBrief(
+    value: unknown,
+  ):
+    | { status: 'retained'; briefId: string; briefRevision: number }
+    | { status: 'failed' } {
+    return this.practical.retainAcceptedBrief(value);
+  }
+  recordPracticalProgress(value: unknown): PracticalProgressResult {
+    return this.practical.recordPracticalProgress(value);
+  }
+  recordPracticalWorkChoice(value: unknown): { status: 'saved' | 'failed' } {
+    return this.practical.recordPracticalWorkChoice(value);
+  }
+  savePracticalHumanPlan(value: unknown): PracticalHumanPlanResult {
+    return this.practical.savePracticalHumanPlan(value);
+  }
+  importPracticalFile(
+    scope: unknown,
+    file: PracticalFileContent,
+  ): ImportPracticalFileResult {
+    return this.practical.importPracticalFile(scope, file);
+  }
+  readPracticalFile(
+    scope: unknown,
+    selectionId: string,
+  ): RetainedPracticalFile | null {
+    return this.practical.readPracticalFile(scope, selectionId);
+  }
 
   constructor(path: string) {
     this.database = new Database(path);
@@ -211,6 +286,7 @@ export class WorkspaceStore {
       this.database.pragma('foreign_keys = ON');
       this.database.pragma('busy_timeout = 5000');
       this.orm = drizzle(this.database, { schema: workspaceSchema });
+      this.practical = new PracticalRecords(this.orm);
     } catch (error_) {
       this.database.close();
       throw error_;
@@ -514,6 +590,56 @@ export class WorkspaceStore {
     };
   }
 
+  /** Trusted main-only boundary; never exposed as a renderer payload operation. */
+  acceptAcquiredSource(
+    value: unknown,
+  ): Extract<CommitResult<SourceRecord>, { status: 'committed' }> {
+    const input = decodeAcquiredSourceAcceptance(value);
+    return this.orm.transaction(
+      (transaction) => {
+        const acknowledgement = writeAcquiredSource(transaction, input);
+        const record = this.getLearningWorkspace(input.projectId).sources.find(
+          (item) => item.id === acknowledgement.recordId,
+        );
+        if (!record) throw new Error('Saved source could not be read.');
+        return { status: 'committed', acknowledgement, record };
+      },
+      { behavior: 'immediate' },
+    );
+  }
+
+  /** Generated teaching text is adopted only by authenticated main/backend code. */
+  acceptGeneratedLesson(
+    value: unknown,
+  ): Extract<CommitResult<SourceRecord>, { status: 'committed' }> {
+    const projectId = decodeProjectId(
+      decodeRecord(value, 'generated lesson').projectId,
+    );
+    return this.orm.transaction(
+      (transaction) => {
+        const input = decodeGeneratedLesson(
+          value,
+          transaction
+            .select()
+            .from(sourceVersions)
+            .where(eq(sourceVersions.projectId, projectId))
+            .all(),
+        );
+        const acknowledgement = writeTrustedSource(transaction, {
+          projectId: input.projectId,
+          source: input.source,
+          provenance: generatedProvenance(input),
+        });
+        const record = this.getLearningWorkspace(input.projectId).sources.find(
+          (item) => item.id === acknowledgement.recordId,
+        );
+        if (!record) throw new Error('Saved lesson could not be read.');
+        return { status: 'committed', acknowledgement, record };
+      },
+      { behavior: 'immediate' },
+    );
+  }
+
   saveHighlight(value: unknown): CommitResult<SourceHighlight> {
     const input = decodeHighlight(value);
     const acknowledgement = this.orm.transaction(
@@ -579,16 +705,19 @@ export class WorkspaceStore {
     const lessons = accepted.contribution.steps.map((step, index) => {
       const lessonId = lessonIds[index]!;
       citationsByLesson.set(lessonId, step.citations);
-      const firstCitation = step.citations[0];
+      const sourceRevisionId =
+        step.sourceState === 'pending'
+          ? undefined
+          : (step.sourceRevisionId ?? step.citations[0]?.revisionId);
       return {
         id: lessonId,
         title: step.title,
         objective: step.objective,
         activity: step.activity,
-        source: firstCitation
+        source: sourceRevisionId
           ? ({
               state: 'ready',
-              sourceRevisionId: firstCitation.revisionId,
+              sourceRevisionId,
             } as const)
           : ({ state: 'pending' } as const),
       };

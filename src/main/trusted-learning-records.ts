@@ -20,6 +20,8 @@ export interface TrustedLearningPathAcceptance {
       objective: string;
       activity: string;
       citations: SourceCitation[];
+      sourceRevisionId?: string;
+      sourceState?: 'pending';
     }>;
   };
 }
@@ -150,6 +152,17 @@ export function decodeTrustedLearningPath(
           citations: step.citations.map((value, index) =>
             citation(value, index),
           ),
+          ...(step.sourceState === 'pending'
+            ? { sourceState: 'pending' as const }
+            : {}),
+          ...(step.sourceRevisionId === undefined
+            ? {}
+            : {
+                sourceRevisionId: decodeUuid(
+                  step.sourceRevisionId,
+                  'lesson source revision id',
+                ),
+              }),
         };
       }),
     },

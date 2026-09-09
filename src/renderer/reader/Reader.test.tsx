@@ -125,7 +125,7 @@ describe('Reader human learning flow', () => {
     );
     await screen.findByText(/referenced lesson revision is unavailable/);
   });
-  it('protects an import from navigation and supports selection changes and highlight retry', async () => {
+  it('retains a dirty import through view navigation and supports exact highlight retry', async () => {
     const { bridge } = fixture();
     await bridge.importTextSource({
       projectId: 'project',
@@ -158,7 +158,7 @@ describe('Reader human learning flow', () => {
       expect(await flush!()).toBe(false);
     });
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }));
-    expect(navigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('canvas'));
     expect(screen.getByLabelText('Exact source text')).toHaveValue(
       'Unsaved import',
     );

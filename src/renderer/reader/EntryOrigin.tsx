@@ -19,7 +19,7 @@ export function EntryOrigin({
     (item) => item.id === origin?.highlightId,
   );
   return (
-    <div className="reader-origin">
+    <div>
       {highlight && (
         <blockquote>
           {highlight.quote}
@@ -36,7 +36,12 @@ export function EntryOrigin({
         </p>
       )}
       {origin ? (
-        <button onClick={() => onOpen(origin)}>Open origin</button>
+        <button
+          className="ui-button ui-button--text"
+          onClick={() => onOpen(origin)}
+        >
+          Open origin
+        </button>
       ) : (
         <p className="reader-muted">No source or lesson origin</p>
       )}
@@ -87,7 +92,7 @@ export function InsightSupports({
                 />
               </>
             ) : (
-              <p role="alert">
+              <p className="ui-alert ui-alert--error" role="alert">
                 The retained supporting revision is unavailable.
               </p>
             )}

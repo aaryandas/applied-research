@@ -1,3 +1,5 @@
+import type { PracticalWorkspaceBridge } from './practical-records';
+import type { SourceDesktopBridge } from './source-desktop';
 import type {
   EntryDraft,
   EntryPosition,
@@ -40,6 +42,13 @@ export interface DesktopBridge {
 
 declare global {
   interface Window {
-    readonly desktop: DesktopBridge & LearningRecordsBridge;
+    readonly desktop: DesktopBridge &
+      LearningRecordsBridge &
+      PracticalWorkspaceBridge &
+      SourceDesktopBridge;
   }
 }
+
+// AR-47 registers LearningOnboardingBridge on this same Window.desktop object
+// after main/preload expose the named onboarding channels. This contracts
+// checkpoint does not change the live bridge until that lane lands.
