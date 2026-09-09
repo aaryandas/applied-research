@@ -172,10 +172,21 @@ export function Shell({
     });
     return () => registerReaderViewFlush(null);
   }, [registerReaderViewFlush]);
+  const nextReaderLease = useCallback(
+    (selection: PathOrigin | null): number => {
+      const epoch = ++lessonRequestEpoch.current;
+      pendingGeneratedOpen.current = null;
+      selectedLessonRef.current = selection;
+      setLessonEnsureFailure(null);
+      return epoch;
+    },
+    [],
+  );
   useEffect(() => {
     return () => {
       lessonRequestEpoch.current += 1;
       pendingGeneratedOpen.current = null;
+      selectedLessonRef.current = null;
     };
   }, []);
   /* eslint-disable react-hooks/refs --
@@ -186,25 +197,31 @@ export function Shell({
   workspaceRef.current = workspace;
   if (workspace.project.id !== seenProjectId) {
     setSeenProjectId(workspace.project.id);
-    lessonRequestEpoch.current += 1;
-    pendingGeneratedOpen.current = null;
-    selectedLessonRef.current = null;
-    if (lessonEnsureFailure) setLessonEnsureFailure(null);
+    nextReaderLease(null);
   }
   /* eslint-enable react-hooks/refs */
   useEffect(() => {
     const pending = pendingGeneratedOpen.current;
     if (!pending) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, pending)) {
+      pendingGeneratedOpen.current = null;
+      return;
+    }
+    const epoch = lessonRequestEpoch.current;
     const lesson = lessonRecord(workspace, pending);
     const source = lesson?.sourceRevisionId
       ? workspace.sources
           .flatMap((item) => item.versions)
           .find((item) => item.revisionId === lesson.sourceRevisionId)
       : undefined;
-    if (lesson?.sourceState === 'ready' && source) {
+    if (lesson?.sourceState !== 'ready' || !source) return;
+    if (epoch !== lessonRequestEpoch.current) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, pending)) {
       pendingGeneratedOpen.current = null;
-      reader.current?.openOrigin({ path: pending });
+      return;
     }
+    pendingGeneratedOpen.current = null;
+    reader.current?.openOrigin({ path: pending });
   }, [workspace]);
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
@@ -274,6 +291,7 @@ export function Shell({
       next: LearningWorkspace,
       target: { revisionId: string; origin: LearningOrigin | null },
     ) => {
+      nextReaderLease(null);
       projectLifetime.queueOrigin({
         ...(target.origin?.path ? { path: target.origin.path } : {}),
         sourceRevisionId: target.revisionId,
@@ -282,8 +300,11 @@ export function Shell({
       setResearchVisible(false);
       setDestination('reader');
     },
-    [onWorkspace, projectLifetime],
+    [nextReaderLease, onWorkspace, projectLifetime],
   );
+  /* eslint-disable react-hooks/refs --
+   * openSaved invalidates the Reader lease only when the research callback runs.
+   */
   const research = useMemo(() => {
     if (
       !bridge.activateSourceWorkspace ||
@@ -314,6 +335,7 @@ export function Shell({
     flushResearch,
     openSavedResearch,
   ]);
+  /* eslint-enable react-hooks/refs */
   useEffect(() => {
     const origin = projectLifetime.takeOrigin(workspace);
     if (origin) {
@@ -374,9 +396,7 @@ export function Shell({
 
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {
-      lessonRequestEpoch.current += 1;
-      pendingGeneratedOpen.current = null;
-      selectedLessonRef.current = null;
+      nextReaderLease(null);
       stopNativePractical();
       void navigate(() => {
         setResearchVisible(false);
@@ -430,6 +450,7 @@ export function Shell({
     goRef.current = go;
   });
   function openOrigin(origin: LearningOrigin): void {
+    nextReaderLease(null);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
@@ -437,31 +458,20 @@ export function Shell({
     }, 'view');
   }
   function editEntry(entry: EntryRevisionReference): void {
+    nextReaderLease(null);
     void navigate(() => {
       setDestination('reader');
       reader.current?.editEntry(entry);
     }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
-    const requestEpoch = ++lessonRequestEpoch.current;
-    selectedLessonRef.current = path;
-    pendingGeneratedOpen.current = null;
-    setLessonEnsureFailure(null);
+    const requestEpoch = nextReaderLease(path);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
       void ensurePendingLesson(path, requestEpoch);
     }, 'view');
-  }
-  function lessonSelectionMatches(path: PathOrigin): boolean {
-    const selected = selectedLessonRef.current;
-    return (
-      selected?.pathId === path.pathId &&
-      selected?.pathRevision === path.pathRevision &&
-      selected?.topicId === path.topicId &&
-      selected?.lessonId === path.lessonId
-    );
   }
   async function ensurePendingLesson(
     path: PathOrigin,
@@ -472,15 +482,29 @@ export function Shell({
     const lesson = lessonRecord(current, path);
     if (lesson?.sourceState !== 'pending') return;
     const projectId = current.project.id;
-    const result = await bridge.ensureLesson({
-      projectId,
-      requestId: crypto.randomUUID(),
-      target: { ...path, lessonId: path.lessonId },
-      consent: 'acquire-learning-evidence',
-    });
+    let result: Awaited<ReturnType<LearningOnboardingBridge['ensureLesson']>>;
+    try {
+      result = await bridge.ensureLesson({
+        projectId,
+        requestId: crypto.randomUUID(),
+        target: { ...path, lessonId: path.lessonId },
+        consent: 'acquire-learning-evidence',
+      });
+    } catch (failure: unknown) {
+      if (requestEpoch !== lessonRequestEpoch.current) return;
+      if (workspaceRef.current.project.id !== projectId) return;
+      if (!lessonSelectionMatches(selectedLessonRef.current, path)) return;
+      pendingGeneratedOpen.current = null;
+      setLessonEnsureFailure({
+        path: { ...path, lessonId: path.lessonId },
+        message: guardedEnsureLessonFailure(failure),
+        retryable: true,
+      });
+      return;
+    }
     if (requestEpoch !== lessonRequestEpoch.current) return;
     if (workspaceRef.current.project.id !== projectId) return;
-    if (!lessonSelectionMatches(path)) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, path)) return;
     if (result.outcome !== 'success') {
       setLessonEnsureFailure({
         path: { ...path, lessonId: path.lessonId },
@@ -489,10 +513,12 @@ export function Shell({
       });
       return;
     }
+    selectedLessonRef.current = result.value.lesson;
     pendingGeneratedOpen.current = result.value.lesson;
     onWorkspace(result.value.workspace);
   }
   function revealEntry(reference: EntryRevisionReference): void {
+    nextReaderLease(null);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
@@ -666,9 +692,7 @@ export function Shell({
                   bridge={contextualBridge}
                   selection={selection}
                   active={destination === 'reader'}
-                  onReturnToOrigin={(origin) =>
-                    reader.current?.openOrigin(origin)
-                  }
+                  onReturnToOrigin={(origin) => openOrigin(origin)}
                 />
               ) : null
             }
@@ -805,6 +829,31 @@ export function Shell({
       </div>
     </div>
   );
+}
+
+function lessonSelectionMatches(
+  selected: PathOrigin | null,
+  path: PathOrigin,
+): boolean {
+  return (
+    selected?.pathId === path.pathId &&
+    selected?.pathRevision === path.pathRevision &&
+    selected?.topicId === path.topicId &&
+    selected?.lessonId === path.lessonId
+  );
+}
+
+function guardedEnsureLessonFailure(failure: unknown): string {
+  if (!(failure instanceof Error)) {
+    return 'This lesson could not be opened. Please try again.';
+  }
+  const message = failure.message
+    .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+    .trim();
+  if (!message) {
+    return 'This lesson could not be opened. Please try again.';
+  }
+  return message;
 }
 
 function isPracticalWorkspaceBridge(

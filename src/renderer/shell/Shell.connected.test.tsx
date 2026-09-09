@@ -698,6 +698,45 @@ function withPendingLater(workspace: LearningWorkspace): LearningWorkspace {
   return next;
 }
 
+const SOURCE_B_TEXT =
+  'Find-source-B canonical: wrist rotation is independent of the generated later chapter.';
+
+function withIndependentSourceB(
+  workspace: LearningWorkspace,
+): LearningWorkspace {
+  const next = structuredClone(workspace);
+  const version = {
+    revisionId: 'source-b-v7',
+    sourceId: 'source-b',
+    revision: 7,
+    title: 'Independent source B revision 7',
+    canonicalText: SOURCE_B_TEXT,
+    sha256: 'source-b-v7',
+    format: 'plain-text' as const,
+    canonicalizationVersion: '1' as const,
+    acquiredAt: '2026-09-09T16:00:00Z',
+    provenance: { kind: 'human-imported' as const, locator: null },
+  };
+  next.sources.push({
+    id: 'source-b',
+    projectId: next.project.id,
+    currentRevision: 7,
+    currentVersionId: version.revisionId,
+    currentVersion: version,
+    versions: [version],
+    createdAt: version.acquiredAt,
+  });
+  const note = next.entries.find((item) => item.id === 'note');
+  if (note) {
+    note.current = {
+      ...note.current,
+      origin: { sourceRevisionId: version.revisionId },
+    };
+    note.revisions = [note.current];
+  }
+  return next;
+}
+
 function generatedLaterWorkspace(pending: LearningWorkspace): {
   workspace: LearningWorkspace;
   lesson: {
@@ -918,6 +957,112 @@ it('rejects a deferred pending lesson after a genuine project switch', async () 
     'Project B source is a different canonical passage.',
   );
   expect(screen.queryByText(GENERATED_LATER_TEXT)).toBeNull();
+});
+
+it('rejects a deferred pending lesson after Find or Canvas origin opens a different source revision', async () => {
+  const pending = withIndependentSourceB(
+    withPendingLater(createCanvasFixture()),
+  );
+  const generated = generatedLaterWorkspace(pending);
+  let resolveEnsure:
+    | ((value: Awaited<ReturnType<OnboardingBridge['ensureLesson']>>) => void)
+    | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveEnsure = resolve;
+      }),
+  );
+  function Host() {
+    const [value, setValue] = useState(pending);
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={vi.fn()}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() => expect(ensureLesson).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole('button', { name: 'Find' }));
+  fireEvent.change(
+    await screen.findByLabelText('Search lessons, sources and saved writing'),
+    { target: { value: 'Independent source B revision 7' } },
+  );
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: /Independent source B revision 7/,
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      SOURCE_B_TEXT,
+    ),
+  );
+  await act(async () => {
+    resolveEnsure?.({
+      outcome: 'success',
+      requestId: ensureLesson.mock.calls[0]![0]!.requestId,
+      value: generated,
+    });
+  });
+  expect(screen.getByLabelText('Source text')).toHaveTextContent(SOURCE_B_TEXT);
+  expect(screen.queryByText(GENERATED_LATER_TEXT)).toBeNull();
+});
+
+it('shows a guarded failure when ensureLesson rejects and retries', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson
+    .mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'learning-onboarding:ensure-lesson': Error: bridge closed",
+      ),
+    )
+    .mockImplementationOnce(async (input) => ({
+      outcome: 'success',
+      requestId: input.requestId,
+      value: generated,
+    }));
+  function Host() {
+    const [value, setValue] = useState(pending);
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={vi.fn()}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() =>
+    expect(screen.getByRole('alert')).toHaveTextContent('bridge closed'),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      GENERATED_LATER_TEXT,
+    ),
+  );
+  expect(ensureLesson).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('alert')).toBeNull();
 });
 
 it('rejects a deferred pending lesson after selecting a ready lesson', async () => {
