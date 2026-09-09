@@ -13,6 +13,10 @@ export {
   type CompanionGuidanceHttpDependencies,
 } from './http.js';
 export {
+  makeAccountScopedAdmittedSourceLookup,
+  type AccountScopedAdmittedSourceLookup,
+} from './admitted-lookup.js';
+export {
   makeCompanionGuidanceService,
   type AdmittedSourceDigest,
   type CompanionGuidanceService,

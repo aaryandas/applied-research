@@ -67,6 +67,7 @@ const human: UntrustedHumanLearnerContext = {
   answers: [],
   seedRevisionLocators: [],
   unacquiredSeedUrls: [],
+  pastedSeedText: null,
 };
 const acquired: AcquiredSource = {
   sourceId: SOURCE_ID,
@@ -323,6 +324,141 @@ async function service(provider: ProviderService) {
 }
 
 describe('onboarding service lifecycle accounting', () => {
+  it('places exact pasted seed in untrusted context and omits cleared paste', async () => {
+    const pasted = '  excerpt from a paper  ';
+    const seen: ProviderLearningRequest[] = [];
+    const { onboarding } = await service({
+      complete: (learningRequest) => {
+        seen.push(learningRequest);
+        if (learningRequest.operation.kind === 'generate-learning-path') {
+          return Effect.succeed(pathCompletion(learningRequest.requestId));
+        }
+        return Effect.succeed(tutorCompletion(learningRequest.requestId));
+      },
+    });
+    const withPaste = await onboarding.handle(
+      account,
+      {
+        ...proposeRequest('onboard-paste01'),
+        operation: {
+          kind: 'propose-course',
+          human: { ...human, pastedSeedText: pasted },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(withPaste.outcome).toBe('success');
+    expect(seen.length).toBeGreaterThan(0);
+    for (const item of seen) {
+      expect(item.operation.learnerContext).toContainEqual({
+        id: 'humanpaste',
+        kind: 'human-note',
+        text: pasted,
+      });
+      expect(
+        item.operation.sources.map((source) => source.canonicalText),
+      ).not.toContain(pasted);
+      if (item.operation.kind === 'source-grounded-tutor') {
+        expect(item.operation.question).toBe(SOURCED_LESSON_QUESTION);
+        expect(item.operation.question).not.toContain(pasted.trim());
+      }
+      if (item.operation.kind === 'generate-learning-path') {
+        expect(item.operation.goal).not.toContain(pasted.trim());
+      }
+    }
+    seen.length = 0;
+    const cleared = await onboarding.handle(
+      account,
+      proposeRequest('onboard-paste02'),
+      new AbortController().signal,
+    );
+    expect(cleared.outcome).toBe('success');
+    expect(seen.length).toBeGreaterThan(0);
+    for (const item of seen) {
+      expect(
+        item.operation.learnerContext.some(
+          (entry) => entry.id === 'humanpaste',
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('uses the live selected-lesson profile without rewriting accepted proposal history', async () => {
+    const seen: ProviderLearningRequest[] = [];
+    const { onboarding, proposals } = await service({
+      complete: (learningRequest) => {
+        seen.push(learningRequest);
+        if (learningRequest.operation.kind === 'generate-learning-path') {
+          return Effect.succeed(pathCompletion(learningRequest.requestId));
+        }
+        return Effect.succeed(tutorCompletion(learningRequest.requestId));
+      },
+    });
+    const proposed = await onboarding.handle(
+      account,
+      proposeRequest('onboard-live-prof'),
+      new AbortController().signal,
+    );
+    expect(proposed.outcome).toBe('success');
+    const storedBefore = await proposals.get(account.id, 'onboard-live-prof');
+    if (!storedBefore) throw new Error('expected stored proposal');
+    expect(storedBefore.revision).toBe(1);
+    const historicalSyllabus = structuredClone(storedBefore.syllabus);
+    const first = storedBefore.syllabus.topics[0]?.lessons[0];
+    if (!first) throw new Error('expected stored opening lesson');
+    const liveBackground = 'Live edited background after later profile save.';
+    const selected = await onboarding.handle(
+      account,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: 'onboard-sel-live2',
+        model: 'google/gemini-3.8-flash',
+        operation: {
+          kind: 'generate-selected-lesson',
+          human: {
+            ...human,
+            profileRevision: 2,
+            profile: {
+              ...human.profile,
+              background: liveBackground,
+            },
+          },
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'onboard-live-prof', revision: 1 },
+            syllabus: { title: storedBefore.syllabus.title, topics: [] },
+            personalization: null,
+          },
+          target: {
+            remoteStepId: first.stepId,
+            acceptedProposal: { id: 'onboard-live-prof', revision: 1 },
+            practice: null,
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(selected.outcome).toBe('success');
+    const storedAfter = await proposals.get(account.id, 'onboard-live-prof');
+    expect(storedAfter?.revision).toBe(1);
+    expect(storedAfter?.syllabus).toEqual(historicalSyllabus);
+    const lesson = seen.find(
+      (item) =>
+        item.requestId === 'onboard-sel-live2-lesson' &&
+        item.operation.kind === 'source-grounded-tutor',
+    );
+    expect(lesson?.operation.learnerContext).toContainEqual({
+      id: 'humanback',
+      kind: 'human-note',
+      text: liveBackground,
+    });
+    expect(lesson?.operation.learnerContext).not.toContainEqual({
+      id: 'humanback',
+      kind: 'human-note',
+      text: human.profile.background,
+    });
+  });
+
   it('keeps generated title and objective out of the trusted lesson question', async () => {
     const seen: ProviderLearningRequest[] = [];
     const { onboarding } = await service({

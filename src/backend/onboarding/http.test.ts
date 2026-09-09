@@ -27,7 +27,11 @@ import type { AccountingStore } from '../accounting.js';
 import { makeMemoryGenerationEvalBudget } from '../generation-eval.js';
 import { makeLearningService } from '../learning.js';
 import { ProviderFailure } from '../provider.js';
-import type { ProviderCompletion, ProviderService } from '../provider.js';
+import type {
+  ProviderCompletion,
+  ProviderLearningRequest,
+  ProviderService,
+} from '../provider.js';
 import { startHttpServer } from '../runtime.js';
 import { sha256Text } from '../validation-primitives.js';
 import { makeMemorySourceOperations } from '../sourcing/operations.js';
@@ -94,6 +98,7 @@ const human: UntrustedHumanLearnerContext = {
   ],
   seedRevisionLocators: [],
   unacquiredSeedUrls: [],
+  pastedSeedText: null,
 };
 
 const acquired: AcquiredSource = {
@@ -463,6 +468,79 @@ async function startOnboarding(options?: {
 }
 
 describe('POST /v1/learning/onboarding', () => {
+  it('admits required null paste, exact untrusted paste, and rejects an omitted paste key', async () => {
+    const pasted = '  excerpt from a paper  ';
+    const seen: ProviderLearningRequest[] = [];
+    const backend = await startOnboarding({
+      provider: {
+        complete: (learningRequest) => {
+          seen.push(learningRequest);
+          return provider().complete(learningRequest);
+        },
+      },
+    });
+    const omitted = await post(backend.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-paste-omit',
+      operation: {
+        kind: 'interview-prompt',
+        human: Object.fromEntries(
+          Object.entries(human).filter(([key]) => key !== 'pastedSeedText'),
+        ),
+      },
+    });
+    expect(omitted.status).toBe(400);
+    expect(await omitted.json()).toMatchObject({
+      outcome: 'invalid-request',
+    });
+    expect(seen).toHaveLength(0);
+
+    const cleared = await post(backend.origin, {
+      ...envelope('interview-prompt'),
+      requestId: 'onboard-paste-null',
+    });
+    expect(cleared.status).toBe(200);
+    expect(seen.length).toBeGreaterThan(0);
+    for (const item of seen) {
+      expect(
+        item.operation.learnerContext.some(
+          (entry) => entry.id === 'humanpaste',
+        ),
+      ).toBe(false);
+      expect(JSON.stringify(item.operation.sources)).not.toContain(pasted);
+    }
+    seen.length = 0;
+
+    const withPaste = await post(backend.origin, {
+      ...envelope('propose-course'),
+      requestId: 'onboard-paste-keep',
+      operation: {
+        kind: 'propose-course',
+        human: { ...human, pastedSeedText: pasted },
+      },
+    });
+    expect(withPaste.status).toBe(200);
+    expect(seen.length).toBeGreaterThan(0);
+    for (const item of seen) {
+      expect(item.operation.learnerContext).toContainEqual({
+        id: 'humanpaste',
+        kind: 'human-note',
+        text: pasted,
+      });
+      expect(
+        item.operation.sources.some((source) =>
+          source.canonicalText.includes(pasted.trim()),
+        ),
+      ).toBe(false);
+      if (item.operation.kind === 'source-grounded-tutor') {
+        expect(item.operation.question).not.toContain(pasted.trim());
+      }
+      if (item.operation.kind === 'generate-learning-path') {
+        expect(item.operation.goal).not.toContain(pasted.trim());
+      }
+    }
+  });
+
   it('requires a session and rejects caller account or evidence authority', async () => {
     const backend = await startOnboarding({
       authenticate: async () => null,

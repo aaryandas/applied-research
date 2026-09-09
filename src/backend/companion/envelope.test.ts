@@ -138,6 +138,35 @@ describe('companion backend envelope', () => {
     expect(decoded.learnerContext).toHaveLength(1);
   });
 
+  it('rejects locator credentials and @ authority ambiguity', () => {
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: {
+            ...(companionEnvelope().source as object),
+            provenance: {
+              kind: 'human-imported',
+              locator: 'https://user:pass@example.test/paper',
+            },
+          },
+        }),
+      ),
+    ).toThrow(/locator/);
+    expect(() =>
+      decodeCompanionBackendEnvelope(
+        companionEnvelope({
+          source: {
+            ...(companionEnvelope().source as object),
+            provenance: {
+              kind: 'human-imported',
+              locator: 'https://example.test/@paper',
+            },
+          },
+        }),
+      ),
+    ).toThrow(/locator/);
+  });
+
   it('rejects extra keys, bad generations, and non-https locators', () => {
     expect(() =>
       decodeCompanionBackendEnvelope(companionEnvelope({ extra: true })),

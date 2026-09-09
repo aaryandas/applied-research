@@ -40,9 +40,16 @@ projects `CourseProposal`.
 - Account comes from the authenticated session. Request bodies must not include
   `accountId`, `account`, `evidenceContext`, canonical source text, `usePolicy`,
   `sourcePolicy`, paid-retry flags, `evidence` or `sourceScopes`.
-- Human profile, interview answers and unacquired seed URLs are
-  `untrusted-human-context`. Prior syllabus text is `untrusted-model-context`.
+- Human profile, interview answers, private pasted seed text, and unacquired
+  seed URLs are `untrusted-human-context`. `pastedSeedText` is a required
+  bounded string or `null` (blank/null clears). Exact paste is planning data
+  only: never acquisition, embedding, citations, seed locators, or trusted
+  question instructions. Prior syllabus text is `untrusted-model-context`.
   Neither is source-evidence authority. Backend reacquires permitted originals.
+- Propose/revise bind `profileRevision` to the interview/proposal row.
+  Selected-lesson generation may send the **live** profile after later edits
+  and must not rewrite accepted interview, syllabus, or historical
+  `profileRevision` on the stored proposal.
 - AI personalization and diagnostic observations are `author: 'ai'` with
   `masteryEstablished: false`. Reading or a working artifact is not mastery.
 - `acceptCourse` / `ensureLesson` accept only opaque identity and a stored
@@ -118,7 +125,9 @@ Do not change installed foundations, model (`google/gemini-3.8-flash`), or
 dependencies. `AI_ENABLED` remains false until root applies the reviewed
 bounded generation-eval configuration. Generated lesson titles and objectives
 are untrusted `evidenceContext.targetStep` values; the trusted tutor question
-is the fixed sourced-lesson instruction. Syllabus lesson roles and capstone
+is the fixed sourced-lesson instruction. Exact bounded `pastedSeedText` is
+emitted into untrusted `learnerContext` (`human-note` `humanpaste`) including
+when the value is `null` (cleared omission). Syllabus lesson roles and capstone
 briefs must be explicit provider output. Source-title keywords and generic
 fill-in briefs are not proof of a substantial capstone. Importing the API
 module from

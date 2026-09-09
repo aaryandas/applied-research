@@ -199,6 +199,7 @@ export type InterviewDraft = {
   goal: string;
   focus: string;
   depth: LessonDepth;
+  /** 0 = unbound local draft (no saved profile yet). Planning requires a real bind. */
   profileRevision: number;
   sourceRevisionIds: string[];
   seedDrafts: UnacquiredSeedUrl[];

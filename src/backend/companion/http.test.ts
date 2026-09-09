@@ -17,6 +17,7 @@ import {
   handleCompanionGuidanceRoute,
   matchCompanionGuidanceRoute,
 } from './index.js';
+import type { AccountScopedAdmittedSourceLookup } from './admitted-lookup.js';
 
 const ACCOUNT: PublicAccount = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -110,6 +111,7 @@ async function listen(
     account: PublicAccount,
     request: unknown,
   ) => Effect.Effect<LearningResponse>,
+  lookupAdmittedSource?: AccountScopedAdmittedSourceLookup,
 ): Promise<string> {
   const request = vi.fn(learning);
   const server = createServer((req, res) => {
@@ -121,6 +123,7 @@ async function listen(
       },
       runEffect: (effect, signal) =>
         Effect.runPromise(effect, signal ? { signal } : undefined),
+      ...(lookupAdmittedSource ? { lookupAdmittedSource } : {}),
     });
   });
   server.listen(0, '127.0.0.1');
@@ -183,6 +186,8 @@ describe('companion guidance HTTP route', () => {
         authorKind: 'ai',
         text: 'ok',
         provenance: learningSuccess.provenance,
+        nextAction: 'Change one entry.',
+        citations: [],
       }),
     ).toBe(200);
     expect(
@@ -235,6 +240,16 @@ describe('companion guidance HTTP route', () => {
       outcome: 'success',
       authorKind: 'ai',
       text: 'Compare the sheared image to the original basis.',
+      nextAction: 'Change one entry.',
+      citations: [
+        {
+          sourceId: 'source-01',
+          revisionId: 'revision01',
+          start: 0,
+          end: 5,
+          quote: 'Shear',
+        },
+      ],
     });
   });
 
@@ -367,5 +382,89 @@ describe('companion guidance HTTP route', () => {
       expect.any(Error),
     );
     expect(response.statusCode).toBe(503);
+  });
+
+  it('binds the session account for admitted lookup miss, match, and digest mismatch', async () => {
+    const seenAccounts: string[] = [];
+    const lookup: AccountScopedAdmittedSourceLookup = async (
+      account,
+      input,
+    ) => {
+      seenAccounts.push(account.id);
+      expect(input).toEqual({
+        sourceId: 'source-01',
+        revisionId: 'revision01',
+      });
+      if (account.id !== ACCOUNT.id) return null;
+      if (input.sourceId === 'source-01') {
+        return { sha256 };
+      }
+      return null;
+    };
+    const missOrigin = await listen(
+      async () => ACCOUNT,
+      () => Effect.succeed(success()),
+      async () => null,
+    );
+    const miss = await fetch(`${missOrigin}${COMPANION_GUIDANCE_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'session=ok',
+      },
+      body: JSON.stringify(envelope()),
+    });
+    expect(miss.status).toBe(200);
+    await expect(miss.json()).resolves.toMatchObject({
+      outcome: 'success',
+      nextAction: 'Change one entry.',
+      citations: [
+        {
+          sourceId: 'source-01',
+          revisionId: 'revision01',
+          start: 0,
+          end: 5,
+          quote: 'Shear',
+        },
+      ],
+    });
+
+    const matchOrigin = await listen(
+      async () => ACCOUNT,
+      () => Effect.succeed(success()),
+      lookup,
+    );
+    const matched = await fetch(`${matchOrigin}${COMPANION_GUIDANCE_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'session=ok',
+      },
+      body: JSON.stringify(envelope()),
+    });
+    expect(matched.status).toBe(200);
+    expect(seenAccounts).toEqual([ACCOUNT.id]);
+
+    const mismatchOrigin = await listen(
+      async () => ACCOUNT,
+      () => Effect.succeed(success()),
+      async () => ({ sha256: 'e'.repeat(64) }),
+    );
+    const mismatched = await fetch(
+      `${mismatchOrigin}${COMPANION_GUIDANCE_PATH}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'session=ok',
+        },
+        body: JSON.stringify(envelope()),
+      },
+    );
+    expect(mismatched.status).toBe(400);
+    await expect(mismatched.json()).resolves.toMatchObject({
+      outcome: 'invalid-request',
+      requestId,
+    });
   });
 });

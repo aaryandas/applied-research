@@ -37,6 +37,7 @@ const request: LearningOnboardingRequest = {
       answers: [],
       seedRevisionLocators: [],
       unacquiredSeedUrls: [],
+      pastedSeedText: null,
     },
   },
 };
@@ -456,5 +457,52 @@ describe('prepareOnboardingSources', () => {
       }),
     });
     expect(prepared).toEqual({ kind: 'cancelled' });
+  });
+
+  it('does not discover, acquire, or cite private pasted seed text', async () => {
+    const pasted = '  private excerpt that must not become a source  ';
+    const pastedRequest: LearningOnboardingRequest = {
+      ...request,
+      requestId: 'onboard-prep-paste',
+      operation: {
+        ...request.operation,
+        human: { ...request.operation.human, pastedSeedText: pasted },
+      },
+    };
+    const discoverCandidates = vi.fn(async (envelope) => {
+      expect(envelope.query).toBe(pastedRequest.operation.human.goal);
+      expect(JSON.stringify(envelope)).not.toContain(pasted.trim());
+      return {
+        outcome: 'success' as const,
+        requestId: envelope.requestId,
+        candidates: [],
+      };
+    });
+    const acquireCanonicalSource = vi.fn();
+    const prepared = await prepareOnboardingSources({
+      account,
+      request: pastedRequest,
+      signal: new AbortController().signal,
+      sourcing: {
+        discoverCandidates,
+        acquireCanonicalSource,
+        retrieveEvidence: vi.fn(),
+      },
+      selectEvidence: async (query) => {
+        expect(query.query).toBe(pastedRequest.operation.human.goal);
+        expect(query.query).not.toContain(pasted.trim());
+        return {
+          sources: [],
+          retrieval: {
+            outcome: 'no-evidence',
+            requestId: query.requestId,
+            message: SOURCING_PUBLIC_MESSAGES.noEvidence,
+          },
+        };
+      },
+    });
+    expect(prepared.kind).toBe('coverage-pending');
+    expect(discoverCandidates).toHaveBeenCalledOnce();
+    expect(acquireCanonicalSource).not.toHaveBeenCalled();
   });
 });

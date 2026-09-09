@@ -40,11 +40,43 @@ const now = new Date('2026-09-09T12:00:00.000Z');
 const text = 'Attention is a weighted combination of values.';
 const sourceSha256 = createHash('sha256').update(text, 'utf8').digest('hex');
 const account = { id: 'account-planner1', name: 'Ada', image: null };
-const unsupportedPlan = {
-  status: 'unsupported' as const,
-  reason: 'unrelated-topic' as const,
-  textualContinuation: 'Continue with a text explanation of this passage.',
-  practicalContinuation: 'Compute a two-value weighted average in Practical.',
+const citationStart = text.indexOf('weighted combination of values');
+const citationQuote = text.slice(citationStart);
+const SETTLED_MICROUSD = 7;
+const supportedPlan = {
+  status: 'supported' as const,
+  family: 'weighted-combination' as const,
+  parameters: {
+    vectors: [
+      [2, 1],
+      [-1, 2],
+    ],
+    weights: [3, 1],
+    labels: ['First vector', 'Second vector'],
+  },
+  stages: [{ name: 'Combine', seconds: 2 }],
+  caption: 'Weighted sum of two vectors',
+  copy: {
+    role: 'untrusted-display-copy' as const,
+    title: 'Weights',
+    quote: null,
+  },
+  sourceSupport: {
+    kind: 'cited-source' as const,
+    citations: [
+      {
+        sourceId: '10000000-0000-4000-8000-000000000001',
+        revisionId: '20000000-0000-4000-8000-000000000001',
+        start: citationStart,
+        end: text.length,
+        quote: citationQuote,
+      },
+    ],
+  },
+  rationale: {
+    role: 'untrusted-display-copy' as const,
+    text: 'Shows a weighted combination.',
+  },
 };
 
 function plannerEnvelope(
@@ -123,9 +155,9 @@ describe('PostgreSQL explanation planner join', () => {
       complete: () => {
         physicalCalls += 1;
         return Effect.succeed({
-          plan: unsupportedPlan,
+          plan: supportedPlan,
           providerRequestId: 'local-planner-double',
-          actualMicrousd: 0,
+          actualMicrousd: SETTLED_MICROUSD,
           model: 'google/gemini-3.8-flash' as const,
         });
       },
@@ -144,6 +176,46 @@ describe('PostgreSQL explanation planner join', () => {
     );
     expect(first.outcome).toBe('success');
     expect(physicalCalls).toBe(1);
+    if (first.outcome === 'success') {
+      expect(first.plan).toMatchObject({
+        status: 'supported',
+        family: 'weighted-combination',
+        sourceSupport: {
+          kind: 'cited-source',
+          citations: [
+            {
+              sourceId: '10000000-0000-4000-8000-000000000001',
+              revisionId: '20000000-0000-4000-8000-000000000001',
+              start: citationStart,
+              end: text.length,
+              quote: citationQuote,
+            },
+          ],
+        },
+      });
+    }
+    const settledRow = await pool.query<{
+      actual_microusd: string;
+      state: string;
+    }>(
+      `SELECT actual_microusd::text, state
+       FROM learning_request WHERE request_id = 'planner-req-01'`,
+    );
+    expect(settledRow.rows[0]).toEqual({
+      actual_microusd: String(SETTLED_MICROUSD),
+      state: 'settled',
+    });
+    expect(SETTLED_MICROUSD).toBeGreaterThan(0);
+    const monthlyAfterFirst = await pool.query<{
+      committed_microusd: string;
+    }>(
+      `SELECT committed_microusd::text FROM usage_month
+       WHERE account_id = $1`,
+      [account.id],
+    );
+    expect(monthlyAfterFirst.rows[0]?.committed_microusd).toBe(
+      String(SETTLED_MICROUSD),
+    );
 
     const restarted = await Effect.runPromise(
       makeExplanationPlannerService({
@@ -159,6 +231,30 @@ describe('PostgreSQL explanation planner join', () => {
     );
     expect(replay.outcome).toBe('success');
     expect(physicalCalls).toBe(1);
+    if (first.outcome === 'success' && replay.outcome === 'success') {
+      expect(replay.plan).toEqual(first.plan);
+    }
+    const settledReplay = await pool.query<{
+      actual_microusd: string;
+      state: string;
+    }>(
+      `SELECT actual_microusd::text, state
+       FROM learning_request WHERE request_id = 'planner-req-01'`,
+    );
+    expect(settledReplay.rows[0]).toEqual({
+      actual_microusd: String(SETTLED_MICROUSD),
+      state: 'settled',
+    });
+    const monthlyAfterReplay = await pool.query<{
+      committed_microusd: string;
+    }>(
+      `SELECT committed_microusd::text FROM usage_month
+       WHERE account_id = $1`,
+      [account.id],
+    );
+    expect(monthlyAfterReplay.rows[0]?.committed_microusd).toBe(
+      String(SETTLED_MICROUSD),
+    );
     const afterReplay = await Effect.runPromise(generationEval.inspect());
     expect(afterReplay.dispatchCommitted).toBe(1);
 

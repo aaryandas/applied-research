@@ -15,6 +15,10 @@ import type { LearningService } from './learning.js';
 import { makeSourcedLearningApi } from './learning-api.js';
 import type { SourcedLearningApi } from './learning-api.js';
 import {
+  makeAccountScopedAdmittedSourceLookup,
+  type AccountScopedAdmittedSourceLookup,
+} from './companion/index.js';
+import {
   adaptGenerationEvalLedger,
   makeExplanationPlannerProvider,
   makeExplanationPlannerService,
@@ -58,6 +62,7 @@ interface BackendServicesValue {
   readonly sourcedLearning: SourcedLearningApi;
   readonly onboarding: OnboardingService;
   readonly explanationPlanner: ExplanationPlannerService;
+  readonly lookupAdmittedSource: AccountScopedAdmittedSourceLookup;
   readonly ready: () => Promise<boolean>;
 }
 
@@ -210,6 +215,10 @@ function makeBackendLayer(
         now: () => new Date(),
         diagnostics,
       });
+      const lookupAdmittedSource = makeAccountScopedAdmittedSourceLookup(
+        persistence,
+        runEffect,
+      );
       return {
         auth,
         learning,
@@ -217,6 +226,7 @@ function makeBackendLayer(
         sourcedLearning,
         onboarding,
         explanationPlanner,
+        lookupAdmittedSource,
         ready: async () => {
           try {
             const migration = await database.pool.query(
@@ -314,6 +324,7 @@ export async function startBackend(
         sourcedLearning: services.sourcedLearning,
         onboarding: services.onboarding,
         explanationPlanner: services.explanationPlanner,
+        lookupAdmittedSource: services.lookupAdmittedSource,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
         runEffect: (effect, signal) =>

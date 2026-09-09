@@ -9,6 +9,7 @@ import {
   writeJson,
 } from '../http-body.js';
 import type { LearningService } from '../learning.js';
+import type { AccountScopedAdmittedSourceLookup } from './admitted-lookup.js';
 import {
   COMPANION_GUIDANCE_PATH,
   failureReply,
@@ -23,7 +24,12 @@ export interface CompanionGuidanceHttpDependencies {
   readonly auth: AuthService;
   readonly learning: LearningService;
   readonly runEffect: CompanionGuidanceServiceOptions['runEffect'];
-  readonly lookupAdmittedSource?: CompanionGuidanceServiceOptions['lookupAdmittedSource'];
+  /**
+   * Optional account-scoped admitted-source lookup. HTTP binds the
+   * authenticated session account; the producer lookup still has no account
+   * argument. A miss remains workspace-grounding, not a corpus hit.
+   */
+  readonly lookupAdmittedSource?: AccountScopedAdmittedSourceLookup;
   readonly diagnostics?: Diagnostics;
 }
 
@@ -108,11 +114,15 @@ export async function handleCompanionGuidanceRoute(
       );
       return;
     }
+    const lookupAdmittedSource = dependencies.lookupAdmittedSource;
     const service = makeCompanionGuidanceService({
       learning: dependencies.learning,
       runEffect: dependencies.runEffect,
-      ...(dependencies.lookupAdmittedSource
-        ? { lookupAdmittedSource: dependencies.lookupAdmittedSource }
+      ...(lookupAdmittedSource
+        ? {
+            lookupAdmittedSource: (input) =>
+              lookupAdmittedSource(account, input),
+          }
         : {}),
     });
     const reply = await service.answer(account, body, disconnect.signal);

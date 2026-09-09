@@ -27,8 +27,9 @@ if (matchCompanionGuidanceRoute(url.pathname, request.method)) {
     auth: dependencies.auth,
     learning: dependencies.learning, // production LearningService with monthly + durable aggregate admission
     runEffect: dependencies.runEffect,
-    // Optional: when AR48 source operations can digest a retained source:
-    // lookupAdmittedSource: ({ sourceId, revisionId }) => operations.lookupDigest(...)
+    // Optional AR-48 join: account-scoped digest from existing SourcePersistence.getRevision.
+    // HTTP binds the session account; do not invent a global/unowned lookup or trust client hashes.
+    // lookupAdmittedSource: (account, input) => persistence.getRevision(account.id, ...)
   });
   return;
 }
@@ -36,8 +37,24 @@ if (matchCompanionGuidanceRoute(url.pathname, request.method)) {
 
 Do **not** construct a second OpenRouter client, budget, retry loop, or provider-enabling setting. The service calls `learning.request(account, ProviderLearningRequest)` **once**. `unavailable` / unknown provider outcomes are returned as typed failures; they are not retried.
 
-Authenticate with `auth.authenticate(request.headers)` (Better Auth cookies). Incoming selected material is untrusted content. The envelope decoder re-hashes `canonicalText` and checks excerpt offsets. When `lookupAdmittedSource` is injected and returns a row, a digest mismatch is `invalid-request`. A corpus miss still allows hash-verified workspace text; it is not treated as a scholarly corpus hit.
+Authenticate with `auth.authenticate(request.headers)` (Better Auth cookies). Incoming selected material is untrusted content. The envelope decoder re-hashes `canonicalText` and checks excerpt offsets. Locators must parse as `https:` URLs with no userinfo and no `@` authority ambiguity (same policy as main `httpsLocator` / `new URL`). AR-48 injects an **account-scoped** `lookupAdmittedSource` that reads `SourcePersistence.getRevision(accountId, sourceId, revisionId)` and returns only `{ sha256 }`. A digest mismatch is `invalid-request`. A corpus miss still allows hash-verified workspace text; it is not treated as a scholarly corpus hit. Unit HTTP tests may omit the lookup (honest workspace-grounding). There is no `allowAll` and no fake capture.
 
-Source-poor tool/app-control envelopes use `grounding: 'app-context'` and a labelled `companion-app-context` source revision so the existing tutor schema (citations minItems 1) can cite the actual control description instead of inventing papers.
+Source-poor tool/app-control envelopes use `grounding: 'app-context'` and a labelled `companion-app-context` source revision so the existing tutor schema (citations minItems 1) can cite the actual control description instead of inventing papers. The untrusted-content prefix is applied for **both** `source` and `app-context`.
 
-Reply JSON matches the AR53 success/failure shape (no `stale`/`offline` from HTTP; those are desktop outcomes).
+HTTP success JSON (hand-off from this producer; AR53 IPC is unchanged):
+
+```ts
+{
+  outcome: 'success',
+  requestId,
+  authorKind: 'ai',
+  text,
+  provenance,
+  nextAction, // tutor nextAction
+  citations,  // exact SourceCitation[] from LearningResponse
+}
+```
+
+Main transport strips `nextAction`/`citations` when mapping onto AR53 `CompanionGuidanceReply`. Do not decode this HTTP body with `decodeCompanionGuidanceReply` directly; extra keys fail that decoder.
+
+Reply JSON otherwise matches the AR53 success/failure shape (no `stale`/`offline` from HTTP; those are desktop outcomes).

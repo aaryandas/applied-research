@@ -18,6 +18,7 @@ import {
 import {
   handleCompanionGuidanceRoute,
   matchCompanionGuidanceRoute,
+  type AccountScopedAdmittedSourceLookup,
 } from './companion/index.js';
 import {
   handleExplanationPlanRoute,
@@ -46,6 +47,7 @@ export interface HttpDependencies {
   readonly sourcedLearning?: SourcedLearningApi;
   readonly onboarding?: OnboardingService;
   readonly explanationPlanner?: ExplanationPlannerService;
+  readonly lookupAdmittedSource?: AccountScopedAdmittedSourceLookup;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -280,6 +282,9 @@ export function createHttpHandler(
         runEffect: dependencies.runEffect,
         ...(dependencies.diagnostics
           ? { diagnostics: dependencies.diagnostics }
+          : {}),
+        ...(dependencies.lookupAdmittedSource
+          ? { lookupAdmittedSource: dependencies.lookupAdmittedSource }
           : {}),
       });
       return;

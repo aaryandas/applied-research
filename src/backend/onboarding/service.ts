@@ -11,6 +11,7 @@ import type {
 } from '../../contracts/learning-onboarding-api.js';
 import {
   LEARNING_ONBOARDING_API_VERSION,
+  LEARNING_ONBOARDING_LIMITS,
   LEARNING_ONBOARDING_PUBLIC_MESSAGES as MESSAGES,
 } from '../../contracts/learning-onboarding-api.js';
 import type {
@@ -248,6 +249,7 @@ function humanContext(request: LearningOnboardingRequest) {
     kind: 'human-note' as const,
     text: item.answer.slice(0, 4_000),
   }));
+  const pasted = human.pastedSeedText;
   return [
     {
       id: 'humangoal',
@@ -265,6 +267,18 @@ function humanContext(request: LearningOnboardingRequest) {
       text: human.profile.priorKnowledge.slice(0, 2_000),
     },
     ...answers,
+    ...(pasted === null
+      ? []
+      : [
+          {
+            id: 'humanpaste',
+            kind: 'human-note' as const,
+            text: pasted.slice(
+              0,
+              LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters,
+            ),
+          },
+        ]),
   ].filter((item) => item.text.trim().length > 0);
 }
 
