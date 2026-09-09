@@ -212,9 +212,15 @@ async function finish() {
     if (task.status !== 'SUCCESS' || !task.analysisId)
       throw new Error(`Sonar compute task has not succeeded: ${task.status}`);
     const history = await sonar(
-      `/api/project_analyses/search?project=${encodeURIComponent(process.env.SONAR_PROJECT_KEY)}&ps=1`,
+      `/api/project_analyses/search?project=${encodeURIComponent(process.env.SONAR_PROJECT_KEY)}&ps=100`,
     );
-    const analysis = history.analyses[0];
+    const analysis = history.analyses.find(
+      (candidate) => candidate.key === task.analysisId,
+    );
+    if (!analysis)
+      throw new Error(
+        'Sonar analysis for this compute task is not visible yet',
+      );
     const { projectStatus: gate } = await sonar(
       `/api/qualitygates/project_status?analysisId=${encodeURIComponent(task.analysisId)}`,
     );

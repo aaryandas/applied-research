@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TARGET_TIME, planDispatch } from './dispatch-plan.mjs';
+import { TARGET_TIME, normalizeIssue, planDispatch } from './dispatch-plan.mjs';
 const now = Date.parse('2026-09-09T01:00:00Z');
 const issue = (number, extra = {}) => ({
   id: `id-${number}`,
@@ -80,6 +80,43 @@ test('stale snapshots fail closed', () => {
         now,
       }),
     /Refresh Linear/,
+  );
+});
+
+test('normalizeIssue maps Linear blockedBy relations to ticket identifiers', () => {
+  const ready = normalizeIssue({
+    uuid: 'uuid-1',
+    identifier: 'AR-1',
+    title: 'Child',
+    description: 'Acceptance: behavior works',
+    status: 'Todo',
+    priority: { value: 2 },
+    createdAt: '2026-09-08T00:00:00Z',
+    labels: [],
+    relations: {
+      blockedBy: [{ id: 'uuid-2', identifier: 'AR-2' }],
+    },
+    assignment: { lane: 'lane:delivery' },
+  });
+  const blocker = normalizeIssue({
+    id: 'uuid-2',
+    identifier: 'AR-2',
+    title: 'Parent',
+    description: 'Done parent',
+    status: 'Done',
+    priority: 0,
+    createdAt: '2026-09-07T00:00:00Z',
+    labels: [],
+    blockedBy: [],
+    assignment: { lane: 'lane:delivery' },
+  });
+  assert.deepEqual(ready.blockedBy, ['AR-2']);
+  assert.equal(
+    plan([
+      { ...ready, lane: ready.lane },
+      { ...blocker, lane: blocker.lane },
+    ]).selected.length,
+    1,
   );
 });
 
@@ -219,6 +256,92 @@ test(
     }
   },
 );
+
+test('reattaches an existing job file instead of keeping a stale completed receipt', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } =
+    await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const directory = mkdtempSync(join(tmpdir(), 'dispatch-relaunch-'));
+  const snapshotPath = join(directory, 'snapshot.json');
+  const worktree = join(directory, 'worktree');
+  const previousJob = join(directory, 'AR-1-round-0.json');
+  const nextJob = join(directory, 'AR-1-round-1.json');
+  mkdirSync(join(worktree, 'node_modules'), { recursive: true });
+  writeFileSync(
+    previousJob,
+    JSON.stringify({
+      status: 'failed',
+      threadId: 'old-thread',
+    }),
+  );
+  writeFileSync(
+    nextJob,
+    JSON.stringify({
+      status: 'launching',
+      threadId: 'repair-thread',
+    }),
+  );
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      issues: [
+        issue(1, {
+          status: 'In Development',
+          repairRequest: { id: 'fix-1', text: 'Repair the defect' },
+        }),
+      ],
+    }),
+  );
+  writeFileSync(
+    join(directory, 'claims.json'),
+    JSON.stringify({
+      version: 1,
+      claims: {
+        'AR-1': {
+          identifier: 'AR-1',
+          phase: 'failed',
+          worktree,
+          jobPath: previousJob,
+          round: 0,
+        },
+      },
+    }),
+  );
+  try {
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./dispatch.mjs', import.meta.url)),
+          'tick',
+          '--state-dir',
+          directory,
+          '--snapshot',
+          snapshotPath,
+        ],
+        { encoding: 'utf8' },
+      ),
+    );
+    const claim = JSON.parse(
+      readFileSync(join(directory, 'claims.json'), 'utf8'),
+    ).claims['AR-1'];
+    assert.equal(claim.jobPath, nextJob);
+    assert.equal(claim.lastRepairId, 'fix-1');
+    assert.equal(claim.round, 1);
+    assert.equal(
+      result.events.some(
+        (event) => event.to === 'In Testing' && event.identifier === 'AR-1',
+      ),
+      false,
+    );
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
 
 test('one corrupt job emits attention while another claim still transitions', async () => {
   const { execFileSync } = await import('node:child_process');

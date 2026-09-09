@@ -103,4 +103,11 @@ test('Sonar receipt binds completed server task, quality gate and analysis revis
     validateAnalysis({ ...evidence, task: { status: 'PENDING' } }),
     false,
   );
+  assert.equal(
+    validateAnalysis({
+      ...evidence,
+      analysis: { key: 'analysis-0', revision: sha },
+    }),
+    false,
+  );
 });

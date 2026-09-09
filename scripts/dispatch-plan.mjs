@@ -103,7 +103,8 @@ export function normalizeIssue(raw) {
     createdAt: raw.createdAt,
     labels: raw.labels,
     blockedBy:
-      raw.blockedBy ?? raw.relations?.blockedBy?.map((issue) => issue.id),
+      raw.blockedBy ??
+      raw.relations?.blockedBy?.map((related) => related.identifier),
     lane: raw.lane ?? raw.assignment?.lane,
     activeRun: raw.activeRun === true,
     prerequisiteCheckpoints:
