@@ -4,7 +4,7 @@ import type { RetrieveEvidenceResponse } from '../../../contracts/sourcing.js';
 import type { IndexFailureReason } from './types.js';
 
 export class IndexOperationError extends Error {
-  /** `cause` stays on the error for backend diagnostics; only `reason` reaches results. */
+  /** Only `reason` reaches results; `cause` is the standard Error option, not a public seam. */
   constructor(
     readonly reason: IndexFailureReason,
     options?: { cause?: unknown },
