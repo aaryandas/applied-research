@@ -117,3 +117,5 @@ teaching text remains AI-authored and separately references immutable originals.
 Project/request-scoped commit capabilities reject cancellation and stale results.
 No trusted-content write is exposed through preload; actual authenticated producer,
 selection and shell wiring remain dependent integration work.
+
+The [AR-37 production integration repair](source-adoption-integration.md) installs the named main/preload operations and Shell consumers. `SourceDesktopOperations` owns selected project/request lifetimes; renderer payloads contain bounded requests and identities, never trusted canonical content. Its authenticated HTTP adapter is a required outside-lane composition dependency and is explicitly unavailable until supplied. Practical records use the same SQLite connection and registered additive migration. AR-36 source/teaching/path bundles commit in one outer transaction. Portable source validators take host-supplied hashing; main no longer imports backend services or Effect. Archived editions are decoded separately from current transport admission, and corrupt provenance is isolated to its owning project.

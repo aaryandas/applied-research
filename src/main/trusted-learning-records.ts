@@ -21,6 +21,7 @@ export interface TrustedLearningPathAcceptance {
       activity: string;
       citations: SourceCitation[];
       sourceRevisionId?: string;
+      sourceState?: 'pending';
     }>;
   };
 }
@@ -149,6 +150,9 @@ export function decodeTrustedLearningPath(
             4_000,
           ),
           citations: step.citations.map(citation),
+          ...(step.sourceState === 'pending'
+            ? { sourceState: 'pending' as const }
+            : {}),
           ...(step.sourceRevisionId === undefined
             ? {}
             : {

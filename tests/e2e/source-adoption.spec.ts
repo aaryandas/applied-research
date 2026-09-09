@@ -65,6 +65,23 @@ test('reads main-adopted synthetic evidence and generated text with exact human 
     await expect(page.getByLabel('Source text', { exact: true })).toHaveText(
       'A generated explanation with evidence.',
     );
+    await page.getByRole('button', { name: 'Practical', exact: true }).click();
+    await page
+      .getByLabel('Expected outcome')
+      .fill('  My exact prediction 🧪\n');
+    await page
+      .getByRole('textbox', { name: /Your interpretation/ })
+      .fill(' A human reflection. ');
+    await page
+      .getByRole('button', { name: 'Return to learning', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Practical', exact: true }).click();
+    await expect(page.getByLabel('Expected outcome')).toHaveValue(
+      '  My exact prediction 🧪\n',
+    );
+    await page
+      .getByRole('button', { name: 'Return to learning', exact: true })
+      .click();
     await page.getByRole('tab', { name: 'Sources', exact: true }).click();
     await page
       .getByRole('button', { name: 'Synthetic paper', exact: true })
@@ -122,6 +139,16 @@ test('reads main-adopted synthetic evidence and generated text with exact human 
     await expect(page.getByLabel('Source text', { exact: true })).toHaveText(
       'A generated explanation with evidence.',
     );
+    await page.getByRole('button', { name: 'Practical', exact: true }).click();
+    await expect(page.getByLabel('Expected outcome')).toHaveValue(
+      '  My exact prediction 🧪\n',
+    );
+    await expect(
+      page.getByRole('textbox', { name: /Your interpretation/ }),
+    ).toHaveValue(' A human reflection. ');
+    await page
+      .getByRole('button', { name: 'Return to learning', exact: true })
+      .click();
     await page.screenshot({
       path: test.info().outputPath('adopted-reader.png'),
     });

@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_915_600_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_922_800_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -132,6 +132,40 @@ const EXPECTED_TABLE_COLUMNS = {
     'x',
     'y',
     'updated_at',
+  ],
+  practical_attempts: [
+    'id',
+    'project_id',
+    'activity_json',
+    'current_revision',
+    'saved_revision',
+    'path_id',
+    'path_revision',
+    'topic_id',
+    'lesson_id',
+    'source_revision_id',
+    'highlight_id',
+    'created_at',
+    'updated_at',
+  ],
+  practical_attempt_revisions: [
+    'attempt_id',
+    'project_id',
+    'revision',
+    'draft_json',
+    'selection_id',
+    'recorded_at',
+  ],
+  practical_files: [
+    'id',
+    'project_id',
+    'attempt_id',
+    'display_name',
+    'media_type',
+    'byte_length',
+    'content_sha256',
+    'content',
+    'imported_at',
   ],
   __drizzle_migrations: ['id', 'hash', 'created_at'],
 } as const;
@@ -260,7 +294,7 @@ function tableNames(database: Database.Database): string[] {
 }
 
 function tableColumns(database: Database.Database, table: string): string[] {
-  const rows = database.pragma(`table_info(${table})`) as Array<{
+  const rows = database.pragma(`table_xinfo(${table})`) as Array<{
     name: unknown;
   }>;
   return rows.map((row) => String(row.name));
@@ -482,7 +516,9 @@ function runPendingMigrations(
   // SQLite's generalized ALTER TABLE procedure requires this outside the
   // transaction. Migration 0002 checks every foreign key before it can commit.
   const foreignKeys = database.pragma('foreign_keys', { simple: true });
-  database.pragma('foreign_keys = OFF');
+  const rebuildsSourceVersions =
+    (migrationTimestamp(database) ?? 0) < 1_788_915_600_000;
+  if (rebuildsSourceVersions) database.pragma('foreign_keys = OFF');
   try {
     migrate(drizzle(database), { migrationsFolder });
   } catch (error_) {

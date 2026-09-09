@@ -1,3 +1,14 @@
+import { decodeRecord } from './workspace-decoder';
+import { SourceDesktopOperations } from './source-desktop';
+import { SOURCE_CHANNELS } from '../contracts/source-desktop';
+import { PracticalFileSelection } from './practical-file-selection';
+import { RECORD_PRACTICAL_RESULT_CHANNEL } from '../contracts/practical-work';
+import {
+  LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+  SELECT_PRACTICAL_FILE_CHANNEL,
+  CANCEL_PRACTICAL_FILE_CHANNEL,
+  PRACTICAL_FILE_EXTENSIONS,
+} from '../contracts/practical-records';
 import {
   app,
   BrowserWindow,
@@ -182,6 +193,49 @@ async function createWindow(): Promise<void> {
       text: text(pageText, 12_000),
     };
   }
+  let authenticated = false;
+  let selectedWorkspaceId: string | null = null;
+  const isSelectedPractical = (value: unknown): boolean => {
+    const input = decodeRecord(value, 'practical operation');
+    return (
+      decodeRecord(input.activity, 'practical activity').projectId ===
+      selectedWorkspaceId
+    );
+  };
+  const sourceOperations = new SourceDesktopOperations({
+    store,
+    authenticated: () => authenticated,
+    // Auth/backend composition must supply the reviewed HTTP transport. Fail
+    // unavailable until it exists; no development provider or fabricated answer.
+    transport: null,
+    openOriginal: (url) => shell.openExternal(url),
+  });
+  const fileSelection = new PracticalFileSelection({
+    records: store,
+    chooseFile: async (signal) => {
+      if (signal.aborted || window.isDestroyed()) return null;
+      const result = await dialog.showOpenDialog(window, {
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'Returned evidence',
+            extensions: [...PRACTICAL_FILE_EXTENSIONS],
+          },
+        ],
+      });
+      if (signal.aborted || window.isDestroyed() || result.canceled)
+        return null;
+      return result.filePaths.length === 1 ? result.filePaths[0]! : null;
+    },
+  });
+  const revokeWorkspaceOperations = (): void => {
+    sourceOperations.revoke();
+    fileSelection.cancel();
+    closeTool();
+  };
+  window.on('close', revokeWorkspaceOperations);
+  window.webContents.on('render-process-gone', revokeWorkspaceOperations);
+  window.webContents.on('will-navigate', revokeWorkspaceOperations);
   function handle(
     channel: string,
     operation: (value: unknown) => unknown,
@@ -195,6 +249,31 @@ async function createWindow(): Promise<void> {
       return operation(value);
     });
   }
+  handle(SOURCE_CHANNELS.activate, (value) => {
+    fileSelection.cancel();
+    closeTool();
+    sourceOperations.activate(value);
+    selectedWorkspaceId = typeof value === 'string' ? value : null;
+  });
+  handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
+  handle(SOURCE_CHANNELS.discover, (value) => sourceOperations.discover(value));
+  handle(SOURCE_CHANNELS.acquire, (value) => sourceOperations.acquire(value));
+  handle(SOURCE_CHANNELS.cancel, (value) => sourceOperations.cancel(value));
+  handle(SOURCE_CHANNELS.original, (value) =>
+    sourceOperations.openOriginal(value),
+  );
+  handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
+    isSelectedPractical(value)
+      ? store.recordPracticalResult(value)
+      : { status: 'failed' },
+  );
+  handle(LOAD_PRACTICAL_ATTEMPT_CHANNEL, (value) =>
+    isSelectedPractical(value)
+      ? store.loadPracticalAttempt(value)
+      : { status: 'failed' },
+  );
+  handle(SELECT_PRACTICAL_FILE_CHANNEL, (value) => fileSelection.select(value));
+  handle(CANCEL_PRACTICAL_FILE_CHANNEL, () => fileSelection.cancel());
   handle(CHANNELS.list, () => {
     const listing = store.listWithDiagnostics();
     for (const unreadable of listing.unreadableProjects) {
@@ -235,8 +314,14 @@ async function createWindow(): Promise<void> {
   handle(AUTH_CHANNELS.accountStatus, () => authController.accountStatus());
   handle(AUTH_CHANNELS.signIn, () => authController.signIn());
   handle(AUTH_CHANNELS.cancelSignIn, () => authController.cancelSignIn());
-  handle(AUTH_CHANNELS.signOut, () => authController.signOut());
+  handle(AUTH_CHANNELS.signOut, () => {
+    authenticated = false;
+    revokeWorkspaceOperations();
+    return authController.signOut();
+  });
   const unsubscribeAccountState = authController.subscribe((state) => {
+    authenticated = state.session === 'signed-in';
+    if (!authenticated) revokeWorkspaceOperations();
     if (!window.isDestroyed()) {
       window.webContents.send(AUTH_CHANNELS.accountState, state);
     }
@@ -380,6 +465,15 @@ async function createWindow(): Promise<void> {
     if (!isAllowedNavigation(url, rendererUrl)) event.preventDefault();
   });
   window.on('closed', () => {
+    revokeWorkspaceOperations();
+    for (const channel of [
+      ...Object.values(SOURCE_CHANNELS),
+      RECORD_PRACTICAL_RESULT_CHANNEL,
+      LOAD_PRACTICAL_ATTEMPT_CHANNEL,
+      SELECT_PRACTICAL_FILE_CHANNEL,
+      CANCEL_PRACTICAL_FILE_CHANNEL,
+    ])
+      ipcMain.removeHandler(channel);
     unsubscribeAccountState();
     if (mainWindow === window) mainWindow = null;
     pending?.abort();

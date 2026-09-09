@@ -1,3 +1,14 @@
+import { adoptSourcedLearning } from './source-learning-adoption';
+import { PracticalRecords } from './practical-records';
+import type {
+  PracticalFileContent,
+  RetainedPracticalFile,
+} from './practical-files';
+import type {
+  ImportPracticalFileResult,
+  LoadPracticalAttemptResult,
+} from '../contracts/practical-records';
+import type { PracticalCommitResult } from '../contracts/practical-work';
 import { decodeAcquiredSourceAcceptance } from './source-adoption-validation';
 import {
   decodeGeneratedLesson,
@@ -209,6 +220,32 @@ export function classifyStoredProjectFailure(
 export class WorkspaceStore {
   private readonly database: Database.Database;
   private readonly orm: WorkspaceDatabase;
+  private readonly practical: PracticalRecords;
+
+  acceptSourcedLearning(value: unknown): CommitResult<LearningPathRecord> {
+    return this.database
+      .transaction(() => adoptSourcedLearning(this, value))
+      .immediate();
+  }
+
+  recordPracticalResult(value: unknown): PracticalCommitResult {
+    return this.practical.recordPracticalResult(value);
+  }
+  loadPracticalAttempt(value: unknown): LoadPracticalAttemptResult {
+    return this.practical.loadPracticalAttempt(value);
+  }
+  importPracticalFile(
+    scope: unknown,
+    file: PracticalFileContent,
+  ): ImportPracticalFileResult {
+    return this.practical.importPracticalFile(scope, file);
+  }
+  readPracticalFile(
+    scope: unknown,
+    selectionId: string,
+  ): RetainedPracticalFile | null {
+    return this.practical.readPracticalFile(scope, selectionId);
+  }
 
   constructor(path: string) {
     this.database = new Database(path);
@@ -219,6 +256,7 @@ export class WorkspaceStore {
       this.database.pragma('foreign_keys = ON');
       this.database.pragma('busy_timeout = 5000');
       this.orm = drizzle(this.database, { schema: workspaceSchema });
+      this.practical = new PracticalRecords(this.orm);
     } catch (error_) {
       this.database.close();
       throw error_;
@@ -638,7 +676,9 @@ export class WorkspaceStore {
       const lessonId = lessonIds[index]!;
       citationsByLesson.set(lessonId, step.citations);
       const sourceRevisionId =
-        step.sourceRevisionId ?? step.citations[0]?.revisionId;
+        step.sourceState === 'pending'
+          ? undefined
+          : (step.sourceRevisionId ?? step.citations[0]?.revisionId);
       return {
         id: lessonId,
         title: step.title,

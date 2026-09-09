@@ -1,8 +1,6 @@
 # Source adoption — AR-37
 
-This is the local persistence checkpoint. Authenticated producer integration,
-reviewed AR-36/38 callbacks, and connected external-source acceptance remain
-pending. Synthetic test envelopes establish local behavior, not acquisition from
+The production integration repair is described in [the exact handoff](source-adoption-integration.md). Main/preload and Shell now call the owned operations and mount producer components. Authenticated HTTP composition, retained-evidence/tool context adapters, unmerged producer imports and connected external-source acceptance remain pending. Synthetic test envelopes establish local behavior, not acquisition from
 a live publisher or a provider-generated lesson.
 
 ## Trusted boundary and lifetime
@@ -19,14 +17,14 @@ operation. The integration caller must obtain actual user selection or an
 approved ingestion scope, supply authenticated transport, activate on project
 changes, and cancel on sign-out/window disposal. Cancellation aborts the signal
 and invalidates the commit capability; late or repeated results cannot save.
-These methods are not exported through preload. There is no renderer operation
+These acceptance capabilities are not exported through preload. Named discovery/acquisition/generation requests are wired through `SourceDesktopOperations`. There is no renderer operation
 that submits provider provenance, generated text, SQL, or arbitrary IPC.
 
 The producer handoff for generated teaching text is
 `GeneratedLessonAcceptance` in `src/contracts/source-generated-lesson.ts`.
 It carries canonical text with its independent source/revision identity, the
 existing `AiProvenance`, and exact evidence citations. Main validates the text
-hash, allowed format/model/provider/author, timestamps and bounded IDs/lists.
+hash, allowed format/model/provider/author, timestamps and bounded IDs/lists at adoption. Stored decoding preserves historical model/API metadata without applying today's transport allowlist.
 Every evidence locator must match an original revision saved in that project;
 citations must exactly match Unicode scalar boundaries and text in that edition.
 Remote evidence IDs are resolved to local IDs for Reader origins. Missing local
@@ -91,7 +89,7 @@ targeted Playwright journey and hands-on recording, macOS GitHub CI owns full
 desktop/package verification, and Railway/GitHub owns hosted Sonar. No further
 local desktop test, recording, packaged test or Sonar run is authorized.
 
-After the permitted local checks, the PR is made ready for remote verification.
+After exact-head checks on the integrated producers, the PR can become ready for remote verification. The repair remains draft while its imports require unmerged producer modules; an assembled overlay check is not standalone-head evidence.
 Ready does not claim connected acceptance. Reviewed producer/callback integration,
 the actual selected-source journey, Cursor recording, macOS CI, independent Fable
 5.1 review and hosted Sonar remain explicit pending gates. AR-41 owns the lane

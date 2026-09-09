@@ -1,7 +1,7 @@
 import {
   parseAcquireCanonicalSourceRequest,
   parseAcquireCanonicalSourceResponse,
-} from '../backend/sourcing/contract-validation';
+} from './source-contract-validation';
 import type { AcquiredSource } from '../contracts/sourcing';
 import type { DiscoveredSourceProvenance } from '../contracts/source-provenance';
 import { decodeRecord, decodeUuid } from './workspace-decoder';

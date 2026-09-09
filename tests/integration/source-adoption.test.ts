@@ -1,6 +1,6 @@
 import { request, acquired, generatedLesson } from './source-adoption-fixtures';
 import { SourceAdoption } from '../../src/main/source-adoption';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -497,4 +497,193 @@ it('rejects a generated response for a different request or project', () => {
   }
   expect(store.getLearningWorkspace(first.id).sources).toEqual([]);
   expect(store.getLearningWorkspace(second.id).sources).toEqual([]);
+});
+
+it('isolates a corrupt trusted provenance row to its project instead of blocking every workspace', () => {
+  const store = open();
+  const damaged = store.create('Damaged metadata'),
+    healthy = store.create('Healthy');
+  accept(store, damaged.id);
+  const database = new Database(join(directories[0]!, 'workspace.sqlite'));
+  database
+    .prepare(
+      "UPDATE source_versions SET provenance_json = 'broken' WHERE project_id = ?",
+    )
+    .run(damaged.id);
+  database.close();
+  expect(
+    store.getLearningWorkspace(healthy.id).unreadableProjects,
+  ).toMatchObject([{ projectId: damaged.id, code: 'invalid-stored-content' }]);
+});
+
+it('retains historical generation model and request version when reopening accepted offline text', () => {
+  const store = open();
+  const project = store.create('Historical AI edition');
+  accept(store, project.id);
+  store.acceptGeneratedLesson({ ...generatedLesson(), projectId: project.id });
+  const database = new Database(join(directories[0]!, 'workspace.sqlite'));
+  database
+    .prepare(
+      "UPDATE source_versions SET provenance_json = json_set(provenance_json, '$.generation.model', 'historical/model', '$.generation.requestVersion', '2025-01-01') WHERE provenance = 'generated'",
+    )
+    .run();
+  database.close();
+  const reopened = open(join(directories[0]!, 'workspace.sqlite'));
+  expect(
+    reopened
+      .getLearningWorkspace(project.id)
+      .sources.find(
+        (source) => source.currentVersion.provenance.kind === 'generated',
+      )?.currentVersion,
+  ).toMatchObject({
+    canonicalText: 'A generated explanation with evidence.',
+    provenance: {
+      generation: { model: 'historical/model', requestVersion: '2025-01-01' },
+    },
+  });
+});
+
+it('adopts an AR-36 response atomically into original editions, AI teaching text and a path with pending later lessons', () => {
+  const store = open();
+  const project = store.create('Learn from acquired evidence');
+  const generated = generatedLesson();
+  const response = {
+    outcome: 'sourced',
+    scope: 'first-useful-step',
+    author: 'ai',
+    requestId: generated.requestId,
+    sources: [acquired()],
+    provenance: [generated.generation],
+    path: {
+      title: 'A sourced path',
+      steps: [
+        {
+          id: 'first-step',
+          title: 'AI teaching text',
+          objective: 'Understand hello',
+          activity: 'Try an example',
+          citations: generated.citations,
+        },
+        {
+          id: 'next-step',
+          title: 'A later step',
+          objective: 'Go further',
+          activity: 'Compare',
+          citations: generated.citations,
+        },
+      ],
+    },
+    lesson: {
+      source: generated.source,
+      stepId: 'first-step',
+      paragraphs: [
+        {
+          kind: 'ai-explanation',
+          text: generated.source.canonicalText,
+          citations: generated.citations,
+        },
+      ],
+      activity: {
+        kind: 'ai-proposed-activity',
+        text: 'Try an example',
+        masteryEstablished: false,
+      },
+    },
+  };
+  const result = store.acceptSourcedLearning({
+    projectId: project.id,
+    requestId: generated.requestId,
+    response,
+  });
+  expect(result.status).toBe('committed');
+  const workspace = store.getLearningWorkspace(project.id);
+  expect(workspace.sources).toHaveLength(2);
+  const lessons = workspace.paths[0]!.revisions[0]!.topics[0]!.lessons;
+  expect(lessons[0]!).toMatchObject({
+    sourceState: 'ready',
+    sourceRevisionId: workspace.sources.find(
+      (source) => source.currentVersion.provenance.kind === 'generated',
+    )!.currentVersionId,
+  });
+  expect(lessons[1]!).toMatchObject({
+    sourceState: 'pending',
+    sourceRevisionId: null,
+  });
+  expect(lessons[0]!.citations[0]?.revisionId).toBe(
+    workspace.sources.find(
+      (source) => source.currentVersion.provenance.kind === 'discovered',
+    )!.currentVersionId,
+  );
+  const other = store.create('Rollback rejected generation');
+  const invalid = structuredClone(response);
+  invalid.lesson.paragraphs[0]!.text = 'Not the retained teaching text';
+  expect(() =>
+    store.acceptSourcedLearning({
+      projectId: other.id,
+      requestId: generated.requestId,
+      response: invalid,
+    }),
+  ).toThrow();
+  expect(store.getLearningWorkspace(other.id).sources).toEqual([]);
+});
+
+it('retains a supported multi-paragraph lesson whose paragraphs cite the same original evidence', () => {
+  const store = open();
+  const project = store.create('Shared evidence across paragraphs');
+  const generated = generatedLesson();
+  const text = 'A first supported paragraph.\n\nA second supported paragraph.';
+  const citations = Array.from({ length: 7 }, () => generated.citations[0]!);
+  const response = {
+    outcome: 'sourced',
+    scope: 'first-useful-step',
+    author: 'ai',
+    requestId: generated.requestId,
+    sources: [acquired()],
+    provenance: [generated.generation],
+    path: {
+      title: 'A supported path',
+      steps: [
+        {
+          id: 'first-step',
+          title: generated.source.title,
+          objective: 'Explain',
+          activity: 'Try',
+          citations: generated.citations,
+        },
+      ],
+    },
+    lesson: {
+      source: {
+        ...generated.source,
+        canonicalText: text,
+        sha256: createHash('sha256').update(text).digest('hex'),
+      },
+      stepId: 'first-step',
+      paragraphs: text
+        .split('\n\n')
+        .map((text) => ({ kind: 'ai-explanation', text, citations })),
+      activity: {
+        kind: 'ai-proposed-activity',
+        text: 'Try',
+        masteryEstablished: false,
+      },
+    },
+  };
+  expect(
+    store.acceptSourcedLearning({
+      projectId: project.id,
+      requestId: generated.requestId,
+      response,
+    }).status,
+  ).toBe('committed');
+  const teaching = store
+    .getLearningWorkspace(project.id)
+    .sources.find(
+      (source) => source.currentVersion.provenance.kind === 'generated',
+    )!.currentVersion;
+  expect(teaching.canonicalText).toBe(text);
+  expect(teaching.provenance).toMatchObject({
+    kind: 'generated',
+    citations: [{ quote: 'hello' }],
+  });
 });

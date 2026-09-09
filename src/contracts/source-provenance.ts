@@ -15,13 +15,18 @@ export interface DiscoveredSourceProvenance {
   extraction: AcquiredCanonicalSourceRevision['extraction'];
 }
 
+export type StoredAiProvenance = Omit<
+  AiProvenance,
+  'model' | 'requestVersion'
+> & { model: string; requestVersion: string };
+
 export interface GeneratedSourceProvenance {
   kind: 'generated';
   locator: null;
   remoteSourceId: string;
   remoteRevisionId: string;
   requestId: string;
-  generation: AiProvenance;
+  generation: StoredAiProvenance;
   citations: SourceCitation[];
 }
 

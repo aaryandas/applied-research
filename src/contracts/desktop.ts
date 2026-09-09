@@ -1,3 +1,5 @@
+import type { PracticalWorkspaceBridge } from './practical-records';
+import type { SourceDesktopBridge } from './source-desktop';
 import type {
   EntryDraft,
   EntryPosition,
@@ -40,6 +42,9 @@ export interface DesktopBridge {
 
 declare global {
   interface Window {
-    readonly desktop: DesktopBridge & LearningRecordsBridge;
+    readonly desktop: DesktopBridge &
+      LearningRecordsBridge &
+      PracticalWorkspaceBridge &
+      SourceDesktopBridge;
   }
 }

@@ -1,3 +1,4 @@
+import { sha256Text } from './source-contract-validation';
 import {
   LEARNING_API_VERSION,
   LEARNING_MODEL_ALLOWLIST,
@@ -6,14 +7,16 @@ import {
   type SourceRevisionLocator,
 } from '../contracts/learning-api';
 import type { GeneratedLessonAcceptance } from '../contracts/source-generated-lesson';
-import type { GeneratedSourceProvenance } from '../contracts/source-provenance';
+import type {
+  GeneratedSourceProvenance,
+  StoredAiProvenance,
+} from '../contracts/source-provenance';
 import type { SourceCitation } from '../contracts/learning-records';
 import {
   createValidationPrimitives,
   includesMember,
-  sha256Text,
-} from '../backend/validation-primitives';
-import { decodeUuid } from './workspace-decoder';
+} from '../contracts/source-validation-primitives';
+import { decodeUuid, WorkspaceValidationError } from './workspace-decoder';
 import { isScalarBoundary } from './learning-record-validation';
 import type { sourceVersions } from './workspace-schema';
 
@@ -21,7 +24,7 @@ type StoredVersion = typeof sourceVersions.$inferSelect;
 const { strictRecord, boundedText, identifier, isoTimestamp, sha256 } =
   createValidationPrimitives({
     invalid: (message) => {
-      throw new Error(message);
+      throw new WorkspaceValidationError(message);
     },
     unsupportedFieldMessage: 'Unsupported generated lesson field.',
   });
@@ -50,7 +53,9 @@ function sourceRevision(value: unknown): SourceRevisionInput {
     (source.format !== 'plain-text' && source.format !== 'markdown') ||
     contentHash !== sha256Text(canonicalText)
   )
-    throw new Error('Invalid generated source identity or hash.');
+    throw new WorkspaceValidationError(
+      'Invalid generated source identity or hash.',
+    );
   return {
     sourceId: identifier(source.sourceId, 'Generated source id'),
     revisionId: identifier(source.revisionId, 'Generated revision id'),
@@ -90,7 +95,7 @@ function originalRevision(
         item.remoteRevisionId === revisionId),
   );
   if (!stored || stored.provenance === 'generated')
-    throw new Error(
+    throw new WorkspaceValidationError(
       'Original source revision is not saved in this learning space.',
     );
   if (
@@ -103,21 +108,21 @@ function originalRevision(
     stored.locator !== provenance.locator ||
     sha256Text(stored.canonicalText) !== stored.sha256
   )
-    throw new Error(
+    throw new WorkspaceValidationError(
       'Generation evidence provenance does not match the saved original.',
     );
   if (
     stored.provenance !== 'human-imported' &&
     stored.provenance !== 'discovered'
   )
-    throw new Error('Invalid original source attribution.');
+    throw new WorkspaceValidationError('Invalid original source attribution.');
   if (
     stored.format !== 'plain-text' &&
     stored.format !== 'markdown' &&
     stored.format !== 'html' &&
     stored.format !== 'pdf'
   )
-    throw new Error('Invalid original source format.');
+    throw new WorkspaceValidationError('Invalid original source format.');
   return {
     stored,
     locator: {
@@ -132,11 +137,11 @@ function originalRevision(
     },
   };
 }
-function generation(
+function storedGeneration(
   value: unknown,
   originals: StoredVersion[],
 ): {
-  provenance: AiProvenance;
+  provenance: StoredAiProvenance;
   evidence: ReturnType<typeof originalRevision>[];
 } {
   const input = strictRecord(value, [
@@ -149,31 +154,32 @@ function generation(
     'createdAt',
     'sourceRevisions',
   ]);
-  if (
-    input.author !== 'ai' ||
-    input.provider !== 'openrouter' ||
-    input.requestVersion !== LEARNING_API_VERSION ||
-    !includesMember(LEARNING_MODEL_ALLOWLIST, input.model)
-  )
-    throw new Error('Invalid AI generation attribution.');
+  if (input.author !== 'ai' || input.provider !== 'openrouter')
+    throw new WorkspaceValidationError('Invalid AI generation attribution.');
   if (
     !Array.isArray(input.sourceRevisions) ||
     input.sourceRevisions.length < 1 ||
     input.sourceRevisions.length > 4
   )
-    throw new Error('Generated lesson needs bounded original evidence.');
+    throw new WorkspaceValidationError(
+      'Generated lesson needs bounded original evidence.',
+    );
   const evidence = input.sourceRevisions.map((value_) =>
     originalRevision(value_, originals),
   );
   if (new Set(evidence.map((item) => item.stored.id)).size !== evidence.length)
-    throw new Error('Duplicate generation evidence.');
+    throw new WorkspaceValidationError('Duplicate generation evidence.');
   return {
     evidence,
     provenance: {
       author: 'ai',
       provider: 'openrouter',
-      model: input.model,
-      requestVersion: LEARNING_API_VERSION,
+      model: boundedText(input.model, 200, 'Stored model'),
+      requestVersion: boundedText(
+        input.requestVersion,
+        100,
+        'Stored request version',
+      ),
       providerRequestId: identifier(
         input.providerRequestId,
         'Provider request id',
@@ -215,7 +221,7 @@ function citation(
     !isScalarBoundary(original.canonicalText, input.end) ||
     original.canonicalText.slice(input.start, input.end) !== input.quote
   )
-    throw new Error(
+    throw new WorkspaceValidationError(
       'Generated citation must exactly match saved original evidence.',
     );
   return {
@@ -226,10 +232,12 @@ function citation(
     quote: boundedText(input.quote, 12_000, 'Evidence quote'),
   };
 }
-export function decodeGeneratedLesson(
+export function decodeStoredGeneratedLesson(
   value: unknown,
   originals: StoredVersion[],
-): GeneratedLessonAcceptance {
+): Omit<GeneratedLessonAcceptance, 'generation'> & {
+  generation: StoredAiProvenance;
+} {
   const input = strictRecord(value, [
     'projectId',
     'requestId',
@@ -239,18 +247,22 @@ export function decodeGeneratedLesson(
   ]);
   const projectId = decodeUuid(input.projectId, 'project id');
   const source = sourceRevision(input.source);
-  const accepted = generation(
+  const accepted = storedGeneration(
     input.generation,
     originals.filter((item) => item.projectId === projectId),
   );
   if (source.acquiredAt !== accepted.provenance.createdAt)
-    throw new Error('Generated source time does not match AI provenance.');
+    throw new WorkspaceValidationError(
+      'Generated source time does not match AI provenance.',
+    );
   if (
     !Array.isArray(input.citations) ||
     input.citations.length < 1 ||
     input.citations.length > 12
   )
-    throw new Error('Generated lesson needs bounded citations.');
+    throw new WorkspaceValidationError(
+      'Generated lesson needs bounded citations.',
+    );
   return {
     projectId,
     requestId: identifier(input.requestId, 'Generation request id'),
@@ -262,7 +274,9 @@ export function decodeGeneratedLesson(
   };
 }
 export function generatedProvenance(
-  input: GeneratedLessonAcceptance,
+  input: Omit<GeneratedLessonAcceptance, 'generation'> & {
+    generation: StoredAiProvenance;
+  },
 ): GeneratedSourceProvenance {
   return {
     kind: 'generated',
@@ -273,4 +287,23 @@ export function generatedProvenance(
     generation: input.generation,
     citations: input.citations,
   };
+}
+
+export function decodeGeneratedLesson(
+  value: unknown,
+  originals: StoredVersion[],
+): GeneratedLessonAcceptance {
+  const accepted = decodeStoredGeneratedLesson(value, originals);
+  const generation = accepted.generation;
+  if (
+    generation.requestVersion !== LEARNING_API_VERSION ||
+    !includesMember(LEARNING_MODEL_ALLOWLIST, generation.model)
+  )
+    throw new WorkspaceValidationError('Invalid AI generation attribution.');
+  const provenance: AiProvenance = {
+    ...generation,
+    model: generation.model,
+    requestVersion: generation.requestVersion,
+  };
+  return { ...accepted, generation: provenance };
 }

@@ -93,3 +93,7 @@ Window/guest/credential lifecycle and IPC registration live in `src/main/index.t
 ## Delivery workflow
 
 `.github/lanes.json` maps lane labels to owned paths and `scripts/lane-guard.mjs` (run by `lane-guard.yml`) enforces it on pull requests. `claude-review.yml` posts the pinned independent review. `scripts/linear-seed.mjs` creates the tickets in `.github/next-run-tickets.json`. `context/next-run.md` describes roles, gates and the cloud verification prompt.
+
+## AR-37 production integration repair
+
+See [the exact producer and external-contract handoff](source-adoption-integration.md). `source-desktop.ts` owns bounded main requests, source-selection identity and cancellation; `source-learning-adoption.ts` adapts AR-36 into one transactional source/lesson/path bundle. Main and preload register the source and Practical operations. `PracticalRecords` uses the existing store connection after migration `0003_practical_records.sql`. Shell mounts ResearchEntry and `shell/PracticalSession`, with exact Reader navigation, loaded-attempt consent and flush/close barriers. Portable acquisition parsers live in the source contracts with host-supplied hashing. Producer modules are unmerged dependencies, not files owned by this PR.
