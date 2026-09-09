@@ -46,46 +46,49 @@ describe('desktop auth protocol', () => {
     ]);
   });
 
-  it.skipIf(process.platform === 'win32')('uses the executable and entry script only for development registration', () => {
-    const fake = fakeApp();
-    const callback = vi.fn();
-    const registration = registerDesktopAuthProtocol({
-      app: fake.app,
-      argv: ['/Electron', './out/main/index.js'],
-      defaultApp: true,
-      executablePath: '/Electron',
-      onActivate: vi.fn(),
-      onCallback: callback,
-      platform: fake.platform,
-    });
+  it.skipIf(process.platform === 'win32')(
+    'uses the executable and entry script only for development registration',
+    () => {
+      const fake = fakeApp();
+      const callback = vi.fn();
+      const registration = registerDesktopAuthProtocol({
+        app: fake.app,
+        argv: ['/Electron', './out/main/index.js'],
+        defaultApp: true,
+        executablePath: '/Electron',
+        onActivate: vi.fn(),
+        onCallback: callback,
+        platform: fake.platform,
+      });
 
-    expect(registration).toMatchObject({
-      ownsInstance: true,
-      registered: true,
-    });
-    expect(fake.setAsDefaultProtocolClient).toHaveBeenCalledWith(
-      'com.aaryandas.appliedresearch',
-      '/Electron',
-      [expect.stringContaining('out/main/index.js')],
-    );
+      expect(registration).toMatchObject({
+        ownsInstance: true,
+        registered: true,
+      });
+      expect(fake.setAsDefaultProtocolClient).toHaveBeenCalledWith(
+        'com.aaryandas.appliedresearch',
+        '/Electron',
+        [expect.stringContaining('out/main/index.js')],
+      );
 
-    const openUrl = fake.listeners.get('open-url') as
-      ((event: Event, url: string) => void) | undefined;
-    const event: Event = {
-      preventDefault: vi.fn(),
-      defaultPrevented: false,
-    };
-    if (!openUrl) throw new Error('open-url listener was not registered.');
-    openUrl(event, DESKTOP_AUTH_CALLBACK);
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(callback).toHaveBeenCalledWith(DESKTOP_AUTH_CALLBACK);
-    openUrl(event, 'com.aaryandas.appliedresearch:' + 'x'.repeat(8_193));
-    expect(callback).toHaveBeenCalledOnce();
+      const openUrl = fake.listeners.get('open-url') as
+        ((event: Event, url: string) => void) | undefined;
+      const event: Event = {
+        preventDefault: vi.fn(),
+        defaultPrevented: false,
+      };
+      if (!openUrl) throw new Error('open-url listener was not registered.');
+      openUrl(event, DESKTOP_AUTH_CALLBACK);
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(callback).toHaveBeenCalledWith(DESKTOP_AUTH_CALLBACK);
+      openUrl(event, 'com.aaryandas.appliedresearch:' + 'x'.repeat(8_193));
+      expect(callback).toHaveBeenCalledOnce();
 
-    registration.dispose();
-    expect(fake.listeners.has('open-url')).toBe(false);
-    expect(fake.listeners.has('second-instance')).toBe(false);
-  });
+      registration.dispose();
+      expect(fake.listeners.has('open-url')).toBe(false);
+      expect(fake.listeners.has('second-instance')).toBe(false);
+    },
+  );
 
   it('extracts only bounded arguments for the fixed scheme', () => {
     expect(
