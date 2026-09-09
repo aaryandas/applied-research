@@ -29,11 +29,24 @@
     "practical": [
       "src/renderer/practical/**",
       "src/main/practical-*.ts",
-      "src/contracts/practical*.ts"
+      "src/contracts/practical*.ts",
+      "src/renderer/shell/PracticalSession.tsx",
+      "src/renderer/shell/PracticalSession.test.tsx",
+      "src/renderer/shell/PracticalToolHost.tsx",
+      "src/renderer/shell/PracticalToolHost.test.tsx",
+      "src/renderer/shell/practical-session.ts",
+      "src/renderer/shell/practical-session.test.ts",
+      "tests/integration/source-practical-wiring.test.ts",
+      "tests/integration/practical-course.test.ts"
     ],
     "research": ["src/renderer/research/**"],
     "settings": ["src/renderer/settings/**"],
-    "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
+    "explanations": [
+      "src/renderer/explanations/**",
+      "src/render-worker/**",
+      "src/backend/render-delivery/**",
+      "src/main/retained-media-*.ts"
+    ],
     "opening": [
       "src/renderer/Opening.tsx",
       "src/renderer/Opening.test.tsx",
