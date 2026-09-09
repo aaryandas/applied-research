@@ -14,6 +14,15 @@ import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+import {
+  GUEST_COMMIT_TIMEOUT_MS,
+  MATRIX_LAB_TITLE,
+  MATRIX_LAB_URL,
+  committedLearningToolsGuest,
+  installGuestLifecycleProbe,
+  readGuestLifecycle,
+  settleActivatedWorkspace,
+} from './guest-lifecycle';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
@@ -30,29 +39,6 @@ function launch(directory: string, key = ''): Promise<ElectronApplication> {
 
 // scripts/test-packaged.mjs sets this to run the suite against the built app.
 const PACKAGED = Boolean(process.env.ELECTRON_EXECUTABLE_PATH);
-const MATRIX_LAB_URL = 'https://learning.test/';
-const MATRIX_LAB_TITLE = 'Matrix Lab';
-// Production tool adapter waits up to 30s for !loading && url. Packaged
-// practical-tools committed an intercepted guest in 3.2s on the same binary
-// (run 34345154082). This budget waits for that commit after loadURL, not a sleep.
-const GUEST_COMMIT_TIMEOUT_MS = 10_000;
-
-async function guestNavigationSnapshot(
-  application: ElectronApplication,
-  url: string,
-): Promise<{ url: string; title: string; loading: boolean }> {
-  return application.evaluate(({ webContents }, destination) => {
-    const contents = webContents
-      .getAllWebContents()
-      .find((item) => item.getURL() === destination);
-    if (!contents) return { url: '', title: '', loading: true };
-    return {
-      url: contents.getURL(),
-      title: contents.getTitle(),
-      loading: contents.isLoading(),
-    };
-  }, url);
-}
 
 const OPENING_VIEWPORTS: ReadonlyArray<readonly [number, number]> = [
   [1280, 800],
@@ -247,6 +233,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
   const directory = mkdtempSync(join(tmpdir(), 'applied-electron-ai-'));
   const application = await launch(directory, 'test-only-not-a-real-key');
   try {
+    await installGuestLifecycleProbe(application);
     await application.evaluate(({ session }) => {
       session
         .fromPartition('persist:learning-tools')
@@ -297,6 +284,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
       .getByLabel('What do you want to learn about?', { exact: true })
       .fill('Build an intuition for linear algebra');
     await page.getByRole('button', { name: 'Start learning' }).click();
+    await settleActivatedWorkspace(page);
     // Guest and development tutor controls are no longer shell destinations.
     // Exercise their supported named preload operations against real main and SQLite.
     // The direct OpenRouter path exists only in development; the packaged app
@@ -357,12 +345,28 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
     await expect
       .poll(
         async () => {
-          const guest = await guestNavigationSnapshot(
-            application,
-            MATRIX_LAB_URL,
+          const lifecycle = await readGuestLifecycle(application);
+          const guest = committedLearningToolsGuest(lifecycle, MATRIX_LAB_URL);
+          const toolsGuest = lifecycle.contents.find(
+            (contents) => contents.partition === 'persist:learning-tools',
           );
           return {
-            guest,
+            guest: guest
+              ? {
+                  present: true,
+                  url: guest.url,
+                  title: guest.title,
+                  loading: guest.loading,
+                }
+              : {
+                  present: Boolean(toolsGuest) && !toolsGuest?.destroyed,
+                  url: toolsGuest?.url ?? '',
+                  title: toolsGuest?.title ?? '',
+                  loading: toolsGuest?.loading ?? false,
+                  destroyed: toolsGuest?.destroyed ?? true,
+                  childViews: lifecycle.childViews,
+                  events: lifecycle.events,
+                },
             recorded: JSON.stringify(recordedToolStates),
             renderer: await page.evaluate(() =>
               JSON.stringify(Reflect.get(window, 'toolStates')),
@@ -372,11 +376,12 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
         {
           timeout: GUEST_COMMIT_TIMEOUT_MS,
           message:
-            'Wait until persist:learning-tools webContents commits https://learning.test/ with title Matrix Lab and loading false, and both the preload listener and Playwright bridge have recorded that title.',
+            'Wait until a live persist:learning-tools guest has https://learning.test/, title Matrix Lab, loading false, and recorded tool:state. Missing guests are not reported as loading.',
         },
       )
       .toEqual({
         guest: {
+          present: true,
           url: MATRIX_LAB_URL,
           title: MATRIX_LAB_TITLE,
           loading: false,

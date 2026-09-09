@@ -3,6 +3,7 @@ import {
   entryDraft,
   entryPosition,
   identifier,
+  planWorkspaceActivate,
   record,
   text,
   toolBounds,
@@ -86,4 +87,32 @@ it('rejects malformed data before it reaches storage or native capabilities', ()
   expect(() =>
     tutorRequest({ projectId: 'a', prompt: '', includePage: true }),
   ).toThrow();
+});
+
+it('revokes workspace operations only when activate changes the selected id', () => {
+  const project = '10000000-0000-4000-8000-000000000001';
+  const other = '10000000-0000-4000-8000-000000000002';
+  expect(planWorkspaceActivate(null, project)).toEqual({
+    nextId: project,
+    revokeOperations: true,
+  });
+  expect(planWorkspaceActivate(project, project)).toEqual({
+    nextId: project,
+    revokeOperations: false,
+  });
+  expect(planWorkspaceActivate(project, other)).toEqual({
+    nextId: other,
+    revokeOperations: true,
+  });
+  expect(planWorkspaceActivate(project, null)).toEqual({
+    nextId: null,
+    revokeOperations: true,
+  });
+  expect(planWorkspaceActivate(null, null)).toEqual({
+    nextId: null,
+    revokeOperations: false,
+  });
+  expect(() => planWorkspaceActivate(project, 'not-a-uuid')).toThrow(
+    'expected a UUID',
+  );
 });

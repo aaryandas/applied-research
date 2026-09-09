@@ -88,6 +88,7 @@
       "src/main/index.ts",
       "src/main/startup-error.ts",
       "src/main/validation.ts",
+      "src/main/validation.test.ts",
       "src/main/tutor.ts",
       "src/preload/**"
     ],
