@@ -585,4 +585,146 @@ describe('learning-path validation', () => {
       ),
     ).toThrow(/practice brief is invalid/);
   });
+
+  it('accepts GeoGebra catalog tools and rejects invalid practice tools', () => {
+    const contribution = parseProviderContribution(
+      {
+        kind: 'learning-path',
+        title: 'Unicode foundations',
+        steps: [
+          {
+            title: 'Read',
+            objective: 'Notice code units.',
+            activity: 'Compare string lengths.',
+            citations: [],
+            role: 'concept',
+            practice: null,
+          },
+          {
+            title: 'Graph the cited comparison',
+            objective: 'Plot the cited offsets.',
+            activity: 'Graph the cited comparison.',
+            citations: [],
+            role: 'practice',
+            practice: {
+              intendedOutcome:
+                'Plot the cited comparison without claiming mastery.',
+              setup: 'Open the cited Unicode passage beside GeoGebra.',
+              instructions:
+                'Graph only the cited comparison using the supplied offsets.',
+              observableCheckpoints: [
+                'The graph uses the cited offsets.',
+                'No extra function is invented.',
+              ],
+              expectedArtifact:
+                'A GeoGebra graph that shows only the cited Unicode comparison.',
+              reflectionPrompt:
+                'Which cited offset would move if counted in code points?',
+              tool: {
+                kind: 'app-hosted-catalog',
+                toolId: 'geogebra-graphing',
+              },
+            },
+          },
+        ],
+      },
+      operation,
+    );
+    expect(contribution.kind).toBe('learning-path');
+    if (contribution.kind === 'learning-path') {
+      expect(contribution.steps[1]?.practice?.tool).toEqual({
+        kind: 'app-hosted-catalog',
+        toolId: 'geogebra-graphing',
+      });
+    }
+
+    const invalidTools = [
+      { kind: 'app-hosted-catalog', toolId: 'unknown-graphing' },
+      { kind: 'browser-tool', toolName: 'x', intendedUse: 'y' },
+      {
+        kind: 'learner-external',
+        toolName: 'Local text editor',
+        intendedUse: 'Select the cited quote.',
+        extra: true,
+      },
+    ];
+    for (const tool of invalidTools) {
+      expect(() =>
+        parseProviderContribution(
+          {
+            kind: 'learning-path',
+            title: 'Unicode foundations',
+            steps: [
+              {
+                title: 'Read',
+                objective: 'Notice code units.',
+                activity: 'Compare string lengths.',
+                citations: [],
+                role: 'concept',
+                practice: null,
+              },
+              {
+                title: 'Apply',
+                objective: 'Use exact offsets.',
+                activity: 'Anchor a quote.',
+                citations: [],
+                role: 'practice',
+                practice: {
+                  intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                  setup:
+                    'Open the cited Unicode passage beside a local editor.',
+                  instructions: 'Select the cited quote.',
+                  observableCheckpoints: ['The selected range matches.'],
+                  expectedArtifact: 'A short note showing the cited quote.',
+                  reflectionPrompt: 'Which cited offset rule is in the source?',
+                  tool,
+                },
+              },
+            ],
+          },
+          operation,
+        ),
+      ).toThrow(/practice tool is invalid/);
+    }
+
+    expect(() =>
+      parseProviderContribution(
+        {
+          kind: 'learning-path',
+          title: 'Unicode foundations',
+          steps: [
+            {
+              title: 'Read',
+              objective: 'Notice code units.',
+              activity: 'Compare string lengths.',
+              citations: [],
+              role: 'mystery',
+              practice: null,
+            },
+            {
+              title: 'Apply',
+              objective: 'Use exact offsets.',
+              activity: 'Anchor a quote.',
+              citations: [],
+              role: 'practice',
+              practice: {
+                intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                setup: 'Open the cited Unicode passage beside a local editor.',
+                instructions: 'Select the cited quote.',
+                observableCheckpoints: ['The selected range matches.'],
+                expectedArtifact: 'A short note showing the cited quote.',
+                reflectionPrompt: 'Which cited offset rule is in the source?',
+                tool: {
+                  kind: 'learner-external',
+                  toolName: 'Local text editor',
+                  intendedUse: 'Select the cited quote.',
+                },
+              },
+            },
+          ],
+        },
+        operation,
+      ),
+    ).toThrow(/role is invalid/);
+  });
 });

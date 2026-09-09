@@ -22,8 +22,8 @@ function practiceBrief(
 ): CoursePracticeBrief {
   return {
     kind: COURSE_PRACTICE_BRIEF_KIND,
-    author: 'ai',
-    masteryEstablished: false,
+    author: extra.author ?? 'ai',
+    masteryEstablished: extra.masteryEstablished ?? false,
     intendedOutcome:
       extra.intendedOutcome ??
       'Reproduce the numbered CS231n softmax method in NumPy.',
@@ -249,6 +249,60 @@ describe('onboarding syllabus projection', () => {
     const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
     expect(lessons[1]?.role).toBe('concept');
     expect(lessons[1]?.practice).toBeNull();
+  });
+
+  it('defaults missing roles to concept and drops unbound or empty briefs', () => {
+    const emptyBrief = practiceBrief({ intendedOutcome: '   ' });
+    const humanBrief = practiceBrief({ author: 'human' as 'ai' });
+    const wrongKind = {
+      ...practiceBrief(),
+      kind: 'other-brief',
+    } as unknown as CoursePracticeBrief;
+    const path: LearningPathContribution = {
+      kind: 'learning-path',
+      title: 'CS231n softmax',
+      steps: [
+        {
+          title: 'No explicit role',
+          objective: 'Use the cited softmax method.',
+          activity: 'Read the cited classifier.',
+          citations: [citation],
+        },
+        step('Empty generated brief', {
+          role: 'practice',
+          practice: emptyBrief,
+        }),
+        step('Empty checkpoints', {
+          role: 'practice',
+          practice: practiceBrief({ observableCheckpoints: [] }),
+        }),
+        step('Human-authored brief', {
+          role: 'practice',
+          practice: humanBrief,
+        }),
+        step('Mastery-claimed brief', {
+          role: 'practice',
+          practice: practiceBrief({ masteryEstablished: true as false }),
+        }),
+        step('Wrong brief kind', { role: 'capstone', practice: wrongKind }),
+      ],
+    };
+    const syllabus = assembleOnboardingSyllabus({
+      path,
+      acquired: [acquired('CS231n neural networks and NumPy softmax')],
+      prior: null,
+    });
+    const lessons = syllabus.topics.flatMap((topic) => topic.lessons);
+    expect(lessons.map((lesson) => lesson.role)).toEqual([
+      'concept',
+      'concept',
+      'concept',
+      'concept',
+      'concept',
+      'concept',
+    ]);
+    expect(lessons.every((lesson) => lesson.practice === null)).toBe(true);
+    expect(syllabus.capstone).toBeNull();
   });
 
   it('attaches citations only when the quote appears in the paragraph', () => {

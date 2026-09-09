@@ -60,6 +60,7 @@ function fakeDatabase(
   initial: Partial<FakeState> = {},
   fail = false,
   inFlightCount?: number,
+  skipLedger = false,
 ): {
   database: DatabaseService;
   state: FakeState;
@@ -74,6 +75,7 @@ function fakeDatabase(
         if (table === usageMonth) {
           return {
             onConflictDoNothing: async () => {
+              if (skipLedger) return;
               state.ledger ??= {
                 accountId: String(values.accountId),
                 monthStart: String(values.monthStart),
@@ -265,6 +267,24 @@ describe('PostgreSQL planner accounting adapter', () => {
 
   it('maps query failures to typed AccountingFailure instead of orDie', async () => {
     const fake = fakeDatabase({}, true);
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        makePostgresPlannerAccounting(fake.database).reserve({
+          accountId: 'account-01',
+          request: plannerRequest,
+          inputHash: plannerInputHash(plannerRequest),
+          monthStart: '2026-09-01',
+          now,
+          limitMicrousd: 20_000_000,
+          reservationMicrousd: 100_000,
+        }),
+      ),
+    );
+    expect(failure).toBeInstanceOf(AccountingFailure);
+  });
+
+  it('maps a missing usage ledger to typed AccountingFailure', async () => {
+    const fake = fakeDatabase({}, false, undefined, true);
     const failure = await Effect.runPromise(
       Effect.flip(
         makePostgresPlannerAccounting(fake.database).reserve({
