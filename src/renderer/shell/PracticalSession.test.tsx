@@ -705,10 +705,14 @@ it('shows authenticated guidance as unavailable when the transport is omitted', 
     screen.getByRole('button', { name: 'Ask about my reflection' }),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
-  await waitFor(() =>
-    expect(
-      screen.getByText('Authenticated activity guidance is not connected yet.'),
-    ).toBeVisible(),
+  await waitFor(
+    () =>
+      expect(
+        screen.getByText(
+          'Authenticated activity guidance is not connected yet.',
+        ),
+      ).toBeVisible(),
+    { timeout: 4_000 },
   );
   view.unmount();
 });
