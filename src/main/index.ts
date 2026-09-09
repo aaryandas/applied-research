@@ -49,7 +49,6 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
-  net,
   protocol,
   safeStorage,
   session,
@@ -129,7 +128,7 @@ const authSdk = createDesktopAuthSdk(authStorage);
 const authController = createDesktopAuthController({
   sdk: authSdk,
   storage: authStorage,
-  accountTransport: makeBackendAccountTransport(net.fetch),
+  accountTransport: makeBackendAccountTransport(globalThis.fetch),
   oauthStates: electronOauthStateRegistry,
   encryption: {
     isUsable: () =>
@@ -368,7 +367,7 @@ async function createWindow(): Promise<void> {
         signal,
       ),
     post: makeCompanionGuidanceTransport({
-      request: (url, init) => net.fetch(url, init),
+      request: (url, init) => globalThis.fetch(url, init),
       sessionCookie: () =>
         authController.state().session === 'signed-in'
           ? authSdk.getCookie()
