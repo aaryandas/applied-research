@@ -40,8 +40,10 @@ import {
   decodeTutorLearningResponse,
 } from './contextual-help-learning';
 import {
-  unavailableClipPlayback,
+  isSupportedClipPlan,
+  requestClip,
   type ClipPlaybackResult,
+  type RetainedClipRequestContext,
 } from './contextual-help-clip';
 import { acceptTrustedSceneCapture } from './explanation-capture';
 import type { ExplanationRecords } from './explanation-records';
@@ -81,7 +83,9 @@ export interface ContextualHelpOperationsOptions {
   transport: ReturnType<typeof makeContextualHelpTransport> | null;
   now?: () => Date;
   randomUUID?: () => string;
-  requestClip?: (plan: ExplanationPlan) => Promise<ClipPlaybackResult>;
+  requestClip?: (
+    context: RetainedClipRequestContext,
+  ) => Promise<ClipPlaybackResult>;
 }
 
 function questionText(request: ContextualHelpRequest): string {
@@ -623,52 +627,97 @@ export class ContextualHelpOperations {
       }
       return persisted;
     }
-    const clip = await (
-      this.options.requestClip ?? (async () => unavailableClipPlayback())
-    )(plan);
-    if (clip.kind === 'ready') {
-      return this.commit(
+    if (isSupportedClipPlan(plan)) {
+      this.commit(
         request,
         authority,
         {
           attemptId,
           explanationId: '',
           intent: 'visual',
-          status: 'ready',
+          status: 'rendering',
           requestedAt: now,
-          completedAt: now,
+          completedAt: null,
           humanQuestion: request.question,
           aiResponse: null,
           provenance: decoded.value.provenance,
           citations: [],
           plan,
-          result: clip.result,
+          result: null,
         },
-        true,
+        false,
+      );
+      const explanationId = this.options.records.findByOrigin(
+        request.projectId,
+        authority.origin,
+        'visual',
+      )?.explanationId;
+      if (!explanationId) {
+        return this.rememberFailure(
+          request,
+          authority,
+          'unavailable',
+          'The explanation identity could not be reserved before clip join.',
+        );
+      }
+      const clip = await (this.options.requestClip ?? requestClip)({
+        explanationId,
+        attemptId,
+        origin: authority.origin,
+        plan,
+        signal,
+      });
+      if (clip.kind === 'ready') {
+        return this.commit(
+          request,
+          authority,
+          {
+            attemptId,
+            explanationId,
+            intent: 'visual',
+            status: 'ready',
+            requestedAt: now,
+            completedAt: this.clock().toISOString(),
+            humanQuestion: request.question,
+            aiResponse: null,
+            provenance: decoded.value.provenance,
+            citations: [],
+            plan,
+            result: clip.result,
+          },
+          true,
+        );
+      }
+      return this.commit(
+        request,
+        authority,
+        {
+          attemptId,
+          explanationId,
+          intent: 'visual',
+          status: 'unsupported',
+          requestedAt: now,
+          completedAt: this.clock().toISOString(),
+          humanQuestion: request.question,
+          aiResponse: {
+            kind: 'ai',
+            body: `${plan.caption} ${clip.message}`,
+            nextAction:
+              'Continue with the textual explanation of this passage.',
+          },
+          provenance: decoded.value.provenance,
+          citations: [],
+          plan,
+          result: null,
+        },
+        false,
       );
     }
-    return this.commit(
+    return this.rememberFailure(
       request,
       authority,
-      {
-        attemptId,
-        explanationId: '',
-        intent: 'visual',
-        status: 'unsupported',
-        requestedAt: now,
-        completedAt: now,
-        humanQuestion: request.question,
-        aiResponse: {
-          kind: 'ai',
-          body: `${plan.caption} ${clip.message}`,
-          nextAction: 'Continue with the textual explanation of this passage.',
-        },
-        provenance: decoded.value.provenance,
-        citations: [],
-        plan,
-        result: null,
-      },
-      false,
+      'unsupported',
+      'This concept does not fit an installed visual family.',
     );
   }
 
@@ -800,7 +849,12 @@ export class ContextualHelpOperations {
     const explanationId = existing?.explanationId ?? this.createId();
     const now = this.clock().toISOString();
     const completed: ExplanationAttempt = { ...attempt, explanationId };
-    const attempts = [...(existing?.attempts ?? []), completed];
+    const attempts = [
+      ...(existing?.attempts ?? []).filter(
+        (item) => item.attemptId !== completed.attemptId,
+      ),
+      completed,
+    ];
     const previousUseful = existing?.attempts.find(
       (item) =>
         item.attemptId === existing.usefulAttemptId && item.status === 'ready',

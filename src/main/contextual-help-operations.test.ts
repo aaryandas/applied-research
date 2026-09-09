@@ -515,6 +515,17 @@ describe('contextual help operations', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
+    const requestClip = vi.fn(async (context) => {
+      expect(context.explanationId).toEqual(expect.any(String));
+      expect(context.attemptId).toBe('22000000-0000-4000-8000-000000000007');
+      expect(context.origin).toMatchObject({
+        highlightId: harness.highlightId,
+        sourceRevisionId: harness.revisionId,
+      });
+      expect(context.signal.aborted).toBe(false);
+      expect(context.plan.family).toBe('weighted-combination');
+      return unavailableClipPlayback();
+    });
     const operations = new ContextualHelpOperations({
       records: harness.records,
       authenticated: () => true,
@@ -524,6 +535,7 @@ describe('contextual help operations', () => {
       }),
       now: () => new Date(createdAt),
       randomUUID: () => '22000000-0000-4000-8000-000000000007',
+      requestClip,
     });
     operations.activate(harness.projectId);
     const response = await operations.request({
@@ -542,11 +554,14 @@ describe('contextual help operations', () => {
     });
     expect(response.outcome).toBe('unsupported');
     const listed = operations.list({ projectId: harness.projectId });
+    expect(listed[0]?.attempts).toHaveLength(1);
+    expect(listed[0]?.attempts[0]?.status).toBe('unsupported');
     expect(listed[0]?.attempts[0]?.plan).toMatchObject({
       status: 'supported',
       family: 'weighted-combination',
     });
     expect(listed[0]?.attempts[0]?.result).toBeNull();
+    expect(requestClip).toHaveBeenCalledTimes(1);
     expect(listed[0]?.attempts[0]).not.toHaveProperty('clip');
     expect(listed[0]?.attempts[0]).not.toHaveProperty('media');
     expect(unavailableClipPlayback().kind).toBe('unavailable');
