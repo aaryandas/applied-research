@@ -368,8 +368,7 @@ export class PracticalRecords {
           item.kind === 'user-selected-file' &&
           item.selectionId === input.selectionId,
       );
-      if (!meta || meta.kind !== 'user-selected-file')
-        return { status: 'unavailable' };
+      if (meta?.kind !== 'user-selected-file') return { status: 'unavailable' };
       return previewRetainedPracticalFile(
         meta.selectionId,
         meta.displayName,
@@ -567,8 +566,7 @@ export class PracticalRecords {
             .get();
           const currentRevision = existing?.revision ?? 0;
           if (
-            existing &&
-            existing.status === input.status &&
+            existing?.status === input.status &&
             existing.note === input.note &&
             existing.evidenceSelectionId ===
               (input.evidence?.selectionId ?? null) &&
@@ -869,8 +867,7 @@ function assertProgressBinding(
           .get()
       : null;
     if (
-      !brief ||
-      brief.briefRevision !== sourceRevision ||
+      brief?.briefRevision !== sourceRevision ||
       journey.briefRevision !== sourceRevision
     )
       throw new Error('Progress is not bound to this brief revision.');
