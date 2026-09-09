@@ -54,6 +54,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - After `npm ci` on the cloud desktop, Electron's download script is sometimes skipped. If `node_modules/electron/dist` is missing, run `node node_modules/electron/install.js` (and rebuild native modules if needed) **without** editing project files.
 - `scripts/linear-gate.mjs` takes the ticket from the branch (`…/ar-NN-…`) or a `Linear: AR-NN` line in the PR body. Other mentions of tickets in the body are ignored so a write-up cannot attach the PR to the wrong card. The lane-guard workflow also needs `npm ci` (it imports `minimatch`); without a `lane:<name>` label it fails before the path check.
 - `claude-review.yml` must list `allowed_bots: cursor`. The Claude action otherwise fails immediately with "Workflow initiated by non-human actor: cursor" on every Cursor-agent push, which is how implementers and verifiers land commits. Do not set `allowed_bots: '*'` on this public repository.
+- Independent review is pinned to `claude-fable-5-1` on the founder's Claude subscription. When that model returns HTTP 429 `"You've reached your Fable limit. Switch to another model to continue."`, the `review` check fails in about a second with `$0` usage. Do not silently switch models; wait for quota or have the founder raise it. A later `@claude` comment from an OWNER/MEMBER retriggers the same pinned model.
 
 ## Day zero checklist
 
