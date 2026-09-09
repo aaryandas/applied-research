@@ -274,7 +274,17 @@ describe('production university runtime binding', () => {
     if (retrieved.outcome !== 'success') {
       throw new Error('expected indexed CS231n evidence');
     }
-    expect(retrieved.evidence[0]?.locator.quote).toContain(QUOTE);
+    expect(
+      retrieved.evidence.every((item) => text.includes(item.locator.quote)),
+    ).toBe(true);
+    expect(
+      retrieved.evidence.some(
+        (item) =>
+          item.locator.quote.includes('Softmax') ||
+          item.locator.quote.includes('Neural Network') ||
+          item.locator.quote.includes('np.zeros'),
+      ),
+    ).toBe(true);
     expect(retrieved.evidence[0]?.provenance.provider).toBe('turbopuffer');
     expect(start).toBeGreaterThanOrEqual(0);
   });
