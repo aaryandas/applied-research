@@ -20,7 +20,11 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 
-function setup(transport: { post: (raw: string, signal: AbortSignal) => Promise<Uint8Array> } | null = null) {
+function setup(
+  transport: {
+    post: (raw: string, signal: AbortSignal) => Promise<Uint8Array>;
+  } | null = null,
+) {
   const directory = mkdtempSync(join(tmpdir(), 'ar47-onboarding-'));
   const store = new WorkspaceStore(join(directory, 'workspace.sqlite'));
   const internals = store as unknown as {
@@ -106,7 +110,10 @@ describe('learning onboarding operations', () => {
     });
     expect(first).toMatchObject({
       status: 'saved',
-      record: { background: 'I have written Python services.  ', author: 'human' },
+      record: {
+        background: 'I have written Python services.  ',
+        author: 'human',
+      },
     });
     const conflict = await operations.saveLearnerProfile({
       expectedRevision: 0,
@@ -153,9 +160,9 @@ describe('learning onboarding operations', () => {
     const workspace = accepted.value.workspace;
     expect(workspace.paths).toHaveLength(1);
     const path = workspace.paths[0]!;
-    expect(path.current.topics[0]?.lessons.map((lesson) => lesson.title)).toEqual(
-      ['Attention', 'Tokenizer practice', 'Capstone'],
-    );
+    expect(
+      path.current.topics[0]?.lessons.map((lesson) => lesson.title),
+    ).toEqual(['Attention', 'Tokenizer practice', 'Capstone']);
     const first = path.current.topics[0]!.lessons[0]!;
     expect(first.sourceState).toBe('ready');
     expect(first.sourceRevisionId).toBeTruthy();
@@ -253,8 +260,9 @@ describe('learning onboarding operations', () => {
         .proposal,
     ).toBeNull();
     expect(
-      (await operations.getLearningOnboarding({ projectId: project.id }))
-        .interview?.answers.find((item) => item.promptId === 'diagnostic-01')
+      (
+        await operations.getLearningOnboarding({ projectId: project.id })
+      ).interview?.answers.find((item) => item.promptId === 'diagnostic-01')
         ?.answer,
     ).toContain('not sure yet');
   });

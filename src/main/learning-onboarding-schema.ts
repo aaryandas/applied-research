@@ -1,4 +1,9 @@
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -67,9 +72,7 @@ export const acceptedStepMappings = sqliteTable(
     sourceIdsJson: text('source_ids_json').notNull(),
     practiceBriefJson: text('practice_brief_json'),
   },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.remoteStepId] }),
-  ],
+  (table) => [primaryKey({ columns: [table.projectId, table.remoteStepId] })],
 );
 
 export const learningResume = sqliteTable('learning_resume', {

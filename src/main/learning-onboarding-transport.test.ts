@@ -7,16 +7,20 @@ describe('authenticated onboarding transport', () => {
   it('posts raw bytes only to the sibling onboarding path', async () => {
     const fetch = vi.fn<
       (input: string, init: RequestInit) => Promise<Response>
-    >(async () =>
-      new Response(new Uint8Array([123, 125]), {
-        headers: { 'content-type': 'application/json' },
-      }),
+    >(
+      async () =>
+        new Response(new Uint8Array([123, 125]), {
+          headers: { 'content-type': 'application/json' },
+        }),
     );
     const transport = makeAuthenticatedOnboardingTransport({
       request: fetch,
       sessionCookie: () => 'session=current',
     });
-    const body = await transport.post('{"ok":true}', new AbortController().signal);
+    const body = await transport.post(
+      '{"ok":true}',
+      new AbortController().signal,
+    );
     expect(fetch).toHaveBeenCalledWith(
       `${DESKTOP_AUTH_API_ORIGIN}${LEARNING_ONBOARDING_PATH}`,
       expect.objectContaining({

@@ -197,7 +197,10 @@ it('asks open-ended questions, then reviews a sourced plan before create', async
     proposeCourse: propose,
     acceptCourse: accept,
     cancelLearningOnboarding: vi.fn(async () => {}),
-    savePastedSource: vi.fn(async () => ({ status: 'saved', record: interview })),
+    savePastedSource: vi.fn(async () => ({
+      status: 'saved',
+      record: interview,
+    })),
     getPastedSource: vi.fn(async () => null),
   } as unknown as OpeningOnboardingBridge;
   const onAccepted = vi.fn();
@@ -210,9 +213,7 @@ it('asks open-ended questions, then reviews a sourced plan before create', async
       onCancel={vi.fn()}
     />,
   );
-  expect(
-    screen.queryByRole('combobox'),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   const fields = answers();
   for (const [id, value] of Object.entries(fields)) {
     fireEvent.change(
@@ -229,8 +230,12 @@ it('asks open-ended questions, then reviews a sourced plan before create', async
     );
   }
   fireEvent.click(screen.getByRole('button', { name: 'Plan this course' }));
-  expect(await screen.findByRole('heading', { name: proposal.title })).toBeVisible();
-  expect(screen.getByText('Explain scaled dot-product attention.')).toBeVisible();
+  expect(
+    await screen.findByRole('heading', { name: proposal.title }),
+  ).toBeVisible();
+  expect(
+    screen.getByText('Explain scaled dot-product attention.'),
+  ).toBeVisible();
   expect(screen.getByText(/Produce a working tokenizer/)).toBeVisible();
   expect(screen.getByRole('link', { name: 'Synthetic paper' })).toHaveAttribute(
     'href',
@@ -308,9 +313,9 @@ it('keeps typed answers after an unavailable planner and allows retry', async ()
     target: { value: 'I am not sure yet' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Plan this course' }));
-  expect(
-    await screen.findByRole('alert'),
-  ).toHaveTextContent(/temporarily unavailable/);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    /temporarily unavailable/,
+  );
   expect(screen.getByLabelText(/Explain how you would approach/)).toHaveValue(
     'I am not sure yet',
   );

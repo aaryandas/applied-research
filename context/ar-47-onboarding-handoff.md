@@ -24,13 +24,13 @@ not fake success or reuse `generateSourcedLearning`.
 Append after the `0004_practical_journey` entry:
 
 ```json
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1788937200000,
-      "tag": "0005_learning_onboarding",
-      "breakpoints": true
-    }
+{
+  "idx": 5,
+  "version": "6",
+  "when": 1788937200000,
+  "tag": "0005_learning_onboarding",
+  "breakpoints": true
+}
 ```
 
 SQL file already exists: `drizzle/0005_learning_onboarding.sql`.
@@ -195,9 +195,7 @@ const onboardingOperations = new LearningOnboardingOperations({
   transport: makeAuthenticatedOnboardingTransport({
     request: globalThis.fetch,
     sessionCookie: () =>
-      authController.state().session === 'signed-in'
-        ? authSdk.getCookie()
-        : '',
+      authController.state().session === 'signed-in' ? authSdk.getCookie() : '',
   }),
 });
 ```
@@ -343,8 +341,8 @@ course.
 restoreReading(origin: LearningOrigin, span: TextSpan | null): void;
 ```
 
-  Implementation: existing `openOrigin(origin)` then `setSpan(span)` /
-  `setReveal({ span })` when `span` is an exact slice of the version text.
+Implementation: existing `openOrigin(origin)` then `setSpan(span)` /
+`setReveal({ span })` when `span` is an exact slice of the version text.
 
 - `onPathChange`: `saveReadingResume` with project id, path, current source
   revision id if any, current Reader span, lesson title, project goal.

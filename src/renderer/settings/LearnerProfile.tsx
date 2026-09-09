@@ -15,9 +15,14 @@ export function LearnerProfile({
   const [learningGoals, setLearningGoals] = useState('');
   const [priorKnowledge, setPriorKnowledge] = useState('');
   const [revision, setRevision] = useState(0);
-  const [assessment, setAssessment] = useState<
-    Awaited<ReturnType<NonNullable<OpeningOnboardingBridge['getLearnerProfileView']>>>['assessment']
-  >(null);
+  const [assessment, setAssessment] =
+    useState<
+      Awaited<
+        ReturnType<
+          NonNullable<OpeningOnboardingBridge['getLearnerProfileView']>
+        >
+      >['assessment']
+    >(null);
   const [status, setStatus] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -52,20 +57,27 @@ export function LearnerProfile({
     });
     setBusy(false);
     if (result.status === 'conflict') {
-      setError('This profile was updated elsewhere. Reload before saving again.');
+      setError(
+        'This profile was updated elsewhere. Reload before saving again.',
+      );
       return;
     }
     setRevision(result.record.revision);
-    setStatus('Saved your statements. These remain yours, not inferred mastery.');
+    setStatus(
+      'Saved your statements. These remain yours, not inferred mastery.',
+    );
   };
 
   return (
-    <section className="learner-profile" aria-labelledby="learner-profile-heading">
+    <section
+      className="learner-profile"
+      aria-labelledby="learner-profile-heading"
+    >
       <h2 id="learner-profile-heading">Learner profile</h2>
       <p>
-        Your background, goals, and prior knowledge stay as you wrote them. Account
-        and app preferences live elsewhere. Reading a lesson or finishing a task
-        does not mark mastery.
+        Your background, goals, and prior knowledge stay as you wrote them.
+        Account and app preferences live elsewhere. Reading a lesson or
+        finishing a task does not mark mastery.
       </p>
       <label>
         Background

@@ -133,12 +133,12 @@ from `src/backend` is enough for `tsconfig.backend.json`.
 
 Operations this desktop already sends:
 
-| `operation.kind` | Expected success `scope` |
-| --- | --- |
-| `interview-prompt` | `interview-prompt` |
-| `propose-course` | `complete-syllabus-and-first-lesson` |
-| `revise-course` | `complete-syllabus-and-first-lesson` |
-| `generate-selected-lesson` | `selected-existing-lesson` |
+| `operation.kind`           | Expected success `scope`             |
+| -------------------------- | ------------------------------------ |
+| `interview-prompt`         | `interview-prompt`                   |
+| `propose-course`           | `complete-syllabus-and-first-lesson` |
+| `revise-course`            | `complete-syllabus-and-first-lesson` |
+| `generate-selected-lesson` | `selected-existing-lesson`           |
 
 Human context is `untrusted-human-context` (goal, focus, depth, profile,
 answers, unacquired seed URLs). Prior syllabus is `untrusted-model-context`.

@@ -18,14 +18,18 @@ it('centers topic entry, keeps source import secondary, and lists saved work asi
   const onCreate = vi.fn(async () => {});
   render(<Opening projects={[]} onCreate={onCreate} onReopen={vi.fn()} />);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  expect(screen.queryByText('Source import is not available yet.')).not.toBeInTheDocument();
+  expect(
+    screen.queryByText('Source import is not available yet.'),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'Explore a topic' }),
   ).not.toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'Build something' }),
   ).not.toBeInTheDocument();
-  expect(screen.queryByRole('navigation', { name: 'Your projects' })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('navigation', { name: 'Your projects' }),
+  ).not.toBeInTheDocument();
   const input = screen.getByRole('textbox');
   expect(input).toHaveAccessibleName('What do you want to learn about?');
   expect(screen.getByText('I want to learn about…')).toBeVisible();
@@ -36,9 +40,7 @@ it('centers topic entry, keeps source import secondary, and lists saved work asi
   const source = screen.getByRole('button', { name: 'Start from a source' });
   expect(source).toBeEnabled();
   fireEvent.click(source);
-  expect(
-    screen.getByText(/not treated as trusted instructions/),
-  ).toBeVisible();
+  expect(screen.getByText(/not treated as trusted instructions/)).toBeVisible();
 });
 
 it('submits once while pending and keeps failed creation retryable with focus', async () => {
@@ -176,7 +178,5 @@ it('starts the interview instead of creating a finished course when onboarding i
   expect(createDraftProject).toHaveBeenCalledExactlyOnceWith(
     'Learn transformers from original sources',
   );
-  expect(
-    screen.getByText(/uncertainty is a valid answer/i),
-  ).toBeVisible();
+  expect(screen.getByText(/uncertainty is a valid answer/i)).toBeVisible();
 });

@@ -168,7 +168,10 @@ export function Opening({
           </button>
           {sourceOpen && (
             <div className="opening-source-fields">
-              <label className="opening-source-label" htmlFor="opening-source-url">
+              <label
+                className="opening-source-label"
+                htmlFor="opening-source-url"
+              >
                 Source URL (optional)
               </label>
               <input

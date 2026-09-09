@@ -94,11 +94,13 @@ export class LearningOnboardingRecords {
   saveProfile(
     expectedRevision: number,
     draft: LearnerProfileDraft,
-  ): { status: 'saved'; record: LearnerProfile } | {
-    status: 'conflict';
-    expectedRevision: number;
-    currentRevision: number;
-  } {
+  ):
+    | { status: 'saved'; record: LearnerProfile }
+    | {
+        status: 'conflict';
+        expectedRevision: number;
+        currentRevision: number;
+      } {
     return this.transaction((transaction) => {
       const current = transaction.select().from(learnerProfile).get();
       const currentRevision = current?.revision ?? 0;
@@ -196,11 +198,13 @@ export class LearningOnboardingRecords {
     expectedRevision: number,
     record: Omit<InterviewRecord, 'revision' | 'updatedAt'>,
     pastedSourceText: string | null,
-  ): { status: 'saved'; record: InterviewRecord } | {
-    status: 'conflict';
-    expectedRevision: number;
-    currentRevision: number;
-  } {
+  ):
+    | { status: 'saved'; record: InterviewRecord }
+    | {
+        status: 'conflict';
+        expectedRevision: number;
+        currentRevision: number;
+      } {
     return this.transaction((transaction) => {
       const current = transaction
         .select()
@@ -393,9 +397,7 @@ export class LearningOnboardingRecords {
           localLessonId: row.localLessonId,
           practiceDigest: row.practiceDigest,
           sourceIdsJson: JSON.stringify(row.sourceIds),
-          practiceBriefJson: row.practice
-            ? JSON.stringify(row.practice)
-            : null,
+          practiceBriefJson: row.practice ? JSON.stringify(row.practice) : null,
         })
         .run();
     }
@@ -447,9 +449,7 @@ export class LearningOnboardingRecords {
       },
       sourceRevisionId: row.sourceRevisionId,
       span:
-        row.spanStart !== null &&
-        row.spanEnd !== null &&
-        row.spanQuote !== null
+        row.spanStart !== null && row.spanEnd !== null && row.spanQuote !== null
           ? {
               start: row.spanStart,
               end: row.spanEnd,

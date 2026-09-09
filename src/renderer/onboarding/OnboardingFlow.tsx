@@ -201,10 +201,12 @@ export function OnboardingFlow({
       },
     });
     let profile: LearnerProfile | undefined;
-    if (!applyWrite(profileWrite, (record) => {
-      profile = record;
-      profileRevision.current = record.revision;
-    })) {
+    if (
+      !applyWrite(profileWrite, (record) => {
+        profile = record;
+        profileRevision.current = record.revision;
+      })
+    ) {
       return null;
     }
     const snapshot = await bridge.getLearningOnboarding({ projectId });
@@ -225,10 +227,12 @@ export function OnboardingFlow({
       },
     });
     let interview: InterviewRecord | undefined;
-    if (!applyWrite(interviewWrite, (record) => {
-      interview = record;
-      interviewRevision.current = record.revision;
-    })) {
+    if (
+      !applyWrite(interviewWrite, (record) => {
+        interview = record;
+        interviewRevision.current = record.revision;
+      })
+    ) {
       return null;
     }
     if (paste.trim() !== '' && bridge.savePastedSource) {
@@ -237,10 +241,12 @@ export function OnboardingFlow({
         expectedRevision: interview!.revision,
         pastedSourceText: paste,
       });
-      if (!applyWrite(pastedWrite, (record) => {
-        interview = record;
-        interviewRevision.current = record.revision;
-      })) {
+      if (
+        !applyWrite(pastedWrite, (record) => {
+          interview = record;
+          interviewRevision.current = record.revision;
+        })
+      ) {
         return null;
       }
     }
@@ -372,8 +378,13 @@ export function OnboardingFlow({
           .find((lesson) => lesson.stepId === proposal.capstone?.stepId)
       : undefined;
     return (
-      <section className="onboarding-sheet" aria-labelledby="onboarding-plan-heading">
-        <p className="onboarding-kicker">Review the course before it is created</p>
+      <section
+        className="onboarding-sheet"
+        aria-labelledby="onboarding-plan-heading"
+      >
+        <p className="onboarding-kicker">
+          Review the course before it is created
+        </p>
         <h2 id="onboarding-plan-heading">{proposal.title}</h2>
         <p className="onboarding-lede">
           This is a sourced plan, not a saved course yet. Adjust focus or depth,
@@ -414,7 +425,8 @@ export function OnboardingFlow({
                   {lesson.practice ? (
                     <p>
                       <span className="onboarding-label">Practice</span>
-                      {lesson.practice.intendedOutcome} ({lesson.practice.tool.kind}
+                      {lesson.practice.intendedOutcome} (
+                      {lesson.practice.tool.kind}
                       ). Setup: {lesson.practice.setup}
                     </p>
                   ) : null}
@@ -448,7 +460,8 @@ export function OnboardingFlow({
         </section>
         <aside className="onboarding-ai" aria-label="Planner observations">
           <p>
-            Planner observations (not mastery): {proposal.personalization.summary}
+            Planner observations (not mastery):{' '}
+            {proposal.personalization.summary}
           </p>
           {proposal.personalization.observedGaps.length > 0 ? (
             <p>Gaps: {proposal.personalization.observedGaps.join('; ')}</p>
@@ -484,7 +497,12 @@ export function OnboardingFlow({
         ) : null}
         {error ? <p role="alert">{error}</p> : null}
         <div className="onboarding-actions">
-          <button type="button" className="ui-button ui-button--text" onClick={onCancel} disabled={busy}>
+          <button
+            type="button"
+            className="ui-button ui-button--text"
+            onClick={onCancel}
+            disabled={busy}
+          >
             Back to opening
           </button>
           <button
@@ -527,13 +545,16 @@ export function OnboardingFlow({
   }
 
   return (
-    <section className="onboarding-sheet" aria-labelledby="onboarding-interview-heading">
+    <section
+      className="onboarding-sheet"
+      aria-labelledby="onboarding-interview-heading"
+    >
       <p className="onboarding-kicker">Short diagnostic</p>
       <h2 id="onboarding-interview-heading">Your goal stays: {goal}</h2>
       <p className="onboarding-lede">
-        Answer in your own words so the course can be grounded in what you already
-        know. Optional links and pasted text are learning context, not instructions
-        the planner should obey.
+        Answer in your own words so the course can be grounded in what you
+        already know. Optional links and pasted text are learning context, not
+        instructions the planner should obey.
       </p>
       {questions.map((item) => (
         <label key={item.id} className="onboarding-field">
@@ -541,7 +562,10 @@ export function OnboardingFlow({
           <textarea
             value={answers[item.id] ?? ''}
             onChange={(event) =>
-              setAnswers((current) => ({ ...current, [item.id]: event.target.value }))
+              setAnswers((current) => ({
+                ...current,
+                [item.id]: event.target.value,
+              }))
             }
             rows={4}
             disabled={busy}
@@ -573,7 +597,12 @@ export function OnboardingFlow({
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
       <div className="onboarding-actions">
-        <button type="button" className="ui-button ui-button--text" onClick={onCancel} disabled={busy}>
+        <button
+          type="button"
+          className="ui-button ui-button--text"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Back to opening
         </button>
         {busy ? (

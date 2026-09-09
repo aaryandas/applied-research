@@ -76,7 +76,9 @@ export function makeAuthenticatedOnboardingTransport(
       ) {
         throw new TypeError('Sign in to use remote learning.');
       }
-      if (Buffer.byteLength(rawBody) > LEARNING_ONBOARDING_LIMITS.requestBytes) {
+      if (
+        Buffer.byteLength(rawBody) > LEARNING_ONBOARDING_LIMITS.requestBytes
+      ) {
         throw new RangeError('The onboarding request is too large.');
       }
       const signal = AbortSignal.any([
