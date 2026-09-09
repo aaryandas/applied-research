@@ -1378,7 +1378,7 @@ const followUpPrompt = {
     requestVersion: '2026-09-08' as const,
     promptVersion: 'learning-v2-2026-09-09',
     createdAt: '2026-09-09T12:00:00.000Z',
-    sourceRevisions: [] as const,
+    sourceRevisions: [],
   },
 };
 
