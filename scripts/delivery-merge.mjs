@@ -17,7 +17,8 @@ import {
   trustedGateRun,
   gateReceiptFilename,
 } from './gate-provenance.mjs';
-import { join, resolve } from 'node:path';
+import { basename, join, matchesGlob, resolve } from 'node:path';
+import { allowedLanePaths } from './lane-guard-rules.mjs';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -83,7 +84,7 @@ export function normalizeChecks(
   return combined;
 }
 
-export function assessMerge(pr, checks) {
+export function assessMerge(pr, checks, policy) {
   const refuse = (reason, kind = 'gate') => ({ eligible: false, kind, reason });
   if (
     pr.state !== 'OPEN' ||
@@ -136,6 +137,25 @@ export function assessMerge(pr, checks) {
   }
   if (!Array.isArray(pr.files))
     return refuse('Changed-file inventory incomplete', 'infra');
+  if (!policy || !SHA.test(pr.mainSha) || policy.sha !== pr.mainSha)
+    return refuse('Trusted live-main lane policy unavailable', 'infra');
+  if (!Array.isArray(pr.labels))
+    return refuse('PR label inventory incomplete', 'infra');
+  try {
+    const { lane, allowed } = allowedLanePaths(policy.config, pr.labels);
+    const outside = pr.files.filter(
+      (file) =>
+        !allowed.some((pattern) =>
+          matchesGlob(pattern.includes('/') ? file : basename(file), pattern),
+        ),
+    );
+    if (outside.length)
+      return refuse(
+        `Files outside trusted lane:${lane}: ${outside.join(', ')}`,
+      );
+  } catch (error) {
+    return refuse(`Trusted lane policy rejected PR: ${error.message}`);
+  }
   if (pr.files.some((file) => file.startsWith('src/'))) {
     const sonar = checks.find(
       (check) =>
@@ -264,7 +284,7 @@ function currentChecks(sha) {
   );
 }
 function pull(number) {
-  const query = `query($number:Int!){repository(owner:"aaryandas",name:"applied-research"){pullRequest(number:$number){number state isDraft isCrossRepository author{login __typename} headRefOid headRefName baseRefName baseRefOid body mergeable mergeStateStatus reviewDecision reviewThreads(first:100){nodes{isResolved} pageInfo{hasNextPage}}}}}`;
+  const query = `query($number:Int!){repository(owner:"aaryandas",name:"applied-research"){pullRequest(number:$number){number state isDraft isCrossRepository author{login __typename} headRefOid headRefName baseRefName baseRefOid body mergeable mergeStateStatus reviewDecision labels(first:100){nodes{name} pageInfo{hasNextPage}} reviewThreads(first:100){nodes{isResolved} pageInfo{hasNextPage}}}}}`;
   const result = JSON.parse(
     gh(['api', 'graphql', '-f', `query=${query}`, '-F', `number=${number}`]),
   );
@@ -272,6 +292,10 @@ function pull(number) {
     throw new Error('GitHub PR inventory returned GraphQL errors');
   const pr = result.data.repository.pullRequest;
   if (pr.author) pr.author.is_bot = pr.author.__typename !== 'User';
+  pr.labels =
+    pr.labels?.pageInfo.hasNextPage === false
+      ? pr.labels.nodes.map((label) => label.name)
+      : null;
   pr.upToDate = false;
   if (pr.author && !pr.author.is_bot && !pr.isCrossRepository) {
     pr.mainSha = api('git/ref/heads/main').object.sha;
@@ -285,10 +309,37 @@ function pull(number) {
         `repos/${REPOSITORY}/pulls/${number}/files?per_page=100`,
       ]),
     );
-    pr.files = filePages.flatMap((page) => page.map((file) => file.filename));
+    pr.files = changedFilePaths(filePages.flat());
   }
   return pr;
 }
+export function changedFilePaths(files) {
+  return [
+    ...new Set(
+      files.flatMap((file) =>
+        file.previous_filename
+          ? [file.filename, file.previous_filename]
+          : [file.filename],
+      ),
+    ),
+  ];
+}
+
+const lanePolicyCache = new Map();
+function trustedLanePolicy(sha) {
+  if (!SHA.test(sha)) return null;
+  if (!lanePolicyCache.has(sha)) {
+    const file = api(`contents/.github/lanes.json?ref=${sha}`);
+    if (file.encoding !== 'base64' || file.type !== 'file')
+      throw new Error('Trusted main lane policy is not a regular JSON file');
+    lanePolicyCache.set(sha, {
+      sha,
+      config: JSON.parse(Buffer.from(file.content, 'base64').toString('utf8')),
+    });
+  }
+  return lanePolicyCache.get(sha);
+}
+
 function nativeQueueEnabled() {
   const result = JSON.parse(
     gh([
@@ -316,12 +367,12 @@ function readState(path) {
   }
 }
 
-function observeDeployments(sha) {
-  const deployments = api(`deployments?sha=${sha}&per_page=20`);
+function observeDeployments(sha, read = api) {
+  const deployments = read(`deployments?sha=${sha}&per_page=20`);
   return deployments.map((deployment) => ({
     id: deployment.id,
     environment: deployment.environment,
-    statuses: api(`deployments/${deployment.id}/statuses?per_page=1`).map(
+    statuses: read(`deployments/${deployment.id}/statuses?per_page=1`).map(
       (status) => ({
         state: status.state,
         environmentUrl: status.environment_url,
@@ -336,6 +387,85 @@ export function releaseCiState(sha, checks) {
   );
   if (!check || check.status !== 'completed') return 'pending';
   return check.conclusion === 'success' ? 'passed' : 'failed';
+}
+
+export function releaseObservation(request, runs, deployments) {
+  const requestedSecond = Math.floor(Date.parse(request.at) / 1000) * 1000;
+  const run = runs
+    .filter(
+      (item) =>
+        item.head_sha === request.requestedForSha &&
+        item.path === '.github/workflows/release.yml' &&
+        item.event === 'workflow_dispatch' &&
+        item.head_branch === 'main' &&
+        Date.parse(item.created_at) >= requestedSecond &&
+        (!request.runId || item.id === request.runId),
+    )
+    .sort((a, b) => a.id - b.id)[0];
+  const releaseStatus =
+    !run || run.status !== 'completed'
+      ? 'pending'
+      : run.conclusion === 'success'
+        ? 'succeeded'
+        : 'failed';
+  // Each environment's most recent deployment supersedes its older attempts.
+  const environments = new Map();
+  for (const deployment of [...deployments].sort((a, b) => b.id - a.id))
+    if (!environments.has(deployment.environment))
+      environments.set(deployment.environment, deployment.statuses[0]?.state);
+  const states = [...environments.values()];
+  const deploymentStatus = states.some((state) =>
+    ['failure', 'error'].includes(state),
+  )
+    ? 'failed'
+    : states.length && states.every((state) => state === 'success')
+      ? 'succeeded'
+      : 'pending';
+  return {
+    sha: request.requestedForSha,
+    runId: run?.id ?? request.runId ?? null,
+    runUrl: run?.html_url ?? null,
+    releaseStatus,
+    deploymentStatus,
+    deployments,
+  };
+}
+
+export function reconcileReleases({ state, path, apply, read = api }) {
+  const changes = [];
+  for (const receipt of state.receipts) {
+    const request = receipt.release;
+    if (!request || request.status !== 'requested') continue;
+    const runs = request.runId
+      ? [read(`actions/runs/${request.runId}`)]
+      : read(
+          `actions/workflows/release.yml/runs?head_sha=${request.requestedForSha}&event=workflow_dispatch&per_page=100`,
+        ).workflow_runs;
+    const observation = releaseObservation(
+      request,
+      runs,
+      observeDeployments(request.requestedForSha, read),
+    );
+    if (JSON.stringify(request.observation) === JSON.stringify(observation))
+      continue;
+    changes.push(observation);
+    if (apply) {
+      request.runId = observation.runId;
+      request.observation = observation;
+    }
+  }
+  if (!changes.length) return null;
+  if (apply) saveState(path, state);
+  return {
+    kind: changes.some(
+      (item) =>
+        item.releaseStatus === 'failed' || item.deploymentStatus === 'failed',
+    )
+      ? 'attention'
+      : 'observed',
+    action: 'release-observation',
+    releases: changes,
+  };
 }
 
 function processRelease(options) {
@@ -401,7 +531,7 @@ function processRelease(options) {
     action: 'release-candidate',
     sha: main,
     deployments,
-    note: 'Request recorded; actual release run revision and Railway outcome still require verification',
+    note: 'Request recorded; later ticks observe this exact revision’s release run and GitHub deployment evidence.',
   };
 }
 
@@ -446,6 +576,8 @@ export function runTick(options) {
         reason:
           'Native GitHub merge queue must remain disabled: Luna owns serialized direct merges.',
       };
+    const observed = reconcileReleases({ state, path, apply: options.apply });
+    if (observed) return observed;
     const release = processRelease({ state, path, apply: options.apply });
     if (release) return release;
     const candidates = JSON.parse(
@@ -467,7 +599,11 @@ export function runTick(options) {
     const blocked = [];
     for (const candidate of candidates) {
       const pr = pull(candidate.number);
-      const decision = assessMerge(pr, currentChecks(pr.headRefOid));
+      const decision = assessMerge(
+        pr,
+        currentChecks(pr.headRefOid),
+        trustedLanePolicy(pr.mainSha),
+      );
       if (decision.action === 'needs-sonar-cloud') {
         blocked.push({
           number: pr.number,
@@ -493,7 +629,11 @@ export function runTick(options) {
       const fresh = pull(pr.number);
       if (
         fresh.headRefOid !== pr.headRefOid ||
-        !assessMerge(fresh, currentChecks(fresh.headRefOid)).eligible
+        !assessMerge(
+          fresh,
+          currentChecks(fresh.headRefOid),
+          trustedLanePolicy(fresh.mainSha),
+        ).eligible
       )
         return {
           kind: 'infra',

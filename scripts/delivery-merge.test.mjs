@@ -4,7 +4,10 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  assessMerge,
+  assessMerge as assessWithPolicy,
+  releaseObservation,
+  reconcileReleases,
+  changedFilePaths,
   REQUIRED_CHECKS,
   releaseReady,
   runTick,
@@ -13,6 +16,19 @@ import {
 } from './delivery-merge.mjs';
 
 const sha = 'a'.repeat(40);
+const mainSha = 'b'.repeat(40);
+const policy = {
+  sha: mainSha,
+  config: {
+    shared: ['context/**'],
+    lanes: {
+      auth: ['src/main/auth-*.ts'],
+      delivery: ['.github/**', 'scripts/**'],
+    },
+  },
+};
+const assessMerge = (pr, checks, trustedPolicy = policy) =>
+  assessWithPolicy(pr, checks, trustedPolicy);
 function candidate() {
   return {
     number: 42,
@@ -21,6 +37,8 @@ function candidate() {
     isCrossRepository: false,
     author: { login: 'aaryandas', is_bot: false },
     headRefOid: sha,
+    mainSha,
+    labels: ['lane:auth'],
     headRefName: 'codex/ar-40-auth',
     baseRefName: 'main',
     body: '',
@@ -308,5 +326,183 @@ test('CI, helper and lane checks must be published by GitHub Actions', () => {
       normalizeChecks(sha, forged, []).some((check) => check.name === name),
       false,
     );
+  }
+});
+
+test('PR-owned lane policy and successful Lane guard cannot authorize protected paths', () => {
+  const pr = {
+    ...candidate(),
+    files: ['.github/lanes.json', '.github/workflows/ci.yml'],
+    lanePolicy: { lanes: { auth: ['**'] }, shared: ['**'] },
+  };
+  assert.match(assessMerge(pr, checks()).reason, /outside trusted lane/);
+  assert.equal(
+    assessMerge({ ...pr, labels: ['lane:delivery'] }, checks()).eligible,
+    true,
+  );
+  assert.equal(assessMerge(pr, checks(), { ...policy, sha }).eligible, false);
+  assert.equal(assessMerge(pr, checks(), null).eligible, false);
+  for (const labels of [
+    null,
+    [],
+    ['lane:auth', 'lane:delivery'],
+    ['lane:invented'],
+  ])
+    assert.equal(
+      assessMerge({ ...candidate(), labels }, checks()).eligible,
+      false,
+    );
+  assert.equal(
+    assessMerge(
+      {
+        ...candidate(),
+        files: changedFilePaths([
+          { filename: 'context/moved.md', previous_filename: '.github/ci.yml' },
+        ]),
+      },
+      checks(),
+    ).eligible,
+    false,
+  );
+});
+
+const releaseRequest = { requestedForSha: sha, at: '2026-09-09T05:00:00.900Z' };
+const releaseRun = {
+  id: 123,
+  head_sha: sha,
+  path: '.github/workflows/release.yml',
+  event: 'workflow_dispatch',
+  head_branch: 'main',
+  created_at: '2026-09-09T05:00:00Z',
+  status: 'in_progress',
+  conclusion: null,
+  html_url: 'https://github.com/run/123',
+};
+
+test('release observations bind the requested SHA and run without claiming deployment', () => {
+  assert.equal(
+    releaseObservation(releaseRequest, [releaseRun], []).releaseStatus,
+    'pending',
+  );
+  for (const patch of [
+    { head_sha: mainSha },
+    { event: 'pull_request' },
+    { path: '.github/workflows/forged.yml' },
+    { created_at: '2026-09-09T04:59:59Z' },
+  ])
+    assert.equal(
+      releaseObservation(releaseRequest, [{ ...releaseRun, ...patch }], [])
+        .runId,
+      null,
+    );
+  const succeeded = releaseObservation(
+    releaseRequest,
+    [{ ...releaseRun, status: 'completed', conclusion: 'success' }],
+    [],
+  );
+  assert.equal(succeeded.releaseStatus, 'succeeded');
+  assert.equal(succeeded.deploymentStatus, 'pending');
+  assert.equal(
+    releaseObservation({ ...releaseRequest, runId: 999 }, [releaseRun], [])
+      .runId,
+    999,
+  );
+  assert.equal(
+    releaseObservation(
+      releaseRequest,
+      [{ ...releaseRun, status: 'completed', conclusion: 'failure' }],
+      [],
+    ).releaseStatus,
+    'failed',
+  );
+});
+
+test('deployment observations report current environment outcomes separately from installers', () => {
+  const runs = [{ ...releaseRun, status: 'completed', conclusion: 'success' }];
+  const deployed = [
+    { id: 1, environment: 'production', statuses: [{ state: 'success' }] },
+  ];
+  assert.equal(
+    releaseObservation(releaseRequest, runs, deployed).deploymentStatus,
+    'succeeded',
+  );
+  assert.equal(
+    releaseObservation(releaseRequest, runs, [
+      { ...deployed[0], statuses: [{ state: 'failure' }] },
+    ]).deploymentStatus,
+    'failed',
+  );
+  assert.equal(
+    releaseObservation(releaseRequest, runs, [
+      { ...deployed[0], statuses: [{ state: 'in_progress' }] },
+    ]).deploymentStatus,
+    'pending',
+  );
+});
+
+test('uncertain release dispatch remains blocked rather than queried or dispatched again', () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'delivery-release-intent-'));
+  try {
+    writeFileSync(
+      join(stateDir, 'state.json'),
+      JSON.stringify({
+        receipts: [
+          {
+            number: 42,
+            status: 'merged',
+            mergeSha: sha,
+            release: { status: 'dispatching', ...releaseRequest },
+          },
+        ],
+      }),
+    );
+    assert.match(
+      runTick({ stateDir, apply: true }).reason,
+      /uncertain outcome/,
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('later ticks query the requested release and report changes once without redispatch', () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'release-observation-'));
+  const state = {
+    receipts: [{ release: { status: 'requested', ...releaseRequest } }],
+  };
+  let run = { ...releaseRun };
+  const requests = [];
+  const read = (path) => {
+    requests.push(path);
+    if (path === `deployments?sha=${sha}&per_page=20`) return [];
+    if (path === 'actions/runs/123') return run;
+    if (
+      path ===
+      `actions/workflows/release.yml/runs?head_sha=${sha}&event=workflow_dispatch&per_page=100`
+    )
+      return { workflow_runs: [run] };
+    assert.fail(`Unexpected API action: ${path}`);
+  };
+  const tick = () =>
+    reconcileReleases({
+      state,
+      path: join(stateDir, 'state.json'),
+      apply: true,
+      read,
+    });
+  try {
+    assert.equal(tick().releases[0].releaseStatus, 'pending');
+    assert.equal(state.receipts[0].release.runId, 123);
+    assert.equal(tick(), null);
+    run = { ...run, status: 'completed', conclusion: 'failure' };
+    assert.equal(tick().kind, 'attention');
+    assert.equal(tick(), null);
+    assert.equal(
+      requests.filter((path) => path.startsWith('actions/workflows/')).length,
+      1,
+    );
+    assert.equal(state.receipts[0].release.status, 'requested');
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
   }
 });
