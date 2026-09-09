@@ -35,7 +35,7 @@ function resolveEvidence(
     {
       request: {
         apiVersion: SOURCING_API_VERSION,
-        requestId: request.requestId,
+        requestId: responseRequestId,
         query: request.query,
         intent: request.intent,
         sourceRevisions: acquired.map((source) => source.content.revision),
