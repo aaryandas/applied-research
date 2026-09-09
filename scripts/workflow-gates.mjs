@@ -7,7 +7,7 @@ export function ticketIdentifier(pr) {
 }
 
 const DELIVERY_PATH =
-  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run)\.md)$/;
+  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates|delivery-merge(?:\.test)?)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run)\.md)$/;
 
 export function verificationPassed(issue, sha, files = []) {
   const deliveryOnly =

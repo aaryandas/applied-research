@@ -116,6 +116,8 @@ test('video N/A is permitted only for exclusively delivery workflow files', () =
       '.github/workflows/ci.yml',
       'scripts/dispatch-plan.mjs',
       '.gitignore',
+      'scripts/delivery-merge.mjs',
+      'scripts/delivery-merge.test.mjs',
     ]),
     true,
   );

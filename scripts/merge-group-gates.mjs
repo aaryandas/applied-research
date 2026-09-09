@@ -2,7 +2,7 @@ import { event, github, paginate, publishStatus } from './workflow-api.mjs';
 import { queuePulls } from './workflow-gates.mjs';
 
 const context = process.env.GATE_CONTEXT;
-if (!['Lane guard', 'Fable review'].includes(context))
+if (!['Lane guard', 'Fable review', 'Linear gate'].includes(context))
   throw new Error('Unknown gate');
 const group = event.merge_group;
 if (!group) throw new Error('Expected merge_group event');
@@ -19,14 +19,14 @@ try {
     group.head_ref,
   );
   for (const pr of pulls) {
-    if (context === 'Fable review') {
+    if (context !== 'Lane guard') {
       const statuses = await github(`commits/${pr.head.sha}/status`);
       if (
         statuses.statuses.find((status) => status.context === context)
           ?.state !== 'success'
       )
         throw new Error(
-          `PR #${pr.number}: Fable review is not passing at current head`,
+          `PR #${pr.number}: ${context} is not passing at current head`,
         );
     } else {
       const checks = await github(
