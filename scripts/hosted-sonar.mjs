@@ -57,6 +57,8 @@ async function select() {
       previous?.description?.match(/attempt (\d+)/)?.[1] ?? 0,
     );
     if (!requested && previousAttempt >= 2) {
+      // The shared publisher reuses an identical exhausted error while its receipt is trusted.
+      // Sonar uploads gate receipts even when selection has no scan candidate.
       await publishStatus(pr.head.sha, {
         context,
         state: 'error',

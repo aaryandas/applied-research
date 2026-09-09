@@ -291,3 +291,22 @@ test('completed red main CI is terminal attention rather than perpetual pending'
   assert.equal(releaseCiState(sha, failed), 'failed');
   assert.equal(releaseCiState('b'.repeat(40), failed), 'pending');
 });
+
+test('CI, helper and lane checks must be published by GitHub Actions', () => {
+  for (const name of [
+    'checks / CI gate',
+    'Workflow gate rules',
+    'Lane guard',
+  ]) {
+    const forged = checks().map((check) =>
+      check.name === name
+        ? { ...check, app: { slug: 'untrusted-app', id: 999 } }
+        : check,
+    );
+    assert.equal(assessMerge(candidate(), forged).eligible, false);
+    assert.equal(
+      normalizeChecks(sha, forged, []).some((check) => check.name === name),
+      false,
+    );
+  }
+});

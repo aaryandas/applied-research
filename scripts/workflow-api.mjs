@@ -1,4 +1,18 @@
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+} from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import {
+  gateRunId,
+  trustedGateRun,
+  trustedGateStatus,
+  gateReceiptFilename,
+} from './gate-provenance.mjs';
 import { join } from 'node:path';
 
 export const event = process.env.GITHUB_EVENT_PATH
@@ -35,12 +49,72 @@ export async function paginate(path) {
   }
 }
 
+async function reusableStatus(sha, result, current) {
+  if (
+    !current ||
+    current.state !== result.state ||
+    current.description !== result.description
+  )
+    return false;
+  const runId = gateRunId(current);
+  if (!runId) return false;
+  try {
+    const run = await github(`actions/runs/${runId}`);
+    if (!trustedGateRun(current, run) || run.status !== 'completed')
+      return false;
+    const { artifacts } = await github(
+      `actions/runs/${runId}/artifacts?per_page=100`,
+    );
+    const artifact = artifacts.find(
+      (item) =>
+        item.name === `gate-receipts-${runId}` &&
+        !item.expired &&
+        Date.parse(item.expires_at) > Date.now() &&
+        item.size_in_bytes <= 1024 * 1024,
+    );
+    if (!artifact) return false;
+    const response = await fetch(
+      `https://api.github.com/repos/${repository}/actions/artifacts/${artifact.id}/zip`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+        },
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!response.ok) return false;
+    const directory = mkdtempSync(join(tmpdir(), 'gate-cache-'));
+    try {
+      const path = join(directory, 'receipt.zip');
+      writeFileSync(path, Buffer.from(await response.arrayBuffer()));
+      const receipt = JSON.parse(
+        execFileSync(
+          'unzip',
+          ['-p', path, gateReceiptFilename(current.context, sha)],
+          { encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024 },
+        ),
+      );
+      return trustedGateStatus({ sha, status: current, run, receipt });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  } catch {
+    return false;
+  }
+}
+
 export async function publishStatus(sha, result) {
+  const existing = await github(`commits/${sha}/status`);
+  const current = existing.statuses.find(
+    (status) => status.context === result.context,
+  );
+  // Preserve the original trusted run URL and artifact while unchanged evidence is valid.
+  if (await reusableStatus(sha, result, current)) return;
   const directory = join(process.env.RUNNER_TEMP, 'gate-receipts');
   mkdirSync(directory, { recursive: true });
-  const filename = `${result.context.toLowerCase().replace(/[^a-z0-9]+/g, '-')}--${sha}.json`;
   writeFileSync(
-    join(directory, filename),
+    join(directory, gateReceiptFilename(result.context, sha)),
     JSON.stringify({
       sha,
       context: result.context,
@@ -50,18 +124,6 @@ export async function publishStatus(sha, result) {
       workflowSha: process.env.GITHUB_WORKFLOW_SHA,
     }),
   );
-  const existing = await github(`commits/${sha}/status`);
-  const current = existing.statuses.find(
-    (status) => status.context === result.context,
-  );
-  if (
-    current?.creator?.login === 'github-actions[bot]' &&
-    current.target_url ===
-      `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}` &&
-    current.state === result.state &&
-    current.description === result.description
-  )
-    return;
   await github(`statuses/${sha}`, {
     ...result,
     target_url: `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`,

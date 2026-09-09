@@ -33,6 +33,11 @@ export const REQUIRED_CHECKS = [
 const SHA = /^[a-f0-9]{40}$/;
 const STATUS_GATES = ['Fable review', 'Linear gate', 'Sonar gate'];
 const BUGBOT_NAMES = ['Cursor Bugbot', 'Cursor Automation: Bugbot PR Review'];
+const ACTIONS_CHECKS = [
+  'checks / CI gate',
+  'Workflow gate rules',
+  'Lane guard',
+];
 
 export function normalizeChecks(
   sha,
@@ -44,6 +49,8 @@ export function normalizeChecks(
     .filter(
       (check) =>
         !STATUS_GATES.includes(check.name) &&
+        (!ACTIONS_CHECKS.includes(check.name) ||
+          check.app?.slug === 'github-actions') &&
         (!BUGBOT_NAMES.includes(check.name) ||
           (check.app?.slug === 'cursor' && check.app.id === 1210556)),
     )
@@ -120,6 +127,8 @@ export function assessMerge(pr, checks) {
       (item) => item.name === name && item.head_sha === pr.headRefOid,
     );
     if (!check) return refuse(`Missing current-head check: ${name}`, 'infra');
+    if (ACTIONS_CHECKS.includes(name) && check.app?.slug !== 'github-actions')
+      return refuse(`Untrusted app for Actions check: ${name}`);
     if (check.status !== 'completed')
       return refuse(`Pending check: ${name}`, 'infra');
     if (check.conclusion !== 'success')
