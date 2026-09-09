@@ -16,11 +16,13 @@ import type {
   LearningWorkspace,
   PathOrigin,
   PathSourceState,
+  SourceCitation,
   SourceRecord,
   SourceHighlight,
   SourceVersion,
 } from '../../contracts/learning-records';
 import { DraftSession } from './draft-session';
+import { generatedLessonCitations, lessonForPath } from './generated-citations';
 import { ReaderContext } from './ReaderContext';
 import { isHumanSupport } from './human-support';
 import { ReaderSidebar, type WorkspaceDestination } from './ReaderSidebar';
@@ -132,6 +134,8 @@ function ProjectReader({
   const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
   const [revealedEntry, setRevealedEntry] =
     useState<EntryRevisionReference | null>(null);
+  const explanationRegion = useRef<HTMLElement>(null);
+  const [explanationFocus, setExplanationFocus] = useState(0);
   const isOccupied = busy || importState.saving;
   function selectPath(next: PathOrigin | undefined): void {
     setPath(next);
@@ -152,6 +156,13 @@ function ProjectReader({
       span: span ?? reveal?.span ?? null,
     });
   }, [onReadingLocation, path, version, span, reveal]);
+  useLayoutEffect(() => {
+    if (!explanationFocus) return;
+    const node = explanationRegion.current;
+    if (!node) return;
+    node.scrollIntoView?.({ block: 'nearest' });
+    node.focus({ preventScroll: true });
+  }, [explanationFocus]);
   function currentReadingLocation(): ReaderReadingLocation {
     return {
       path: pathRef.current,
@@ -249,6 +260,7 @@ function ProjectReader({
           origin: retained.origin,
           quote: selection.span.quote,
         });
+      if (active.current) setExplanationFocus((count) => count + 1);
     } catch {
       if (active.current)
         setMessage(
@@ -450,6 +462,15 @@ function ProjectReader({
       });
     });
   }
+  function openCitation(citation: SourceCitation): void {
+    restoreReading(
+      {
+        ...(path ? { path } : {}),
+        sourceRevisionId: citation.revisionId,
+      },
+      { start: citation.start, end: citation.end, quote: citation.quote },
+    );
+  }
   function renderSourceContent(): ReactElement {
     if (version)
       return (
@@ -457,6 +478,11 @@ function ProjectReader({
           version={version}
           source={workspace.sources.find(
             (item) => item.id === version.sourceId,
+          )}
+          sources={workspace.sources}
+          citations={generatedLessonCitations(
+            version,
+            lessonForPath(workspace, path),
           )}
           span={span}
           reveal={reveal}
@@ -472,6 +498,7 @@ function ProjectReader({
           onUpdate={(source) => void beforeNavigation(() => openImport(source))}
           onNote={() => void retainSelectionAndBegin('note')}
           onQuestion={() => void retainSelectionAndBegin('question')}
+          onOpenCitation={openCitation}
           {...(onExplainSelection
             ? {
                 onExplainText: () => void explainSelection('text'),
@@ -582,7 +609,16 @@ function ProjectReader({
               </section>
             )}
             {renderSourceContent()}
-            {explanation}
+            {explanation ? (
+              <section
+                ref={explanationRegion}
+                className="reader-contextual-response"
+                tabIndex={-1}
+                aria-label="Contextual explanation response"
+              >
+                {explanation}
+              </section>
+            ) : null}
           </article>
           <ReaderContext
             workspace={workspace}
@@ -595,9 +631,14 @@ function ProjectReader({
             onOpenOrigin={openOrigin}
             onRevealEntry={revealEntry}
             onInsight={() => void retainSelectionAndBegin('insight')}
-            onSource={(source) =>
+            citations={generatedLessonCitations(
+              version,
+              lessonForPath(workspace, path),
+            )}
+            onOpenCitation={openCitation}
+            onOpenSourceVersion={(edition) =>
               void beforeNavigation(() => {
-                setVersion(source.currentVersion);
+                setVersion(edition);
                 setSpan(null);
                 setReveal(null);
                 selectPath(undefined);

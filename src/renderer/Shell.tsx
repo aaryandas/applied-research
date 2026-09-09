@@ -113,6 +113,9 @@ export function Shell({
   const returnDestination = useRef<WorkspaceDestination>('reader');
   const search = useRef<HTMLInputElement>(null);
   const canvasSave = useRef<(() => Promise<boolean>) | null>(null);
+  const persistReadingResumeRef = useRef<() => Promise<void>>(
+    async () => undefined,
+  );
   const viewMoving = useRef(false);
   const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
   const {
@@ -133,11 +136,26 @@ export function Shell({
     },
     [registerCanvasFlush],
   );
+  const registerReaderFlushWithResume = useCallback(
+    (flush: (() => Promise<boolean>) | null) => {
+      if (!flush) {
+        registerReaderFlush(null);
+        return;
+      }
+      registerReaderFlush(async () => {
+        if (!(await flush())) return false;
+        await persistReadingResumeRef.current();
+        return true;
+      });
+    },
+    [registerReaderFlush],
+  );
   useEffect(() => {
     // Same-project view changes keep this Reader mounted; never treat its
     // incomplete draft as a failed view flush. Home/native close use registerFlush.
     registerReaderViewFlush(async () => {
       await reader.current?.flushViewNavigation();
+      await persistReadingResumeRef.current();
       return true;
     });
     return () => registerReaderViewFlush(null);
@@ -273,7 +291,7 @@ export function Shell({
     setSelectedPath(path);
     setAttempt(null);
   }, []);
-  async function persistReadingResume(): Promise<void> {
+  const persistReadingResume = useCallback(async (): Promise<void> => {
     if (typeof bridge.saveReadingResume !== 'function') return;
     const location = reader.current?.readingLocation();
     if (!location?.path?.lessonId) return;
@@ -290,7 +308,10 @@ export function Shell({
       lessonTitle: lessonTitleFor(workspace, location.path),
       projectGoal: workspace.project.goal,
     });
-  }
+  }, [bridge, workspace]);
+  useEffect(() => {
+    persistReadingResumeRef.current = persistReadingResume;
+  }, [persistReadingResume]);
   const moveRecord: LearningRecordsBridge['moveLearningRecord'] = useCallback(
     async (input) => {
       await bridge.moveLearningRecord(input);
@@ -308,7 +329,6 @@ export function Shell({
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {
       stopNativePractical();
-      void persistReadingResume();
       void navigate(() => {
         setResearchVisible(false);
         onHome();
@@ -325,7 +345,12 @@ export function Shell({
         // mounted. Incomplete drafts stay in those hosts; typed Reader drafts still
         // save through flushViewNavigation. Canvas unmounts, so save it separately.
         await reader.current?.flushViewNavigation();
-        await persistReadingResume();
+        try {
+          await persistReadingResume();
+        } catch {
+          void flush();
+          return;
+        }
         if (from === 'canvas' && next !== 'canvas') {
           const saveCanvas = canvasSave.current;
           if (saveCanvas && !(await saveCanvas())) return;
@@ -370,7 +395,6 @@ export function Shell({
   }
   function selectLesson(path: PathOrigin): void {
     stopNativePractical();
-    void persistReadingResume();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
@@ -536,7 +560,7 @@ export function Shell({
             workspace={workspace}
             onNavigate={go}
             onWorkspace={onWorkspace}
-            registerFlush={registerReaderFlush}
+            registerFlush={registerReaderFlushWithResume}
             navigationRef={reader}
             sidebar={null}
             onPathChange={onPathChange}

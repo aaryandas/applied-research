@@ -28,23 +28,31 @@ vi.mock('../explanations/ContextualHelpPanel', () => ({
     requestGeneration: number;
     selection: { quote: string; origin: { sourceRevisionId?: string } } | null;
     onReturnToOrigin?: (origin: { sourceRevisionId?: string }) => void;
-  }) => (
-    <div
-      data-testid="contextual-help"
-      data-project-generation={props.projectGeneration}
-      data-request-generation={props.requestGeneration}
-    >
-      {props.selection ? <p>{props.selection.quote}</p> : null}
-      {props.selection && props.onReturnToOrigin ? (
-        <button
-          type="button"
-          onClick={() => props.onReturnToOrigin?.(props.selection!.origin)}
-        >
-          Return to passage
-        </button>
-      ) : null}
-    </div>
-  ),
+  }) => {
+    const [draft, setDraft] = useState('Keep this human draft');
+    return (
+      <div
+        data-testid="contextual-help"
+        data-project-generation={props.projectGeneration}
+        data-request-generation={props.requestGeneration}
+      >
+        <textarea
+          aria-label="Your question"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        {props.selection ? <p>{props.selection.quote}</p> : null}
+        {props.selection && props.onReturnToOrigin ? (
+          <button
+            type="button"
+            onClick={() => props.onReturnToOrigin?.(props.selection!.origin)}
+          >
+            Return to passage
+          </button>
+        ) : null}
+      </div>
+    );
+  },
 }));
 
 beforeEach(() => {
@@ -419,8 +427,19 @@ it('forwards the exact Reader selection into contextual help and restores that o
       workspace.sources[0]!.currentVersion.canonicalText,
     ),
   );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('region', { name: 'Contextual explanation response' }),
+    ).toHaveFocus(),
+  );
+  expect(screen.getByLabelText('Your question')).toHaveValue(
+    'Keep this human draft',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Return to passage' }));
   expect(screen.getByLabelText('Source text')).toBeVisible();
+  expect(screen.getByLabelText('Your question')).toHaveValue(
+    'Keep this human draft',
+  );
 });
 
 it('flushes the exact Reader source span when leaving for Home', async () => {
@@ -470,6 +489,158 @@ it('flushes the exact Reader source span when leaving for Home', async () => {
     projectGoal: workspace.project.goal,
   });
   await waitFor(() => expect(onHome).toHaveBeenCalled());
+});
+
+it('saves a fresh live selection through the flush barrier after chrome blur', async () => {
+  const workspace = createCanvasFixture();
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, saveReadingResume } = await shellBridge(workspace, activate);
+  const onHome = vi.fn();
+  const text = workspace.sources[0]!.currentVersion.canonicalText;
+  const restored = text.slice(0, 11);
+  const path = {
+    pathId: 'path',
+    pathRevision: 1,
+    topicId: 'topic',
+    lessonId: 'lesson',
+  };
+  render(
+    <Shell
+      bridge={bridge}
+      workspace={workspace}
+      onWorkspace={vi.fn()}
+      onHome={onHome}
+      appearance={{ value: 'light', onChange: async () => {} }}
+      resume={{
+        path,
+        sourceRevisionId: 'source-v1',
+        span: { start: 0, end: restored.length, quote: restored },
+      }}
+    />,
+  );
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText('Source text').querySelector('mark')?.textContent,
+    ).toBe(restored);
+  });
+  const prose = screen.getByLabelText('Source text');
+  const range = document.createRange();
+  range.selectNodeContents(prose);
+  const selection = window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  fireEvent(document, new Event('selectionchange'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  await waitFor(() => expect(saveReadingResume).toHaveBeenCalled());
+  expect(saveReadingResume).toHaveBeenCalledWith({
+    projectId: workspace.project.id,
+    path,
+    sourceRevisionId: 'source-v1',
+    span: { start: 0, end: text.length, quote: text },
+    lessonTitle: 'Joint angles and hand position',
+    projectGoal: workspace.project.goal,
+  });
+  await waitFor(() => expect(onHome).toHaveBeenCalled());
+});
+
+it('does not leave for Home or claim a successful save when reading resume fails', async () => {
+  const workspace = createCanvasFixture();
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, saveReadingResume } = await shellBridge(workspace, activate);
+  saveReadingResume.mockRejectedValue(new Error('disk unavailable'));
+  const onHome = vi.fn();
+  const quote = workspace.sources[0]!.currentVersion.canonicalText.slice(0, 11);
+  render(
+    <Shell
+      bridge={bridge}
+      workspace={workspace}
+      onWorkspace={vi.fn()}
+      onHome={onHome}
+      appearance={{ value: 'light', onChange: async () => {} }}
+      resume={{
+        path: {
+          pathId: 'path',
+          pathRevision: 1,
+          topicId: 'topic',
+          lessonId: 'lesson',
+        },
+        sourceRevisionId: 'source-v1',
+        span: { start: 0, end: quote.length, quote },
+      }}
+    />,
+  );
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText('Source text').querySelector('mark')?.textContent,
+    ).toBe(quote);
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  expect(
+    await screen.findByText(
+      'Could not save your work. Keep this workspace open and try saving again.',
+    ),
+  ).toBeVisible();
+  expect(onHome).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Source text')).toBeVisible();
+  expect(screen.queryByText('Work saved.')).toBeNull();
+});
+
+it('saves the last-reading anchor from native Cmd+S without claiming Home success', async () => {
+  const workspace = createCanvasFixture();
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, saveReadingResume } = await shellBridge(workspace, activate);
+  const onHome = vi.fn();
+  const quote = workspace.sources[0]!.currentVersion.canonicalText.slice(0, 11);
+  const path = {
+    pathId: 'path',
+    pathRevision: 1,
+    topicId: 'topic',
+    lessonId: 'lesson',
+  };
+  render(
+    <Shell
+      bridge={bridge}
+      workspace={workspace}
+      onWorkspace={vi.fn()}
+      onHome={onHome}
+      appearance={{ value: 'light', onChange: async () => {} }}
+      resume={{
+        path,
+        sourceRevisionId: 'source-v1',
+        span: { start: 0, end: quote.length, quote },
+      }}
+    />,
+  );
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText('Source text').querySelector('mark')?.textContent,
+    ).toBe(quote);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save work' }));
+  await waitFor(() => expect(saveReadingResume).toHaveBeenCalled());
+  expect(saveReadingResume).toHaveBeenCalledWith({
+    projectId: workspace.project.id,
+    path,
+    sourceRevisionId: 'source-v1',
+    span: { start: 0, end: quote.length, quote },
+    lessonTitle: 'Joint angles and hand position',
+    projectGoal: workspace.project.goal,
+  });
+  await waitFor(() => expect(screen.getByText('Work saved.')).toBeVisible());
+  expect(onHome).not.toHaveBeenCalled();
 });
 
 it('keeps a pending later lesson visible when ensureLesson is unavailable', async () => {

@@ -7,10 +7,12 @@ import type {
   LearningEntryRevision,
   LearningOrigin,
   LearningWorkspace,
-  SourceRecord,
+  SourceCitation,
+  SourceVersion,
 } from '../../contracts/learning-records';
 import { EmptyState } from '../shell/ui';
 import { DraftSession } from './draft-session';
+import { GeneratedCitations } from './GeneratedCitations';
 import { NoteComposer } from './NoteComposer';
 import { EntryOrigin, InsightSupports } from './EntryOrigin';
 import { isHumanSupport } from './human-support';
@@ -26,7 +28,9 @@ interface ReaderContextProps {
   onOpenOrigin: (origin: LearningOrigin) => void;
   onRevealEntry: (reference: EntryRevisionReference) => void;
   onInsight: () => void;
-  onSource: (source: SourceRecord) => void;
+  citations?: readonly SourceCitation[];
+  onOpenCitation?: (citation: SourceCitation) => void;
+  onOpenSourceVersion: (version: SourceVersion) => void;
 }
 
 function recordHeadingId(reference: EntryRevisionReference): string {
@@ -105,7 +109,9 @@ export function ReaderContext({
   onOpenOrigin,
   onRevealEntry,
   onInsight,
-  onSource,
+  citations = [],
+  onOpenCitation,
+  onOpenSourceVersion,
 }: Readonly<ReaderContextProps>): ReactElement {
   const humanSupports = workspace.entries.filter(isHumanSupport);
   const insights = workspace.entries.filter(
@@ -252,15 +258,29 @@ export function ReaderContext({
         </TabPanel>
         <TabPanel id="sources">
           <h2 className="ui-sr-only">Sources</h2>
-          {workspace.sources.map((source) => (
-            <button
-              className="ui-button"
-              key={source.id}
-              onClick={() => onSource(source)}
-            >
-              {source.currentVersion.title}
-            </button>
-          ))}
+          {onOpenCitation ? (
+            <GeneratedCitations
+              citations={citations}
+              sources={workspace.sources}
+              onOpen={onOpenCitation}
+            />
+          ) : null}
+          {workspace.sources.flatMap((source) =>
+            source.versions
+              .filter((edition) => edition.provenance.kind !== 'generated')
+              .map((edition) => (
+                <button
+                  className="ui-button"
+                  key={edition.revisionId}
+                  onClick={() => onOpenSourceVersion(edition)}
+                >
+                  {edition.title}
+                  {source.currentVersionId === edition.revisionId
+                    ? ' · current'
+                    : ` · retained revision ${edition.revision}`}
+                </button>
+              )),
+          )}
         </TabPanel>
       </Tabs>
     </aside>
