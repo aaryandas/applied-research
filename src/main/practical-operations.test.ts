@@ -412,9 +412,7 @@ it('records, previews, and cancels native selection through the selected live wo
     acknowledgement: { revision: 1, changed: true },
   });
   expect(ops.boundAttempt()).toBeNull();
-  expect(
-    ops.loadPracticalAttempt({ activity, attemptId }),
-  ).toMatchObject({
+  expect(ops.loadPracticalAttempt({ activity, attemptId })).toMatchObject({
     status: 'loaded',
     attempt: { attemptId, activity: { projectId: activity.projectId } },
   });

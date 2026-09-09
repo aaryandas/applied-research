@@ -120,9 +120,10 @@ function CanvasSession({
     explanationSession.subscribe,
     explanationSession.getSnapshot,
   );
-  const failures = [...placements.values(), ...explanationDrafts.values()].filter(
-    (draft) => draft.phase === 'failed',
-  );
+  const failures = [
+    ...placements.values(),
+    ...explanationDrafts.values(),
+  ].filter((draft) => draft.phase === 'failed');
   const [viewports, setViewports] = useState<Record<CanvasView, Viewport>>({
     distilled: DEFAULT_VIEWPORT,
     expanded: DEFAULT_VIEWPORT,
@@ -278,7 +279,10 @@ function CanvasSession({
             .map((placement) => placement.recordId),
         );
         for (const node of updated) {
-          if (session.get(view, node.id) || explanationSession.get(view, node.id))
+          if (
+            session.get(view, node.id) ||
+            explanationSession.get(view, node.id)
+          )
             fixedIds.add(node.id);
         }
         return arrangeMeasuredNodes(updated, fixedIds);
@@ -568,10 +572,7 @@ function CanvasSession({
                           className="ui-button ui-button--secondary"
                           onClick={() => {
                             if (
-                              !session.retry(
-                                failure.input.view,
-                                failure.nodeId,
-                              )
+                              !session.retry(failure.input.view, failure.nodeId)
                             ) {
                               explanationSession.retry(
                                 failure.input.view,

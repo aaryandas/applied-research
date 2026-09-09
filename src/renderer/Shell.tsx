@@ -69,7 +69,7 @@ interface ShellProps {
         PracticalWorkspaceBridge &
         LearningOnboardingBridge &
         ContextualHelpBridge &
-          CompanionGuidanceBridge & {
+        CompanionGuidanceBridge & {
           saveReadingResume(value: ContinueLearningCard): Promise<void>;
         }
     >;
@@ -128,8 +128,12 @@ export function Shell({
     });
   }, [bridge]);
   useEffect(() => () => guidanceHost?.dispose(), [guidanceHost]);
-  const { selection, openExplanationId, explainSelection, openRetainedExplanation } =
-    useContextualSelection();
+  const {
+    selection,
+    openExplanationId,
+    explainSelection,
+    openRetainedExplanation,
+  } = useContextualSelection();
   const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
   const [canvasExplanations, setCanvasExplanations] = useState<
     RetainedExplanationCanvasProjection[]

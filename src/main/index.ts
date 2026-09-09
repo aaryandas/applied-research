@@ -534,9 +534,13 @@ async function createWindow(): Promise<void> {
   handle(CONTEXTUAL_HELP_CHANNELS.listPlacements, (value) =>
     contextualHelp.listPlacements(value),
   );
-  handle(COMPANION_GUIDANCE_REQUEST_CHANNEL, (value) => guidance.request(value));
+  handle(COMPANION_GUIDANCE_REQUEST_CHANNEL, (value) =>
+    guidance.request(value),
+  );
   handle(COMPANION_GUIDANCE_CANCEL_CHANNEL, (value) => guidance.cancel(value));
-  const rememberPracticalAttempt = (load: () => { status: string }): unknown => {
+  const rememberPracticalAttempt = (
+    load: () => { status: string },
+  ): unknown => {
     const previous = practicalOperations.boundAttempt()?.attemptId ?? null;
     const result = load();
     const next = practicalOperations.boundAttempt()?.attemptId ?? null;

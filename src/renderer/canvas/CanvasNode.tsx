@@ -81,7 +81,10 @@ function Content({ content, nested = false }: ContentProps): React.JSX.Element {
           title={content.originDetail}
           onClick={() => {
             if (!content.origin) return;
-            if (content.retainedExplanation && actions.onOpenRetainedExplanation) {
+            if (
+              content.retainedExplanation &&
+              actions.onOpenRetainedExplanation
+            ) {
               actions.onOpenRetainedExplanation({
                 ...content.retainedExplanation,
                 origin: content.origin,

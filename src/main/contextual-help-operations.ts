@@ -775,7 +775,8 @@ export class ContextualHelpOperations {
           aiResponse: {
             kind: 'ai',
             body: `${plan.caption} ${clip.message}`,
-            nextAction: 'Continue with the textual explanation of this passage.',
+            nextAction:
+              'Continue with the textual explanation of this passage.',
           },
           provenance: decoded.value.provenance,
           citations: [],

@@ -13,10 +13,7 @@ export type RetainedExplanationCanvasResultKind =
   RetainedExplanationResult['kind'] | 'unsupported' | 'pending';
 
 export type RetainedExplanationCanvasAttribution =
-  | 'ai-answer'
-  | 'ai-plan'
-  | 'app-measured-capture'
-  | 'human-parameters';
+  'ai-answer' | 'ai-plan' | 'app-measured-capture' | 'human-parameters';
 
 /**
  * Sibling Canvas projection. Same explanationId/origin as Reader. Not a human

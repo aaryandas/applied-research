@@ -69,9 +69,7 @@ export interface ContextualHelpBridge {
     projectId: string;
     artifactId: string;
   }): Promise<OpenRetainedClipResult>;
-  placeRetainedExplanation(
-    input: RetainedExplanationPlacementInput,
-  ): Promise<{
+  placeRetainedExplanation(input: RetainedExplanationPlacementInput): Promise<{
     kind: 'retained-explanation-placement';
     explanationId: string;
     projectId: string;
