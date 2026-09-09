@@ -4,6 +4,7 @@ import type { RetrievalEvidence } from '../../contracts/sourcing.js';
 import { parseLearningRequest } from '../validation.js';
 import type {
   AcquiredSource,
+  RetrieveEvidenceRequest,
   SourceRevisionIdentity,
 } from '../../contracts/sourcing.js';
 import {
@@ -61,19 +62,25 @@ export function validateSelectedEvidence(
       throw new Error('Acquired source is unavailable.');
     return response.source;
   });
-  const request = parseRetrieveEvidenceRequest({
+  const sourceRevisions = sources.map(({ content: { revision } }) => ({
+    sourceId: revision.sourceId,
+    revisionId: revision.revisionId,
+    sha256: revision.sha256,
+    canonicalizationVersion: revision.canonicalizationVersion,
+  }));
+  const retrieveInput = {
     apiVersion: SOURCING_API_VERSION,
     requestId: query.requestId,
     intent: query.intent,
     query: query.query,
-    sourceRevisions: sources.map(({ content: { revision } }) => ({
-      sourceId: revision.sourceId,
-      revisionId: revision.revisionId,
-      sha256: revision.sha256,
-      canonicalizationVersion: revision.canonicalizationVersion,
-    })),
+    sourceRevisions,
     maxPassages: 12,
-  });
+  } satisfies RetrieveEvidenceRequest;
+  // Empty sources are a legal no-evidence producer result, not a retrieve call.
+  const request: RetrieveEvidenceRequest =
+    sourceRevisions.length === 0
+      ? retrieveInput
+      : parseRetrieveEvidenceRequest(retrieveInput);
   const retrieval = parseRetrieveEvidenceResponse(selected.retrieval, {
     request,
     canonicalTextFor: (identity) =>

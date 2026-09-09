@@ -690,6 +690,80 @@ describe('sourced learning API', () => {
     expect(providerCalls).toBe(4);
   });
 
+  it('reviews a generated verification packet that exceeds the learner source character budget', async () => {
+    const largeText = `${text}${'x'.repeat(12_000 - text.length)}`;
+    const largeHash = createHash('sha256').update(largeText).digest('hex');
+    const bulkySources = [1, 2, 3, 4].map((index) => {
+      const sourceId = `course-0${index}`;
+      return {
+        ...source,
+        sourceId,
+        content: {
+          state: 'acquired' as const,
+          revision: {
+            ...revision,
+            sourceId,
+            revisionId: `revision-0${index}`,
+            canonicalText: largeText,
+            sha256: largeHash,
+          },
+        },
+      };
+    });
+    const bulkyEvidence = bulkySources.map((item, index) => ({
+      ...evidence,
+      evidenceId: `evidence-0${index + 1}`,
+      locator: {
+        ...evidence.locator,
+        sourceId: item.sourceId,
+        revisionId: item.content.revision.revisionId,
+        start: 0,
+        end: largeText.length,
+        quote: largeText,
+      },
+      sourceVersion: {
+        sourceId: item.sourceId,
+        revisionId: item.content.revision.revisionId,
+        sha256: largeHash,
+        canonicalizationVersion: item.content.revision.canonicalizationVersion,
+      },
+      provenance: { ...evidence.provenance, rank: index + 1 },
+    }));
+    let providerCalls = 0;
+    const api = await harness({
+      useModelSupport: true,
+      selection: {
+        sources: bulkySources,
+        retrieval: {
+          outcome: 'success',
+          requestId: request.requestId,
+          evidence: bulkyEvidence,
+        },
+      },
+      onProvider: () => {
+        providerCalls++;
+      },
+    });
+    expect(
+      JSON.stringify({
+        claims: path.steps,
+        evidence: bulkyEvidence.map(
+          ({ evidenceId, locator, sourceVersion }) => ({
+            evidenceId,
+            locator,
+            sourceVersion,
+          }),
+        ),
+      }).length,
+    ).toBeGreaterThan(48_000);
+    const result = await Effect.runPromise(api.request(account, request));
+    expect(result.outcome).toBe('sourced');
+    expect(result.path).not.toBeNull();
+    expect(result.supportReviews).toHaveLength(2);
+    expect(result.supportReviews[0]?.provenance?.provider).toBe('openrouter');
+    expect(providerCalls).toBe(4);
+  });
+
   it('reports backend retrieval, generation and verification latency without pretending desktop loading was measured', async () => {
     let time = 0;
     const api = await harness({
@@ -956,8 +1030,14 @@ describe('sourced learning API', () => {
       path: null,
       lesson: null,
       evidence: [],
-      gaps: [{ kind: 'retrieval' }],
+      gaps: [
+        {
+          kind: 'retrieval',
+          message: 'No exact source passage supports this query.',
+        },
+      ],
     });
+    expect(result.failure).toBeNull();
     expect(calls).toBe(0);
   });
 
