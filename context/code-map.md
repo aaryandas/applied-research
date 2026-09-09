@@ -29,7 +29,7 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 `vitest.config.ts` separates Node unit, DOM renderer and real SQLite integration projects. `tests/integration/` owns cross-module persistence checks; `context/testing.md` owns test-layer guidance and CI activation evidence.
 
-`compose.sonar.yml` runs the local-only Sonar/PostgreSQL stack and official scanner with immutable images. `context/sonar-local.md` documents operation; `.env.sonar` is private, ignored local configuration.
+`compose.sonar.yml` runs optional local Sonar/PostgreSQL and the official scanner with immutable images. GitHub analysis uses the Railway-hosted instance documented in [release operations](releases.md). `context/sonar-local.md` documents local Compose; `.env.sonar` is private, ignored local configuration.
 
 ## Authenticated backend modules
 

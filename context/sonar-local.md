@@ -1,6 +1,6 @@
 # Local SonarQube
 
-The founder selected a **local-only** Community Build instance in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Open [Applied Research (local)](http://127.0.0.1:9000/dashboard?id=applied-research-local). A Docker-compatible container engine must keep the existing Sonar and PostgreSQL services running. OrbStack is now the active engine; the original pinned Compose configuration runs against its Docker context.
+GitHub analysis now uses the Railway-hosted Community Build instance from AR-9/AR-45: [Applied Research (hosted)](https://sonarqube-production-6550.up.railway.app/dashboard?id=applied-research-hosted), project key `applied-research-hosted`. This page is only for optional local Compose on a developer machine. Do not point GitHub Actions at localhost.
 
 ## Verified analysis
 
@@ -31,7 +31,7 @@ Only Sonar's HTTP port is published, at `127.0.0.1:9000`; PostgreSQL is reachabl
 
 The scanner receives read-only mounts for source, tests, coverage, TypeScript configuration and installed dependencies. It does not mount the credential file, design archives, personal annotations or vendored Effect reference. The token enters through the container environment; users with access to the Docker daemon can inspect container configuration.
 
-Project key: `applied-research-local`. Local scans analyze the current working tree, including uncommitted changes, as one local baseline. SCM analysis is disabled for the isolated scanner mount. These results are not GitHub PR checks or evidence for a committed revision. Hosted GitHub Sonar remains disabled because hosted runners cannot reach localhost; the required GitHub CI gate is independent.
+Project key: `applied-research-local`. Local scans analyze the current working tree, including uncommitted changes, as one local baseline. SCM analysis is disabled for the isolated scanner mount. These results are not GitHub PR checks or evidence for a committed revision. Hosted GitHub analysis uses Railway project `applied-research-hosted`; the required GitHub CI gate is independent.
 
 ## Recreate on another development machine
 

@@ -46,20 +46,20 @@ The API service requires the non-secret Railway variable `RAILPACK_INSTALL_CMD` 
 
 ## SonarQube Community Build
 
-The founder selected [local-only Sonar](sonar-local.md) for current development. It is separate from the optional hosted-runner setup below; do not enable GitHub Sonar with a localhost URL.
+GitHub analysis uses the Railway-hosted Community Build instance selected after AR-9: [https://sonarqube-production-6550.up.railway.app](https://sonarqube-production-6550.up.railway.app), project `applied-research-hosted`. Local Compose remains optional developer tooling; do not point GitHub at localhost.
 
-Sonar is optional and supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
+Sonar supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
 
-Enable after creating a project on a reachable SonarQube Community Build instance:
+The workflow uses that Railway host and project key unless repository variables override them. Set `SONAR_ENABLED=false` to disable. A project-scoped analysis token is still required:
 
-| Repository setting           | Value                                      |
-| ---------------------------- | ------------------------------------------ |
-| Variable `SONAR_ENABLED`     | `true`                                     |
-| Variable `SONAR_HOST_URL`    | HTTPS URL reachable from the GitHub runner |
-| Variable `SONAR_PROJECT_KEY` | Project key from the Sonar instance        |
-| Secret `SONAR_TOKEN`         | Project-scoped analysis token              |
+| Repository setting           | Value                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| Secret `SONAR_TOKEN`         | Project analysis token for `applied-research-hosted`                          |
+| Variable `SONAR_HOST_URL`    | Optional override; default `https://sonarqube-production-6550.up.railway.app` |
+| Variable `SONAR_PROJECT_KEY` | Optional override; default `applied-research-hosted`                          |
+| Variable `SONAR_ENABLED`     | Optional; `false` disables the workflow                                       |
 
-Never paste the token into a tracked file. A localhost Sonar instance is not reachable from a hosted GitHub runner. Hosting/operating that instance remains an external decision; this repository does not silently deploy a Sonar server. Without configuration the workflow is disabled; an enabled but incomplete setup fails explicitly.
+Never paste the token into a tracked file. An enabled workflow with a missing token fails explicitly.
 
 Do not make this main-only Sonar workflow a required PR status. If native PR analysis is needed, evaluate SonarQube Cloud separately against the repository's visibility and current plan limits.
 
@@ -69,7 +69,7 @@ Official references: [Community Build limitations](https://docs.sonarsource.com/
 
 - Require **CI gate**, a pull request, and the desired review policy on main in GitHub repository rules.
 - Configure the release environment and confirm which installer architectures to support.
-- Enable/configure Sonar only after selecting a reachable instance or another Sonar deployment.
+- Store `SONAR_TOKEN` in GitHub Actions secrets after creating a project analysis token on the Railway instance.
 - Configure code signing before describing builds as signed or production-ready.
 
 Checking in workflows does not establish that a remote run passed. Record actual GitHub run results in the implementation handoff.

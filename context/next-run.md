@@ -40,7 +40,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - `Lane guard`.
 - `Linear gate`: the ticket is In Review. Needs the `LINEAR_API_KEY` repository secret (read plus attachment write).
 - Independent review comment with PASS.
-- Sonar: zero new violations on the diff. Run `npm run sonar:scan:native` from the PR worktree with `SONAR_HOST_URL=http://127.0.0.1:9000` and `SONAR_TOKEN` in the environment; the Docker scanner cannot reach the server from a second worktree. False positives are listed by issue key in the PR for the founder, never suppressed.
+- Sonar: zero new violations on the diff against the Railway-hosted instance. False positives are listed by issue key in the PR for the founder, never suppressed.
 - Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
 
 ## Traps fixed in tooling
