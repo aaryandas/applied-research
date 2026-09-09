@@ -4,11 +4,11 @@ Coordinator-owned `lane:integration` checkpoint. Execution: Cursor Cloud Grok 4.
 
 ## Frozen revisions
 
-| Role             | SHA                                         | Notes                                          |
-| ---------------- | ------------------------------------------- | ---------------------------------------------- |
-| Integration base | `8d0a8154ade3ede7302f6595789aea1e31663707`  | `codex/ar-walkthrough-integration` at dispatch |
+| Role             | SHA                                                         | Notes                                                         |
+| ---------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| Integration base | `8d0a8154ade3ede7302f6595789aea1e31663707`                  | `codex/ar-walkthrough-integration` at dispatch                |
 | This checkpoint  | `dca9dc7` plus this handoff on `codex/ar-56-integration-ci` | Lifecycle fix `dca9dc7`; PR head after this page is published |
-| PR base          | `codex/ar-walkthrough-integration`          | Draft only; no merge to `main`, no deployment  |
+| PR base          | `codex/ar-walkthrough-integration`                          | Draft only; no merge to `main`, no deployment                 |
 
 Root independently reviews this SHA, then propagates the shared lifecycle fix into producer branches. Do not treat this page as permission to integrate unreviewed AR47–AR55 patches.
 
