@@ -1,0 +1,36 @@
+body {
+  margin: 0;
+  background: var(--paper);
+}
+.companion-fixture {
+  max-width: 52rem;
+  padding: var(--space-6);
+  margin-inline: auto;
+}
+.companion-fixture header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.companion-fixture header p,
+.companion-fixture aside {
+  font: var(--text-xs) var(--font-ui);
+  color: var(--muted);
+}
+.companion-fixture h1 {
+  font: 400 2rem var(--font-reading);
+}
+.companion-fixture textarea {
+  display: block;
+  width: 100%;
+  min-height: 7rem;
+  margin-block: var(--space-3) var(--space-6);
+}
+.companion-fixture aside {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
