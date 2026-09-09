@@ -104,6 +104,24 @@ function normalized(sha, runs, statuses) {
   return normalizeChecks(sha, runs, enriched, evidence);
 }
 
+test('infrastructure status errors are distinct from product gate failures', () => {
+  const statuses = checks();
+  statuses.find((check) => check.name === 'Linear gate').conclusion = 'error';
+  assert.equal(assessMerge(candidate(), statuses).kind, 'infra');
+  statuses.find((check) => check.name === 'Linear gate').conclusion = 'failure';
+  assert.equal(assessMerge(candidate(), statuses).kind, 'gate');
+  const source = { ...candidate(), files: ['src/main/auth-adapter.ts'] };
+  const sonar = {
+    name: 'Sonar gate',
+    head_sha: sha,
+    status: 'completed',
+    conclusion: 'error',
+  };
+  assert.equal(assessMerge(source, [...checks(), sonar]).kind, 'infra');
+  sonar.conclusion = 'failure';
+  assert.equal(assessMerge(source, [...checks(), sonar]).kind, 'gate');
+});
+
 test('requires every successful check on the exact head', () => {
   assert.equal(assessMerge(candidate(), checks()).eligible, true);
   for (const name of REQUIRED_CHECKS) {

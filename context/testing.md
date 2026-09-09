@@ -2,6 +2,8 @@
 
 Work is tracked in [AR-8](https://linear.app/aaryan-das/issue/AR-8) and Sonar activation in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Use the installed exact dependencies and Node 24; CI must not require provider credentials, personal data or a live AI service.
 
+The founder's current execution-placement policy permits local focused TDD/unit tests and `npm run check`. Run Playwright, `npm run test:e2e`, and `npm run test:packaged` only in Cursor cloud or GitHub CI; never generate local test videos/traces. Cursor supplies targeted scenarios and a recorded hands-on walkthrough at the frozen PR revision; macOS CI remains the blocking full suite. Remote checks stay pending until observed, not failed or waived because they were not run locally. No local Sonar server or scanner may run.
+
 ## Test layers
 
 | Layer               | Command                         | Boundary exercised                                                                                            |
@@ -22,7 +24,7 @@ Playwright's Electron automation is [experimental](https://playwright.dev/docs/a
 
 ## Required pipeline
 
-The [full-app gauntlet](design-handoff/GAUNTLET-PROMPT.md#sonar-cycle--required-throughout-implementation) additionally requires coordinator-owned sequential local Sonar scans for integrated application slices and analyzed-code repairs, issue triage/fixes in Linear, and independent TypeScript/Effect standards review. This is an explicit build-task cycle, not a background scheduler. Hosted CI does not run the local scanner.
+The [full-app gauntlet](design-handoff/GAUNTLET-PROMPT.md#sonar-cycle--required-throughout-implementation) requires sequential Sonar analysis of integrated application slices and analyzed-code repairs, issue triage/fixes in Linear, and independent TypeScript/Effect standards review. The latest founder instruction places Sonar on Railway and scans on GitHub runners, superseding older local-scan requirements. See [the delivery runbook](automation-run.md#hosted-sonar-gate) for exact-revision hosted evidence and explicit setup blockers.
 
 Previous MVP verification on macOS arm64: `npm run check` passed (42 tests in 9 files); all three built Electron tests passed; packaging and the same three packaged tests passed. Vitest coverage was 96.89% lines, 92.19% branches, 92.85% functions and 95.71% statements. Sonar reported 95.4% coverage using its own analyzer and denominator.
 

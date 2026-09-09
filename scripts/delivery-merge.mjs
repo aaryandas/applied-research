@@ -132,6 +132,8 @@ export function assessMerge(pr, checks, policy) {
       return refuse(`Untrusted app for Actions check: ${name}`);
     if (check.status !== 'completed')
       return refuse(`Pending check: ${name}`, 'infra');
+    if (check.conclusion === 'error')
+      return refuse(`Infrastructure error in check: ${name}`, 'infra');
     if (check.conclusion !== 'success')
       return refuse(`Failed check: ${name} (${check.conclusion})`);
   }
@@ -169,6 +171,11 @@ export function assessMerge(pr, checks, policy) {
         ),
         action: 'needs-sonar-cloud',
       };
+    if (sonar.conclusion === 'error')
+      return refuse(
+        'Hosted Sonar infrastructure error at this revision',
+        'infra',
+      );
     if (sonar.conclusion !== 'success')
       return refuse('Hosted Sonar gate did not pass this exact revision');
   }
