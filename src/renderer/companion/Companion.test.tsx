@@ -11,8 +11,15 @@ import type {
   CompanionSessionOptions,
   CompanionState,
 } from '../../contracts/companion';
+import type { CompanionSelectedTarget } from '../../contracts/companion-guidance';
 import type { PracticalGuidanceRequest } from '../../contracts/practical-work';
 import { Companion } from './Companion';
+import { createCompanionGuidanceHost } from './guidance-adapter';
+import {
+  companionWorkspaceRevealKey,
+  createCompanionRevealRegistry,
+  createCompanionSelectionRevealer,
+} from './reveal-registry';
 import { createCompanionSession } from './session';
 import type { CompanionTargetRevealer } from './target-pointer';
 
@@ -465,5 +472,191 @@ describe('Companion app-owned controls and decoration', () => {
     expect(
       screen.getByText('Target reveal is unavailable.'),
     ).toBeInTheDocument();
+  });
+});
+
+const projectId = '10000000-0000-4000-8000-000000000001';
+const highlightId = '40000000-0000-4000-8000-000000000001';
+const sourceRevisionId = '30000000-0000-4000-8000-000000000001';
+const workspaceTarget: CompanionSelectedTarget = {
+  surface: 'reader',
+  projectId,
+  target: {
+    kind: 'selected-source-highlight',
+    sourceRevisionId,
+    highlightId,
+  },
+};
+
+describe('Companion Reader/Canvas selected help', () => {
+  it('asks about a selected passage, shows AI provenance, starts/stops, and reveals an owned ref', async () => {
+    const requestCompanionGuidance = vi.fn(async () => ({
+      outcome: 'success' as const,
+      requestId: '31000000-0000-4000-8000-000000000001',
+      authorKind: 'ai' as const,
+      text: 'Compare the sheared image to the original basis.',
+      provenance: {
+        author: 'ai' as const,
+        provider: 'openrouter' as const,
+        providerRequestId: 'provreq03',
+        model: 'google/gemini-3.8-flash' as const,
+        requestVersion: '2026-09-08' as const,
+        promptVersion: 'learning-v2-2026-09-09',
+        createdAt: '2026-09-09T08:00:00.000Z',
+        sourceRevisions: [
+          {
+            sourceId: 'source-01',
+            revisionId: 'revision01',
+            title: 'Linear maps',
+            sha256: 'a'.repeat(64),
+            format: 'plain-text' as const,
+            canonicalizationVersion: 'workspace-plain-v1',
+            acquiredAt: '2026-09-09T08:00:00.000Z',
+            provenance: { kind: 'human-imported' as const, locator: null },
+          },
+        ],
+      },
+    }));
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance,
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const registry = createCompanionRevealRegistry();
+    const owned = document.createElement('button');
+    owned.textContent = 'Passage';
+    document.body.append(owned);
+    vi.spyOn(owned, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(40, 60, 100, 30),
+    );
+    registry.register(companionWorkspaceRevealKey(workspaceTarget), owned);
+    const selectionRevealer = createCompanionSelectionRevealer(registry);
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={workspaceTarget}
+        guidanceHost={host}
+        selectionRevealer={selectionRevealer}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    expect(requestCompanionGuidance).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Explain this passage' }),
+    );
+    await screen.findByText(/AI guidance · Selected source passage/);
+    expect(
+      screen.getByText(/openrouter · google\/gemini-3.8-flash/),
+    ).toBeInTheDocument();
+    expect(requestCompanionGuidance).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Guide this activity' }),
+    );
+    await screen.findByText(/Guiding: Selected source passage/);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop guidance' }));
+    expect(screen.getByText('Guidance is off.')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show selected target' }),
+    );
+    await waitFor(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const frame of pending) frame(0);
+      expect(
+        screen.getByText('Showing Selected source passage.'),
+      ).toBeInTheDocument();
+    });
+    expect(owned).toHaveFocus();
+    expect(requestCompanionGuidance).toHaveBeenCalledTimes(2);
+    owned.remove();
+  });
+
+  it('shows quota failures and drains a cancelled Reader ask', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requestCompanionGuidance = vi.fn(async () => {
+      await gate;
+      return {
+        outcome: 'quota-exceeded' as const,
+        requestId: '31000000-0000-4000-8000-000000000001',
+        message: 'The monthly AI allowance is exhausted.',
+      };
+    });
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance,
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={workspaceTarget}
+        guidanceHost={host}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about selected target' }),
+    );
+    await screen.findByText('Asking for guidance…');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel answer' }));
+    expect(
+      screen.getByText('Stopping the previous request…'),
+    ).toBeInTheDocument();
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Stopping the previous request…'),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('renders an authenticated quota failure for selected Reader material', async () => {
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance: async () => ({
+          outcome: 'quota-exceeded',
+          requestId: '31000000-0000-4000-8000-000000000001',
+          message: 'The monthly AI allowance is exhausted.',
+        }),
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={workspaceTarget}
+        guidanceHost={host}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Explain this passage' }),
+    );
+    await screen.findByText('The monthly AI allowance is exhausted.');
   });
 });
