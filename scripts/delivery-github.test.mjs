@@ -51,6 +51,8 @@ function genuineReceipt(overrides = {}) {
     headSha: HEAD,
     customCheckId: 9001,
     githubRunId: 42,
+    githubRunAttempt: 1,
+    githubJobId: 8,
     criticAgentId: AGENT,
     criticRunId: RUN,
     passed: true,
@@ -73,6 +75,70 @@ function genuineDisplayCheck(overrides = {}) {
     output: { summary: 'githubRunId=42 is display text, not association' },
     ...overrides,
   };
+}
+
+function publisherJob(overrides = {}) {
+  return {
+    id: 8,
+    name: TRUSTED_REVIEW_JOB_NAME,
+    run_id: 42,
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'success',
+    check_run_url:
+      'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+    ...overrides,
+  };
+}
+
+function failedLatestAttemptJob() {
+  return publisherJob({
+    id: 88,
+    run_attempt: 2,
+    conclusion: 'failure',
+    check_run_url:
+      'https://api.github.com/repos/aaryandas/applied-research/check-runs/222',
+  });
+}
+
+function respondPublisherGithub(href, { runBody, jobBodies }) {
+  const jobMatch = href.match(/\/actions\/jobs\/(\d+)$/);
+  if (jobMatch) {
+    const found = (jobBodies ?? []).find(
+      (entry) => String(entry.id) === jobMatch[1],
+    );
+    if (!found) {
+      return {
+        ok: false,
+        status: 404,
+        async json() {
+          return { message: 'Not Found' };
+        },
+      };
+    }
+    return json(found);
+  }
+  const attemptJobs = href.match(
+    /\/actions\/runs\/42\/attempts\/(\d+)\/jobs\?per_page=100$/,
+  );
+  if (attemptJobs) {
+    const attempt = Number(attemptJobs[1]);
+    const forAttempt = (jobBodies ?? []).filter(
+      (entry) => Number(entry.run_attempt) === attempt,
+    );
+    return json({ jobs: forAttempt.length ? forAttempt : jobBodies });
+  }
+  const attemptRun = href.match(/\/actions\/runs\/42\/attempts\/(\d+)$/);
+  if (attemptRun) {
+    return json({ ...runBody, id: 42, run_attempt: Number(attemptRun[1]) });
+  }
+  if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
+    return json({ jobs: [failedLatestAttemptJob()] });
+  }
+  if (href.endsWith('/actions/runs/42')) {
+    return json({ ...runBody, run_attempt: 2 });
+  }
+  return null;
 }
 
 function mockReviewWorld({
@@ -100,17 +166,7 @@ function mockReviewWorld({
     head_branch: 'codex/ar-41-cursor-cloud-orchestration-ce33',
     head_sha: MAIN,
   };
-  const jobBodies = jobs ?? [
-    {
-      id: 8,
-      name: TRUSTED_REVIEW_JOB_NAME,
-      run_id: 42,
-      status: 'completed',
-      conclusion: 'success',
-      check_run_url:
-        'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
-    },
-  ];
+  const jobBodies = jobs ?? [publisherJob()];
   const receiptBody = receipt ?? genuineReceipt();
   return {
     artifactName,
@@ -130,12 +186,8 @@ function mockReviewWorld({
           },
         };
       }
-      if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
-        return json({ jobs: jobBodies });
-      }
-      if (href.endsWith('/actions/runs/42')) {
-        return json(runBody);
-      }
+      const publisher = respondPublisherGithub(href, { runBody, jobBodies });
+      if (publisher) return publisher;
       throw new Error(`unexpected ${href}`);
     },
     extractZipFile: () => JSON.stringify(receiptBody),
@@ -269,6 +321,7 @@ test('wrong job identity or unsuccessful job is rejected', async () => {
         id: 8,
         name: 'something else',
         run_id: 42,
+        run_attempt: 1,
         status: 'completed',
         conclusion: 'success',
         check_run_url:
@@ -286,6 +339,7 @@ test('wrong job identity or unsuccessful job is rejected', async () => {
         id: 8,
         name: TRUSTED_REVIEW_JOB_NAME,
         run_id: 42,
+        run_attempt: 1,
         status: 'completed',
         conclusion: 'failure',
         check_run_url:
@@ -383,6 +437,8 @@ function genuineLaunchReceipt(overrides = {}) {
     modelParams: [...REQUIRED_MODEL_PARAMS],
     idempotencyKey: `independent-review:aaryandas/applied-research:99:${HEAD}`,
     githubRunId: '42',
+    githubRunAttempt: 1,
+    githubJobId: 8,
     githubWorkflowSha: MAIN,
     githubEvent: 'workflow_dispatch',
     workflowPath: TRUSTED_WORKFLOW_FILE,
@@ -416,17 +472,7 @@ function mockLaunchWorld({
     head_branch: 'main',
     head_sha: MAIN,
   };
-  const jobBodies = jobs ?? [
-    {
-      id: 8,
-      name: TRUSTED_REVIEW_JOB_NAME,
-      run_id: 42,
-      status: 'completed',
-      conclusion: 'success',
-      check_run_url:
-        'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
-    },
-  ];
+  const jobBodies = jobs ?? [publisherJob()];
   const receiptBody = receipt ?? genuineLaunchReceipt();
   return {
     artifactName,
@@ -446,12 +492,8 @@ function mockLaunchWorld({
           },
         };
       }
-      if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
-        return json({ jobs: jobBodies });
-      }
-      if (href.endsWith('/actions/runs/42')) {
-        return json(runBody);
-      }
+      const publisher = respondPublisherGithub(href, { runBody, jobBodies });
+      if (publisher) return publisher;
       throw new Error(`unexpected ${href}`);
     },
     extractZipFile: () => JSON.stringify(receiptBody),
@@ -479,6 +521,8 @@ test('genuine launch binding uses the POST receipt artifact, not caller JSON', a
   assert.equal(bound.runHeadSha, MAIN);
   assert.notEqual(bound.runHeadSha, HEAD);
   assert.equal(bound.headSha, HEAD);
+  assert.equal(bound.jobId, '8');
+  assert.equal(bound.githubRunAttempt, 1);
 });
 
 test('missing or foreign launch artifacts fail closed and do not become model proof', async () => {
@@ -550,4 +594,59 @@ test('unzip extracts the official launch receipt file when unzip exists', () => 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('launch bind authenticates the original attempt job, not a later same-named job', async () => {
+  const requested = [];
+  const world = mockLaunchWorld();
+  const bound = await bindTrustedLaunchReceipt({
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    headSha: HEAD,
+    defaultBranch: 'main',
+    token: 'ghs_test',
+    fetchImpl: async (url) => {
+      const href = String(url);
+      requested.push(href);
+      return world.fetchImpl(url);
+    },
+    extractZipFile: world.extractZipFile,
+  });
+  assert.equal(bound.ok, true);
+  assert.equal(bound.jobId, '8');
+  assert.equal(bound.githubRunAttempt, 1);
+  assert.equal(
+    requested.some((href) =>
+      href.endsWith('/actions/runs/42/jobs?per_page=100'),
+    ),
+    false,
+  );
+  assert.equal(
+    requested.some((href) => href.endsWith('/actions/jobs/8')),
+    true,
+  );
+  assert.equal(
+    requested.some((href) => href.endsWith('/actions/runs/42/attempts/1')),
+    true,
+  );
+});
+
+test('review bind rejects a different job id than the receipt bound', async () => {
+  const world = mockReviewWorld({
+    receipt: genuineReceipt({ githubJobId: 88 }),
+    jobs: [publisherJob(), failedLatestAttemptJob()],
+  });
+  const bound = await bindWith(world);
+  assert.equal(bound.independentReviewBinding.ok, false);
+  assert.equal(bound.independentReviewBinding.reason, 'job-attempt-mismatch');
+});
+
+test('launch bind rejects a receipt that names a later failed job', async () => {
+  const world = mockLaunchWorld({
+    receipt: genuineLaunchReceipt({ githubJobId: 88, githubRunAttempt: 2 }),
+    jobs: [publisherJob(), failedLatestAttemptJob()],
+  });
+  const bound = await bindLaunch(world);
+  assert.equal(bound.ok, false);
+  assert.equal(bound.reason, 'job-not-success');
 });

@@ -548,6 +548,8 @@ test('F5: trusted evaluate binds the custom PR check to a trusted-run artifact r
     headSha: HEAD,
     customCheckId: 9001,
     githubRunId: 42,
+    githubRunAttempt: 1,
+    githubJobId: 8,
     criticAgentId: 'bc-11111111-1111-1111-1111-111111111111',
     criticRunId: 'run-22222222-2222-2222-2222-222222222222',
     passed: true,
@@ -638,13 +640,26 @@ test('F5: trusted evaluate binds the custom PR check to a trusted-run artifact r
             },
           };
         }
-        if (href.includes('/actions/runs/42/jobs')) {
+        if (href.endsWith('/actions/jobs/8')) {
+          return json({
+            id: 8,
+            name: TRUSTED_REVIEW_JOB_NAME,
+            run_id: 42,
+            run_attempt: 1,
+            status: 'completed',
+            conclusion: 'success',
+            check_run_url:
+              'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+          });
+        }
+        if (href.includes('/actions/runs/42/attempts/1/jobs')) {
           return json({
             jobs: [
               {
                 id: 8,
                 name: TRUSTED_REVIEW_JOB_NAME,
                 run_id: 42,
+                run_attempt: 1,
                 status: 'completed',
                 conclusion: 'success',
                 check_run_url:
@@ -652,6 +667,20 @@ test('F5: trusted evaluate binds the custom PR check to a trusted-run artifact r
               },
             ],
           });
+        }
+        if (href.endsWith('/actions/runs/42/attempts/1')) {
+          return json({
+            id: 42,
+            path: TRUSTED_WORKFLOW_FILE,
+            event: 'workflow_run',
+            name: 'Independent review',
+            head_branch: 'codex/ar-41-cursor-cloud-orchestration-ce33',
+            head_sha: MAIN,
+            run_attempt: 1,
+          });
+        }
+        if (href.includes('/actions/runs/42/jobs')) {
+          throw new Error('must not GET latest-attempt jobs');
         }
         if (href.includes('/actions/runs/42')) {
           return json({

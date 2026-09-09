@@ -50,6 +50,7 @@ import {
   listWorkflowFilesAtRef,
   postCheckRun,
   postIssueComment,
+  resolveTrustedPublisherJob,
 } from './delivery-github.mjs';
 import {
   assertTrustedCursorInvocation,
@@ -92,6 +93,37 @@ End with a single JSON object (no surrounding commentary after it) using this sh
 
 PASS on an axis requires no unresolved material findings on that axis.
 Do not treat your JSON role or model fields as authentication; the coordinator binds model identity via the launch receipt.`;
+
+function lookupHttpStatus(error) {
+  const n = Number(error?.status);
+  if (Number.isInteger(n) && n > 0) return n;
+  const match = String(error?.message ?? '').match(/\breturned (\d{3})\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function isTransientLookupFailure(error) {
+  const status = lookupHttpStatus(error);
+  if (status == null) return true;
+  return status === 429 || status >= 500;
+}
+
+function isTransientBindingReason(reason) {
+  const text = String(reason ?? '');
+  return (
+    /\breturned (429|5\d\d)\b/.test(text) ||
+    /fetch failed|network|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket/i.test(text)
+  );
+}
+
+function pendingLookupResult(message) {
+  return {
+    passed: false,
+    status: 'PENDING',
+    pending: true,
+    failures: [message],
+    evidence: null,
+  };
+}
 
 export function catalogHasRequiredGrok46(catalog) {
   const item = (catalog?.items ?? []).find(
@@ -477,6 +509,8 @@ export function createLaunchReceipt({
   prUrl,
   repository,
   githubRunId,
+  githubRunAttempt,
+  githubJobId,
   githubWorkflowSha,
   githubEvent,
   source = TRUSTED_LAUNCH_RECEIPT_SOURCE,
@@ -500,6 +534,8 @@ export function createLaunchReceipt({
       headSha,
     }),
     githubRunId: githubRunId ?? null,
+    githubRunAttempt: githubRunAttempt ?? null,
+    githubJobId: githubJobId ?? null,
     githubWorkflowSha: githubWorkflowSha ?? null,
     githubEvent: githubEvent ?? null,
     workflowPath,
@@ -549,7 +585,21 @@ export async function evaluateFromCursor({
   fetchImpl = fetch,
 }) {
   assertTrustedCursorInvocation(env);
-  const catalog = await listModels({ apiKey, fetchImpl, env });
+  let catalog;
+  try {
+    catalog = await listModels({ apiKey, fetchImpl, env });
+  } catch (error) {
+    const message = redactSecrets(error.message);
+    if (isTransientLookupFailure(error)) {
+      return pendingLookupResult(`Could not GET /v1/models: ${message}`);
+    }
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [`Could not GET /v1/models: ${message}`],
+      evidence: null,
+    };
+  }
   if (!launchReceipt?.agentId) {
     return {
       passed: false,
@@ -589,11 +639,17 @@ export async function evaluateFromCursor({
       fetchImpl,
     });
   } catch (error) {
+    const message = redactSecrets(error.message);
+    if (isTransientLookupFailure(error)) {
+      return pendingLookupResult(
+        `Could not authenticate launch-receipt GitHub Actions run ${githubRunId}: ${message}`,
+      );
+    }
     return {
       passed: false,
       status: 'FAIL',
       failures: [
-        `Could not authenticate launch-receipt GitHub Actions run ${githubRunId}: ${redactSecrets(error.message)}`,
+        `Could not authenticate launch-receipt GitHub Actions run ${githubRunId}: ${message}`,
       ],
       evidence: null,
     };
@@ -634,10 +690,14 @@ export async function evaluateFromCursor({
         evidence: null,
       };
     }
+    if (isTransientLookupFailure(error)) {
+      return pendingLookupResult(
+        `Could not GET original Cursor run ${originalRunId} from the trusted launch receipt: ${message}`,
+      );
+    }
     return {
       passed: false,
-      status: 'PENDING',
-      pending: true,
+      status: 'FAIL',
       failures: [
         `Could not GET original Cursor run ${originalRunId} from the trusted launch receipt: ${message}`,
       ],
@@ -809,6 +869,31 @@ export async function maybeLaunchReview({
         'Cursor Cloud create agent did not return the original run id; latestRunId is not a launch receipt',
     };
   }
+  const githubRunAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  let githubJobId = null;
+  if (
+    token &&
+    repository &&
+    env.GITHUB_RUN_ID &&
+    Number.isInteger(githubRunAttempt) &&
+    githubRunAttempt > 0
+  ) {
+    try {
+      const job = await resolveTrustedPublisherJob({
+        repository,
+        runId: env.GITHUB_RUN_ID,
+        attemptNumber: githubRunAttempt,
+        token,
+        fetchImpl,
+      });
+      const id = Number(job?.id);
+      if (Number.isInteger(id) && id > 0) {
+        githubJobId = id;
+      }
+    } catch {
+      /* Persist the POST receipt even if the in-progress job GET fails. */
+    }
+  }
   return {
     launched: true,
     agentId: agent?.id,
@@ -822,6 +907,10 @@ export async function maybeLaunchReview({
       prUrl,
       repository,
       githubRunId: env.GITHUB_RUN_ID,
+      githubRunAttempt: Number.isInteger(githubRunAttempt)
+        ? githubRunAttempt
+        : null,
+      githubJobId,
       githubWorkflowSha: env.GITHUB_SHA,
       githubEvent: githubEventName(env),
       source: TRUSTED_LAUNCH_RECEIPT_SOURCE,
@@ -958,11 +1047,32 @@ async function publishCheck({
       'GITHUB_RUN_ID is required to persist the independent-review receipt',
     );
   }
+  const githubRunAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  if (!Number.isInteger(githubRunAttempt) || githubRunAttempt <= 0) {
+    throw new Error(
+      'GITHUB_RUN_ATTEMPT is required to persist the independent-review receipt',
+    );
+  }
+  const job = await resolveTrustedPublisherJob({
+    repository,
+    runId: githubRunId,
+    attemptNumber: githubRunAttempt,
+    token,
+    fetchImpl,
+  });
+  const githubJobId = Number(job?.id);
+  if (!Number.isInteger(githubJobId) || githubJobId <= 0) {
+    throw new Error(
+      'Trusted publisher job id is required to persist a passing independent-review receipt',
+    );
+  }
   const receipt = createIndependentReviewRunReceipt({
     prNumber,
     headSha,
     customCheckId,
     githubRunId,
+    githubRunAttempt,
+    githubJobId,
     criticAgentId: result.evidence?.agentId ?? null,
     criticRunId: result.evidence?.runId ?? null,
     passed: Boolean(result.passed),
@@ -1126,15 +1236,15 @@ export async function mainEvaluate(env = process.env, deps = {}) {
           githubOutput: env.GITHUB_OUTPUT,
         });
         log.log(`LAUNCH_RECEIPT_JSON=${JSON.stringify(launch.receipt)}`);
-        result = await evaluateFromCursor({
-          apiKey,
-          prUrl,
-          expectedHeadSha: headSha,
-          ...isolation,
-          launchReceipt: launch.receipt,
-          env,
-          fetchImpl,
-        });
+        result = {
+          passed: false,
+          status: 'PENDING',
+          pending: true,
+          failures: [
+            `Original Cursor run ${launch.receipt.runId} launched; resume that trusted launch without a new POST`,
+          ],
+          evidence: null,
+        };
       } else {
         const conflict = /HTTP 409/.test(launch.reason ?? '');
         result = {
@@ -1144,6 +1254,10 @@ export async function mainEvaluate(env = process.env, deps = {}) {
           evidence: null,
         };
       }
+    } else if (isTransientBindingReason(bound.reason)) {
+      result = pendingLookupResult(
+        `Trusted launch artifact lookup is temporarily unavailable (${bound.reason})`,
+      );
     } else {
       result = {
         passed: false,

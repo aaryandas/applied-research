@@ -37,9 +37,11 @@ export async function githubJson(
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       redactSecrets(`GitHub ${method} ${path} returned ${response.status}`),
     );
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -152,16 +154,152 @@ export function parseNativeJobCheckRunId(checkRunUrl) {
   return match ? Number(match[1]) : null;
 }
 
+export function positiveInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 export async function fetchWorkflowRun(repository, runId, options) {
   return githubJson(`repos/${repository}/actions/runs/${runId}`, options);
 }
 
-export async function fetchWorkflowRunJobs(repository, runId, options) {
+export async function fetchWorkflowRunAttempt(
+  repository,
+  runId,
+  attemptNumber,
+  options,
+) {
+  const attempt = positiveInt(attemptNumber);
+  if (!attempt) {
+    throw new Error('Workflow run attempt must be a positive integer');
+  }
+  return githubJson(
+    `repos/${repository}/actions/runs/${runId}/attempts/${attempt}`,
+    options,
+  );
+}
+
+export async function fetchWorkflowRunAttemptJobs(
+  repository,
+  runId,
+  attemptNumber,
+  options,
+) {
+  const attempt = positiveInt(attemptNumber);
+  if (!attempt) {
+    throw new Error('Workflow run attempt must be a positive integer');
+  }
   const payload = await githubJson(
-    `repos/${repository}/actions/runs/${runId}/jobs?per_page=100`,
+    `repos/${repository}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`,
     options,
   );
   return payload?.jobs ?? [];
+}
+
+export async function fetchWorkflowJob(repository, jobId, options) {
+  const id = positiveInt(jobId);
+  if (!id) {
+    throw new Error('Workflow job id must be a positive integer');
+  }
+  return githubJson(`repos/${repository}/actions/jobs/${id}`, options);
+}
+
+export async function resolveTrustedPublisherJob({
+  repository,
+  runId,
+  attemptNumber,
+  token,
+  fetchImpl = fetch,
+} = {}) {
+  const attempt = positiveInt(attemptNumber);
+  const run = positiveInt(runId);
+  if (!attempt || !run) return null;
+  const jobs = await fetchWorkflowRunAttemptJobs(repository, run, attempt, {
+    token,
+    fetchImpl,
+  });
+  const matches = (jobs ?? []).filter(
+    (entry) =>
+      entry?.name === TRUSTED_REVIEW_JOB_NAME &&
+      Number(entry.run_id) === run &&
+      Number(entry.run_attempt) === attempt,
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function authenticatePublisherJob({
+  repository,
+  runId,
+  attemptNumber,
+  jobId,
+  expectedEvents,
+  token,
+  fetchImpl,
+}) {
+  const attempt = positiveInt(attemptNumber);
+  if (!attempt) {
+    return failedBinding('receipt-githubRunAttempt');
+  }
+  const github = { token, fetchImpl };
+  const attemptRun = await fetchWorkflowRunAttempt(
+    repository,
+    runId,
+    attempt,
+    github,
+  );
+  if (Number(attemptRun?.id) !== Number(runId)) {
+    return failedBinding('attempt-run-mismatch');
+  }
+  if (Number(attemptRun?.run_attempt) !== attempt) {
+    return failedBinding('attempt-number-mismatch');
+  }
+  if (attemptRun.path !== TRUSTED_WORKFLOW_FILE) {
+    return failedBinding('wrong-workflow');
+  }
+  if (
+    Array.isArray(expectedEvents) &&
+    !expectedEvents.includes(attemptRun.event)
+  ) {
+    return failedBinding('wrong-event');
+  }
+  const expectedJobId = positiveInt(jobId);
+  let job;
+  if (expectedJobId) {
+    job = await fetchWorkflowJob(repository, expectedJobId, github);
+    if (Number(job?.id) !== expectedJobId) {
+      return failedBinding('job-id-mismatch');
+    }
+  } else {
+    const jobs = await fetchWorkflowRunAttemptJobs(
+      repository,
+      runId,
+      attempt,
+      github,
+    );
+    const matches = (jobs ?? []).filter(
+      (entry) =>
+        entry?.name === TRUSTED_REVIEW_JOB_NAME &&
+        Number(entry.run_id) === Number(runId) &&
+        Number(entry.run_attempt) === attempt,
+    );
+    if (matches.length !== 1) {
+      return failedBinding('missing-expected-job');
+    }
+    job = matches[0];
+  }
+  if (Number(job.run_id) !== Number(runId)) {
+    return failedBinding('job-run-mismatch');
+  }
+  if (Number(job.run_attempt) !== attempt) {
+    return failedBinding('job-attempt-mismatch');
+  }
+  if (job.name !== TRUSTED_REVIEW_JOB_NAME) {
+    return failedBinding('missing-expected-job');
+  }
+  if (job.status !== 'completed' || job.conclusion !== 'success') {
+    return failedBinding('job-not-success');
+  }
+  return { ok: true, job, attemptRun };
 }
 
 export async function listActionsArtifactsByName(repository, name, options) {
@@ -330,37 +468,6 @@ async function verifyIndependentReviewArtifact({
     return failedBinding('artifact-missing-workflow-run');
   }
   const github = { token, fetchImpl };
-  const run = await fetchWorkflowRun(repository, runId, github);
-  if (Number(run?.id) !== Number(runId)) {
-    return failedBinding('run-id-mismatch');
-  }
-  if (run.path !== TRUSTED_WORKFLOW_FILE) {
-    return failedBinding('wrong-workflow');
-  }
-  if (!TRUSTED_GITHUB_EVENTS.includes(run.event)) {
-    return failedBinding('wrong-event');
-  }
-  if (
-    run.event === 'workflow_dispatch' &&
-    run.head_branch &&
-    run.head_branch !== defaultBranch
-  ) {
-    return failedBinding('dispatch-not-default-branch');
-  }
-  const jobs = await fetchWorkflowRunJobs(repository, run.id, github);
-  const job = (jobs ?? []).find(
-    (entry) => entry.name === TRUSTED_REVIEW_JOB_NAME,
-  );
-  if (!job) {
-    return failedBinding('missing-expected-job');
-  }
-  if (Number(job.run_id) !== Number(run.id)) {
-    return failedBinding('job-run-mismatch');
-  }
-  if (job.status !== 'completed' || job.conclusion !== 'success') {
-    return failedBinding('job-not-success');
-  }
-  const nativeJobCheckId = parseNativeJobCheckRunId(job.check_run_url);
   const zip = await downloadActionsArtifactZip(repository, artifact.id, github);
   const extract = extractZipFile ?? extractNamedFileFromZip;
   let raw;
@@ -374,6 +481,30 @@ async function verifyIndependentReviewArtifact({
     return failedBinding(parsed.reason);
   }
   const receipt = parsed.receipt;
+  if (Number(receipt.githubRunId) !== Number(runId)) {
+    return failedBinding('receipt-wrong-run');
+  }
+  const authenticated = await authenticatePublisherJob({
+    repository,
+    runId,
+    attemptNumber: receipt.githubRunAttempt,
+    jobId: receipt.githubJobId,
+    expectedEvents: TRUSTED_GITHUB_EVENTS,
+    token,
+    fetchImpl,
+  });
+  if (!authenticated.ok) {
+    return authenticated;
+  }
+  const { job, attemptRun } = authenticated;
+  if (
+    attemptRun.event === 'workflow_dispatch' &&
+    attemptRun.head_branch &&
+    attemptRun.head_branch !== defaultBranch
+  ) {
+    return failedBinding('dispatch-not-default-branch');
+  }
+  const nativeJobCheckId = parseNativeJobCheckRunId(job.check_run_url);
   if (Number(receipt.customCheckId) !== Number(check.id)) {
     return failedBinding('custom-check-id-mismatch');
   }
@@ -382,9 +513,6 @@ async function verifyIndependentReviewArtifact({
   }
   if (receipt.headSha !== headSha || check.head_sha !== headSha) {
     return failedBinding('receipt-wrong-sha');
-  }
-  if (Number(receipt.githubRunId) !== Number(run.id)) {
-    return failedBinding('receipt-wrong-run');
   }
   if (receipt.passed !== true) {
     return failedBinding('receipt-not-passed');
@@ -395,14 +523,15 @@ async function verifyIndependentReviewArtifact({
   return {
     ok: true,
     customCheckId: Number(check.id),
-    githubRunId: String(run.id),
-    workflowPath: run.path,
-    event: run.event,
+    githubRunId: String(attemptRun.id),
+    githubRunAttempt: Number(job.run_attempt),
+    workflowPath: attemptRun.path,
+    event: attemptRun.event,
     jobName: job.name,
     jobId: String(job.id),
     nativeJobCheckId,
-    headBranch: run.head_branch ?? null,
-    runHeadSha: run.head_sha ?? null,
+    headBranch: attemptRun.head_branch ?? null,
+    runHeadSha: attemptRun.head_sha ?? null,
     passed: true,
     headSha,
     prNumber: Number(prNumber),
@@ -492,32 +621,6 @@ async function verifyTrustedLaunchArtifact({
     return failedBinding('artifact-missing-workflow-run');
   }
   const github = { token, fetchImpl };
-  const run = await fetchWorkflowRun(repository, runId, github);
-  if (Number(run?.id) !== Number(runId)) {
-    return failedBinding('run-id-mismatch');
-  }
-  if (run.path !== TRUSTED_WORKFLOW_FILE) {
-    return failedBinding('wrong-workflow');
-  }
-  if (run.event !== TRUSTED_LAUNCH_EVENT) {
-    return failedBinding('wrong-event');
-  }
-  if (!run.head_branch || run.head_branch !== defaultBranch) {
-    return failedBinding('dispatch-not-default-branch');
-  }
-  const jobs = await fetchWorkflowRunJobs(repository, run.id, github);
-  const job = (jobs ?? []).find(
-    (entry) => entry.name === TRUSTED_REVIEW_JOB_NAME,
-  );
-  if (!job) {
-    return failedBinding('missing-expected-job');
-  }
-  if (Number(job.run_id) !== Number(run.id)) {
-    return failedBinding('job-run-mismatch');
-  }
-  if (job.status !== 'completed' || job.conclusion !== 'success') {
-    return failedBinding('job-not-success');
-  }
   const zip = await downloadActionsArtifactZip(repository, artifact.id, github);
   const extract = extractZipFile ?? extractNamedFileFromZip;
   let raw;
@@ -537,11 +640,8 @@ async function verifyTrustedLaunchArtifact({
   if (receipt.headSha !== headSha) {
     return failedBinding('receipt-wrong-sha');
   }
-  if (Number(receipt.githubRunId) !== Number(run.id)) {
+  if (Number(receipt.githubRunId) !== Number(runId)) {
     return failedBinding('receipt-wrong-run');
-  }
-  if (receipt.githubWorkflowSha !== run.head_sha) {
-    return failedBinding('receipt-wrong-workflow-sha');
   }
   if (receipt.githubEvent !== TRUSTED_LAUNCH_EVENT) {
     return failedBinding('receipt-wrong-event');
@@ -549,17 +649,37 @@ async function verifyTrustedLaunchArtifact({
   if (receipt.repository && receipt.repository !== repository) {
     return failedBinding('receipt-wrong-repo');
   }
+  const authenticated = await authenticatePublisherJob({
+    repository,
+    runId,
+    attemptNumber: receipt.githubRunAttempt,
+    jobId: receipt.githubJobId,
+    expectedEvents: [TRUSTED_LAUNCH_EVENT],
+    token,
+    fetchImpl,
+  });
+  if (!authenticated.ok) {
+    return authenticated;
+  }
+  const { job, attemptRun } = authenticated;
+  if (!attemptRun.head_branch || attemptRun.head_branch !== defaultBranch) {
+    return failedBinding('dispatch-not-default-branch');
+  }
+  if (receipt.githubWorkflowSha !== attemptRun.head_sha) {
+    return failedBinding('receipt-wrong-workflow-sha');
+  }
   return {
     ok: true,
     reason: undefined,
     receipt,
-    githubRunId: String(run.id),
-    workflowPath: run.path,
-    event: run.event,
+    githubRunId: String(attemptRun.id),
+    githubRunAttempt: Number(job.run_attempt),
+    workflowPath: attemptRun.path,
+    event: attemptRun.event,
     jobName: job.name,
     jobId: String(job.id),
-    headBranch: run.head_branch ?? null,
-    runHeadSha: run.head_sha ?? null,
+    headBranch: attemptRun.head_branch ?? null,
+    runHeadSha: attemptRun.head_sha ?? null,
     headSha,
     prNumber: Number(prNumber),
     agentId: receipt.agentId,

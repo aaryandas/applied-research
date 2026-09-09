@@ -16,9 +16,14 @@ name: Independent review
 # Queue proof is an Actions artifact receipt from this job (custom check id,
 # PR, SHA) plus GET of this run/job — not details_url or check summary text.
 # Fresh authorized POST persists independent-review-launch-{pr}-{sha} with the
-# exact trusted launch receipt (agent/run/model/params/workflow SHA+path+run).
-# Later trusted evaluate and workflow_run load that artifact, GET the original
-# run, and must not POST again. HTTP 409 on an existing agent is fail-closed.
+# exact trusted launch receipt (agent/run/model/params/workflow SHA+path+run+
+# attempt+job). Later trusted evaluate authenticates that original attempt and
+# job via GET /actions/runs/{id}/attempts/{n} and GET /actions/jobs/{job_id},
+# not GET /runs/{id}/jobs (latest attempt). A same-named job from a rerun is
+# not the launch. After a confirmed POST the launching invocation persists
+# and returns PENDING; it must not fail the job on a later catalog/GitHub/Cursor
+# read. Later trusted evaluate and workflow_run load that artifact, GET the
+# original run, and must not POST again. HTTP 409 on an existing agent is fail-closed.
 #
 # Existing GitHub Environment trusted-main already holds the authorized
 # Cursor key. Deployment branch policy: type=branch, name=main. The
@@ -100,6 +105,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}

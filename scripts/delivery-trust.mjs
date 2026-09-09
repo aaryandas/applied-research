@@ -163,6 +163,17 @@ export function parseTrustedLaunchReceipt(raw) {
   if (!/^\d+$/.test(String(parsed.githubRunId ?? ''))) {
     return { ok: false, reason: 'receipt-githubRunId' };
   }
+  const githubRunAttempt = Number(parsed.githubRunAttempt);
+  if (!Number.isInteger(githubRunAttempt) || githubRunAttempt <= 0) {
+    return { ok: false, reason: 'receipt-githubRunAttempt' };
+  }
+  let githubJobId = null;
+  if (parsed.githubJobId != null && parsed.githubJobId !== '') {
+    githubJobId = Number(parsed.githubJobId);
+    if (!Number.isInteger(githubJobId) || githubJobId <= 0) {
+      return { ok: false, reason: 'receipt-githubJobId' };
+    }
+  }
   if (!isFullSha(parsed.githubWorkflowSha)) {
     return { ok: false, reason: 'receipt-githubWorkflowSha' };
   }
@@ -196,6 +207,8 @@ export function parseTrustedLaunchReceipt(raw) {
       modelParams: parsed.modelParams,
       idempotencyKey: parsed.idempotencyKey ?? null,
       githubRunId: String(parsed.githubRunId),
+      githubRunAttempt,
+      githubJobId,
       githubWorkflowSha: String(parsed.githubWorkflowSha),
       githubEvent: parsed.githubEvent,
       workflowPath: parsed.workflowPath,
@@ -424,6 +437,8 @@ export function createIndependentReviewRunReceipt({
   headSha,
   customCheckId,
   githubRunId,
+  githubRunAttempt,
+  githubJobId,
   criticAgentId = null,
   criticRunId = null,
   passed,
@@ -436,6 +451,8 @@ export function createIndependentReviewRunReceipt({
     headSha,
     customCheckId: Number(customCheckId),
     githubRunId: Number(githubRunId),
+    githubRunAttempt: Number(githubRunAttempt),
+    githubJobId: Number(githubJobId),
     workflowPath: TRUSTED_WORKFLOW_FILE,
     jobName: TRUSTED_REVIEW_JOB_NAME,
     criticAgentId: criticAgentId ?? null,
@@ -485,6 +502,14 @@ export function parseIndependentReviewReceipt(raw) {
   if (!Number.isInteger(githubRunId) || githubRunId <= 0) {
     return { ok: false, reason: 'receipt-githubRunId' };
   }
+  const githubRunAttempt = Number(parsed.githubRunAttempt);
+  const githubJobId = Number(parsed.githubJobId);
+  if (!Number.isInteger(githubRunAttempt) || githubRunAttempt <= 0) {
+    return { ok: false, reason: 'receipt-githubRunAttempt' };
+  }
+  if (!Number.isInteger(githubJobId) || githubJobId <= 0) {
+    return { ok: false, reason: 'receipt-githubJobId' };
+  }
   if (!isFullSha(headSha)) {
     return { ok: false, reason: 'receipt-headSha' };
   }
@@ -520,6 +545,8 @@ export function parseIndependentReviewReceipt(raw) {
       prNumber,
       customCheckId,
       githubRunId,
+      githubRunAttempt,
+      githubJobId,
       headSha,
       workflowPath: parsed.workflowPath,
       jobName: parsed.jobName,

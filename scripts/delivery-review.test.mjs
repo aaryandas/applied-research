@@ -722,10 +722,41 @@ function dispatchLaunchEnv(overrides = {}) {
     GITHUB_ACTOR: 'aaryandas',
     GITHUB_TRIGGERING_ACTOR: 'aaryandas',
     GITHUB_RUN_ID: '1',
+    GITHUB_RUN_ATTEMPT: '1',
     GITHUB_SHA: HEAD,
     REPOSITORY: 'aaryandas/applied-research',
     ...overrides,
   };
+}
+
+function githubJsonOk(body) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return body;
+    },
+    async text() {
+      return JSON.stringify(body);
+    },
+  };
+}
+
+function inProgressPublisherJobs(runId = 1, jobId = 8) {
+  return githubJsonOk({
+    jobs: [
+      {
+        id: jobId,
+        name: 'Cursor Cloud Grok 4.6 Extra High',
+        run_id: Number(runId),
+        run_attempt: 1,
+        status: 'in_progress',
+        conclusion: null,
+        check_run_url:
+          'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+      },
+    ],
+  });
 }
 
 test('workflow_run evaluates only and never POSTs a Cursor agent', async () => {
@@ -918,6 +949,9 @@ test('authorized dispatch launch POSTs the documented mode:agent create schema',
           },
         };
       }
+      if (href.includes('/actions/runs/1/attempts/1/jobs')) {
+        return inProgressPublisherJobs(1, 8);
+      }
       throw new Error(`unexpected fetch ${href}`);
     },
   });
@@ -934,6 +968,8 @@ test('authorized dispatch launch POSTs the documented mode:agent create schema',
   assert.equal(Object.hasOwn(posted, 'toolProfile'), false);
   assert.equal(result.receipt.source, TRUSTED_LAUNCH_RECEIPT_SOURCE);
   assert.equal(result.receipt.githubEvent, 'workflow_dispatch');
+  assert.equal(result.receipt.githubRunAttempt, 1);
+  assert.equal(result.receipt.githubJobId, 8);
 });
 
 test('rerun launch GETs write permission for both github.actor and github.triggering_actor', async () => {
@@ -991,6 +1027,9 @@ test('rerun launch GETs write permission for both github.actor and github.trigge
             });
           },
         };
+      }
+      if (href.includes('/actions/runs/1/attempts/1/jobs')) {
+        return inProgressPublisherJobs(1, 8);
       }
       throw new Error(`unexpected fetch ${href}`);
     },
@@ -1068,6 +1107,8 @@ test('trusted evaluate persists a run artifact receipt with the custom check id'
       headSha: HEAD,
       customCheckId: 9001,
       githubRunId: 42,
+      githubRunAttempt: 1,
+      githubJobId: 8,
       criticAgentId: AGENT,
       criticRunId: RUN,
       passed: true,
@@ -1106,6 +1147,95 @@ function bothJson(body, status = 200) {
   };
 }
 
+function publisherJobBody(runId, jobId, attempt, overrides = {}) {
+  return {
+    id: jobId,
+    name: 'Cursor Cloud Grok 4.6 Extra High',
+    run_id: Number(runId),
+    run_attempt: Number(attempt),
+    status: 'completed',
+    conclusion: 'success',
+    check_run_url:
+      'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+    ...overrides,
+  };
+}
+
+function actionsPublisherResponse(href, state) {
+  if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
+    state.latestJobsHits = (state.latestJobsHits ?? 0) + 1;
+    return bothJson({
+      jobs: [
+        publisherJobBody(42, 88, 2, {
+          status: 'in_progress',
+          conclusion: null,
+          check_run_url:
+            'https://api.github.com/repos/aaryandas/applied-research/check-runs/222',
+        }),
+      ],
+    });
+  }
+  const jobMatch = href.match(/\/actions\/jobs\/(\d+)$/);
+  if (jobMatch) {
+    const jobId = Number(jobMatch[1]);
+    if (jobId === 88) {
+      return bothJson(
+        publisherJobBody(42, 88, 2, {
+          status: 'completed',
+          conclusion: 'failure',
+        }),
+      );
+    }
+    const runId = jobId === 9 ? 99 : 42;
+    return bothJson(publisherJobBody(runId, jobId, 1));
+  }
+  const attemptJobs = href.match(
+    /\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs\?per_page=100$/,
+  );
+  if (attemptJobs) {
+    const runId = Number(attemptJobs[1]);
+    const attempt = Number(attemptJobs[2]);
+    const jobId = runId === 99 ? 9 : 8;
+    const launching = runId !== 99 && state.launchJobCompleted !== true;
+    return bothJson({
+      jobs: [
+        publisherJobBody(runId, jobId, attempt, {
+          status: launching ? 'in_progress' : 'completed',
+          conclusion: launching ? null : 'success',
+        }),
+      ],
+    });
+  }
+  const attemptRun = href.match(/\/actions\/runs\/(\d+)\/attempts\/(\d+)$/);
+  if (attemptRun) {
+    const runId = Number(attemptRun[1]);
+    return bothJson({
+      id: runId,
+      path: TRUSTED_WORKFLOW_FILE,
+      event: runId === 99 ? 'workflow_run' : 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: WORKFLOW_SHA,
+      run_attempt: Number(attemptRun[2]),
+    });
+  }
+  const run = href.match(/\/actions\/runs\/(\d+)$/);
+  if (run) {
+    const runId = Number(run[1]);
+    if (state.githubRunHttpStatus) {
+      return bothJson({ message: 'unavailable' }, state.githubRunHttpStatus);
+    }
+    return bothJson({
+      id: runId,
+      path: TRUSTED_WORKFLOW_FILE,
+      event: runId === 99 ? 'workflow_run' : 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: WORKFLOW_SHA,
+      run_attempt: 2,
+    });
+  }
+  return null;
+}
+
 function evaluateEnv(overrides = {}) {
   return {
     TRUSTED_DEFAULT_BRANCH: 'true',
@@ -1119,6 +1249,7 @@ function evaluateEnv(overrides = {}) {
     GITHUB_ACTOR: 'aaryandas',
     GITHUB_TRIGGERING_ACTOR: 'aaryandas',
     GITHUB_RUN_ID: '42',
+    GITHUB_RUN_ATTEMPT: '1',
     GITHUB_SHA: WORKFLOW_SHA,
     REPOSITORY: 'aaryandas/applied-research',
     GITHUB_REPOSITORY: 'aaryandas/applied-research',
@@ -1148,6 +1279,8 @@ test('two-invocation flow POSTs once while RUNNING then resumes FINISHED with ze
     artifacts: [],
     launchReceipt: null,
     fetchedRuns: [],
+    latestJobsHits: 0,
+    launchJobCompleted: false,
     checkBody: null,
   };
   const fetchImpl = async (url, init) => {
@@ -1211,30 +1344,8 @@ test('two-invocation flow POSTs once while RUNNING then resumes FINISHED with ze
         },
       };
     }
-    if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
-      return bothJson({
-        jobs: [
-          {
-            id: 8,
-            name: 'Cursor Cloud Grok 4.6 Extra High',
-            run_id: 42,
-            status: 'completed',
-            conclusion: 'success',
-            check_run_url:
-              'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
-          },
-        ],
-      });
-    }
-    if (href.endsWith('/actions/runs/42')) {
-      return bothJson({
-        id: 42,
-        path: TRUSTED_WORKFLOW_FILE,
-        event: 'workflow_dispatch',
-        head_branch: 'main',
-        head_sha: WORKFLOW_SHA,
-      });
-    }
+    const actions = actionsPublisherResponse(href, state);
+    if (actions) return actions;
     if (href.endsWith('/check-runs') && method === 'POST') {
       state.checkPosts += 1;
       state.checkBody = JSON.parse(init.body);
@@ -1264,15 +1375,19 @@ test('two-invocation flow POSTs once while RUNNING then resumes FINISHED with ze
     assert.equal(launchWritten.runId, RUN);
     assert.equal(launchWritten.githubEvent, 'workflow_dispatch');
     assert.equal(launchWritten.repository, 'aaryandas/applied-research');
+    assert.equal(launchWritten.githubRunAttempt, 1);
+    assert.equal(launchWritten.githubJobId, 8);
     const gh1 = await readFile(output1, 'utf8');
     assert.match(
       gh1,
       /launch_receipt_file=independent-review-launch-receipt.json/,
     );
-    assert.equal(state.fetchedRuns.includes(OTHER_RUN), false);
+    assert.equal(state.fetchedRuns.length, 0);
+    assert.equal(state.latestJobsHits, 0);
 
     state.launchReceipt = launchWritten;
     state.cursorStatus = 'FINISHED';
+    state.launchJobCompleted = true;
     state.artifacts = [
       {
         id: 7,
@@ -1315,6 +1430,8 @@ test('two-invocation flow POSTs once while RUNNING then resumes FINISHED with ze
     );
     assert.equal(reviewWritten.customCheckId, 9001);
     assert.equal(reviewWritten.githubRunId, 99);
+    assert.equal(reviewWritten.githubRunAttempt, 1);
+    assert.equal(reviewWritten.githubJobId, 9);
     assert.notEqual(reviewWritten.customCheckId, 111);
     assert.equal(reviewWritten.criticRunId, RUN);
     const gh2 = await readFile(output2, 'utf8');
@@ -1505,30 +1622,8 @@ test('forged launch artifact is denied even when launch is enabled', async () =>
             ],
           });
         }
-        if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
-          return bothJson({
-            jobs: [
-              {
-                id: 8,
-                name: 'Cursor Cloud Grok 4.6 Extra High',
-                run_id: 42,
-                status: 'completed',
-                conclusion: 'success',
-                check_run_url:
-                  'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
-              },
-            ],
-          });
-        }
-        if (href.endsWith('/actions/runs/42')) {
-          return bothJson({
-            id: 42,
-            path: TRUSTED_WORKFLOW_FILE,
-            event: 'workflow_dispatch',
-            head_branch: 'main',
-            head_sha: WORKFLOW_SHA,
-          });
-        }
+        const actions = actionsPublisherResponse(href, {});
+        if (actions) return actions;
         if (href.endsWith('/actions/artifacts/7/zip')) {
           return {
             ok: true,
@@ -1620,6 +1715,8 @@ test('trusted evaluate persists the launch receipt separately from the review re
         prUrl: PR_URL,
         repository: 'aaryandas/applied-research',
         githubRunId: '42',
+        githubRunAttempt: 1,
+        githubJobId: 8,
         githubWorkflowSha: WORKFLOW_SHA,
         githubEvent: 'workflow_dispatch',
       }),
@@ -1639,5 +1736,355 @@ test('trusted evaluate persists the launch receipt separately from the review re
   } finally {
     process.chdir(previous);
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function makeLifecycleFetch(state) {
+  return async (url, init) => {
+    const href = String(url);
+    const method = init?.method ?? 'GET';
+    if (href.includes('/v1/models')) {
+      if (state.catalogHttpStatus) {
+        return bothJson({ message: 'unavailable' }, state.catalogHttpStatus);
+      }
+      return bothJson(catalog);
+    }
+    if (href.includes('/collaborators/')) {
+      return bothJson({ permission: 'admin' });
+    }
+    if (href.includes('/pulls/99') && !href.includes('/comments')) {
+      return bothJson(launchPr());
+    }
+    if (href.includes('/contents/.github/workflows')) {
+      return bothJson([]);
+    }
+    if (href.includes('/v1/agents') && method === 'POST') {
+      state.agentPosts += 1;
+      return bothJson({
+        agent: documentedAgent(),
+        run: documentedRun({ status: 'RUNNING', result: '' }),
+      });
+    }
+    if (href.includes(`/v1/agents/${AGENT}/runs/`)) {
+      const runId = href.split('/runs/')[1];
+      state.fetchedRuns.push(runId);
+      if (state.cursorHttpStatus) {
+        return bothJson({ message: 'unavailable' }, state.cursorHttpStatus);
+      }
+      return bothJson(
+        documentedRun({
+          id: runId,
+          status: state.cursorStatus,
+          result:
+            state.cursorStatus === 'FINISHED' ? documentedRun().result : '',
+        }),
+      );
+    }
+    if (href.includes(`/v1/agents/${AGENT}/artifacts`)) {
+      return bothJson({ items: [] });
+    }
+    if (href.includes(`/v1/agents/${AGENT}`)) {
+      if (state.cursorHttpStatus) {
+        return bothJson({ message: 'unavailable' }, state.cursorHttpStatus);
+      }
+      return bothJson(documentedAgent({ latestRunId: OTHER_RUN }));
+    }
+    if (href.includes('/actions/artifacts?name=')) {
+      return bothJson({
+        total_count: state.artifacts.length,
+        artifacts: state.artifacts,
+      });
+    }
+    if (href.endsWith('/actions/artifacts/7/zip')) {
+      return {
+        ok: true,
+        status: 200,
+        body: Buffer.from('PK'),
+        async arrayBuffer() {
+          return Buffer.from('PK');
+        },
+        async json() {
+          return {};
+        },
+      };
+    }
+    const actions = actionsPublisherResponse(href, state);
+    if (actions) return actions;
+    if (href.endsWith('/check-runs') && method === 'POST') {
+      state.checkPosts += 1;
+      state.checkBody = JSON.parse(init.body);
+      return bothJson({ id: 9001 });
+    }
+    if (href.includes('/issues/99/comments') && method === 'POST') {
+      return bothJson({ id: 1 });
+    }
+    throw new Error(`unexpected fetch ${method} ${href}`);
+  };
+}
+
+test('same GitHub run attempt 2 resumes the original launch receipt with zero POST', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ar-attempt-bind-'));
+  const previous = process.cwd();
+  process.chdir(dir);
+  const state = {
+    cursorStatus: 'RUNNING',
+    agentPosts: 0,
+    checkPosts: 0,
+    artifacts: [],
+    launchReceipt: null,
+    fetchedRuns: [],
+    latestJobsHits: 0,
+    launchJobCompleted: false,
+    checkBody: null,
+  };
+  const fetchImpl = makeLifecycleFetch(state);
+  try {
+    process.exitCode = 0;
+    const first = await mainEvaluate(
+      evaluateEnv({ GITHUB_OUTPUT: join(dir, 'out-1') }),
+      { fetchImpl, log: silentLog() },
+    );
+    assert.equal(first.pending, true);
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.fetchedRuns.length, 0);
+    const launchWritten = JSON.parse(
+      await readFile(join(dir, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE), 'utf8'),
+    );
+    assert.equal(launchWritten.githubRunAttempt, 1);
+    assert.equal(launchWritten.githubJobId, 8);
+
+    state.launchReceipt = launchWritten;
+    state.cursorStatus = 'FINISHED';
+    state.launchJobCompleted = true;
+    state.artifacts = [
+      {
+        id: 7,
+        name: `independent-review-launch-99-${HEAD}`,
+        expired: false,
+        size_in_bytes: 200,
+        workflow_run: { id: 42, head_sha: WORKFLOW_SHA },
+      },
+    ];
+    process.exitCode = 0;
+    const second = await mainEvaluate(
+      evaluateEnv({
+        GITHUB_OUTPUT: join(dir, 'out-2'),
+        GITHUB_RUN_ATTEMPT: '2',
+      }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(second.passed, true);
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.latestJobsHits, 0);
+    assert.equal(
+      state.fetchedRuns.every((id) => id === RUN),
+      true,
+    );
+
+    process.exitCode = 0;
+    const third = await mainEvaluate(
+      evaluateEnv({
+        GITHUB_OUTPUT: join(dir, 'out-3'),
+        GITHUB_RUN_ATTEMPT: '2',
+        GITHUB_RUN_ID: '99',
+        GITHUB_EVENT_NAME: 'workflow_run',
+        EVENT_NAME: 'workflow_run',
+      }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(third.passed, true);
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.checkPosts >= 1, true);
+  } finally {
+    process.exitCode = 0;
+    process.chdir(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('successful POST then transient catalog, GitHub, and Cursor lookups stay pending until later success', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ar-transient-lookup-'));
+  const previous = process.cwd();
+  process.chdir(dir);
+  const state = {
+    cursorStatus: 'FINISHED',
+    agentPosts: 0,
+    checkPosts: 0,
+    artifacts: [],
+    launchReceipt: null,
+    fetchedRuns: [],
+    latestJobsHits: 0,
+    launchJobCompleted: false,
+    checkBody: null,
+  };
+  const fetchImpl = makeLifecycleFetch(state);
+  try {
+    process.exitCode = 0;
+    const first = await mainEvaluate(
+      evaluateEnv({ GITHUB_OUTPUT: join(dir, 'out-1') }),
+      { fetchImpl, log: silentLog() },
+    );
+    assert.equal(first.pending, true);
+    assert.equal(state.agentPosts, 1);
+    const launchWritten = JSON.parse(
+      await readFile(join(dir, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE), 'utf8'),
+    );
+    state.launchReceipt = launchWritten;
+    state.launchJobCompleted = true;
+    state.artifacts = [
+      {
+        id: 7,
+        name: `independent-review-launch-99-${HEAD}`,
+        expired: false,
+        size_in_bytes: 200,
+        workflow_run: { id: 42, head_sha: WORKFLOW_SHA },
+      },
+    ];
+
+    state.catalogHttpStatus = 503;
+    process.exitCode = 0;
+    const catalogPending = await mainEvaluate(
+      evaluateEnv({ GITHUB_OUTPUT: join(dir, 'out-catalog') }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(catalogPending.status, 'PENDING');
+    assert.equal(catalogPending.pending, true);
+    assert.equal(state.agentPosts, 1);
+    assert.match(catalogPending.failures.join('\n'), /v1\/models/);
+
+    state.catalogHttpStatus = 0;
+    delete state.catalogHttpStatus;
+    state.githubRunHttpStatus = 503;
+    process.exitCode = 0;
+    const githubPending = await mainEvaluate(
+      evaluateEnv({ GITHUB_OUTPUT: join(dir, 'out-github') }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(githubPending.status, 'PENDING');
+    assert.equal(state.agentPosts, 1);
+    assert.match(githubPending.failures.join('\n'), /Actions run/);
+
+    delete state.githubRunHttpStatus;
+    state.cursorHttpStatus = 503;
+    process.exitCode = 0;
+    const cursorPending = await mainEvaluate(
+      evaluateEnv({ GITHUB_OUTPUT: join(dir, 'out-cursor') }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(cursorPending.status, 'PENDING');
+    assert.equal(state.agentPosts, 1);
+    assert.match(cursorPending.failures.join('\n'), /original Cursor run/);
+
+    delete state.cursorHttpStatus;
+    process.exitCode = 0;
+    const later = await mainEvaluate(
+      evaluateEnv({
+        GITHUB_OUTPUT: join(dir, 'out-ok'),
+        GITHUB_RUN_ID: '99',
+      }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(later.passed, true);
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.checkPosts, 1);
+  } finally {
+    process.exitCode = 0;
+    process.chdir(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('wrong job identity on a launch receipt stays fail-closed', async () => {
+  const previousExit = process.exitCode;
+  try {
+    const launch = createLaunchReceipt({
+      agentId: AGENT,
+      runId: RUN,
+      headSha: HEAD,
+      prNumber: 99,
+      prUrl: PR_URL,
+      repository: 'aaryandas/applied-research',
+      githubRunId: '42',
+      githubRunAttempt: 2,
+      githubJobId: 88,
+      githubWorkflowSha: WORKFLOW_SHA,
+      githubEvent: 'workflow_dispatch',
+    });
+    const result = await mainEvaluate(evaluateEnv(), {
+      fetchImpl: async (url, init) => {
+        const href = String(url);
+        if (href.includes('/pulls/99') && !href.includes('/comments')) {
+          return bothJson(launchPr());
+        }
+        if (href.includes('/contents/.github/workflows')) return bothJson([]);
+        if (href.includes('/actions/artifacts?name=')) {
+          return bothJson({
+            total_count: 1,
+            artifacts: [
+              {
+                id: 7,
+                name: `independent-review-launch-99-${HEAD}`,
+                expired: false,
+                size_in_bytes: 200,
+                workflow_run: { id: 42, head_sha: WORKFLOW_SHA },
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/actions/artifacts/7/zip')) {
+          return {
+            ok: true,
+            status: 200,
+            body: Buffer.from('PK'),
+            async arrayBuffer() {
+              return Buffer.from('PK');
+            },
+            async json() {
+              return {};
+            },
+          };
+        }
+        const actions = actionsPublisherResponse(href, {
+          launchJobCompleted: true,
+        });
+        if (actions) return actions;
+        if (href.includes('/v1/agents') && init?.method === 'POST') {
+          throw new Error('must not POST Cursor');
+        }
+        if (href.includes('/issues/99/comments')) return bothJson({ id: 1 });
+        throw new Error(`unexpected fetch ${href}`);
+      },
+      log: silentLog(),
+      extractZipFile: () => JSON.stringify(launch),
+    });
+    assert.equal(result.passed, false);
+    assert.equal(result.status, 'FAIL');
+    assert.match(result.failures.join('\n'), /rejected \(job-not-success\)/);
+  } finally {
+    process.exitCode = previousExit ?? 0;
   }
 });

@@ -359,6 +359,8 @@ test('independent-review run receipt rejects malformed payloads and accepts a ge
     headSha: HEAD,
     customCheckId: 9001,
     githubRunId: 42,
+    githubRunAttempt: 1,
+    githubJobId: 8,
     criticAgentId: AGENT,
     criticRunId: RUN,
     passed: true,
@@ -379,6 +381,10 @@ test('independent-review run receipt rejects malformed payloads and accepts a ge
     parseIndependentReviewReceipt({ ...receipt, customCheckId: 0 }).reason,
     'receipt-customCheckId',
   );
+  assert.equal(
+    parseIndependentReviewReceipt({ ...receipt, githubJobId: 0 }).reason,
+    'receipt-githubJobId',
+  );
 });
 
 test('persisted trusted launch receipt rejects forged payloads and accepts a POST receipt', () => {
@@ -394,6 +400,8 @@ test('persisted trusted launch receipt rejects forged payloads and accepts a POS
     modelId: REQUIRED_MODEL_ID,
     modelParams: [...REQUIRED_MODEL_PARAMS],
     githubRunId: '42',
+    githubRunAttempt: 1,
+    githubJobId: 8,
     githubWorkflowSha: HEAD,
     githubEvent: 'workflow_dispatch',
     workflowPath: TRUSTED_WORKFLOW_FILE,
@@ -413,5 +421,12 @@ test('persisted trusted launch receipt rejects forged payloads and accepts a POS
       source: COORDINATOR_DISPATCH_RECEIPT_SOURCE,
     }).reason,
     'receipt-source',
+  );
+  assert.equal(
+    parseTrustedLaunchReceipt({
+      ...receipt,
+      githubRunAttempt: undefined,
+    }).reason,
+    'receipt-githubRunAttempt',
   );
 });
