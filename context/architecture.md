@@ -114,3 +114,7 @@ Before domain implementation, design stable source/artifact identities, human-au
   GitHub or Railway evidence.
 - The same smoke test runs against the unpacked application, catching missing preload/renderer files and packaging mistakes.
 - CI runs on Linux, Windows, and macOS. This is a scaffold verification floor; live provider/learning-quality evaluations and production capacity checks remain outstanding.
+
+## Source indexing checkpoint
+
+AR-34 adds a backend-only [versioned passage-index adapter](source-index.md), using AR-30's source/evidence contracts and an injected canonical acquisition/access authority. Synthetic HTTP transport exercises the official turbopuffer REST request shapes, external-vector generation matching, scoped ANN/BM25 retrieval, rank fusion and bounded indexing/deletion. Live provider credentials, embedding configuration, budget enforcement and route/producer composition are not enabled. Canonical sources and durable permission/tombstone state remain authoritative outside the index; an indexed chunk is not independently trusted evidence.
