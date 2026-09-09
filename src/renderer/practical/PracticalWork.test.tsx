@@ -51,6 +51,18 @@ function commit(input: RecordPracticalResultInput) {
   });
 }
 
+it('revokes activity guidance when the mounted activity is unexpectedly disposed', () => {
+  const stop = vi.fn(async () => {});
+  const mounted = render(
+    <PracticalWork
+      {...props()}
+      activityGuidance={{ status: 'active', start: async () => {}, stop }}
+    />,
+  );
+  mounted.unmount();
+  expect(stop).toHaveBeenCalled();
+});
+
 it('shows an honest empty state without activity controls', () => {
   render(<PracticalWork {...props()} activity={null} />);
   expect(screen.getByText(/Choose a lesson with an activity/)).toBeVisible();

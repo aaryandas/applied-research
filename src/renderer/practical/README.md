@@ -1,5 +1,7 @@
 # Practical Work checkpoint
 
+September 9 AR-19 update: the transaction-backed result/file producer and `PracticalWorkspace` load/save wrapper now exist. [The owning contract and exact AR-37 integration handoff](../../../context/practical-work.md) supersedes the older missing-producer statements below. Shared migration, desktop bridge and Shell/companion wiring remain pending; no full connected acceptance is claimed. The existing visual composition is retained.
+
 Import `PracticalWork` from `./PracticalWork`. It renders supplied activity context, prediction, attempt, reported result, a single selected evidence reference, separately authored reflection and an explicit return action. No example curriculum or production adapter is supplied. The READY `PracticalTarget`, `PracticalGuidanceRequest` and `PracticalActivity` contract shapes remain unchanged by the component repairs.
 
 ## Scope and loading
@@ -48,4 +50,4 @@ Coordinator/main owner: add the named method to the existing isolated desktop br
 
 Within that transaction, revalidate the project and attempt ownership; resolve the exact path/topic/lesson revision and optional source/highlight origin; compare the immutable stored origin with the submitted origin; and derive or compare activity instructions/objective against that origin. Enforce expected revision atomically. Resolve file selection/capture IDs only as opaque keys owned by this attempt/project, never as filesystem paths. File imports must already have durable bounded content; measured captures must have trusted producer provenance. Keep reported text explicitly user-reported and reflection separately human-authored. Commit the result and its revision atomically and acknowledge only after successful durability. Same-content retries after an ambiguous response must return the durable revision with `changed: false`; stale different-content attempts return conflict. Map safe failure/cancellation outcomes without exposing raw storage errors.
 
-The actual main handler, preload registration, storage transaction, imported-file producer and trusted capture producer remain coordinator-owned and are not connected by this component patch. Independent review and a real durable save/reopen test remain required before claiming that recorded results persist.
+The main handler and preload registration remain AR-37-owned. AR-19 now supplies the real storage transaction and imported-file producer, exercised with isolated SQLite close/reopen tests; a trusted measured-capture producer remains unavailable. Shared activation, independent review and a connected desktop save/reopen test remain required before claiming that the shipped application persists recorded results.

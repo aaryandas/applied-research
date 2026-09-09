@@ -171,6 +171,12 @@ function ActivityWork(
     activityGuidance,
   } = props;
   const stopGuidance = activityGuidance?.stop;
+  useEffect(
+    () => () => {
+      void stopGuidance?.().catch(() => {});
+    },
+    [stopGuidance],
+  );
   const evidence = mergeEvidence(returnedEvidence, files);
   useEffect(() => {
     session.setEvidence({

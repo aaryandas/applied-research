@@ -59,4 +59,6 @@ The learning endpoint returns explicit success/unsupported/unauthenticated/quota
 
 ## Acceptance evidence
 
+The bounded [Practical Work producer and integration contract](practical-work.md) specifies the implemented attempt/draft revision and native-file locator shapes, exact text/provenance bounds, cancellation, supported tools and AR-37 wiring. It preserves this store's sole connection and transaction authority; its production migration/bridge activation and connected acceptance are still pending.
+
 Migration/reopen must preserve synthetic legacy data byte-for-byte where required, reject malformed/newer data safely, roll back interrupted migration and retain a usable consistent backup. Test cross-project references, immutable history, stale-write rejection, AI attribution and exact Unicode highlight recovery. Validate native modules in built and packaged Electron, including restart and offline editing. Required check/coverage/Electron/packaging and serialized Sonar plus independent Fable review remain gates; this contract is not implementation evidence.

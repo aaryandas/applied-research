@@ -88,6 +88,8 @@ activity.
 
 ## Extending the MVP
 
+The [AR-19 Practical producer checkpoint](practical-work.md) now implements transaction-scoped attempt revisions and selected-file retention using the existing store-owned Drizzle connection. Its additive SQL migration, named IPC operations and Shell/companion integration remain with AR-37/25; the separate service tests are not evidence that the shipped desktop already persists Practical work. No second connection owner, observation runtime or direct provider path is added.
+
 Create modules when their behavior is implemented. Future responsibilities include structured Learning Paths, ingestion and Playbook export. Do not create speculative modules for these before implementing their behavior.
 
 Use source-format and model-provider adapters when actual implementations vary. Keep one concrete persistence implementation until another is needed. Avoid per-table generic repositories, global event buses, and dependency injection containers without a demonstrated need. Plain modules and functions are sufficient for the current scaffold.
