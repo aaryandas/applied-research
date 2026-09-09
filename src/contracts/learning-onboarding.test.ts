@@ -481,7 +481,11 @@ function emptyReviewedCourse() {
     pathRevision: 1,
     focus: null,
     depth: null,
-    pendingFieldChanges: [] as const,
+    pendingFieldChanges: [] as {
+      remoteStepId: string;
+      field: 'objective' | 'activity';
+      value: string;
+    }[],
   };
 }
 

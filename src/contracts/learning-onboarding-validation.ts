@@ -2191,13 +2191,14 @@ export function createLearningOnboardingValidation(
       if (change.field !== 'objective' && change.field !== 'activity') {
         invalid('Reviewed pending field is invalid.');
       }
+      const field: 'objective' | 'activity' = change.field;
       const fieldLimit =
-        change.field === 'objective'
+        field === 'objective'
           ? LIMITS.objectiveCharacters
           : LIMITS.activityCharacters;
       return {
         remoteStepId: identifier(change.remoteStepId, 'Remote step id'),
-        field: change.field,
+        field,
         value: boundedText(change.value, fieldLimit, 'Reviewed pending field'),
       };
     });
@@ -3345,6 +3346,7 @@ export function createLearningOnboardingValidation(
     if (
       field === 'practice' &&
       practiceBefore &&
+      practice &&
       practiceBriefDigest(practiceBefore) === practiceBriefDigest(practice)
     ) {
       invalid('Adjustment patches must change the named field.');
