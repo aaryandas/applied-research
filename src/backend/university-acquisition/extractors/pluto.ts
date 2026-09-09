@@ -346,13 +346,22 @@ function headingTitleFromLine(line: string): string | null {
     index += 1;
   }
   if (index === 0) return null;
-  if (index >= line.length || !/^\s$/u.test(line[index] ?? '')) return null;
-  while (index < line.length && /^\s$/u.test(line[index] ?? '')) {
-    index += 1;
+  let end = line.length;
+  if (line.endsWith('\r\n')) end -= 2;
+  else {
+    const last = line[end - 1];
+    if (
+      last === '\n' ||
+      last === '\r' ||
+      last === '\u2028' ||
+      last === '\u2029'
+    ) {
+      end -= 1;
+    }
   }
-  if (index >= line.length) return null;
-  for (let cursor = index; cursor < line.length; cursor += 1) {
-    const char = line[cursor] ?? '';
+  const rest = line.slice(index, end);
+  for (let cursor = 0; cursor < rest.length; cursor += 1) {
+    const char = rest[cursor] ?? '';
     if (
       char === '\n' ||
       char === '\r' ||
@@ -362,7 +371,12 @@ function headingTitleFromLine(line: string): string | null {
       return null;
     }
   }
-  return line.slice(index).trim();
+  if (rest.length < 2 || !/^\s$/u.test(rest[0] ?? '')) return null;
+  let whitespace = 0;
+  while (whitespace < rest.length && /^\s$/u.test(rest[whitespace] ?? '')) {
+    whitespace += 1;
+  }
+  return rest.slice(whitespace).trim();
 }
 
 function indexOfLineTerminator(text: string, start: number): number {
