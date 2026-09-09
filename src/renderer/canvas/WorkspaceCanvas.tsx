@@ -274,7 +274,11 @@ function CanvasSession({
     ) : (
       <div role="alert">
         <p>The learning map could not be loaded.</p>
-        {onRetry && <button onClick={onRetry}>Retry loading</button>}
+        {onRetry && (
+          <button className="ui-button ui-button--secondary" onClick={onRetry}>
+            Retry loading
+          </button>
+        )}
       </div>
     );
   return (
@@ -342,58 +346,89 @@ function CanvasSession({
                 className="workspace-canvas-controls"
               >
                 <button
+                  className="ui-button ui-button--icon ui-button--small"
                   aria-label="Zoom out"
                   onClick={() => void flow.zoomOut()}
                 >
                   −
                 </button>
                 <output aria-label="Zoom">{Math.round(zoom * 100)}%</output>
-                <button aria-label="Zoom in" onClick={() => void flow.zoomIn()}>
+                <button
+                  className="ui-button ui-button--icon ui-button--small"
+                  aria-label="Zoom in"
+                  onClick={() => void flow.zoomIn()}
+                >
                   +
                 </button>
-                <button onClick={fitMap}>Fit map</button>
+                <button className="ui-button ui-button--small" onClick={fitMap}>
+                  Fit map
+                </button>
               </Panel>
             </ReactFlow>
           </>
         )}
-        <aside className="workspace-canvas-notices" aria-label="Canvas notices">
-          <div className="workspace-canvas-feedback" aria-live="polite">
+        <aside
+          className="workspace-canvas-notices ui-scroll"
+          aria-label="Canvas notices"
+        >
+          <div
+            className={
+              feedback
+                ? 'workspace-canvas-feedback ui-alert'
+                : 'workspace-canvas-feedback'
+            }
+            aria-live="polite"
+          >
             {feedback}
           </div>
           {workspace.unreadableProjects.length > 0 && (
-            <div className="workspace-canvas-errors" role="alert">
-              Some saved work could not be read.{' '}
-              {workspace.unreadableProjects.map((diagnostic) => (
-                <p key={`${diagnostic.projectId}:${diagnostic.code}`}>
-                  {diagnostic.code}: {diagnostic.reason}
-                </p>
-              ))}
+            <div
+              className="workspace-canvas-errors ui-alert ui-alert--error"
+              role="alert"
+            >
+              <div className="ui-alert__body">
+                Some saved work could not be read.{' '}
+                {workspace.unreadableProjects.map((diagnostic) => (
+                  <p key={`${diagnostic.projectId}:${diagnostic.code}`}>
+                    {diagnostic.code}: {diagnostic.reason}
+                  </p>
+                ))}
+              </div>
             </div>
           )}
           {failures.length > 0 && (
-            <div className="workspace-canvas-errors" role="alert">
-              {failures.map((failure) => (
-                <div key={`${failure.input.view}:${failure.nodeId}`}>
-                  <p>
-                    Position could not be saved in {failure.input.view}. Your
-                    placement is kept here.
-                  </p>
-                  <button
-                    onClick={() =>
-                      session.retry(failure.input.view, failure.nodeId)
-                    }
-                  >
-                    Retry position
-                  </button>
-                  <button
-                    onClick={() =>
-                      resetPosition(failure.input.view, failure.nodeId)
-                    }
-                  >
-                    Restore previous position
-                  </button>
-                </div>
-              ))}
+            <div
+              className="workspace-canvas-errors ui-alert ui-alert--error"
+              role="alert"
+            >
+              <div className="ui-alert__body">
+                {failures.map((failure) => (
+                  <div key={`${failure.input.view}:${failure.nodeId}`}>
+                    <p>
+                      Position could not be saved in {failure.input.view}. Your
+                      placement is kept here.
+                    </p>
+                    <div className="ui-action-row">
+                      <button
+                        className="ui-button ui-button--secondary"
+                        onClick={() =>
+                          session.retry(failure.input.view, failure.nodeId)
+                        }
+                      >
+                        Retry position
+                      </button>
+                      <button
+                        className="ui-button ui-button--secondary"
+                        onClick={() =>
+                          resetPosition(failure.input.view, failure.nodeId)
+                        }
+                      >
+                        Restore previous position
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </aside>

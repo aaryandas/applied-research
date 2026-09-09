@@ -1,57 +1,57 @@
 .workspace-canvas {
-  --ground: var(--paper, #0c0f12);
-  --cold: var(--accent, #7bc7c9);
-  --warm: var(--human, #fbd094);
-  --surface-hover: var(--surface-subtle, #1d2328);
-  --passage: var(--human-soft, #fbd09421);
   position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 320px;
   overflow: hidden;
-  background: var(--ground, #0c0f12);
-  color: var(--ink, #eceae4);
-  font:
-    14px/1.5 'Familjen Grotesk',
-    sans-serif;
-  --xy-background-color: var(--ground, #0c0f12);
-  --xy-background-pattern-dots-color: var(--line, #22272c);
-  --xy-edge-stroke: color-mix(in srgb, var(--cold) 45%, var(--line));
-  --xy-edge-stroke-selected: var(--cold);
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 var(--text-base) / 1.5 var(--font-ui);
+  --xy-background-color: var(--paper);
+  --xy-background-pattern-dots-color: var(--line);
+  --xy-edge-stroke: color-mix(in srgb, var(--accent) 45%, var(--line));
+  --xy-edge-stroke-selected: var(--accent);
   --xy-edge-stroke-width: 1.5;
 }
-.workspace-canvas button {
-  font-family: 'Familjen Grotesk', sans-serif;
-  cursor: pointer;
-  color: inherit;
+/* The two buttons that deliberately stay off .ui-button: a full-bleed card-sized edit
+   target and a caption-sized origin link. .ui-button's inline-flex centring, min-height
+   and inline padding would wreck both. */
+.workspace-canvas-edit,
+.workspace-canvas-origin {
+  padding: 0;
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  padding: 8px 10px;
+  text-align: left;
+  font-family: var(--font-ui);
+  cursor: pointer;
 }
-.workspace-canvas button:hover {
-  color: var(--cold, #7bc7c9);
-  background: var(--surface-hover, #1d2328);
+.workspace-canvas-edit:hover,
+.workspace-canvas-origin:hover {
+  color: var(--accent);
+  background: var(--surface-subtle);
 }
+/* Blanket ring: React Flow's nodes, edges and tabIndex=0 pane are not rendered by this
+   surface, so they cannot carry .ui-focusable. Values are base.css's shared ring. */
 .workspace-canvas :focus-visible,
 .workspace-canvas .react-flow__node:focus-visible {
-  outline: 2px solid var(--cold, #7bc7c9);
-  outline-offset: 3px;
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
 }
 .workspace-canvas ::selection {
-  background: var(--passage, #fbd09421);
-  color: var(--ink, #eceae4);
+  background: var(--human-soft);
+  color: var(--ink);
 }
 .workspace-canvas-node {
   padding: 24px;
-  background: var(--surface, #14181c);
-  border: 1px solid var(--line, #22272c);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 12px;
   overflow-wrap: anywhere;
 }
+/* Selection, not focus: 3px keeps a selected+focused node from drawing two rings. */
 .workspace-canvas-node[data-selected='true'] {
-  outline: 2px solid var(--cold, #7bc7c9);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 .workspace-canvas-kind {
@@ -59,53 +59,41 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: var(--muted, #a9a6a0);
-  font:
-    12px/1.4 'Familjen Grotesk',
-    sans-serif;
+  color: var(--muted);
+  font: 400 var(--text-xs) / 1.4 var(--font-ui);
 }
 .workspace-canvas-title,
 .workspace-canvas-body {
   display: block;
   white-space: pre-wrap;
   margin: 0;
-  font:
-    400 24px/1.4 'Newsreader',
-    serif;
+  font: 400 24px/1.4 var(--font-reading);
   font-optical-sizing: auto;
-  color: var(--human-ink, #efe6cf);
+  color: var(--human-ink);
 }
 .workspace-canvas-title:has(+ .workspace-canvas-body) {
   margin-bottom: 14px;
 }
 .workspace-canvas-insight {
-  background: color-mix(
-    in srgb,
-    var(--warm, #fbd094) 3%,
-    var(--surface, #14181c)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--warm, #fbd094) 22%,
-    var(--line, #22272c)
-  );
+  background: color-mix(in srgb, var(--human) 3%, var(--surface));
+  border-color: color-mix(in srgb, var(--human) 22%, var(--line));
 }
 .workspace-canvas-node.workspace-canvas-question {
   border-style: dashed;
 }
 .workspace-canvas-highlight {
-  background: var(--ground, #0c0f12);
+  background: var(--paper);
 }
 .workspace-canvas-highlight .workspace-canvas-body {
   font-size: 20px;
-  color: var(--ink, #eceae4);
+  color: var(--ink);
 }
 .workspace-canvas-topic {
-  background: var(--ground, #0c0f12);
-  border-color: color-mix(in srgb, var(--cold) 45%, var(--line));
+  background: var(--paper);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
 .workspace-canvas-assistant {
-  border-color: var(--cold, #7bc7c9);
+  border-color: var(--accent);
 }
 .workspace-canvas-result,
 .workspace-canvas-experiment {
@@ -120,7 +108,7 @@
   padding: 14px;
   border: 0;
   border-radius: 8px;
-  background: var(--ground, #0c0f12);
+  background: var(--paper);
 }
 .workspace-canvas-support .workspace-canvas-title,
 .workspace-canvas-support .workspace-canvas-body {
@@ -130,32 +118,28 @@
 .workspace-canvas-support .workspace-canvas-kind {
   margin-bottom: 8px;
 }
-.workspace-canvas button.workspace-canvas-origin {
-  padding: 0;
+.workspace-canvas-origin {
   margin-top: 14px;
-  text-align: left;
-  font-size: 12px;
-  color: var(--muted, #a9a6a0);
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
 .workspace-canvas-diagnostic {
   margin: 12px 0 0;
-  color: var(--warm, #fbd094);
-  font:
-    13px/1.5 'Familjen Grotesk',
-    sans-serif;
+  color: var(--human);
+  font: 400 13px/1.5 var(--font-ui);
 }
 .workspace-canvas .react-flow__handle {
   opacity: 0;
   pointer-events: none;
 }
 .workspace-canvas-controls {
-  box-shadow: var(--shadow, 0 12px 40px #0003);
+  box-shadow: var(--shadow);
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--surface, #14181c);
+  background: var(--surface);
 }
 .workspace-canvas-controls output {
   min-width: 44px;
@@ -179,17 +163,13 @@
   right: 16px;
   width: min(360px, calc(100% - 32px));
   max-height: calc(100% - 100px);
-  overflow-y: auto;
   display: grid;
   gap: 12px;
   pointer-events: none;
 }
 .workspace-canvas-errors,
-.workspace-canvas-feedback:not(:empty) {
+.workspace-canvas-feedback {
   pointer-events: auto;
-  padding: 16px;
-  background: var(--surface, #14181c);
-  border-radius: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .workspace-canvas *,
@@ -214,9 +194,7 @@
   font-size: 20px;
 }
 .workspace-canvas-node[data-author='assistant'] .workspace-canvas-body {
-  font:
-    14px/1.5 'Familjen Grotesk',
-    sans-serif;
+  font: 400 var(--text-base) / 1.5 var(--font-ui);
   color: var(--ink);
 }
 .workspace-canvas-kind svg {
@@ -225,7 +203,7 @@
   flex-shrink: 0;
 }
 .workspace-canvas-insight > .workspace-canvas-kind svg {
-  color: var(--warm);
+  color: var(--human);
 }
 
 .workspace-canvas-topic > .workspace-canvas-kind,
@@ -237,11 +215,8 @@
   order: 1;
 }
 
-.workspace-canvas button.workspace-canvas-edit {
+.workspace-canvas-edit {
   display: block;
   width: 100%;
-  padding: 0;
-  text-align: left;
-  background: transparent;
-  border-radius: 0;
+  color: inherit;
 }
