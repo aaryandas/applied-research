@@ -107,3 +107,63 @@ test('PR-target metadata may name the feature branch only with a main-workflow r
     false,
   );
 });
+
+test('Sonar workflow_run accepts triggering-branch metadata only with bound default-branch evidence', () => {
+  const sonarStatus = { ...status, context: 'Sonar gate' };
+  const sonarRun = {
+    ...run,
+    path: '.github/workflows/sonar.yml',
+    event: 'workflow_run',
+    head_branch: 'codex/ar-44-source',
+    head_sha: sha,
+  };
+  const sonarReceipt = {
+    ...receipt,
+    context: 'Sonar gate',
+    workflowRef:
+      'aaryandas/applied-research/.github/workflows/sonar.yml@refs/heads/main',
+  };
+  const evidence = {
+    sha,
+    status: sonarStatus,
+    run: sonarRun,
+    receipt: sonarReceipt,
+  };
+  assert.equal(trustedGateStatus(evidence), true);
+  for (const patch of [
+    { run: { ...sonarRun, event: 'workflow_dispatch' } },
+    { run: { ...sonarRun, event: 'pull_request' } },
+    { run: { ...sonarRun, path: '.github/workflows/evil.yml' } },
+    { run: { ...sonarRun, repository: { full_name: 'outsider/fork' } } },
+    { status: { ...sonarStatus, creator: { login: 'untrusted' } } },
+    { receipt: undefined },
+    {
+      receipt: {
+        ...sonarReceipt,
+        workflowRef:
+          'aaryandas/applied-research/.github/workflows/sonar.yml@refs/heads/codex/ar-44-source',
+      },
+    },
+    { receipt: { ...sonarReceipt, runId: '999' } },
+    { receipt: { ...sonarReceipt, context: 'Fable review' } },
+    { receipt: { ...sonarReceipt, sha: 'c'.repeat(40) } },
+    { receipt: { ...sonarReceipt, workflowSha: '' } },
+  ])
+    assert.equal(trustedGateStatus({ ...evidence, ...patch }), false);
+  assert.equal(
+    trustedGateStatus({
+      ...evidence,
+      run: { ...sonarRun, event: 'workflow_dispatch', head_branch: 'main' },
+    }),
+    true,
+  );
+  assert.equal(
+    trustedGateStatus({
+      sha,
+      status,
+      run: { ...run, event: 'workflow_run', head_branch: 'codex/feature' },
+      receipt,
+    }),
+    false,
+  );
+});

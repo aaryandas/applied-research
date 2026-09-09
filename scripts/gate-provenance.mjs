@@ -44,7 +44,12 @@ export function trustedGateRun(status, run) {
     status.creator?.login === 'github-actions[bot]' &&
     run.repository?.full_name === REPOSITORY &&
     run.path === workflow.path &&
-    (run.head_branch === 'main' || run.event === 'pull_request_target') &&
+    // These events execute trusted base/default-branch workflow code even when
+    // run metadata names the triggering PR branch. Dispatch must still use main:
+    // https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run
+    (run.head_branch === 'main' ||
+      run.event === 'pull_request_target' ||
+      run.event === 'workflow_run') &&
     workflow.events.includes(run.event),
   );
 }
