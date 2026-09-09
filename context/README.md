@@ -24,6 +24,7 @@ The [active presearch session](presearch.md) reopens earlier commitments and rec
 | [Knowledge base](knowledge-base.md)                       | Obsidian indexes and lossless migration records                            |
 | [Current delivery](current-delivery.md)                   | September 9 execution policy; supersedes conflicting older rules           |
 | [AR56 CI checkpoint](ar-56-ci-handoff.md)                 | First integration CI repair: App/Reader lifecycle, exact SHA               |
+| [AR56 connected checkpoint](ar-56-connected-handoff.md)   | Entry-origin storage, exact Find, reserved 0007 journal patch              |
 | [CI root causes](ci-root-causes-2026-09-09.md)            | Shared failures, parallel repair owners and merge propagation              |
 | [Learning onboarding](learning-onboarding.md)             | Profile, interview, proposal, practice brief and selected-lesson contracts |
 | [Contextual help contracts](contextual-help-contracts.md) | AR-53 frozen Ask/origin, retained artifact and companion envelopes         |
