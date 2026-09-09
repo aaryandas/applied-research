@@ -252,19 +252,21 @@ test('secondary exhaustion without retry-after stops subsequent GitHub requests'
   assert.equal(requests.length, 1);
 });
 
-for (const [base, expectedPosts] of [
-  ['main', 0],
-  ['codex/attacker-base', 1],
+for (const [label, pull_requests] of [
+  ['omitted', undefined],
+  ['empty', []],
+  ['main', [{ base: { ref: 'main' }, head: { sha } }]],
+  ['other-base', [{ base: { ref: 'codex/attacker-base' }, head: { sha } }]],
 ]) {
-  test(`PR-target status reuse requires server-attested base ${base}`, async (t) => {
+  test(`PR-target status reuse does not require pull_requests (${label})`, async (t) => {
     const { publishStatus, posts } = await fixture(t, {
       run: {
         event: 'pull_request_target',
         head_branch: 'codex/feature',
-        pull_requests: [{ base: { ref: base }, head: { sha } }],
+        pull_requests,
       },
     });
     await publishStatus(sha, result);
-    assert.equal(posts.length, expectedPosts);
+    assert.equal(posts.length, 0);
   });
 }

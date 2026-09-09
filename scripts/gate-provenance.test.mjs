@@ -169,7 +169,7 @@ test('Sonar workflow_run accepts triggering-branch metadata only with bound defa
   );
 });
 
-test('PR-target execution requires a server-recorded main base and exact gated head, even with a forged main receipt', () => {
+test('PR-target provenance does not require run.pull_requests', () => {
   for (const pull_requests of [
     undefined,
     [],
@@ -185,7 +185,7 @@ test('PR-target execution requires a server-recorded main base and exact gated h
           run: { ...run, head_branch, pull_requests },
           receipt,
         }),
-        false,
+        true,
       );
   }
   assert.equal(
@@ -194,6 +194,6 @@ test('PR-target execution requires a server-recorded main base and exact gated h
       status: { ...status, state: 'pending' },
       run: { ...run, status: 'in_progress', pull_requests: [] },
     }),
-    false,
+    true,
   );
 });

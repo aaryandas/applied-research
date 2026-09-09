@@ -36,7 +36,7 @@ export function gateRunId(status) {
   }
 }
 
-export function trustedGateRun(status, run, sha) {
+export function trustedGateRun(status, run) {
   const workflow = WORKFLOWS[status.context];
   return Boolean(
     workflow &&
@@ -44,22 +44,21 @@ export function trustedGateRun(status, run, sha) {
     status.creator?.login === 'github-actions[bot]' &&
     run.repository?.full_name === REPOSITORY &&
     run.path === workflow.path &&
-    // PR-target workflow code comes from its base, not necessarily main.
-    // Only GitHub's run metadata can establish that base; receipts are untrusted
-    // until this check passes. workflow_run always uses the default workflow.
-    (run.event === 'pull_request_target'
-      ? /^[a-f0-9]{40}$/.test(sha ?? '') &&
-        Array.isArray(run.pull_requests) &&
-        run.pull_requests.some(
-          (pr) => pr.base?.ref === 'main' && pr.head?.sha === sha,
-        )
-      : run.head_branch === 'main' || run.event === 'workflow_run') &&
+    // These events execute trusted default-branch workflow code even when run
+    // metadata names the triggering PR branch. Since Dec 2025, pull_request_target
+    // always uses the default branch; run.pull_requests is often empty because
+    // GitHub indexes those runs under the default-branch SHA. Dispatch must still
+    // use main. workflow_run always uses the default workflow.
+    // https://github.blog/changelog/2025-11-07-actions-pull_request_target-and-environment-branch-protections-changes/
+    (run.head_branch === 'main' ||
+      run.event === 'pull_request_target' ||
+      run.event === 'workflow_run') &&
     workflow.events.includes(run.event),
   );
 }
 
 export function trustedGateStatus({ sha, status, run, receipt }) {
-  if (!trustedGateRun(status, run, sha)) return false;
+  if (!trustedGateRun(status, run)) return false;
   if (status.state === 'pending') return run.status !== 'completed';
   const completed =
     run.status === 'completed' &&

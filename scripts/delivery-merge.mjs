@@ -216,7 +216,7 @@ function statusEvidence(status, sha) {
   const key = `${runId}:${status.context}:${sha}`;
   if (provenanceCache.has(key)) return provenanceCache.get(key);
   const run = api(`actions/runs/${runId}`);
-  if (!trustedGateRun(status, run, sha)) return { run };
+  if (!trustedGateRun(status, run)) return { run };
   let receipt;
   if (
     run.status === 'completed' &&
