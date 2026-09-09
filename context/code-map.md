@@ -2,28 +2,30 @@
 
 This map describes the implemented MVP. See [scope and limitations](mvp.md). Read [architecture](architecture.md) before adding process responsibilities.
 
-| Location                        | Responsibility                                                        |
-| ------------------------------- | --------------------------------------------------------------------- |
-| `src/main/index.ts`             | Electron application and window lifecycle, security configuration     |
-| `src/main/startup-error.ts`     | Allow-listed startup messages and privacy-safe typed diagnostics      |
-| `src/main/navigation.ts`        | Renderer navigation policy and adjacent unit tests                    |
-| `src/preload/index.ts`          | Named workspace/account/tutor/tool bridge and subscriptions           |
-| `src/contracts/desktop.ts`      | Shared serializable desktop bridge contract                           |
-| `src/contracts/desktop-auth.ts` | Public account/session states, fixed origin/scheme and auth channels  |
-| `src/contracts/learning-api.ts` | Authenticated backend request/response, provenance and quota contract |
-| `src/backend/`                  | Better Auth, PostgreSQL, sourced discover/acquire/learning HTTP       |
-| `tests/backend-postgres/`       | Disposable real PostgreSQL migration/auth/accounting verification     |
-| `src/renderer/`                 | Canvas, companion, tool panel, matrix experiment, styles and UI tests |
-| `tests/e2e/`                    | Real Electron smoke tests                                             |
-| `scripts/test-packaged.mjs`     | Smoke test against the packaged application                           |
-| `drizzle/`                      | Authoritative reviewed SQLite migrations and migration journal        |
-| `scripts/release-assets.mjs`    | Release asset selection                                               |
-| `electron.vite.config.ts`       | Main, preload and renderer builds                                     |
-| `electron-builder.yml`          | Installer configuration and packaged file scope                       |
-| `.github/workflows/verify.yml`  | Shared cross-platform verification                                    |
-| `.github/workflows/`            | Pull request CI, candidate releases and optional Sonar analysis       |
-| `context/design-system/`        | Shared renderer tokens/fonts/art and standalone interaction specimens |
-| `context/repos/effect/`         | Read-only upstream reference; not application code                    |
+| Location                                   | Responsibility                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| `src/main/index.ts`                        | Electron application and window lifecycle, security configuration     |
+| `src/main/startup-error.ts`                | Allow-listed startup messages and privacy-safe typed diagnostics      |
+| `src/main/navigation.ts`                   | Renderer navigation policy and adjacent unit tests                    |
+| `src/preload/index.ts`                     | Named workspace/account/tutor/tool bridge and subscriptions           |
+| `src/contracts/desktop.ts`                 | Shared serializable desktop bridge contract                           |
+| `src/contracts/desktop-auth.ts`            | Public account/session states, fixed origin/scheme and auth channels  |
+| `src/contracts/learning-api.ts`            | Authenticated backend request/response, provenance and quota contract |
+| `src/backend/`                             | Better Auth, PostgreSQL, sourced discover/acquire/learning HTTP       |
+| `tests/backend-postgres/`                  | Disposable real PostgreSQL migration/auth/accounting verification     |
+| `src/renderer/`                            | Canvas, companion, tool panel, matrix experiment, styles and UI tests |
+| `tests/e2e/`                               | Real Electron smoke tests                                             |
+| `scripts/test-packaged.mjs`                | Smoke test against the packaged application                           |
+| `drizzle/`                                 | Authoritative reviewed SQLite migrations and migration journal        |
+| `scripts/release-assets.mjs`               | Release asset selection                                               |
+| `electron.vite.config.ts`                  | Main, preload and renderer builds                                     |
+| `electron-builder.yml`                     | Installer configuration and packaged file scope                       |
+| `.github/workflows/verify.yml`             | Shared cross-platform verification                                    |
+| `.github/workflows/`                       | Pull request CI, candidate releases and optional Sonar analysis       |
+| `context/design-system/`                   | Shared renderer tokens/fonts/art and standalone interaction specimens |
+| `context/repos/effect/`                    | Read-only upstream reference; not application code                    |
+| `src/contracts/learning-onboarding.ts`     | Desktop onboarding bridge, opaque proposal identity and step mapping  |
+| `src/contracts/learning-onboarding-api.ts` | Sibling `POST /v1/learning/onboarding` envelope and admission bounds  |
 
 Unit tests live beside their source. The MVP modules below own the implemented responsibilities.
 
@@ -61,6 +63,7 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/main/auth-sdk.ts`: supported Better Auth Electron client, guarded Node fetch for cookie-bearing auth responses, and the SDK OAuth state compatibility wrapper. Adjacent SDK tests cover real Node response headers; `tests/e2e/auth.spec.ts` exercises encrypted restart and sign-out in Electron.
 - `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
 - `src/contracts/learning-records.ts`: serializable source, highlight, human-entry, path, placement, acknowledgement and conflict contracts for the durable learning workspace.
+- `src/contracts/learning-onboarding.ts`, `learning-onboarding-api.ts`, `learning-onboarding-validation.ts`: AR-52 onboarding contracts for human profile/interview, opaque proposal acceptance, selected-lesson generation, source-supported practice/capstone briefs, raw-wire JSON admission and the sibling `/v1/learning/onboarding` envelope. Renderer projection types live in `learning-onboarding.ts` and that module does not import the API file; trusted envelopes stay in `learning-onboarding-api.ts`. See [learning onboarding](learning-onboarding.md). Main and backend runtime remain AR-47/AR-48. AR-50 consumes the course-side brief/identity; Practical attempt records stay in `practical-work` / `practical-records`.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.
 - `src/main/workspace-store.ts`: sole Drizzle/better-sqlite3 connection and transaction facade; preserves compatibility methods while exposing named learning-record operations and structured unreadable-project diagnostics.
 - `src/main/learning-source-writer.ts`, `learning-entry-writer.ts`, `learning-path-writer.ts`: cohesive transaction-scoped invariants for immutable source/path versions, exact highlights, human revisions/supports and trusted backend path acceptance. They receive the store-owned transaction and never open a database.
