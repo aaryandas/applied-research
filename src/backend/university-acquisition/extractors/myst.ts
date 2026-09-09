@@ -69,7 +69,7 @@ export function extractMystMarkdown(
       text: `[^${id}]: ${definition.text}`,
       locator: lineLocator(
         null,
-        [definition.startLine],
+        [`footnote:${id}`],
         definition.startLine,
         definition.endLine,
         lineStarts,

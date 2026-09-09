@@ -1,7 +1,8 @@
-import type {
-  AcquiredSource,
-  RetrieveEvidenceRequest,
-  RetrieveEvidenceResponse,
+import {
+  SOURCING_PUBLIC_MESSAGES,
+  type AcquiredSource,
+  type RetrieveEvidenceRequest,
+  type RetrieveEvidenceResponse,
 } from '../../contracts/sourcing.js';
 import {
   parseRetrieveEvidenceResponse,
@@ -14,7 +15,6 @@ import {
 } from './passages.js';
 import {
   UNIVERSITY_HANDOFF_RANKING,
-  UNIVERSITY_PUBLIC_MESSAGES,
   UNIVERSITY_RETRIEVAL_VERSION,
   freezeUniversityValue,
   type AttributionRecord,
@@ -128,7 +128,7 @@ export function toRetrieveEvidenceResponse(options: {
     return freezeUniversityValue({
       outcome: 'unavailable',
       requestId: options.request.requestId,
-      message: UNIVERSITY_PUBLIC_MESSAGES.unavailable,
+      message: SOURCING_PUBLIC_MESSAGES.unavailable,
       retryable: false,
     });
   }
