@@ -1250,3 +1250,35 @@ it('resolves and decodes a source revision once per batch, then rechecks authori
   // before the single dispatch; never a decode per passage.
   expect(resolve).toHaveBeenCalledTimes(1 + passages.length);
 });
+
+it('reports partial retrieval as its own search status', async () => {
+  let row: Record<string, unknown> = {};
+  const request = vi.fn<typeof fetch>(async (url, init) => {
+    if (String(url).endsWith('/query'))
+      return Response.json({
+        results: [
+          {
+            rows: [
+              { ...row, $dist: 0.1 },
+              { ...row, id: 'forged', $dist: 1 },
+            ],
+          },
+          { rows: [] },
+        ],
+      });
+    row = JSON.parse(String(init?.body)).upsert_rows[0];
+    return Response.json({ rows_affected: 1 });
+  });
+  const index = fixture(request);
+  await index.indexBatch(
+    {
+      generation,
+      passages: [{ sourceVersion: version, locator, vector: [1, 0, 0] }],
+    },
+    invocation,
+  );
+  expect(await index.search(retrievalRequest, invocation)).toMatchObject({
+    status: 'partial',
+    response: { outcome: 'partial' },
+  });
+});

@@ -1,4 +1,6 @@
 import type {
+  PassageLocator,
+  PassagePosition,
   RetrievalEvidence,
   RetrieveEvidenceRequest,
   RetrieveEvidenceResponse,
@@ -21,6 +23,7 @@ import { send } from './transport.js';
 import {
   currentRevision,
   eligibleRevision,
+  validLocator,
   validVector,
 } from './validation.js';
 import type { CorpusRevision, TurbopufferIndexOptions } from './types.js';
@@ -117,6 +120,46 @@ function branches(value: unknown): unknown[][] {
   });
 }
 
+function passagePosition(value: unknown): PassagePosition | null {
+  if (!record(value)) return null;
+  if (value.kind === 'document')
+    return Object.keys(value).length === 1 ? { kind: 'document' } : null;
+  if (
+    value.kind === 'pages' &&
+    typeof value.startPage === 'number' &&
+    typeof value.endPage === 'number'
+  )
+    return {
+      kind: 'pages',
+      startPage: value.startPage,
+      endPage: value.endPage,
+    };
+  if (
+    value.kind === 'time' &&
+    typeof value.startMilliseconds === 'number' &&
+    typeof value.endMilliseconds === 'number'
+  )
+    return {
+      kind: 'time',
+      startMilliseconds: value.startMilliseconds,
+      endMilliseconds: value.endMilliseconds,
+    };
+  return null;
+}
+
+function storedPosition(value: unknown): PassagePosition | null {
+  try {
+    return passagePosition(JSON.parse(String(value)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hash-free per-row check: exact scalar-safe quote against the canonical text decoded
+ * once in eligibleSources, plus the row ID recomputed from the locator. The fused
+ * response is run through the AR-30 decoder once, in decodedOnce.
+ */
 function evidenceFromRow(
   row: unknown,
   sources: EligibleSource[],
@@ -124,6 +167,7 @@ function evidenceFromRow(
   request: RetrieveEvidenceRequest,
   accountId: string,
   generation: string,
+  retrievedAt: string,
 ): RetrievalEvidence | null {
   if (
     !record(row) ||
@@ -131,7 +175,11 @@ function evidenceFromRow(
     row.eligible !== true ||
     row.tombstoned !== false ||
     typeof row.$dist !== 'number' ||
-    !Number.isFinite(row.$dist)
+    !Number.isFinite(row.$dist) ||
+    typeof row.id !== 'string' ||
+    typeof row.start !== 'number' ||
+    typeof row.end !== 'number' ||
+    typeof row.text !== 'string'
   )
     return null;
   const source = sources.find(
@@ -148,59 +196,62 @@ function evidenceFromRow(
     current.accessScope !== row.access_scope
   )
     return null;
-  try {
-    const response = parseRetrieveEvidenceResponse(
-      {
-        outcome: 'success',
-        requestId: request.requestId,
-        evidence: [
-          {
-            evidenceId: row.id,
-            locator: {
-              sourceId: source.version.sourceId,
-              revisionId: source.version.revisionId,
-              start: row.start,
-              end: row.end,
-              quote: row.text,
-              position: JSON.parse(String(row.position)),
-            },
-            sourceVersion: source.version,
-            retrieverScore: 0,
-            sourceQuality: 'unknown',
-            provenance: {
-              query: request.query,
-              intent: request.intent,
-              provider: 'turbopuffer',
-              retrievalVersion: `retrieval_${generation}`,
-              rankingMethod: 'ANN+BM25/RRF-k60',
-              rank: 1,
-              retrievedAt: new Date().toISOString(),
-            },
-          },
-        ],
-      },
-      {
-        request,
-        canonicalTextFor: () =>
-          source.entry.source.content.revision.canonicalText,
-        indexingFor: () => source.entry.source.usePolicy.indexing,
-      },
-    );
-    if (response.outcome !== 'success') return null;
-    const evidence = response.evidence[0];
-    if (
-      !evidence ||
-      passageId(
-        generation,
-        current.accessScope,
-        source.version,
-        evidence.locator,
-      ) !== row.id
-    )
-      return null;
-    return evidence;
-  } catch {
+  const position = storedPosition(row.position);
+  if (!position) return null;
+  const locator: PassageLocator = {
+    sourceId: source.version.sourceId,
+    revisionId: source.version.revisionId,
+    start: row.start,
+    end: row.end,
+    quote: row.text,
+    position,
+  };
+  if (
+    !validLocator(
+      locator,
+      source.version,
+      source.entry.source.content.revision.canonicalText,
+    ) ||
+    passageId(generation, current.accessScope, source.version, locator) !==
+      row.id
+  )
     return null;
+  return {
+    evidenceId: row.id,
+    locator,
+    sourceVersion: source.version,
+    retrieverScore: 0,
+    sourceQuality: 'unknown',
+    provenance: {
+      query: request.query,
+      intent: request.intent,
+      provider: 'turbopuffer',
+      retrievalVersion: `retrieval_${generation}`,
+      rankingMethod: 'ANN+BM25/RRF-k60',
+      rank: 1,
+      retrievedAt,
+    },
+  };
+}
+
+/** One AR-30 decode of the final response (at most maxPassages items), fail closed. */
+function decodedOnce(
+  response: RetrieveEvidenceResponse,
+  sources: EligibleSource[],
+  request: RetrieveEvidenceRequest,
+): RetrieveEvidenceResponse {
+  const lookup = (version: SourceRevisionIdentity) =>
+    sources.find((source) => sourceKey(source.version) === sourceKey(version));
+  try {
+    return parseRetrieveEvidenceResponse(response, {
+      request,
+      canonicalTextFor: (version) =>
+        lookup(version)?.entry.source.content.revision.canonicalText ?? null,
+      indexingFor: (version) =>
+        lookup(version)?.entry.source.usePolicy.indexing ?? null,
+    });
+  } catch (error) {
+    throw new IndexOperationError('unavailable', { cause: error });
   }
 }
 
@@ -213,6 +264,7 @@ function fuse(
   generation: string,
 ): RetrieveEvidenceResponse {
   const combined = new Map<string, RetrievalEvidence>();
+  const retrievedAt = new Date().toISOString();
   let suppressed = false;
   for (const branch of branches(value)) {
     const seen = new Set<string>();
@@ -224,6 +276,7 @@ function fuse(
         request,
         accountId,
         generation,
+        retrievedAt,
       );
       if (!evidence) {
         suppressed = true;
@@ -250,20 +303,28 @@ function fuse(
   if (suppressed && evidence.length === 0)
     throw new IndexOperationError('unavailable');
   if (suppressed)
-    return {
-      outcome: 'partial',
-      requestId: request.requestId,
-      evidence,
-      issues: [
-        {
-          provider: 'turbopuffer',
-          reason: 'unavailable',
-          retryAfterMilliseconds: null,
-        },
-      ],
-    };
+    return decodedOnce(
+      {
+        outcome: 'partial',
+        requestId: request.requestId,
+        evidence,
+        issues: [
+          {
+            provider: 'turbopuffer',
+            reason: 'unavailable',
+            retryAfterMilliseconds: null,
+          },
+        ],
+      },
+      sources,
+      request,
+    );
   return evidence.length
-    ? { outcome: 'success', requestId: request.requestId, evidence }
+    ? decodedOnce(
+        { outcome: 'success', requestId: request.requestId, evidence },
+        sources,
+        request,
+      )
     : {
         outcome: 'no-evidence',
         requestId: request.requestId,

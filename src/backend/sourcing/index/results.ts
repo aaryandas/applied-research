@@ -4,13 +4,18 @@ import type { RetrieveEvidenceResponse } from '../../../contracts/sourcing.js';
 import type { IndexFailureReason } from './types.js';
 
 export class IndexOperationError extends Error {
-  constructor(readonly reason: IndexFailureReason) {
-    super('The index operation could not complete.');
+  /** `cause` stays on the error for backend diagnostics; only `reason` reaches results. */
+  constructor(
+    readonly reason: IndexFailureReason,
+    options?: { cause?: unknown },
+  ) {
+    super('The index operation could not complete.', options);
   }
 }
 
 export interface IndexSearchResult {
-  readonly status: 'ready' | IndexFailureReason;
+  /** `partial`: valid evidence returned while some provider rows were suppressed. */
+  readonly status: 'ready' | 'partial' | IndexFailureReason;
   readonly response: RetrieveEvidenceResponse;
 }
 

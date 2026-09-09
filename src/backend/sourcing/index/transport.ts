@@ -49,7 +49,7 @@ async function readJson(
     );
   } catch (error) {
     if (error instanceof IndexOperationError) throw error;
-    throw new IndexOperationError('unavailable');
+    throw new IndexOperationError('unavailable', { cause: error });
   } finally {
     void reader.cancel().catch(() => undefined);
     reader.releaseLock();
@@ -86,10 +86,11 @@ export async function send(
         if (signal.aborted) discard(received);
         return received;
       }, signal);
-    } catch {
-      if (signal.aborted) throw new IndexOperationError('cancelled');
+    } catch (error) {
+      if (signal.aborted)
+        throw new IndexOperationError('cancelled', { cause: error });
       if (attempt === MAX_ATTEMPTS - 1)
-        throw new IndexOperationError('unavailable');
+        throw new IndexOperationError('unavailable', { cause: error });
       await delay(RETRY_DELAY_MILLISECONDS * (attempt + 1), undefined, {
         signal,
       });

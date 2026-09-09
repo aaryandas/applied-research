@@ -77,7 +77,7 @@ export function makeTurbopufferIndex(
         retrieve(options, url, request, scoped),
       );
       return {
-        status: response.outcome === 'partial' ? 'unavailable' : 'ready',
+        status: response.outcome === 'partial' ? 'partial' : 'ready',
         response,
       };
     } catch (error) {
