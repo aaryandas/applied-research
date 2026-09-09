@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
+import type Database from 'better-sqlite3';
 import type {
   EntryRevisionReference,
   LearningOrigin,
@@ -7,6 +8,12 @@ import type {
   SaveInsightInput,
 } from '../contracts/learning-records';
 import type { EntryKind } from '../contracts/workspace';
+import {
+  assertEntryOrigin,
+  copyStoredEntryOrigin,
+  persistEntryOrigin,
+  sameStoredEntryOrigin,
+} from './entry-origin-persistence';
 import {
   acknowledgement,
   assertProject,
@@ -46,15 +53,16 @@ export interface LegacyLearningEditContext {
 export function writeHumanLearningEntry(
   transaction: WorkspaceTransaction,
   write: HumanLearningEntryWrite,
+  database: Database.Database,
 ): WriteOutcome {
   const { input, kind, supports } = write;
   assertProject(transaction, input.projectId);
-  assertOrigin(transaction, input.projectId, input.origin);
   assertInsightSupports(transaction, input.projectId, supports, kind);
   if (!input.entryId && input.expectedRevision !== 0) {
     throw new Error('A new learning record must use expected revision 0.');
   }
   const entryId = input.entryId ?? randomUUID();
+  assertOrigin(transaction, database, input.projectId, entryId, input.origin);
   const existing = transaction
     .select()
     .from(entries)
@@ -87,7 +95,7 @@ export function writeHumanLearningEntry(
       },
       { recordedAt, entryId },
     );
-    insertEntryContext(transaction, {
+    insertEntryContext(transaction, database, {
       entryId,
       projectId: input.projectId,
       revision: 1,
@@ -132,6 +140,7 @@ export function writeHumanLearningEntry(
     current.title === input.title &&
     current.body === input.body &&
     sameOrigin(currentContext, input.origin) &&
+    sameStoredEntryOrigin(database, entryId, current.revision, input.origin) &&
     sameSupports(currentSupports, supports)
   ) {
     return {
@@ -162,7 +171,7 @@ export function writeHumanLearningEntry(
       recordedAt: recordedAt.toISOString(),
     })
     .run();
-  insertEntryContext(transaction, {
+  insertEntryContext(transaction, database, {
     entryId,
     projectId: input.projectId,
     revision: nextRevision,
@@ -214,10 +223,13 @@ function committedEntry(input: {
 
 function assertOrigin(
   transaction: WorkspaceTransaction,
+  database: Database.Database,
   projectId: string,
+  entryId: string,
   origin: LearningOrigin | null,
 ): void {
   if (!origin) return;
+  assertEntryOrigin(database, { projectId, entryId, origin });
   if (origin.sourceRevisionId) {
     const source = transaction
       .select({ id: sourceVersions.id })
@@ -324,6 +336,7 @@ function assertInsightSupports(
 
 function insertEntryContext(
   transaction: WorkspaceTransaction,
+  database: Database.Database,
   input: {
     entryId: string;
     projectId: string;
@@ -348,6 +361,11 @@ function insertEntryContext(
       lessonId: input.origin?.path?.lessonId ?? null,
     })
     .run();
+  persistEntryOrigin(database, {
+    entryId: input.entryId,
+    revision: input.revision,
+    origin: input.origin,
+  });
   if (input.supports.length === 0) return;
   transaction
     .insert(insightRevisionSupports)
@@ -508,12 +526,18 @@ export function copyLegacyLearningEditContext(
     editContext: LegacyLearningEditContext;
     revision: number;
   },
+  database: Database.Database,
 ): void {
   const { context, supports } = input.editContext;
   transaction
     .insert(entryRevisionContext)
     .values({ ...context, revision: input.revision })
     .run();
+  copyStoredEntryOrigin(database, {
+    entryId: context.entryId,
+    fromRevision: context.revision,
+    toRevision: input.revision,
+  });
   if (supports.length === 0) return;
   transaction
     .insert(insightRevisionSupports)

@@ -82,7 +82,10 @@ import {
   type DecodedEntryContent,
   type EntryAuthorKind,
 } from './workspace-decoder';
-import { migrateWorkspaceDatabase } from './workspace-migration';
+import {
+  applyReservedEntryOriginMigration,
+  migrateWorkspaceDatabase,
+} from './workspace-migration';
 import {
   entries,
   entryPlacements,
@@ -447,10 +450,14 @@ export class WorkspaceStore {
           })
           .run();
         if (editContext) {
-          copyLegacyLearningEditContext(transaction, {
-            editContext,
-            revision,
-          });
+          copyLegacyLearningEditContext(
+            transaction,
+            {
+              editContext,
+              revision,
+            },
+            this.database,
+          );
         }
         const updated = transaction
           .update(entries)
@@ -564,6 +571,7 @@ export class WorkspaceStore {
     try {
       return readLearningWorkspace({
         orm: this.orm,
+        database: this.database,
         project,
         unreadableProjects: this.learningWorkspaceDiagnostics(),
       });
@@ -787,11 +795,17 @@ export class WorkspaceStore {
     this.database.close();
   }
 
+  /** Tests only: apply reserved 0007 on this open disposable store. Not IPC. */
+  applyReservedEntryOriginMigration(): void {
+    applyReservedEntryOriginMigration(this.database);
+  }
+
   private saveHumanLearningEntry(
     write: HumanLearningEntryWrite,
   ): CommitResult<LearningEntryRecord> {
     const outcome = this.orm.transaction(
-      (transaction) => writeHumanLearningEntry(transaction, write),
+      (transaction) =>
+        writeHumanLearningEntry(transaction, write, this.database),
       { behavior: 'immediate' },
     );
     if (outcome.status === 'conflict') return outcome;
@@ -925,6 +939,7 @@ export class WorkspaceStore {
         this.readProject(project);
         readLearningWorkspace({
           orm: this.orm,
+          database: this.database,
           project,
           unreadableProjects: [],
         });

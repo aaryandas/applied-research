@@ -48,17 +48,18 @@ function pathOrigin(value: unknown): PathOrigin {
 function origin(value: unknown): LearningOrigin | null {
   if (value === null) return null;
   const input = decodeRecord(value, 'entry origin');
-  if (Object.hasOwn(input, 'entry')) {
-    throw new Error('Invalid entry origin: origin.entry is not persisted yet.');
-  }
   const sourceRevisionId = optionalUuid(
     input.sourceRevisionId,
     'origin source revision id',
   );
   const highlightId = optionalUuid(input.highlightId, 'origin highlight id');
   const path = input.path === undefined ? undefined : pathOrigin(input.path);
-  if (!sourceRevisionId && !highlightId && !path) {
-    throw new Error('Invalid entry origin: choose a source or path record.');
+  const entry =
+    input.entry === undefined ? undefined : entryOrigin(input.entry);
+  if (!sourceRevisionId && !highlightId && !path && !entry) {
+    throw new Error(
+      'Invalid entry origin: choose a source, path or entry record.',
+    );
   }
   if (highlightId && !sourceRevisionId) {
     throw new Error(
@@ -69,6 +70,15 @@ function origin(value: unknown): LearningOrigin | null {
     ...(sourceRevisionId ? { sourceRevisionId } : {}),
     ...(highlightId ? { highlightId } : {}),
     ...(path ? { path } : {}),
+    ...(entry ? { entry } : {}),
+  };
+}
+
+function entryOrigin(value: unknown): { entryId: string; revision: number } {
+  const input = decodeRecord(value, 'origin entry');
+  return {
+    entryId: decodeUuid(input.entryId, 'origin entry id'),
+    revision: positiveRevision(input.revision, 'origin entry revision'),
   };
 }
 

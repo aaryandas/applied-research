@@ -1,9 +1,13 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
+import {
+  hasEntryOriginColumns,
+  RESERVED_ENTRY_ORIGIN_COLUMNS,
+} from './entry-origin-persistence';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
 export const LATEST_WORKSPACE_MIGRATION = 1_788_930_000_000;
@@ -341,16 +345,26 @@ function legacyRows(database: Database.Database): LegacyRow[] {
     }));
 }
 
+function columnsMatch(
+  actual: readonly string[],
+  expected: readonly string[],
+): boolean {
+  return (
+    actual.length === expected.length &&
+    actual.every((column, index) => column === expected[index])
+  );
+}
+
 function assertColumns(
   database: Database.Database,
   table: string,
   expected: readonly string[],
 ): void {
   const actual = tableColumns(database, table);
-  if (
-    actual.length !== expected.length ||
-    actual.some((column, index) => column !== expected[index])
-  ) {
+  const reservedEntryOrigin =
+    table === 'entry_revision_context' &&
+    columnsMatch(actual, [...expected, ...RESERVED_ENTRY_ORIGIN_COLUMNS]);
+  if (!columnsMatch(actual, expected) && !reservedEntryOrigin) {
     throw new WorkspaceMigrationError(
       `Workspace database has an unsupported ${table} schema. No data was changed.`,
       {
@@ -358,6 +372,29 @@ function assertColumns(
       },
     );
   }
+}
+
+/** Applies reserved 0007 on an already-migrated disposable database. Not journaled. */
+export function applyReservedEntryOriginMigration(
+  database: Database.Database,
+): void {
+  if (hasEntryOriginColumns(database)) return;
+  const foreignKeys = database.pragma('foreign_keys', { simple: true });
+  database.pragma('foreign_keys = OFF');
+  try {
+    database.exec(
+      readFileSync(join(MIGRATIONS_FOLDER, '0007_entry_origins.sql'), 'utf8'),
+    );
+  } finally {
+    database.pragma(
+      foreignKeys === 1 ? 'foreign_keys = ON' : 'foreign_keys = OFF',
+    );
+  }
+  assertColumns(database, 'entry_revision_context', [
+    ...EXPECTED_TABLE_COLUMNS.entry_revision_context,
+    ...RESERVED_ENTRY_ORIGIN_COLUMNS,
+  ]);
+  integrityCheck(database, 'Workspace database');
 }
 
 function readAndValidateLegacyRows(database: Database.Database): {
