@@ -28,11 +28,24 @@ import {
   type LearningRecordsBridge,
 } from '../contracts/learning-records';
 import { CHANNELS, type ToolState } from '../contracts/workspace';
+import {
+  LEARNING_ONBOARDING_CHANNELS,
+  LEARNING_ONBOARDING_RESUME_CHANNELS,
+  type LearningOnboardingBridge,
+  type LearningOnboardingResumeBridge,
+} from '../contracts/learning-onboarding';
+import {
+  CONTEXTUAL_HELP_CHANNELS,
+  type ContextualHelpBridge,
+} from '../contracts/contextual-help-desktop';
 
 const desktop: DesktopBridge &
   LearningRecordsBridge &
   PracticalWorkspaceBridge &
-  SourceDesktopBridge = {
+  SourceDesktopBridge &
+  LearningOnboardingBridge &
+  LearningOnboardingResumeBridge &
+  ContextualHelpBridge = {
   generateSourcedLearning: (input) =>
     ipcRenderer.invoke(SOURCE_CHANNELS.generate, input),
   activateSourceWorkspace: (projectId) =>
@@ -125,5 +138,60 @@ const desktop: DesktopBridge &
     ipcRenderer.on(CHANNELS.toolState, receive);
     return () => ipcRenderer.removeListener(CHANNELS.toolState, receive);
   },
+  getLearnerProfile: () =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.getProfile),
+  saveLearnerProfile: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.saveProfile, input),
+  getLearningOnboarding: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.get, input),
+  saveLearningInterview: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.saveInterview, input),
+  requestInterviewPrompt: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.interviewPrompt, input),
+  proposeCourse: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.propose, input),
+  reviseCourse: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.revise, input),
+  acceptCourse: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.accept, input),
+  ensureLesson: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.ensureLesson, input),
+  cancelLearningOnboarding: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.cancel, input),
+  getContinueLearning: () =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_RESUME_CHANNELS.getContinueLearning),
+  saveReadingResume: (input) =>
+    ipcRenderer.invoke(
+      LEARNING_ONBOARDING_RESUME_CHANNELS.saveReadingResume,
+      input,
+    ),
+  getLearnerProfileView: () =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_RESUME_CHANNELS.getProfileView),
+  getPastedSource: (input) =>
+    ipcRenderer.invoke(
+      LEARNING_ONBOARDING_RESUME_CHANNELS.getPastedSource,
+      input,
+    ),
+  savePastedSource: (input) =>
+    ipcRenderer.invoke(
+      LEARNING_ONBOARDING_RESUME_CHANNELS.savePastedSource,
+      input,
+    ),
+  requestContextualHelp: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.request, input),
+  cancelContextualHelp: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.cancel, input),
+  loadRetainedExplanation: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.load, input),
+  listRetainedExplanations: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.list, input),
+  saveExplanationSceneState: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.saveScene, input),
+  loadExplanationSceneState: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.loadScene, input),
+  acceptSceneCapture: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.capture, input),
+  loadTrustedSceneCapture: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.loadCapture, input),
 };
 contextBridge.exposeInMainWorld('desktop', desktop);

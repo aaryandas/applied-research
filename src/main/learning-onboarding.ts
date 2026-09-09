@@ -13,14 +13,17 @@ import {
 } from '../contracts/learning-onboarding-api';
 import {
   LEARNING_ONBOARDING_CHANNELS,
+  LEARNING_ONBOARDING_RESUME_CHANNELS,
   type AcceptCourseInput,
   type AcceptCourseValue,
+  type ContinueLearningCard,
   type CourseProposal,
   type EnsureLessonInput,
   type EnsureLessonValue,
   type InterviewPromptInput,
   type InterviewRecord,
   type LearnerProfile,
+  type LearnerProfileView,
   type LearningOnboardingBridge,
   type LearningOnboardingSnapshot,
   type OnboardingRequest,
@@ -57,21 +60,11 @@ import {
 } from './learning-onboarding-projection';
 import {
   LearningOnboardingRecords,
-  type ContinueLearningResume,
-  type ProfileView,
   type StoredProposal,
 } from './learning-onboarding-records';
 import type { OnboardingTransport } from './learning-onboarding-transport';
 
-export const LEARNING_ONBOARDING_RESUME_CHANNELS = {
-  getContinueLearning: 'onboarding:get-continue-learning',
-  saveReadingResume: 'onboarding:save-reading-resume',
-  getProfileView: 'onboarding:get-learner-profile-view',
-  getPastedSource: 'onboarding:get-pasted-source',
-  savePastedSource: 'onboarding:save-pasted-source',
-} as const;
-
-export type ContinueLearningCard = ContinueLearningResume;
+export { LEARNING_ONBOARDING_RESUME_CHANNELS };
 
 const validation = createLearningOnboardingValidation(sha256Text);
 const MODEL = LEARNING_ONBOARDING_MODEL_ALLOWLIST[0];
@@ -115,7 +108,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     return this.options.records.getProfileView().profile;
   }
 
-  async getLearnerProfileView(): Promise<ProfileView> {
+  async getLearnerProfileView(): Promise<LearnerProfileView> {
     return this.options.records.getProfileView();
   }
 

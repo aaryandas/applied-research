@@ -18,6 +18,21 @@ import {
   PRACTICAL_FILE_EXTENSIONS,
 } from '../contracts/practical-records';
 import {
+  LEARNING_ONBOARDING_CHANNELS,
+  LEARNING_ONBOARDING_RESUME_CHANNELS,
+} from '../contracts/learning-onboarding';
+import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
+import { LearningOnboardingOperations } from './learning-onboarding';
+import { makeAuthenticatedOnboardingTransport } from './learning-onboarding-transport';
+import { ContextualHelpOperations } from './contextual-help-operations';
+import { makeContextualHelpTransport } from './contextual-help-transport';
+import { assertTrustedRendererEvent } from './trusted-ipc';
+import {
+  DESKTOP_AUTH_SCHEME_REGISTRATION,
+  desktopAuthCallbackArgument,
+  registerDesktopAuthProtocol,
+} from './auth-protocol';
+import {
   app,
   BrowserWindow,
   dialog,
@@ -55,16 +70,16 @@ import {
 } from '../contracts/workspace';
 import { AUTH_CHANNELS } from '../contracts/desktop-auth';
 import { consoleDesktopAuthDiagnostics } from './auth-diagnostics';
-import {
-  desktopAuthCallbackArgument,
-  registerDesktopAuthProtocol,
-  registerDesktopAuthScheme,
-} from './auth-protocol';
 import { createDesktopAuthSdk, electronOauthStateRegistry } from './auth-sdk';
 import { createAuthStorage } from './auth-storage';
 import { makeBackendAccountTransport } from './auth-transport';
 import { createDesktopAuthController } from './desktop-auth';
 import { LEARNING_CHANNELS } from '../contracts/learning-records';
+import {
+  installRetainedMediaProtocol,
+  RETAINED_MEDIA_SCHEME_REGISTRATION,
+} from './retained-media-protocol';
+import { RetainedMediaStore } from './retained-media-store';
 
 if (process.env.APPLIED_RESEARCH_DATA_DIR)
   app.setPath('userData', process.env.APPLIED_RESEARCH_DATA_DIR);
@@ -74,7 +89,10 @@ else if (!app.isPackaged)
     join(app.getPath('appData'), 'Applied Research Development'),
   );
 
-registerDesktopAuthScheme(protocol);
+protocol.registerSchemesAsPrivileged([
+  ...DESKTOP_AUTH_SCHEME_REGISTRATION,
+  ...RETAINED_MEDIA_SCHEME_REGISTRATION,
+]);
 
 let store: WorkspaceStore;
 let mainWindow: BrowserWindow | null = null;
@@ -264,8 +282,33 @@ async function createWindow(): Promise<void> {
     }),
     openOriginal: (url) => shell.openExternal(url),
   });
+  const onboardingOperations = new LearningOnboardingOperations({
+    store,
+    records: store.onboardingRecords(),
+    authenticated: () => authenticated,
+    transport: makeAuthenticatedOnboardingTransport({
+      request: globalThis.fetch,
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
+  });
+  const contextualHelp = new ContextualHelpOperations({
+    records: store.explanations,
+    authenticated: () => authenticated,
+    transport: makeContextualHelpTransport({
+      request: globalThis.fetch,
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
+  });
   const revokeWorkspaceOperations = (): void => {
     sourceOperations.revoke();
+    onboardingOperations.revoke();
+    contextualHelp.revoke();
     practicalOperations.replaceWorkspace();
     closeTool();
   };
@@ -277,11 +320,7 @@ async function createWindow(): Promise<void> {
     operation: (value: unknown) => unknown,
   ): void {
     ipcMain.handle(channel, (event, value: unknown) => {
-      if (
-        event.sender !== window.webContents ||
-        event.senderFrame !== window.webContents.mainFrame
-      )
-        throw new Error('Untrusted application request.');
+      assertTrustedRendererEvent(event, window);
       return operation(value);
     });
   }
@@ -290,6 +329,7 @@ async function createWindow(): Promise<void> {
     closeTool();
     sourceOperations.activate(value);
     selectedWorkspaceId = typeof value === 'string' ? value : null;
+    return contextualHelp.activate(value);
   });
   handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
   handle(SOURCE_CHANNELS.discover, (value) => sourceOperations.discover(value));
@@ -297,6 +337,103 @@ async function createWindow(): Promise<void> {
   handle(SOURCE_CHANNELS.cancel, (value) => sourceOperations.cancel(value));
   handle(SOURCE_CHANNELS.original, (value) =>
     sourceOperations.openOriginal(value),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.getProfile, () =>
+    onboardingOperations.getLearnerProfile(),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.saveProfile, (value) =>
+    onboardingOperations.saveLearnerProfile(
+      value as Parameters<
+        LearningOnboardingOperations['saveLearnerProfile']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.get, (value) =>
+    onboardingOperations.getLearningOnboarding(
+      value as Parameters<
+        LearningOnboardingOperations['getLearningOnboarding']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.saveInterview, (value) =>
+    onboardingOperations.saveLearningInterview(
+      value as Parameters<
+        LearningOnboardingOperations['saveLearningInterview']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.interviewPrompt, (value) =>
+    onboardingOperations.requestInterviewPrompt(
+      value as Parameters<
+        LearningOnboardingOperations['requestInterviewPrompt']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.propose, (value) =>
+    onboardingOperations.proposeCourse(
+      value as Parameters<LearningOnboardingOperations['proposeCourse']>[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.revise, (value) =>
+    onboardingOperations.reviseCourse(
+      value as Parameters<LearningOnboardingOperations['reviseCourse']>[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.accept, (value) =>
+    onboardingOperations.acceptCourse(
+      value as Parameters<LearningOnboardingOperations['acceptCourse']>[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.ensureLesson, (value) =>
+    onboardingOperations.ensureLesson(
+      value as Parameters<LearningOnboardingOperations['ensureLesson']>[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.cancel, (value) =>
+    onboardingOperations.cancelLearningOnboarding(
+      value as Parameters<
+        LearningOnboardingOperations['cancelLearningOnboarding']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_RESUME_CHANNELS.getContinueLearning, () =>
+    onboardingOperations.getContinueLearning(),
+  );
+  handle(LEARNING_ONBOARDING_RESUME_CHANNELS.saveReadingResume, (value) =>
+    onboardingOperations.saveReadingResume(value),
+  );
+  handle(LEARNING_ONBOARDING_RESUME_CHANNELS.getProfileView, () =>
+    onboardingOperations.getLearnerProfileView(),
+  );
+  handle(LEARNING_ONBOARDING_RESUME_CHANNELS.getPastedSource, (value) =>
+    onboardingOperations.getPastedSource(
+      value as Parameters<LearningOnboardingOperations['getPastedSource']>[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_RESUME_CHANNELS.savePastedSource, (value) =>
+    onboardingOperations.savePastedSource(
+      value as Parameters<LearningOnboardingOperations['savePastedSource']>[0],
+    ),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.request, (value) =>
+    contextualHelp.request(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.cancel, (value) =>
+    contextualHelp.cancel(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.load, (value) => contextualHelp.load(value));
+  handle(CONTEXTUAL_HELP_CHANNELS.list, (value) => contextualHelp.list(value));
+  handle(CONTEXTUAL_HELP_CHANNELS.saveScene, (value) =>
+    contextualHelp.saveScene(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.loadScene, (value) =>
+    contextualHelp.loadScene(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.capture, (value) =>
+    contextualHelp.capture(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.loadCapture, (value) =>
+    contextualHelp.loadCapture(value),
   );
   handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
     practicalOperations.recordPracticalResult(value),
@@ -534,6 +671,9 @@ async function createWindow(): Promise<void> {
     for (const channel of [
       ...Object.values(SOURCE_CHANNELS),
       ...PRACTICAL_CHANNELS,
+      ...Object.values(LEARNING_ONBOARDING_CHANNELS),
+      ...Object.values(LEARNING_ONBOARDING_RESUME_CHANNELS),
+      ...Object.values(CONTEXTUAL_HELP_CHANNELS),
     ])
       ipcMain.removeHandler(channel);
     unsubscribeAccountState();
@@ -561,6 +701,10 @@ async function startApplication(): Promise<void> {
     }
     await app.whenReady();
     mkdirSync(app.getPath('userData'), { recursive: true });
+    installRetainedMediaProtocol(
+      protocol,
+      new RetainedMediaStore(join(app.getPath('userData'), 'retained-media')),
+    );
     try {
       store = new WorkspaceStore(
         join(app.getPath('userData'), 'workspace.sqlite'),

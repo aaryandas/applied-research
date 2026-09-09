@@ -7,20 +7,24 @@ import {
 } from './retained-media-identity';
 import type { RetainedMediaStore } from './retained-media-store';
 
+export const RETAINED_MEDIA_SCHEME_REGISTRATION = [
+  {
+    scheme: RETAINED_MEDIA_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: false,
+    },
+  },
+] as const;
+
 export function registerRetainedMediaScheme(
   protocolApi: Pick<Protocol, 'registerSchemesAsPrivileged'>,
 ): void {
   protocolApi.registerSchemesAsPrivileged([
-    {
-      scheme: RETAINED_MEDIA_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-        corsEnabled: false,
-      },
-    },
+    ...RETAINED_MEDIA_SCHEME_REGISTRATION,
   ]);
 }
 

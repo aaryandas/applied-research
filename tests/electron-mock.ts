@@ -3,6 +3,14 @@ import { vi } from 'vitest';
 
 let encryptionAvailable = true;
 
+export const ipcRenderer = {
+  invoke: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn(),
+};
+export const contextBridge = {
+  exposeInMainWorld: vi.fn(),
+};
 export const net = {
   fetch:
     vi.fn<(input: string | Request, init?: RequestInit) => Promise<Response>>(),
@@ -41,7 +49,9 @@ export const electronTestControl = {
 export default {
   app,
   BrowserWindow,
+  contextBridge,
   ipcMain,
+  ipcRenderer,
   net,
   protocol,
   safeStorage,

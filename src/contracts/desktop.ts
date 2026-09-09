@@ -1,5 +1,10 @@
 import type { PracticalWorkspaceBridge } from './practical-records';
 import type { SourceDesktopBridge } from './source-desktop';
+import type { ContextualHelpBridge } from './contextual-help-desktop';
+import type {
+  LearningOnboardingBridge,
+  LearningOnboardingResumeBridge,
+} from './learning-onboarding';
 import type {
   EntryDraft,
   EntryPosition,
@@ -45,10 +50,9 @@ declare global {
     readonly desktop: DesktopBridge &
       LearningRecordsBridge &
       PracticalWorkspaceBridge &
-      SourceDesktopBridge;
+      SourceDesktopBridge &
+      LearningOnboardingBridge &
+      LearningOnboardingResumeBridge &
+      ContextualHelpBridge;
   }
 }
-
-// AR-47 registers LearningOnboardingBridge on this same Window.desktop object
-// after main/preload expose the named onboarding channels. This contracts
-// checkpoint does not change the live bridge until that lane lands.

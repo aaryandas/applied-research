@@ -16,6 +16,11 @@ export const SOURCE_CHANNELS = {
   original: 'sources:open-original',
   generate: 'sources:generate-learning-path',
 } as const;
+
+export type SourceWorkspaceActivationState = {
+  projectGeneration: number;
+  requestGeneration: number;
+};
 export interface SourceOperationScope {
   projectId: string;
 }
@@ -57,7 +62,9 @@ export interface SourceDesktopBridge {
   generateSourcedLearning(
     input: SourceGenerationInput,
   ): Promise<SourceGenerationResult>;
-  activateSourceWorkspace(projectId: string | null): Promise<void>;
+  activateSourceWorkspace(
+    projectId: string | null,
+  ): Promise<SourceWorkspaceActivationState>;
   discoverSources(input: SourceDiscoveryInput): Promise<SourceDiscoveryResult>;
   acquireAndSaveSource(
     input: SourceAcquisitionInput,

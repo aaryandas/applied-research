@@ -29,7 +29,10 @@ it('blocks exact retained revision navigation until drafts flush, and refuses mi
         },
         cancelSourceOperation: async () => {},
         openSourceOriginal: async () => 'unavailable',
-        activateSourceWorkspace: async () => {},
+        activateSourceWorkspace: async () => ({
+          projectGeneration: 1,
+          requestGeneration: 0,
+        }),
       },
       flush: async () => allow,
       openSaved: (_workspace, target) => {
@@ -75,7 +78,10 @@ it('forwards explicit cancellation, blocks research on an unsaved draft, and ign
       flush: async () => allow,
       openSaved: () => {},
       bridge: {
-        activateSourceWorkspace: async () => {},
+        activateSourceWorkspace: async () => ({
+          projectGeneration: 1,
+          requestGeneration: 0,
+        }),
         getLearningWorkspace: async () =>
           store.getLearningWorkspace(project.id),
         discoverSources: () =>

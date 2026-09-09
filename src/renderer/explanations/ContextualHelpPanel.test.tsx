@@ -77,6 +77,7 @@ it('keeps the quote and human draft through loading, failure and retry', async (
     acceptSceneCapture: vi.fn(async () => {
       throw new Error('unused');
     }),
+    loadTrustedSceneCapture: vi.fn(async () => null),
   };
   render(
     <ContextualHelpPanel
