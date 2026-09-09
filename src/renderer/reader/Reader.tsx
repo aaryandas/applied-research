@@ -40,6 +40,7 @@ export interface ReaderProps {
   sidebar?: ReactNode;
   explanation?: ReactNode;
   onPathChange?: (path: PathOrigin | undefined) => void;
+  onReadingLocation?: (location: ReaderReadingLocation) => void;
   onExplainSelection?: (request: ReaderExplanationRequest) => Promise<void>;
 }
 
@@ -49,10 +50,18 @@ export interface ReaderExplanationRequest {
   quote: string;
 }
 
+export type ReaderReadingLocation = {
+  path: PathOrigin | undefined;
+  sourceRevisionId: string | null;
+  span: TextSpan | null;
+};
+
 export interface ReaderNavigationControls {
   /** Use only while this project-keyed Reader remains mounted. Home/close use registerFlush. */
   flushViewNavigation: () => Promise<boolean>;
   openOrigin: (origin: LearningOrigin) => void;
+  restoreReading: (origin: LearningOrigin, span: TextSpan | null) => void;
+  readingLocation: () => ReaderReadingLocation;
   editEntry: (entry: EntryRevisionReference) => void;
   revealEntry: (entry: EntryRevisionReference) => void;
 }
@@ -72,6 +81,7 @@ function ProjectReader({
   sidebar,
   explanation,
   onPathChange,
+  onReadingLocation,
   onExplainSelection,
 }: Readonly<ReaderProps>): ReactElement {
   const [workspace, setWorkspace] = useState(initial);
@@ -127,9 +137,41 @@ function ProjectReader({
     setPath(next);
     onPathChange?.(next);
   }
+  const pathRef = useRef(path);
+  const versionRef = useRef(version);
+  const spanRef = useRef(span);
+  const revealRef = useRef(reveal);
+  pathRef.current = path;
+  versionRef.current = version;
+  spanRef.current = span;
+  revealRef.current = reveal;
+  useEffect(() => {
+    onReadingLocation?.({
+      path,
+      sourceRevisionId: version?.revisionId ?? null,
+      span: span ?? reveal?.span ?? null,
+    });
+  }, [onReadingLocation, path, version, span, reveal]);
+  function currentReadingLocation(): ReaderReadingLocation {
+    return {
+      path: pathRef.current,
+      sourceRevisionId: versionRef.current?.revisionId ?? null,
+      span: spanRef.current ?? revealRef.current?.span ?? null,
+    };
+  }
+  function applyExactSpan(
+    edition: SourceVersion | null,
+    span: TextSpan | null,
+  ): void {
+    if (!edition || !span || !isExactSpan(edition.canonicalText, span)) return;
+    setSpan(span);
+    setReveal({ span });
+  }
   useImperativeHandle(navigationRef, () => ({
     flushViewNavigation,
     openOrigin,
+    restoreReading,
+    readingLocation: currentReadingLocation,
     editEntry: (reference) => {
       const entry = workspace.entries.find(
         (item) => item.id === reference.entryId,
@@ -357,18 +399,29 @@ function ProjectReader({
     setRevealedEntry(reference);
   }
   function openOrigin(origin: LearningOrigin): void {
+    restoreReading(origin, null);
+  }
+  function restoreReading(origin: LearningOrigin, span: TextSpan | null): void {
     if (!origin.sourceRevisionId && origin.path) {
-      void openLesson(origin.path);
+      void openLesson(origin.path).then(() => {
+        const lesson = lessonVersion(workspace, origin.path);
+        applyExactSpan(lesson, span);
+      });
       return;
     }
     void beforeNavigation(() => {
       try {
         const resolved = resolveOrigin(workspace, origin);
         setVersion(resolved.version);
-        setSpan(resolved.span);
         selectPath(origin.path);
         setMessage(null);
-        setReveal({ span: resolved.span });
+        if (span && isExactSpan(resolved.version.canonicalText, span)) {
+          setSpan(span);
+          setReveal({ span });
+        } else {
+          setSpan(resolved.span);
+          setReveal({ span: resolved.span });
+        }
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : 'Source origin unavailable.',
@@ -563,4 +616,25 @@ function unavailableSourceMessage(state: PathSourceState): string {
   if (state === 'unsupported')
     return 'Readable content is unsupported for this lesson. You can add a source or save a question.';
   return 'Readable content is pending for this lesson. You can add a source or save a question.';
+}
+
+function lessonVersion(
+  workspace: LearningWorkspace,
+  origin: PathOrigin | undefined,
+): SourceVersion | null {
+  if (!origin?.lessonId) return null;
+  const record = workspace.paths.find((item) => item.id === origin.pathId);
+  const revision =
+    record?.currentRevision === origin.pathRevision
+      ? record.current
+      : record?.revisions.find((item) => item.revision === origin.pathRevision);
+  const sourceRevisionId = revision?.topics
+    .find((item) => item.id === origin.topicId)
+    ?.lessons.find((item) => item.id === origin.lessonId)?.sourceRevisionId;
+  if (!sourceRevisionId) return null;
+  return (
+    workspace.sources
+      .flatMap((source) => source.versions)
+      .find((item) => item.revisionId === sourceRevisionId) ?? null
+  );
 }

@@ -125,6 +125,52 @@ describe('Reader human learning flow', () => {
     );
     await screen.findByText(/referenced lesson revision is unavailable/);
   });
+  it('restores the exact source span and reports the live reading location', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Retained lesson source',
+      text: 'Exact retained lesson',
+      acquiredAt: '',
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const locations: Array<{
+      sourceRevisionId: string | null;
+      span: { quote: string } | null;
+    }> = [];
+    const navigationRef = createRef<ReaderNavigationControls>();
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+        navigationRef={navigationRef}
+        onReadingLocation={(location) => locations.push(location)}
+      />,
+    );
+    act(() =>
+      navigationRef.current!.restoreReading(
+        { sourceRevisionId: workspace.sources[0]!.currentVersionId },
+        { start: 0, end: 5, quote: 'Exact' },
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Source text')).toHaveTextContent(
+        'Exact retained lesson',
+      ),
+    );
+    await waitFor(() =>
+      expect(navigationRef.current!.readingLocation().span).toEqual({
+        start: 0,
+        end: 5,
+        quote: 'Exact',
+      }),
+    );
+    expect(locations.some((item) => item.span?.quote === 'Exact')).toBe(true);
+  });
   it('retains a dirty import through view navigation and supports exact highlight retry', async () => {
     const { bridge } = fixture();
     await bridge.importTextSource({

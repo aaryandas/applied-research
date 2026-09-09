@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactElement } from 'react';
 import type { DesktopSessionStatus } from '../../contracts/desktop-auth';
 import { AppearanceControl } from './AppearanceControl';
+import { LearnerProfile } from './LearnerProfile';
 import {
   accountInitials,
   formatMicrousd,
@@ -8,10 +9,20 @@ import {
 } from './format-account';
 import { useAccountSession } from './useAccountSession';
 import type { SettingsAccountBridge, SettingsAppearanceControl } from './types';
+import type {
+  LearningOnboardingBridge,
+  LearningOnboardingResumeBridge,
+} from '../../contracts/learning-onboarding';
 import './settings.css';
 
 export interface SettingsPanelProps {
-  readonly accountBridge: SettingsAccountBridge;
+  readonly accountBridge: SettingsAccountBridge &
+    Partial<
+      Pick<
+        LearningOnboardingBridge & LearningOnboardingResumeBridge,
+        'getLearnerProfile' | 'saveLearnerProfile' | 'getLearnerProfileView'
+      >
+    >;
   readonly appearance: SettingsAppearanceControl;
   /** The shell retains the workspace and restores focus to its Settings entry. */
   readonly onClose: () => void;
@@ -212,6 +223,23 @@ export function SettingsPanel({
         </div>
         <AppearanceControl {...appearance} />
       </section>
+      {typeof accountBridge.getLearnerProfile === 'function' &&
+        typeof accountBridge.saveLearnerProfile === 'function' && (
+          <section className="settings-section">
+            <LearnerProfile
+              bridge={{
+                getLearnerProfile: accountBridge.getLearnerProfile,
+                saveLearnerProfile: accountBridge.saveLearnerProfile,
+                ...(accountBridge.getLearnerProfileView
+                  ? {
+                      getLearnerProfileView:
+                        accountBridge.getLearnerProfileView,
+                    }
+                  : {}),
+              }}
+            />
+          </section>
+        )}
       <p className="settings-local-note">
         You can read and edit saved work without signing in. New AI guidance
         needs a connection.

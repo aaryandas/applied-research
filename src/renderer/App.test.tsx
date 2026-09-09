@@ -4,7 +4,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DesktopBridge } from '../contracts/desktop';
@@ -168,7 +167,7 @@ it('shares saved Reader questions with both Canvas modes and restores the outlin
       'true',
     ),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Return to reading' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
   await waitFor(() => expect(sidebar).not.toHaveClass('shell-icon-rail'));
   expect(screen.getByText('How can I measure uncertainty?')).toBeVisible();
   expect(screen.getByRole('navigation', { name: 'Project navigation' })).toBe(
@@ -472,34 +471,6 @@ it('keeps an incomplete Reader draft mounted while Find is open', async () => {
     expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
   );
   expect(screen.getByLabelText('Title')).toHaveValue('  Exact find draft 😀');
-});
-
-it('makes explanations reachable inline and retains their recipe selection across views', async () => {
-  const { bridge, project } = setup();
-  render(<App bridge={bridge} />);
-  await reopen(project);
-  const explanations = screen.getByRole('region', {
-    name: 'Interactive explanations',
-  });
-  expect(
-    within(explanations).getByRole('button', {
-      name: 'Explore a two-link arm',
-    }),
-  ).toBeVisible();
-  fireEvent.click(
-    within(explanations).getByRole('button', {
-      name: 'Explore a two-link arm',
-    }),
-  );
-  expect(
-    within(explanations).getByRole('button', {
-      name: 'Explore a two-link arm',
-    }),
-  ).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.click(screen.getByRole('button', { name: 'Close explanation' }));
-  expect(
-    screen.queryByRole('button', { name: 'Close explanation' }),
-  ).not.toBeInTheDocument();
 });
 
 it('reports bridge failures, retries saved work, and normalizes creation errors', async () => {

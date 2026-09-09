@@ -1,6 +1,13 @@
-import { SourceLearningEntry } from './shell/SourceLearningEntry';
-import type { SourceDesktopBridge } from '../contracts/source-desktop';
+import type {
+  SourceDesktopBridge,
+  SourceWorkspaceActivationState,
+} from '../contracts/source-desktop';
 import type { PracticalWorkspaceBridge } from '../contracts/practical-records';
+import type {
+  ContinueLearningCard,
+  LearningOnboardingBridge,
+} from '../contracts/learning-onboarding';
+import type { ContextualHelpBridge } from '../contracts/contextual-help-desktop';
 import { ResearchEntry } from './research/ResearchEntry';
 import {
   createResearchCallbacks,
@@ -32,7 +39,9 @@ import {
   ReaderSidebar,
   type WorkspaceDestination,
 } from './reader/ReaderSidebar';
-import { ReaderExplanations } from './ReaderExplanations';
+import { ContextualHelpPanel } from './explanations/ContextualHelpPanel';
+import { useContextualSelection } from './explanations/contextual-help-controller';
+import type { CourseResume } from './shell/course-resume';
 import { SettingsPanel } from './settings/SettingsPanel';
 import type { SettingsAppearanceControl } from './settings/types';
 import {
@@ -47,11 +56,19 @@ import './shell.css';
 interface ShellProps {
   bridge: DesktopBridge &
     LearningRecordsBridge &
-    Partial<SourceDesktopBridge & PracticalWorkspaceBridge>;
+    Partial<
+      SourceDesktopBridge &
+        PracticalWorkspaceBridge &
+        LearningOnboardingBridge &
+        ContextualHelpBridge & {
+          saveReadingResume(value: ContinueLearningCard): Promise<void>;
+        }
+    >;
   workspace: LearningWorkspace;
   onWorkspace: (workspace: LearningWorkspace) => void;
   onHome: () => void;
   appearance: SettingsAppearanceControl;
+  resume?: CourseResume | null;
 }
 
 export function Shell({
@@ -60,6 +77,7 @@ export function Shell({
   onWorkspace,
   onHome,
   appearance,
+  resume = null,
 }: ShellProps): ReactElement {
   const [destination, setDestination] =
     useState<WorkspaceDestination>('reader');
@@ -73,6 +91,13 @@ export function Shell({
     selection: 'latest' | 'exact';
   } | null>(null);
   const [researchVisible, setResearchVisible] = useState(false);
+  const [activation, setActivation] = useState<{
+    projectId: string;
+    state: SourceWorkspaceActivationState;
+  } | null>(null);
+  const activationEpoch = useRef(0);
+  const { selection, explainSelection } = useContextualSelection();
+  const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
 
   const [projectLifetime] = useState(() => new WorkspaceOperationLifetime());
   const registerRevocation = useCallback(
@@ -82,6 +107,7 @@ export function Shell({
     [projectLifetime],
   );
   const [query, setQuery] = useState('');
+  const restoredResume = useRef(false);
   const reader = useRef<ReaderNavigationControls>(null);
   const settingsEntry = useRef<HTMLElement | null>(null);
   const returnDestination = useRef<WorkspaceDestination>('reader');
@@ -118,7 +144,24 @@ export function Shell({
   }, [registerReaderViewFlush]);
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
-    void bridge.activateSourceWorkspace?.(workspace.project.id);
+    const applyActivation = (projectId: string | null): void => {
+      if (typeof projectId !== 'string') return;
+      const requestEpoch = ++activationEpoch.current;
+      const pending = bridge.activateSourceWorkspace?.(projectId);
+      if (!pending) return;
+      void Promise.resolve(pending).then((state) => {
+        if (requestEpoch !== activationEpoch.current) return;
+        if (
+          state &&
+          typeof state === 'object' &&
+          typeof state.projectGeneration === 'number' &&
+          typeof state.requestGeneration === 'number'
+        ) {
+          setActivation({ projectId, state });
+        }
+      });
+    };
+    applyActivation(workspace.project.id);
     const revoke = (): void => {
       projectLifetime.stopPractical();
       void bridge.cancelPracticalFileSelection?.();
@@ -126,10 +169,11 @@ export function Shell({
     };
     const unsubscribe = bridge.onAccountState((state) => {
       if (state.session !== 'signed-in') revoke();
-      else void bridge.activateSourceWorkspace?.(workspace.project.id);
+      else applyActivation(workspace.project.id);
     });
     window.addEventListener('beforeunload', revoke);
     return () => {
+      activationEpoch.current += 1;
       projectLifetime.revoke();
       revoke();
       unsubscribe();
@@ -137,6 +181,8 @@ export function Shell({
       void bridge.activateSourceWorkspace?.(null);
     };
   }, [bridge, projectLifetime, workspace.project.id]);
+  const liveActivation =
+    activation?.projectId === workspace.project.id ? activation.state : null;
   const practicalBridge = isPracticalWorkspaceBridge(bridge)
     ? {
         recordPracticalResult: bridge.recordPracticalResult,
@@ -206,12 +252,45 @@ export function Shell({
   ]);
   useEffect(() => {
     const origin = projectLifetime.takeOrigin(workspace);
-    if (origin) reader.current?.openOrigin(origin);
-  }, [workspace, projectLifetime]);
+    if (origin) {
+      reader.current?.openOrigin(origin);
+      return;
+    }
+    if (!resume || restoredResume.current) return;
+    restoredResume.current = true;
+    const restored = {
+      path: resume.path,
+      ...(resume.sourceRevisionId
+        ? { sourceRevisionId: resume.sourceRevisionId }
+        : {}),
+    };
+    const span = resume.span;
+    queueMicrotask(() => {
+      reader.current?.restoreReading(restored, span);
+    });
+  }, [workspace, projectLifetime, resume]);
   const onPathChange = useCallback((path: PathOrigin | undefined): void => {
     setSelectedPath(path);
     setAttempt(null);
   }, []);
+  async function persistReadingResume(): Promise<void> {
+    if (typeof bridge.saveReadingResume !== 'function') return;
+    const location = reader.current?.readingLocation();
+    if (!location?.path?.lessonId) return;
+    await bridge.saveReadingResume({
+      projectId: workspace.project.id,
+      path: {
+        pathId: location.path.pathId,
+        pathRevision: location.path.pathRevision,
+        topicId: location.path.topicId,
+        lessonId: location.path.lessonId,
+      },
+      sourceRevisionId: location.sourceRevisionId,
+      span: location.span,
+      lessonTitle: lessonTitleFor(workspace, location.path),
+      projectGoal: workspace.project.goal,
+    });
+  }
   const moveRecord: LearningRecordsBridge['moveLearningRecord'] = useCallback(
     async (input) => {
       await bridge.moveLearningRecord(input);
@@ -229,6 +308,7 @@ export function Shell({
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {
       stopNativePractical();
+      void persistReadingResume();
       void navigate(() => {
         setResearchVisible(false);
         onHome();
@@ -245,6 +325,7 @@ export function Shell({
         // mounted. Incomplete drafts stay in those hosts; typed Reader drafts still
         // save through flushViewNavigation. Canvas unmounts, so save it separately.
         await reader.current?.flushViewNavigation();
+        await persistReadingResume();
         if (from === 'canvas' && next !== 'canvas') {
           const saveCanvas = canvasSave.current;
           if (saveCanvas && !(await saveCanvas())) return;
@@ -289,10 +370,26 @@ export function Shell({
   }
   function selectLesson(path: PathOrigin): void {
     stopNativePractical();
+    void persistReadingResume();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
+      void ensurePendingLesson(path);
     }, 'view');
+  }
+  async function ensurePendingLesson(path: PathOrigin): Promise<void> {
+    if (!path.lessonId || typeof bridge.ensureLesson !== 'function') return;
+    const lesson = lessonRecord(workspace, path);
+    if (lesson?.sourceState !== 'pending') return;
+    const result = await bridge.ensureLesson({
+      projectId: workspace.project.id,
+      requestId: crypto.randomUUID(),
+      target: { ...path, lessonId: path.lessonId },
+      consent: 'acquire-learning-evidence',
+    });
+    if (result.outcome !== 'success') return;
+    onWorkspace(result.value.workspace);
+    reader.current?.openOrigin({ path: result.value.lesson });
   }
   function revealEntry(reference: EntryRevisionReference): void {
     stopNativePractical();
@@ -378,42 +475,6 @@ export function Shell({
         onLesson={selectLesson}
       />
       <div className="shell-content">
-        {bridge.generateSourcedLearning && bridge.cancelSourceOperation && (
-          <SourceLearningEntry
-            key={workspace.project.id}
-            projectId={workspace.project.id}
-            bridge={{
-              generateSourcedLearning: bridge.generateSourcedLearning,
-              cancelSourceOperation: bridge.cancelSourceOperation,
-              getLearningWorkspace: bridge.getLearningWorkspace,
-            }}
-            flush={async () => {
-              stopNativePractical();
-              return flushView();
-            }}
-            onSaved={(next, pathId) => {
-              const path = next.paths.find((path) => path.id === pathId);
-              const topic = path?.current.topics[0],
-                lesson = topic?.lessons[0];
-              if (path && topic && lesson)
-                projectLifetime.queueOrigin({
-                  path: {
-                    pathId,
-                    pathRevision: path.currentRevision,
-                    topicId: topic.id,
-                    lessonId: lesson.id,
-                  },
-                  ...(lesson.sourceRevisionId
-                    ? { sourceRevisionId: lesson.sourceRevisionId }
-                    : {}),
-                });
-              onWorkspace(next);
-              setResearchVisible(false);
-              setDestination('reader');
-            }}
-          />
-        )}
-
         {research && (
           <>
             <button
@@ -459,7 +520,6 @@ export function Shell({
                 </button>
               ))}
             </div>
-            <button onClick={() => go('reader')}>Return to reading</button>
           </header>
         )}
         {message && (
@@ -480,8 +540,23 @@ export function Shell({
             navigationRef={reader}
             sidebar={null}
             onPathChange={onPathChange}
+            {...(contextualBridge && liveActivation
+              ? { onExplainSelection: explainSelection }
+              : {})}
             explanation={
-              <ReaderExplanations active={destination === 'reader'} />
+              contextualBridge && liveActivation ? (
+                <ContextualHelpPanel
+                  projectId={workspace.project.id}
+                  projectGeneration={liveActivation.projectGeneration}
+                  requestGeneration={liveActivation.requestGeneration}
+                  bridge={contextualBridge}
+                  selection={selection}
+                  active={destination === 'reader'}
+                  onReturnToOrigin={(origin) =>
+                    reader.current?.openOrigin(origin)
+                  }
+                />
+              ) : null
             }
           />
         </div>
@@ -493,6 +568,8 @@ export function Shell({
             onOpenOrigin={openOrigin}
             onEditEntry={editEntry}
             onMove={moveRecord}
+            records={bridge}
+            onWorkspace={onWorkspace}
             registerFlush={registerBoundCanvasFlush}
             onShellControls={setCanvasControls}
           />
@@ -635,4 +712,55 @@ function isPracticalWorkspaceBridge(
   ].every(
     (key) => typeof value[key as keyof PracticalWorkspaceBridge] === 'function',
   );
+}
+
+function contextualHelpFrom(
+  bridge: Partial<ContextualHelpBridge>,
+): ContextualHelpBridge | null {
+  if (
+    typeof bridge.requestContextualHelp !== 'function' ||
+    typeof bridge.cancelContextualHelp !== 'function' ||
+    typeof bridge.loadRetainedExplanation !== 'function' ||
+    typeof bridge.listRetainedExplanations !== 'function' ||
+    typeof bridge.saveExplanationSceneState !== 'function' ||
+    typeof bridge.loadExplanationSceneState !== 'function' ||
+    typeof bridge.acceptSceneCapture !== 'function' ||
+    typeof bridge.loadTrustedSceneCapture !== 'function'
+  ) {
+    return null;
+  }
+  return {
+    requestContextualHelp: bridge.requestContextualHelp,
+    cancelContextualHelp: bridge.cancelContextualHelp,
+    loadRetainedExplanation: bridge.loadRetainedExplanation,
+    listRetainedExplanations: bridge.listRetainedExplanations,
+    saveExplanationSceneState: bridge.saveExplanationSceneState,
+    loadExplanationSceneState: bridge.loadExplanationSceneState,
+    acceptSceneCapture: bridge.acceptSceneCapture,
+    loadTrustedSceneCapture: bridge.loadTrustedSceneCapture,
+  };
+}
+
+function lessonRecord(
+  workspace: LearningWorkspace,
+  path: PathOrigin,
+):
+  | LearningWorkspace['paths'][number]['current']['topics'][number]['lessons'][number]
+  | undefined {
+  if (!path.lessonId) return undefined;
+  const record = workspace.paths.find((item) => item.id === path.pathId);
+  const revision =
+    record?.currentRevision === path.pathRevision
+      ? record.current
+      : record?.revisions.find((item) => item.revision === path.pathRevision);
+  return revision?.topics
+    .find((item) => item.id === path.topicId)
+    ?.lessons.find((item) => item.id === path.lessonId);
+}
+
+function lessonTitleFor(
+  workspace: LearningWorkspace,
+  path: PathOrigin,
+): string {
+  return lessonRecord(workspace, path)?.title ?? '';
 }
