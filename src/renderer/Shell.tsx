@@ -753,18 +753,24 @@ export function Shell({
             }}
             onEditEntry={editEntry}
             onMove={moveRecord}
-            onPlaceExplanation={
-              contextualBridge
-                ? async (input) => {
+            {...(contextualBridge
+              ? {
+                  onPlaceExplanation: async (input: {
+                    projectId: string;
+                    explanationId: string;
+                    view: typeof canvasView;
+                    x: number;
+                    y: number;
+                  }) => {
                     await contextualBridge.placeRetainedExplanation(input);
-                    setCanvasExplanationPlacements(
-                      await contextualBridge.listExplanationPlacements({
+                    setCanvasExplanationPlacements([
+                      ...(await contextualBridge.listExplanationPlacements({
                         projectId: input.projectId,
-                      }),
-                    );
-                  }
-                : undefined
-            }
+                      })),
+                    ]);
+                  },
+                }
+              : {})}
             retainedExplanations={canvasExplanations}
             explanationPlacements={canvasExplanationPlacements}
             records={bridge}

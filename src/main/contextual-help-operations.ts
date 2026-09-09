@@ -785,28 +785,11 @@ export class ContextualHelpOperations {
         false,
       );
     }
-    return this.commit(
+    return this.rememberFailure(
       request,
       authority,
-      {
-        attemptId,
-        explanationId: '',
-        intent: 'visual',
-        status: 'unsupported',
-        requestedAt: now,
-        completedAt: now,
-        humanQuestion: request.question,
-        aiResponse: {
-          kind: 'ai',
-          body: plan.caption,
-          nextAction: 'Continue with the textual explanation of this passage.',
-        },
-        provenance: decoded.value.provenance,
-        citations: [],
-        plan,
-        result: null,
-      },
-      false,
+      'unsupported',
+      'The planner returned a family this desktop cannot place.',
     );
   }
 

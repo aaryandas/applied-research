@@ -322,16 +322,18 @@ function CanvasSession({
       onOpenOrigin: (origin: Parameters<typeof onOpenOrigin>[0]) => {
         void beforeNavigation(() => onOpenOrigin(origin));
       },
-      onOpenRetainedExplanation: onOpenRetainedExplanation
-        ? (
-            input: Parameters<
-              NonNullable<WorkspaceCanvasProps['onOpenRetainedExplanation']>
-            >[0],
-          ) => {
-            void beforeNavigation(() => onOpenRetainedExplanation(input));
-          }
-        : undefined,
       onEditEntry: authoring.editReference,
+      ...(onOpenRetainedExplanation
+        ? {
+            onOpenRetainedExplanation: (
+              input: Parameters<
+                NonNullable<WorkspaceCanvasProps['onOpenRetainedExplanation']>
+              >[0],
+            ) => {
+              void beforeNavigation(() => onOpenRetainedExplanation(input));
+            },
+          }
+        : {}),
     }),
     [
       authoring.editReference,
