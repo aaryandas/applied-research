@@ -202,7 +202,7 @@ function settleOpenAlex(
           ),
         )
         .for('update');
-      if (!row || row.state !== 'reserved') return;
+      if (row?.state !== 'reserved') return;
       const [ledger] = await transaction
         .select()
         .from(providerBudget)
@@ -436,7 +436,7 @@ function settleEmbedding(
           ),
         )
         .for('update');
-      if (!row || row.state !== 'reserved') return;
+      if (row?.state !== 'reserved') return;
       const [ledger] = await transaction
         .select()
         .from(sharedBudget)

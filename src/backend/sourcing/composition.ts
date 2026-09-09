@@ -23,13 +23,18 @@ import {
   parseDiscoverSourcesResponse,
 } from './contract-validation.js';
 import { authorityFromSources } from './corpus-authority.js';
-import type { EmbeddingBudgetService } from './budgets.js';
-import type { EmbeddingClient } from './embedding.js';
+import type {
+  EmbeddingBudgetDecision,
+  EmbeddingBudgetService,
+} from './budgets.js';
 import {
   EmbeddingFailure,
   preparedQueryInput,
   queryReservationMicrousd,
   sourceIndexGeneration,
+  type EmbeddingClient,
+  type PaidDispatchReconciliation,
+  type PaidEmbeddingResult,
 } from './embedding.js';
 import { accountPaidEmbedding } from './paid-reservation.js';
 import {
@@ -37,7 +42,7 @@ import {
   type TurbopufferIndex,
 } from './index/adapter.js';
 import { IndexOperationError } from './index/results.js';
-import type { LiveIndexTransport } from './index/types.js';
+import type { LiveIndexTransport, VersionedVector } from './index/types.js';
 import { indexAcquiredSource } from './index-acquired.js';
 import type { OpenAlexDiscoveryAdapter } from './openalex/adapter.js';
 import {
@@ -45,10 +50,7 @@ import {
   type SourceOperationStore,
 } from './operations.js';
 import type { SourcePersistence } from './persistence.js';
-import type {
-  RetrieveEvidenceAdapterRequest,
-  SourcingService,
-} from './service.js';
+import type { SourcingService } from './service.js';
 
 export interface SourcingCompositionOptions {
   readonly persistence: SourcePersistence;
@@ -122,6 +124,22 @@ function uniqueSources(
   return unique;
 }
 
+function remoteDiscoveryIssues(
+  remoteSafe: DiscoverSourcesResponse | null,
+): ProviderIssue<'openalex'>[] {
+  if (remoteSafe === null) return [];
+  if (remoteSafe.outcome === 'partial') {
+    return remoteSafe.issues.filter(
+      (issue): issue is ProviderIssue<'openalex'> =>
+        issue.provider === 'openalex',
+    );
+  }
+  if (remoteSafe.outcome === 'success' || remoteSafe.outcome === 'no-results') {
+    return [];
+  }
+  return [openAlexDiscoveryIssue(remoteSafe)];
+}
+
 function discoveryFromCatalogAndRemote(
   request: DiscoverSourcesRequest,
   catalog: readonly MetadataOnlySource[],
@@ -136,17 +154,7 @@ function discoveryFromCatalogAndRemote(
     0,
     request.limit,
   );
-  const remoteIssues: ProviderIssue<'openalex'>[] =
-    remoteSafe?.outcome === 'partial'
-      ? remoteSafe.issues.filter(
-          (issue): issue is ProviderIssue<'openalex'> =>
-            issue.provider === 'openalex',
-        )
-      : remoteSafe &&
-          remoteSafe.outcome !== 'success' &&
-          remoteSafe.outcome !== 'no-results'
-        ? [openAlexDiscoveryIssue(remoteSafe)]
-        : [];
+  const remoteIssues = remoteDiscoveryIssues(remoteSafe);
   if (candidates.length === 0) {
     if (
       remoteSafe &&
@@ -225,6 +233,35 @@ function storedResponse<T>(
   }
 }
 
+function queryVectorFromPaid(
+  paid: PaidEmbeddingResult,
+  reconciliation: PaidDispatchReconciliation,
+): VersionedVector {
+  if (reconciliation === 'settled' && paid.reconciliation === 'settled') {
+    const vector = paid.vectors[0];
+    if (vector) return vector;
+  }
+  if (reconciliation === 'not-dispatched') {
+    throw new IndexOperationError('cancelled');
+  }
+  throw new IndexOperationError('unreconciled-spend');
+}
+
+async function cleanupUndispatchedQueryReservation(
+  runEffect: SourcingCompositionOptions['runEffect'],
+  reservation: Extract<
+    EmbeddingBudgetDecision,
+    { kind: 'reserved' }
+  >['reservation'],
+  cause: unknown,
+): Promise<void> {
+  if (cause instanceof EmbeddingFailure && cause.reason === 'invalid-input') {
+    await runEffect(reservation.release());
+    return;
+  }
+  await runEffect(reservation.retain());
+}
+
 function wrapLiveQueryBudget(
   composition: SourcingCompositionOptions,
   now: () => Date,
@@ -262,24 +299,14 @@ function wrapLiveQueryBudget(
           paid,
         );
         accounted = true;
-        if (reconciliation === 'settled' && paid.reconciliation === 'settled') {
-          const vector = paid.vectors[0];
-          if (vector) return vector;
-        }
-        if (reconciliation === 'not-dispatched') {
-          throw new IndexOperationError('cancelled');
-        }
-        throw new IndexOperationError('unreconciled-spend');
+        return queryVectorFromPaid(paid, reconciliation);
       } catch (cause) {
         if (!accounted) {
-          if (
-            cause instanceof EmbeddingFailure &&
-            cause.reason === 'invalid-input'
-          ) {
-            await composition.runEffect(decision.reservation.release());
-          } else {
-            await composition.runEffect(decision.reservation.retain());
-          }
+          await cleanupUndispatchedQueryReservation(
+            composition.runEffect,
+            decision.reservation,
+            cause,
+          );
         }
         throw cause;
       }
@@ -561,4 +588,4 @@ export function makeLiveSourcingIndex(
   });
 }
 
-export type { RetrieveEvidenceAdapterRequest };
+export type { RetrieveEvidenceAdapterRequest } from './service.js';

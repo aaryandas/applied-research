@@ -18,8 +18,8 @@ export class SourceOperationFailure extends Data.TaggedError(
 export interface SourceOperationRecord {
   readonly inputHash: string;
   readonly state: SourceOperationState;
-  readonly publicResponse: unknown | null;
-  readonly frozenPayload: unknown | null;
+  readonly publicResponse: unknown;
+  readonly frozenPayload: unknown;
 }
 
 export type SourceOperationDecision =
@@ -91,8 +91,8 @@ interface MemorySourceOperationRow {
   kind: string;
   inputHash: string;
   state: SourceOperationState;
-  publicResponse: unknown | null;
-  frozenPayload: unknown | null;
+  publicResponse: unknown;
+  frozenPayload: unknown;
 }
 
 export function makeMemorySourceOperations(): SourceOperationStore {

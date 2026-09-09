@@ -20,7 +20,7 @@ const TOML_CELL_IDS = new Set([
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000002',
 ]);
-const MACRO_PATTERN = /(^|[^A-Za-z0-9_])@[A-Za-z]/u;
+const MACRO_PATTERN = /(^|\W)@[A-Za-z]/;
 const DOWNLOAD_PATTERN = /\bdownload\s*\(/u;
 const WIDGET_PATTERN =
   /PlutoUI\.TableOfContents|\bSlider\b|\bSelect\b|\b@bind\b/u;
@@ -74,7 +74,7 @@ export function extractPlutoStaticSource(bytes: Uint8Array): PlutoParseResult {
   }
 
   const gaps: ExtractionGap[] = [];
-  recordPreambleGaps(source, bytes, gaps);
+  recordPreambleGaps(source, gaps);
   const blocks: { title: string; text: string; locator: SourceLocator }[] = [];
   for (const [displayIndex, cellId] of orderIds.entries()) {
     const cell = byId.get(cellId);
@@ -111,7 +111,7 @@ function parseCellOrder(orderText: string): readonly string[] | null {
   for (const line of orderText.split('\n')) {
     if (line.trim() === '') continue;
     const match = ORDER_LINE.exec(line);
-    if (match === null || match[1] === undefined) return null;
+    if (match?.[1] === undefined) return null;
     if (seen.has(match[1])) return null;
     seen.add(match[1]);
     ids.push(match[1]);
@@ -128,7 +128,7 @@ function splitCells(source: string, bytes: Uint8Array): RawCell[] | null {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
     const match = CELL_MARKER.exec(line);
-    if (match !== null && match[1] !== undefined) {
+    if (match?.[1] !== undefined) {
       if (!UUID_PATTERN.test(match[1])) return null;
       if (current !== null) {
         cells.push(rawCell(current, index, lineStarts, bytes.byteLength));
@@ -155,7 +155,7 @@ function rawCell(
   const endByte = lineStarts[endLine] ?? byteLength;
   return {
     id: current.id,
-    body: current.bodyLines.join('\n').replace(/\n+$/u, ''),
+    body: stripTrailingLf(current.bodyLines.join('\n')),
     startLine: current.startLine,
     endLine,
     startByte,
@@ -163,11 +163,13 @@ function rawCell(
   };
 }
 
-function recordPreambleGaps(
-  source: string,
-  bytes: Uint8Array,
-  gaps: ExtractionGap[],
-): void {
+function stripTrailingLf(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '\n') end -= 1;
+  return text.slice(0, end);
+}
+
+function recordPreambleGaps(source: string, gaps: ExtractionGap[]): void {
   const firstCell = source.search(/^# ╔═╡ /mu);
   const preamble = firstCell < 0 ? source : source.slice(0, firstCell);
   if (/youtube_id|www\.youtube\.com/u.test(preamble)) {
@@ -185,7 +187,6 @@ function recordPreambleGaps(
         'Pluto runtime preamble, package imports, and mock macros were omitted.',
     });
   }
-  void bytes;
 }
 
 function classifyCell(
@@ -207,7 +208,7 @@ function classifyCell(
     return;
   }
   const markdown = parseStaticMarkdownCell(cell.body);
-  if (markdown === 'interpolation') {
+  if (markdown.kind === 'interpolation') {
     gaps.push({
       kind: 'interpolation',
       locator,
@@ -215,8 +216,8 @@ function classifyCell(
     });
     return;
   }
-  if (markdown !== null) {
-    const cleaned = omitMarkdownMedia(markdown);
+  if (markdown.kind === 'literal') {
+    const cleaned = omitMarkdownMedia(markdown.text);
     for (const gap of cleaned.gaps) {
       gaps.push({ ...gap, locator });
     }
@@ -263,16 +264,21 @@ function classifyCell(
   });
 }
 
-function parseStaticMarkdownCell(
-  body: string,
-): string | 'interpolation' | null {
+type StaticMarkdownCell =
+  | { readonly kind: 'literal'; readonly text: string }
+  | { readonly kind: 'interpolation' }
+  | { readonly kind: 'not-markdown' };
+
+function parseStaticMarkdownCell(body: string): StaticMarkdownCell {
   const trimmed = body.trimStart();
-  if (!trimmed.startsWith('md"') && !trimmed.startsWith("md'")) return null;
+  if (!trimmed.startsWith('md"') && !trimmed.startsWith("md'")) {
+    return { kind: 'not-markdown' };
+  }
   const parsed = readJuliaString(trimmed.slice(2));
-  if (parsed === null) return 'interpolation';
-  if (hasUnescapedInterpolation(parsed.value)) return 'interpolation';
-  if (parsed.rest.trim() !== '') return 'interpolation';
-  return parsed.value;
+  if (parsed === null) return { kind: 'interpolation' };
+  if (hasUnescapedInterpolation(parsed.value)) return { kind: 'interpolation' };
+  if (parsed.rest.trim() !== '') return { kind: 'interpolation' };
+  return { kind: 'literal', text: parsed.value };
 }
 
 function readJuliaString(
@@ -322,8 +328,61 @@ function hasUnescapedInterpolation(value: string): boolean {
 }
 
 function headingFromMarkdown(text: string): string | null {
-  const match = /^(#{1,6})\s+(.+)$/mu.exec(text);
-  return match?.[2]?.trim() ?? null;
+  let index = 0;
+  while (index < text.length) {
+    const lineEnd = indexOfLineTerminator(text, index);
+    const line = lineEnd < 0 ? text.slice(index) : text.slice(index, lineEnd);
+    const title = headingTitleFromLine(line);
+    if (title !== null) return title;
+    if (lineEnd < 0) break;
+    index = skipLineTerminatorSequence(text, lineEnd);
+  }
+  return null;
+}
+
+function headingTitleFromLine(line: string): string | null {
+  let index = 0;
+  while (index < line.length && index < 6 && line[index] === '#') {
+    index += 1;
+  }
+  if (index === 0) return null;
+  if (index >= line.length || !/^\s$/u.test(line[index] ?? '')) return null;
+  while (index < line.length && /^\s$/u.test(line[index] ?? '')) {
+    index += 1;
+  }
+  if (index >= line.length) return null;
+  for (let cursor = index; cursor < line.length; cursor += 1) {
+    const char = line[cursor] ?? '';
+    if (
+      char === '\n' ||
+      char === '\r' ||
+      char === '\u2028' ||
+      char === '\u2029'
+    ) {
+      return null;
+    }
+  }
+  return line.slice(index).trim();
+}
+
+function indexOfLineTerminator(text: string, start: number): number {
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (
+      char === '\n' ||
+      char === '\r' ||
+      char === '\u2028' ||
+      char === '\u2029'
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function skipLineTerminatorSequence(text: string, at: number): number {
+  if (text[at] === '\r' && text[at + 1] === '\n') return at + 2;
+  return at + 1;
 }
 
 function cellLocator(

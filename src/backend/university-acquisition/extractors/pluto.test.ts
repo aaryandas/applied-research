@@ -278,4 +278,41 @@ md"quote \\"inside\\""
     if (escaped.outcome !== 'success') return;
     expect(escaped.document.text).toContain('quote "inside"');
   });
+
+  it('keeps a static Markdown cell whose text is exactly interpolation', () => {
+    const bytes = notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"interpolation"
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+`);
+    const extracted = extractPlutoStaticSource(bytes);
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.text).toBe('interpolation');
+    expect(extracted.document.gaps).toEqual([]);
+    expect(extracted.document.locators[0]?.cellId).toBe(UUID_A);
+  });
+
+  it('uses the first Markdown heading and ignores trailing cell LFs only', () => {
+    const bytes = notebook(`### A Pluto.jl notebook ###
+
+# ╔═╡ ${UUID_A}
+md"""
+intro
+# First heading
+# Later heading
+"""
+
+# ╔═╡ Cell order:
+# ╟─${UUID_A}
+`);
+    const extracted = extractPlutoStaticSource(bytes);
+    expect(extracted.outcome).toBe('success');
+    if (extracted.outcome !== 'success') return;
+    expect(extracted.document.sections[0]?.title).toBe('First heading');
+    expect(extracted.document.text).toContain('# Later heading');
+  });
 });
