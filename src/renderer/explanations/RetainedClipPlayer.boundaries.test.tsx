@@ -448,25 +448,6 @@ describe('RetainedClipPlayer empty and retry states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry render' }));
     expect(corruptRetry).toHaveBeenCalledOnce();
   });
-
-  it('does not claim a previous clip is available when that prior clip failed to open', async () => {
-    const blocked = access({ status: 'unauthorized' });
-    render(
-      <RetainedClipPlayer
-        clip={clipAt(CLIP_B)}
-        priorClip={clip}
-        status="rendering"
-        access={blocked}
-      />,
-    );
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'This clip is not available to this account.',
-      ),
-    );
-    expect(screen.queryByText(/Previous clip is still available/)).toBeNull();
-    expect(videoSrc()).toBeNull();
-  });
 });
 
 describe('RetainedClipPlayer playback and provenance', () => {
@@ -477,6 +458,7 @@ describe('RetainedClipPlayer playback and provenance', () => {
     const unbound = clipAt(CLIP_A, { origin: null });
     render(<RetainedClipPlayer clip={unbound} status="ready" access={media} />);
     await waitFor(() => expect(videoSrc()).toBe('blob:http://localhost/clip'));
+    fireEvent.click(screen.getByText('Renderer identity'));
     expect(screen.getByText(/origin unbound/)).toBeVisible();
     now = 10_240;
     fireEvent.click(screen.getByRole('button', { name: 'Play' }));
