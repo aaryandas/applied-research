@@ -25,11 +25,11 @@ live intended profile + follow-up gating `80105d67d13be1461668576be79897a353700b
 Frozen remainder checkpoint (adaptive follow-up, live-profile display, awaited
 Back save): `0f87a73ea0f9fffd86a8e2aa703b4f823faed147`.
 W42 immutable-history commits (split lanes; do not squash):
-contracts `aafb600` + type-narrow `7f5799a`,
-SQL `de3eaa8` (`drizzle/0009_learning_adjustment_history.sql` only),
-records `40b6faf`,
-producer `befd229`,
-renderer `f2b0588`.
+contracts `aafb60025aed48c0b1c8abaffbb6104903ca507a` + type-narrow `7f5799ac84f71cf1946f7dc6afd0a515c8873c25`,
+SQL `de3eaa816d02118f2307327b7bd4a6efce025e15` (`drizzle/0009_learning_adjustment_history.sql` only),
+records `40b6faf1bf134bce453c8ee745bf6cbb4a8506bf`,
+producer `befd229fee193cf331758665e7d0f12a9d34f2b9`,
+renderer `f2b0588dd2875478c8e594e51f070150ad47f0fd`.
 Docs/handoff pin is this file’s commit; published HEAD is `git rev-parse origin/codex/ar-47-onboarding-cloud`.  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
