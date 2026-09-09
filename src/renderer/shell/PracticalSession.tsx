@@ -27,7 +27,7 @@ import type {
 } from '../../contracts/practical-records';
 import {
   projectPracticeTool,
-  type PracticalBriefTool,
+  type PracticeToolProjection,
 } from '../../contracts/practical-brief';
 import type {
   PracticalActivity,
@@ -326,7 +326,7 @@ export function PracticalSession(
 }
 
 function workOptions(
-  briefTools: readonly PracticalBriefTool[],
+  briefTools: readonly PracticeToolProjection[],
 ): { value: string; label: string }[] {
   const options: { value: string; label: string }[] = [];
   const seen = new Set<string>();
@@ -350,14 +350,14 @@ function workOptions(
 
 function workChoiceValue(choice: PracticalWorkChoice | null): string {
   if (!choice) return '';
-  return choice.kind === 'supported-tool'
-    ? `tool:${choice.toolId}`
-    : `external:${choice.label === 'Own tools' ? 'own' : choice.label}`;
+  if (choice.kind === 'supported-tool') return `tool:${choice.toolId}`;
+  const externalKey = choice.label === 'Own tools' ? 'own' : choice.label;
+  return `external:${externalKey}`;
 }
 
 function parseWorkChoice(
   value: string,
-  briefTools: readonly PracticalBriefTool[],
+  briefTools: readonly PracticeToolProjection[],
 ): PracticalWorkChoice | null {
   if (!value) return null;
   if (value.startsWith('tool:')) {
@@ -380,7 +380,7 @@ function parseWorkChoice(
     kind: 'external-work',
     label,
     instructions:
-      listed && listed.kind === 'external-setup'
+      listed?.kind === 'external-setup'
         ? listed.instructions
         : 'Follow the external setup for this activity. It does not auto-launch.',
   };

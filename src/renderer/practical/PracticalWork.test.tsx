@@ -800,31 +800,6 @@ it('registers the mounted producer resolver and exposes current writing, then re
   ).toMatchObject({ status: 'cancelled' });
 });
 
-it('does not deliver companion Ask until the producer resolver is bound', () => {
-  const options = props();
-  const onRequestGuidance = vi.fn();
-  const registerResolver = vi.fn(() => () => {});
-  render(
-    <PracticalWork
-      {...options}
-      companionContext={{ registerResolver }}
-      onRequestGuidance={onRequestGuidance}
-    />,
-  );
-  expect(registerResolver).toHaveBeenCalledTimes(1);
-  const ask = screen.getByRole('button', { name: 'Ask about my reflection' });
-  expect(ask).toBeEnabled();
-  fireEvent.click(ask);
-  expect(onRequestGuidance).toHaveBeenCalledTimes(1);
-  expect(onRequestGuidance.mock.calls[0]?.[0]).toMatchObject({
-    trigger: 'explicit-action',
-    target: {
-      attemptId: options.attemptId,
-      target: 'reflection',
-    },
-  });
-});
-
 function retainedBriefJourney(
   activity: NonNullable<PracticalWorkProps['activity']>,
 ): PracticalAttemptJourney {

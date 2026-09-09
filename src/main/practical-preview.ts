@@ -34,12 +34,10 @@ export function previewRetainedPracticalFile(
   const text = truncated
     ? decoded.slice(0, MAX_PRACTICAL_FIELD_LENGTH)
     : decoded;
-  const previewMedia =
-    mediaType === 'application/json'
-      ? 'application/json'
-      : mediaType === 'text/csv'
-        ? 'text/csv'
-        : 'text/plain';
+  let previewMedia: 'text/plain' | 'text/csv' | 'application/json' =
+    'text/plain';
+  if (mediaType === 'application/json' || mediaType === 'text/csv')
+    previewMedia = mediaType;
   return {
     status: 'ready',
     selectionId,

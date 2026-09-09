@@ -4,6 +4,11 @@ import {
   type PracticalActivity,
 } from './practical-work';
 import { PRACTICAL_TOOLS, type PracticalToolId } from './practical-tools';
+import {
+  hasPracticalKeys as keys,
+  isPracticalRecord as isObject,
+  isPracticalUuid as uuid,
+} from './practical-validation-primitives';
 
 /**
  * Narrow Practical adapter for a reviewed `CoursePracticeActivityBinding`.
@@ -94,8 +99,7 @@ export interface PracticalBriefCheckpoint {
   expectedResult: string;
 }
 
-/** @deprecated Producer briefs use CoursePracticeBrief.tool, not this union. */
-export type PracticalBriefTool =
+export type PracticeToolProjection =
   | {
       kind: 'supported-embedded';
       toolId: PracticalToolId;
@@ -106,6 +110,9 @@ export type PracticalBriefTool =
       label: string;
       instructions: string;
     };
+
+/** @deprecated Use PracticeToolProjection. Producer briefs use CoursePracticeBrief.tool. */
+export type PracticalBriefTool = PracticeToolProjection;
 
 export type PracticalBriefProvenance = {
   kind: 'accepted-course-brief';
@@ -131,27 +138,6 @@ export type AcceptedCourseBriefSnapshot = {
   capstone: CourseCapstoneDesignation | null;
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-function keys(
-  value: Record<string, unknown>,
-  required: string[],
-  optional: string[] = [],
-): boolean {
-  return (
-    required.every((key) => Object.hasOwn(value, key)) &&
-    Object.keys(value).every(
-      (key) => required.includes(key) || optional.includes(key),
-    )
-  );
-}
-function uuid(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value)
-  );
-}
 function identifier(value: unknown): value is string {
   return typeof value === 'string' && IDENTIFIER_PATTERN.test(value);
 }
@@ -327,7 +313,7 @@ export function projectPracticeCheckpoints(
 
 export function projectPracticeTool(
   tool: CoursePracticeToolChoice,
-): PracticalBriefTool {
+): PracticeToolProjection {
   if (tool.kind === 'app-hosted-catalog') {
     const listed = PRACTICAL_TOOLS.find((item) => item.id === tool.toolId);
     return {
