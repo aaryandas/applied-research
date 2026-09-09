@@ -18,7 +18,7 @@ Vitest projects use separate Node and DOM environments. New pure `.test.ts` file
 
 The combined run avoids averaging separate coverage percentages. JUnit results are written to `coverage/tests.xml`. Desktop entry-point wiring remains outside unit coverage because real Electron tests exercise it. The backend process entry point and migration CLI are also lifecycle wrappers: HTTP runtime/finalizer behavior is tested in the combined suite, while the migration runner and real Drizzle/Better Auth transaction path are verified only by the dedicated PostgreSQL suite. React tests alone cannot verify preload isolation, native guest behavior or Electron's bundled Node/SQLite runtime.
 
-Playwright's Electron automation is [experimental](https://playwright.dev/docs/api/class-electron); keep the pinned version and validate upgrades against real desktop and packaged runs. Tests use temporary user-data directories and synthetic content. No separate Playwright Chromium installation is needed. Linux runs under Xvfb with the Electron sandbox intact. Screenshots, traces and HTML reports are retained by CI for failures.
+Playwright's Electron automation is [experimental](https://playwright.dev/docs/api/class-electron); keep the pinned version and validate upgrades against real desktop and packaged runs. Tests use temporary user-data directories and synthetic content. No separate Playwright Chromium installation is needed. Linux runs under Xvfb with the Electron sandbox intact. Screenshots, traces and HTML reports are retained by CI for failures. The guest `capturePage` journey skips on macOS CI, where Chromium can throw `UnknownVizError` before the compositor is ready.
 
 ## Required pipeline
 
