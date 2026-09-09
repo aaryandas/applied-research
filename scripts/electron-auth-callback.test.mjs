@@ -19,11 +19,25 @@ for (const initialCookie of ['', `better-auth.electron=${syntheticCode}`]) {
     let cookie = initialCookie;
     let timerId = 0;
     let networkCalls = 0;
+    const clickListeners = [];
+    const returnButton = {
+      disabled: true,
+      addEventListener(event, listener) {
+        assert.equal(event, 'click');
+        clickListeners.push(listener);
+      },
+    };
+    const returnStatus = { textContent: '' };
     const context = {
       document: {
         visibilityState: 'visible',
         addEventListener() {},
         removeEventListener() {},
+        querySelector(selector) {
+          return selector === '#auth-return-button'
+            ? returnButton
+            : returnStatus;
+        },
         get cookie() {
           return cookie;
         },
@@ -75,8 +89,10 @@ for (const initialCookie of ['', `better-auth.electron=${syntheticCode}`]) {
       timeout: 2_000,
       contextCodeGeneration: { strings: false, wasm: false },
     });
-    assert.equal(intervals.size, 1);
-    for (const callback of intervals.values()) callback();
+    assert.equal(intervals.size, 0);
+    assert.deepEqual(redirects, []);
+    assert.equal(returnButton.disabled, initialCookie.length === 0);
+    for (const callback of clickListeners) callback();
     assert.equal(networkCalls, 0);
     assert.deepEqual(
       redirects,
@@ -92,6 +108,8 @@ for (const initialCookie of ['', `better-auth.electron=${syntheticCode}`]) {
           value.startsWith('better-auth.electron=;'),
         ),
       );
+    } else {
+      assert.match(returnStatus.textContent, /expired/);
     }
   });
 }

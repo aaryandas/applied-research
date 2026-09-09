@@ -79,7 +79,9 @@ const ELECTRON_AUTH_CALLBACK_HTML = `<!doctype html>
     <title>Returning to Applied Research</title>
   </head>
   <body>
-    <p>Returning to Applied Research…</p>
+    <h1>Finish signing in</h1>
+    <p id="auth-return-status" role="status">Preparing your return to Applied Research…</p>
+    <button id="auth-return-button" type="button" disabled>Open Applied Research</button>
     <script type="module" src="${ELECTRON_AUTH_CALLBACK_SCRIPT_PATH}"></script>
   </body>
 </html>`;
