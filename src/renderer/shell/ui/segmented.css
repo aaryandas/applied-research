@@ -1,0 +1,63 @@
+/* Owns: .ui-segmented and .ui-segmented__option.
+
+   An exclusive choice between two or three short labels (Distilled / Expanded,
+   Light / Dark / System). A tray at --surface holds the options; the chosen one
+   lifts to --paper. Consolidates .shell-segmented (../../shell.css:48),
+   .settings-theme-options (../../settings/settings.css:161) and the approved
+   .segmented (context/design-handoff/prototype/styles.css).
+
+   Selection is read from the DOM, so a plain button group ([aria-pressed]) and a
+   react-aria ToggleButtonGroup ([data-selected]) both style themselves. The focus ring
+   comes from the app-wide `:focus-visible` rule in styles.css; do not add one here. */
+
+/* A tray is a grouped control: 8px (DESIGN-CONTRACT "Rounded controls 6px; grouped
+   controls 8px"), matching the approved .segmented. The options inside stay 6px. */
+.ui-segmented {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+}
+
+.ui-segmented__option {
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--ink);
+  font: 400 var(--text-sm) / 1.5 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-press),
+    color var(--duration-press);
+}
+
+/* Hover is the unchosen, enabled option only, so it never fights the two rules below. */
+.ui-segmented__option:not(
+    :disabled,
+    [aria-disabled='true'],
+    [data-disabled],
+    [aria-pressed='true'],
+    [data-selected]:not([data-selected='false'])
+  ):hover {
+  background: var(--surface-subtle);
+}
+
+/* Fill and colour only, no ring: the approved `.segmented [aria-pressed=true]` sets
+   background and colour and nothing else, and the Structure decision (DESIGN-CONTRACT)
+   removes structural separators in favour of grouping by spacing. */
+.ui-segmented__option[aria-pressed='true'],
+.ui-segmented__option[data-selected]:not([data-selected='false']) {
+  background: var(--paper);
+  color: var(--accent);
+}
+
+.ui-segmented__option:disabled,
+.ui-segmented__option[aria-disabled='true'],
+.ui-segmented__option[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

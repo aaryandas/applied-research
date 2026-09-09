@@ -1,0 +1,83 @@
+/* Owns: .ui-status, .ui-status__dot and its --ok, --idle, --error, --busy variants,
+   plus .ui-busy, the visible affordance for [aria-busy='true']. */
+
+/* Consolidates .local-status (styles.css:546) and .connection-status (styles.css:1083);
+   layout margin stays with the surface, because the live ones disagree on it. */
+.ui-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* A live region with nothing to say takes no space: .reader-status:empty (reader.css:303). */
+.ui-status:empty {
+  margin: 0;
+}
+
+/* .local-status i, .connection-status i (styles.css:555). currentColor so the variants
+   can tint dot and label together, as the prototype's .guide-status:before does. */
+.ui-status__dot {
+  width: var(--dot);
+  height: var(--dot);
+  flex-shrink: 0;
+  display: inline-block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Ambient states tint the dot only, as .connection-status i.connected does. */
+.ui-status--ok .ui-status__dot {
+  background: var(--success);
+}
+
+.ui-status--idle .ui-status__dot {
+  background: var(--line-strong);
+}
+
+/* Failure is loud enough to colour the label too, matching how the app already marks
+   errors (.practical-input[aria-invalid='true'], practical.css:136). */
+.ui-status--error {
+  color: var(--danger);
+}
+
+/* Working, not broken: the prototype's .guide-status is accent-coloured with a live dot. */
+.ui-status--busy {
+  color: var(--accent);
+}
+
+/* The pending treatment the app already uses for a control it is waiting on
+   (.settings-panel button[aria-disabled='true'], settings.css:111). */
+.ui-busy[aria-busy='true'] {
+  cursor: wait;
+  /* This class lands on the element holding the live-region text (StatusRegion), which
+     also carries .ui-status--busy, so the label is --accent and not --muted. At 0.85 that
+     is 5.38:1 over --paper and 7.39:1 over the dark ground, both clear of the 4.5:1 AA
+     floor; 0.80 would still pass, 0.65 (the dot's floor) would not, light. */
+  --ui-pulse-floor: 0.85;
+}
+
+.ui-status--busy .ui-status__dot,
+.ui-status.ui-busy[aria-busy='true'] {
+  animation: ui-pulse calc(var(--duration-arrive) * 2) var(--ease-out) infinite;
+}
+
+/* One keyframe, two amplitudes: a small dot can dip further than a panel of text. The dot
+   is a carrier of the busy state, so its trough still has to clear the 3:1 non-text
+   minimum: --accent at 0.65 is 3.38:1 light and 4.74:1 dark. Inside a .ui-busy region the
+   dot inherits that region's 0.85 floor and the two opacities compose to 0.72 — 3.99:1
+   light — so it clears the minimum either way. */
+@keyframes ui-pulse {
+  50% {
+    opacity: var(--ui-pulse-floor, 0.65);
+  }
+}
+
+/* tokens.css already zeroes --duration-* here; stop the animation outright as well. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-status--busy .ui-status__dot,
+  .ui-status.ui-busy[aria-busy='true'] {
+    animation: none;
+  }
+}

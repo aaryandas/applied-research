@@ -17,6 +17,7 @@
   --success: #42624d;
   --danger: #a03932;
   --focus: #005a5d;
+  --shadow: 0 12px 40px #29231c20;
   --font-mono: 'Martian Mono', monospace;
   --font-display: 'Fraunces', Georgia, serif;
   --canvas: #efece5;
@@ -39,8 +40,15 @@
   --space-16: 4rem;
   --space-24: 6rem;
   --radius-control: 6px;
+  --radius-group: 8px;
   --radius-panel: 12px;
   --radius-pill: 100px;
+  --text-heading: 22px;
+  --text-title: 40px;
+  --icon-lg: 32px;
+  --dot: 6px;
+  --focus-ring: 2px;
+  --focus-offset: 4px;
   --duration-press: 150ms;
   --duration-reveal: 220ms;
   --duration-arrive: 700ms;
@@ -67,6 +75,7 @@
   --success: #b6d3b8;
   --danger: #f4aaa3;
   --focus: #7bc7c9;
+  --shadow: 0 12px 40px #0005;
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
