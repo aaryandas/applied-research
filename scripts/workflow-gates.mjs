@@ -7,7 +7,7 @@ export function ticketIdentifier(pr) {
 }
 
 const DELIVERY_PATH =
-  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates|gate-provenance(?:\.test)?|delivery-merge(?:\.test)?|hosted-sonar(?:-rules|\.test)?)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run|sonar-local)\.md)$/;
+  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates|gate-provenance(?:\.test)?|delivery-merge(?:\.test)?|hosted-sonar(?:-rules|\.test)?|lane-guard(?:-rules|\.test)?)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run|sonar-local|conventions)\.md)$/;
 
 function verificationVideo(body, sha) {
   const values = ['SHA', 'RESULT', 'VIDEO'].map((key) =>

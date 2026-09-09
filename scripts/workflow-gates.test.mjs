@@ -177,6 +177,10 @@ test('video N/A requires Cursor identity and exclusively delivery workflow files
     'scripts/dispatch-plan.mjs',
     '.gitignore',
     'scripts/delivery-merge.mjs',
+    'scripts/lane-guard.mjs',
+    'scripts/lane-guard-rules.mjs',
+    'scripts/lane-guard.test.mjs',
+    'context/conventions.md',
   ];
   assert.equal(verificationPassed(issue, sha, { ...options, files }), true);
   assert.equal(
