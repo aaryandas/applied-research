@@ -7,7 +7,7 @@ export function ticketIdentifier(pr) {
 }
 
 const DELIVERY_PATH =
-  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates|delivery-merge(?:\.test)?|hosted-sonar(?:-rules|\.test)?)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run|sonar-local)\.md)$/;
+  /^(?:\.gitignore|\.github\/lanes\.json|\.github\/workflows\/[^/]+\.ya?ml|scripts\/(?:dispatch[\w.-]*|workflow[\w.-]*|linear-gate|fable-review|merge-group-gates|gate-provenance(?:\.test)?|delivery-merge(?:\.test)?|hosted-sonar(?:-rules|\.test)?)\.mjs|context\/(?:next-run|code-map|development|releases|automation-run|sonar-local)\.md)$/;
 
 export function verificationPassed(issue, sha, files = []) {
   const deliveryOnly =
@@ -39,15 +39,4 @@ export function reviewPassed(review, sha) {
     typeof review.summary === 'string' &&
     review.summary.trim().length > 0
   );
-}
-
-export function queuePulls(pulls, commits, ref) {
-  const lead = ref.match(/\/pr-(\d+)-/);
-  const included = pulls.filter((pr) => commits.includes(pr.head.sha));
-  if (!lead || !included.some((pr) => pr.number === Number(lead[1]))) {
-    throw new Error(
-      'Cannot resolve every merge-group PR at its current head; retry the queue.',
-    );
-  }
-  return included;
 }

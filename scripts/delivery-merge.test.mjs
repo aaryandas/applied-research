@@ -9,6 +9,7 @@ import {
   releaseReady,
   runTick,
   normalizeChecks,
+  releaseCiState,
 } from './delivery-merge.mjs';
 
 const sha = 'a'.repeat(40);
@@ -45,6 +46,45 @@ const checks = () =>
     status: 'completed',
     conclusion: 'success',
   }));
+
+function normalized(sha, runs, statuses) {
+  const enriched = statuses.map((status, index) => ({
+    ...status,
+    id: status.id * 100 + index,
+    target_url: `https://github.com/aaryandas/applied-research/actions/runs/${status.id * 100 + index}`,
+  }));
+  const evidence = new Map(
+    enriched.map((status) => {
+      const path =
+        status.context === 'Fable review'
+          ? '.github/workflows/claude-review.yml'
+          : '.github/workflows/linear-gate.yml';
+      return [
+        status.id,
+        {
+          run: {
+            id: status.id,
+            repository: { full_name: 'aaryandas/applied-research' },
+            path,
+            head_branch: 'main',
+            event: 'pull_request_target',
+            status: status.state === 'pending' ? 'in_progress' : 'completed',
+            conclusion: status.state === 'pending' ? null : 'success',
+          },
+          receipt: {
+            runId: String(status.id),
+            context: status.context,
+            state: status.state,
+            sha,
+            workflowRef: `aaryandas/applied-research/${path}@refs/heads/main`,
+            workflowSha: 'b'.repeat(40),
+          },
+        },
+      ];
+    }),
+  );
+  return normalizeChecks(sha, runs, enriched, evidence);
+}
 
 test('requires every successful check on the exact head', () => {
   assert.equal(assessMerge(candidate(), checks()).eligible, true);
@@ -137,7 +177,7 @@ test('mixed Actions checks and latest trusted commit statuses satisfy merge gate
     creator: { login: 'github-actions[bot]' },
   }));
   assert.equal(
-    assessMerge(candidate(), normalizeChecks(sha, runs, statuses)).eligible,
+    assessMerge(candidate(), normalized(sha, runs, statuses)).eligible,
     true,
   );
   statuses.push({
@@ -147,7 +187,7 @@ test('mixed Actions checks and latest trusted commit statuses satisfy merge gate
     creator: { login: 'github-actions[bot]' },
   });
   assert.match(
-    assessMerge(candidate(), normalizeChecks(sha, runs, statuses)).reason,
+    assessMerge(candidate(), normalized(sha, runs, statuses)).reason,
     /Pending check: Fable/,
   );
   statuses.push({
@@ -157,7 +197,7 @@ test('mixed Actions checks and latest trusted commit statuses satisfy merge gate
     creator: { login: 'untrusted-user' },
   });
   assert.equal(
-    assessMerge(candidate(), normalizeChecks(sha, runs, statuses)).eligible,
+    assessMerge(candidate(), normalized(sha, runs, statuses)).eligible,
     false,
   );
 });
@@ -212,7 +252,7 @@ test('human PR Bugbot check is accepted only from the verified Cursor app', () =
   assert.equal(
     assessMerge(
       candidate(),
-      normalizeChecks(
+      normalized(
         sha,
         [...runs, bugbot],
         ['Fable review', 'Linear gate'].map((context) => ({
@@ -228,7 +268,7 @@ test('human PR Bugbot check is accepted only from the verified Cursor app', () =
   assert.equal(
     assessMerge(
       candidate(),
-      normalizeChecks(
+      normalized(
         sha,
         [...runs, { ...bugbot, app: { slug: 'github-actions', id: 15368 } }],
         ['Fable review', 'Linear gate'].map((context) => ({
@@ -241,4 +281,13 @@ test('human PR Bugbot check is accepted only from the verified Cursor app', () =
     ).eligible,
     false,
   );
+});
+
+test('completed red main CI is terminal attention rather than perpetual pending', () => {
+  assert.equal(releaseCiState(sha, []), 'pending');
+  assert.equal(releaseCiState(sha, checks()), 'passed');
+  const failed = checks();
+  failed[0].conclusion = 'failure';
+  assert.equal(releaseCiState(sha, failed), 'failed');
+  assert.equal(releaseCiState('b'.repeat(40), failed), 'pending');
 });

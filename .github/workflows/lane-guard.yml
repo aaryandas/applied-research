@@ -50,7 +50,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-      - name: Require lane checks for every constituent revision
+      - name: Refuse unsupported native merge queue
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GATE_CONTEXT: Lane guard

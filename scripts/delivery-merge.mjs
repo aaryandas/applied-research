@@ -7,8 +7,16 @@ import {
   writeFileSync,
   renameSync,
   unlinkSync,
+  mkdtempSync,
+  rmSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import {
+  gateRunId,
+  trustedGateStatus,
+  trustedGateRun,
+  gateReceiptFilename,
+} from './gate-provenance.mjs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -26,7 +34,12 @@ const SHA = /^[a-f0-9]{40}$/;
 const STATUS_GATES = ['Fable review', 'Linear gate', 'Sonar gate'];
 const BUGBOT_NAMES = ['Cursor Bugbot', 'Cursor Automation: Bugbot PR Review'];
 
-export function normalizeChecks(sha, checkRuns, statuses) {
+export function normalizeChecks(
+  sha,
+  checkRuns,
+  statuses,
+  evidence = new Map(),
+) {
   const combined = checkRuns
     .filter(
       (check) =>
@@ -50,7 +63,7 @@ export function normalizeChecks(sha, checkRuns, statuses) {
   for (const status of latest.values()) {
     if (
       !STATUS_GATES.includes(status.context) ||
-      status.creator?.login !== 'github-actions[bot]'
+      !trustedGateStatus({ sha, status, ...evidence.get(status.id) })
     )
       continue;
     combined.push({
@@ -160,6 +173,50 @@ function gh(args) {
 function api(path) {
   return JSON.parse(gh(['api', `repos/${REPOSITORY}/${path}`]));
 }
+const provenanceCache = new Map();
+function statusEvidence(status, sha) {
+  const runId = gateRunId(status);
+  if (!runId) return {};
+  const key = `${runId}:${status.context}:${sha}`;
+  if (provenanceCache.has(key)) return provenanceCache.get(key);
+  const run = api(`actions/runs/${runId}`);
+  if (!trustedGateRun(status, run)) return { run };
+  let receipt;
+  if (
+    run.status === 'completed' &&
+    ['success', 'failure'].includes(run.conclusion)
+  ) {
+    const artifacts = api(`actions/runs/${runId}/artifacts?per_page=100`);
+    const artifact = artifacts.artifacts.find(
+      (item) => item.name === `gate-receipts-${runId}` && !item.expired,
+    );
+    if (artifact) {
+      const directory = mkdtempSync(join(tmpdir(), 'gate-receipt-'));
+      try {
+        const archive = execFileSync(
+          'gh',
+          ['api', `repos/${REPOSITORY}/actions/artifacts/${artifact.id}/zip`],
+          { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 },
+        );
+        const path = join(directory, 'receipt.zip');
+        writeFileSync(path, archive);
+        receipt = JSON.parse(
+          execFileSync(
+            'unzip',
+            ['-p', path, gateReceiptFilename(status.context, sha)],
+            { encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024 },
+          ),
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  }
+  const result = { run, receipt };
+  provenanceCache.set(key, result);
+  return result;
+}
+
 function currentChecks(sha) {
   const pages = JSON.parse(
     gh([
@@ -177,10 +234,24 @@ function currentChecks(sha) {
       `repos/${REPOSITORY}/commits/${sha}/status?per_page=100`,
     ]),
   );
+  const statuses = statusPages.flatMap((page) => page.statuses);
+  const latest = new Map();
+  for (const status of statuses)
+    if (STATUS_GATES.includes(status.context) && !latest.has(status.context))
+      latest.set(status.context, status);
+  const evidence = new Map();
+  for (const status of latest.values()) {
+    try {
+      evidence.set(status.id, statusEvidence(status, sha));
+    } catch {
+      /* Unavailable provenance cannot authorize a merge. */
+    }
+  }
   return normalizeChecks(
     sha,
     pages.flatMap((page) => page.check_runs),
-    statusPages.flatMap((page) => page.statuses),
+    statuses,
+    evidence,
   );
 }
 function pull(number) {
@@ -194,7 +265,8 @@ function pull(number) {
   if (pr.author) pr.author.is_bot = pr.author.__typename !== 'User';
   pr.upToDate = false;
   if (pr.author && !pr.author.is_bot && !pr.isCrossRepository) {
-    const comparison = api(`compare/${pr.baseRefOid}...${pr.headRefOid}`);
+    pr.mainSha = api('git/ref/heads/main').object.sha;
+    const comparison = api(`compare/${pr.mainSha}...${pr.headRefOid}`);
     pr.upToDate = ['identical', 'ahead'].includes(comparison.status);
     const filePages = JSON.parse(
       gh([
@@ -208,6 +280,20 @@ function pull(number) {
   }
   return pr;
 }
+function nativeQueueEnabled() {
+  const result = JSON.parse(
+    gh([
+      'api',
+      'graphql',
+      '-f',
+      'query={repository(owner:"aaryandas",name:"applied-research"){mergeQueue(branch:"main"){id}}}',
+    ]),
+  );
+  if (result.errors || !result.data?.repository)
+    throw new Error('Cannot verify native merge queue configuration');
+  return result.data.repository.mergeQueue !== null;
+}
+
 function saveState(path, state) {
   writeFileSync(`${path}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
   renameSync(`${path}.tmp`, path);
@@ -235,6 +321,14 @@ function observeDeployments(sha) {
   }));
 }
 
+export function releaseCiState(sha, checks) {
+  const check = checks.find(
+    (item) => item.head_sha === sha && item.name === 'checks / CI gate',
+  );
+  if (!check || check.status !== 'completed') return 'pending';
+  return check.conclusion === 'success' ? 'passed' : 'failed';
+}
+
 function processRelease(options) {
   const { state, path, apply } = options;
   const receipt = state.receipts.find((item) => item.mergeSha && !item.release);
@@ -247,7 +341,24 @@ function processRelease(options) {
       reason: 'Merged revision is no longer an ancestor of main',
     };
   const deployments = observeDeployments(main);
-  if (!releaseReady(main, currentChecks(main)))
+  const ci = releaseCiState(main, currentChecks(main));
+  if (ci === 'failed') {
+    if (apply) {
+      receipt.release = {
+        status: 'ci-failed',
+        sha: main,
+        at: new Date().toISOString(),
+      };
+      saveState(path, state);
+    }
+    return {
+      kind: 'attention',
+      reason:
+        'Main CI failed; release is stopped and later ticks may merge a repair PR.',
+      sha: main,
+    };
+  }
+  if (ci !== 'passed')
     return {
       kind: 'infra',
       reason: 'Waiting for successful main CI',
@@ -320,6 +431,12 @@ export function runTick(options) {
           'Previous mutation has uncertain outcome; reconcile recorded PR or release before retry',
         receipt: uncertain,
       };
+    if (nativeQueueEnabled())
+      return {
+        kind: 'attention',
+        reason:
+          'Native GitHub merge queue must remain disabled: Luna owns serialized direct merges.',
+      };
     const release = processRelease({ state, path, apply: options.apply });
     if (release) return release;
     const candidates = JSON.parse(
@@ -374,6 +491,15 @@ export function runTick(options) {
           reason: 'PR changed during eligibility check; retry next tick',
           number: pr.number,
         };
+      if (
+        nativeQueueEnabled() ||
+        api('git/ref/heads/main').object.sha !== fresh.mainSha
+      )
+        return {
+          kind: 'attention',
+          reason:
+            'Merge policy or live main changed; retry before direct merging.',
+        };
       const receipt = {
         number: pr.number,
         headSha: pr.headRefOid,
@@ -383,14 +509,14 @@ export function runTick(options) {
       state.receipts.push(receipt);
       saveState(path, state);
       gh([
-        'pr',
-        'merge',
-        String(pr.number),
-        '--repo',
-        REPOSITORY,
-        '--squash',
-        '--match-head-commit',
-        pr.headRefOid,
+        'api',
+        '--method',
+        'PUT',
+        `repos/${REPOSITORY}/pulls/${pr.number}/merge`,
+        '-f',
+        `sha=${pr.headRefOid}`,
+        '-f',
+        'merge_method=squash',
       ]);
       const merged = api(`pulls/${pr.number}`);
       if (!merged.merged || !SHA.test(merged.merge_commit_sha))

@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export const event = process.env.GITHUB_EVENT_PATH
   ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
@@ -35,12 +36,29 @@ export async function paginate(path) {
 }
 
 export async function publishStatus(sha, result) {
+  const directory = join(process.env.RUNNER_TEMP, 'gate-receipts');
+  mkdirSync(directory, { recursive: true });
+  const filename = `${result.context.toLowerCase().replace(/[^a-z0-9]+/g, '-')}--${sha}.json`;
+  writeFileSync(
+    join(directory, filename),
+    JSON.stringify({
+      sha,
+      context: result.context,
+      state: result.state,
+      runId: process.env.GITHUB_RUN_ID,
+      workflowRef: process.env.GITHUB_WORKFLOW_REF,
+      workflowSha: process.env.GITHUB_WORKFLOW_SHA,
+    }),
+  );
   const existing = await github(`commits/${sha}/status`);
   const current = existing.statuses.find(
     (status) => status.context === result.context,
   );
   if (
-    current?.state === result.state &&
+    current?.creator?.login === 'github-actions[bot]' &&
+    current.target_url ===
+      `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}` &&
+    current.state === result.state &&
     current.description === result.description
   )
     return;

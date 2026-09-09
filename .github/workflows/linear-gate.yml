@@ -41,6 +41,14 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/linear-gate.mjs
+      - name: Preserve trusted gate receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-receipts-${{ github.run_id }}
+          path: ${{ runner.temp }}/gate-receipts
+          if-no-files-found: ignore
+          retention-days: 14
 
   queue:
     if: github.event_name == 'merge_group'
@@ -54,7 +62,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-      - name: Require Linear verification for every constituent revision
+      - name: Refuse unsupported native merge queue
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GATE_CONTEXT: Linear gate

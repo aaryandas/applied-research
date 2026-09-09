@@ -4,7 +4,6 @@ import {
   ticketIdentifier,
   verificationPassed,
   reviewPassed,
-  queuePulls,
 } from './workflow-gates.mjs';
 
 const sha = 'a'.repeat(40);
@@ -81,25 +80,6 @@ test('review rejects stale, missing, malformed and qualified verdicts', () => {
     false,
   );
 });
-test('merge group checks every included current PR head and refuses an unresolved lead PR', () => {
-  const pulls = [
-    { number: 1, head: { sha } },
-    { number: 2, head: { sha: 'b'.repeat(40) } },
-  ];
-  assert.deepEqual(
-    queuePulls(
-      pulls,
-      [sha, 'b'.repeat(40)],
-      'refs/heads/gh-readonly-queue/main/pr-2-abc',
-    ),
-    pulls,
-  );
-  assert.throws(() =>
-    queuePulls(pulls, [sha], 'refs/heads/gh-readonly-queue/main/pr-2-abc'),
-  );
-  assert.throws(() => queuePulls([], [], 'unexpected-ref'));
-});
-
 test('video N/A is permitted only for exclusively delivery workflow files', () => {
   const issue = {
     state: { name: 'In Review' },
