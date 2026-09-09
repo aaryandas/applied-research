@@ -16,8 +16,12 @@
 
    The block is self-retiring. When the last surface adopts the `.ui-*` primitives it matches
    nothing and is deleted — and shell.css:144-145's two forced `!important` overrides, which
-   exist only to outrank it, go with it (AR-37). */
-.reader-shell button:not([class]) {
+   exist only to outrank it, go with it (AR-37).
+
+   `:where()` keeps the class exclusion at the original `.reader-shell button` specificity
+   so descendant-styled unclassed controls (`.shell-segmented [aria-pressed='true']`) still
+   win. A bare `:not([class])` is one attribute and outranks that pressed rule. */
+.reader-shell button:where(:not([class])) {
   color: inherit;
   background: transparent;
   border: 0;
@@ -26,12 +30,12 @@
   cursor: pointer;
   font: inherit;
 }
-.reader-shell button:not([class]):hover {
+.reader-shell button:where(:not([class])):hover {
   background: var(--surface-subtle);
   color: var(--accent);
 }
-.reader-shell button:not([class]):disabled,
-.reader-shell button:not([class])[aria-disabled='true'] {
+.reader-shell button:where(:not([class])):disabled,
+.reader-shell button:where(:not([class]))[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -136,8 +140,9 @@
 /* Scoped to the sidebar, the only place in the renderer that sets aria-current. The accent
    on the label is the existing current-page semantic; `.ui-list-row`'s selected treatment
    puts it on `__lead`, which cannot exist here because shell.css:82-88 hides sidebar
-   `<span>`s in the collapsed rail. */
-.reader-sidebar [aria-current='page'] {
+   `<span>`s in the collapsed rail. The shared selected rule is a class plus two attributes,
+   so this has to carry `.ui-list-row` and the same `:not` guard or it loses. */
+.reader-sidebar .ui-list-row[aria-current='page']:not([aria-current='false']) {
   background: var(--surface);
   color: var(--accent);
 }
