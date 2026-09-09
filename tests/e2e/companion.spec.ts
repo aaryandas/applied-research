@@ -59,13 +59,23 @@ test('companion consumer in Electron: explicit context, cancellation, offline, f
     const pointer = page.locator('.activity-companion-pointer');
     await expect(pointer).not.toHaveAttribute('data-following');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        ),
+      )
+      .toBe(true);
     await page.mouse.move(150, 140);
     await expect
       .poll(async () => {
         const bounds = await pointer.boundingBox();
-        return bounds ? { x: bounds.x, y: bounds.y } : null;
+        return bounds
+          ? { x: Math.round(bounds.x), y: Math.round(bounds.y) }
+          : null;
       })
       .toEqual({ x: 168, y: 158 });
+    await expect(pointer).toHaveAttribute('data-following', 'true');
     await page.getByRole('button', { name: 'Toggle guest parking' }).click();
     await expect(pointer).not.toHaveAttribute('data-following');
     await page.mouse.move(160, 150);
