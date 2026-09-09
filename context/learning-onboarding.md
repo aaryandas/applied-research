@@ -104,15 +104,17 @@ pending lesson to ready, and must not emit a replacement syllabus.
 ## Implementation handoff
 
 **Main / AR-47 (this checkpoint):** desktop persistence, preview projection,
-opaque accept, selected-lesson generation, Opening interview/plan review, and
-learner profile live in `src/main/learning-onboarding*.ts`,
+opaque accept, selected-lesson generation, accepted-course overlay
+(`adjust-accepted-course`), Opening interview/plan review plus user-initiated
+follow-up, and learner profile live in `src/main/learning-onboarding*.ts`,
 `src/renderer/onboarding/**`, `Opening.tsx`, and
 `src/renderer/settings/LearnerProfile*`. Migration
-`drizzle/0005_learning_onboarding.sql` is reserved; coordinator must register
-journal idx 5 `when: 1788937200000`, `EXPECTED_TABLE_COLUMNS`,
-`LATEST_WORKSPACE_MIGRATION = 1_788_937_200_000`, WorkspaceStore/preload/main
-`Window.desktop` intersection, and App/Shell/Reader resume patches. Exact
-ready-to-apply diffs: [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
+`drizzle/0005_learning_onboarding.sql` (including `learning_adjustments`) is
+reserved; coordinator must register journal idx 5 `when: 1788937200000`,
+`EXPECTED_TABLE_COLUMNS`, `LATEST_WORKSPACE_MIGRATION = 1_788_937_200_000`,
+WorkspaceStore/preload/main `Window.desktop` intersection, and App/Shell/Reader
+resume plus native-close persist patches. Exact ready-to-apply diffs:
+[AR-47 coordinator patches](ar-47-onboarding-handoff.md).
 Renderer submits opaque identity, human drafts and consent only. Main retains
 validated success envelopes and resolves opaque proposal+revision on accept.
 `generateSourcedLearning` / `acceptSourcedLearning` are never used for this
@@ -139,6 +141,15 @@ Operations this desktop already sends:
 | `propose-course`           | `complete-syllabus-and-first-lesson` |
 | `revise-course`            | `complete-syllabus-and-first-lesson` |
 | `generate-selected-lesson` | `selected-existing-lesson`           |
+| `adjust-accepted-course`   | `accepted-course-adjustment`         |
+
+`adjust-accepted-course` is a bounded overlay of an **accepted** course. It
+must not emit a replacement syllabus or new path/lesson IDs. Ready completed
+lessons cannot be patched. Progress locators live on `progress.practicalAttempts`,
+never the forbidden `evidence` authority field. Human notes use prompt id
+`adjustment-notes-01`. Planner `summary.masteryEstablished` stays `false`.
+`revise-course` remains preview-only and must not run after accept. Exact
+request/success fields: [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
 
 Human context is `untrusted-human-context` (goal, focus, depth, live intended
 profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
