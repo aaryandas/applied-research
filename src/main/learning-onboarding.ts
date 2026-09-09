@@ -9,6 +9,7 @@ import {
   type LearningOnboardingResponse,
   type SelectedLessonSuccess,
   type UntrustedHumanLearnerContext,
+  type UntrustedModelSyllabusContext,
 } from '../contracts/learning-onboarding-api';
 import {
   LEARNING_ONBOARDING_CHANNELS,
@@ -60,6 +61,7 @@ import {
   LearningOnboardingRecords,
   type ContinueLearningResume,
   type ProfileView,
+  type StoredProposal,
 } from './learning-onboarding-records';
 import type { OnboardingTransport } from './learning-onboarding-transport';
 
@@ -213,9 +215,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     }
     if (!this.options.records.getAcceptance(input.projectId)) return;
     const span =
-      input.span &&
-      typeof input.span === 'object' &&
-      !Array.isArray(input.span)
+      input.span && typeof input.span === 'object' && !Array.isArray(input.span)
         ? (input.span as Record<string, unknown>)
         : null;
     this.options.records.saveResume({
@@ -391,19 +391,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         operation: {
           kind: 'revise-course',
           human: revisedHuman,
-          model: {
-            trust: ONBOARDING_CONTEXT_TRUST.model,
-            priorProposal: parsed.proposal,
-            syllabus: compactSyllabusFrom(
-              validation,
-              previous.envelope.syllabus,
-            ),
-            personalization: {
-              summary: previous.envelope.personalization.summary,
-              observedGaps: previous.envelope.personalization.observedGaps,
-              masteryEstablished: false,
-            },
-          },
+          model: this.untrustedModelContext(previous),
           changes: parsed.changes,
         },
       },
@@ -532,9 +520,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         retryable: false,
       };
     }
-    const workspace = this.options.store.getLearningWorkspace(
-      parsed.projectId,
-    );
+    const workspace = this.options.store.getLearningWorkspace(parsed.projectId);
     const path = workspace.paths.find((item) => item.id === mapping.pathId);
     const lesson = path?.current.topics
       .find((topic) => topic.id === mapping.localTopicId)
@@ -584,22 +570,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         operation: {
           kind: 'generate-selected-lesson',
           human,
-          model: {
-            trust: ONBOARDING_CONTEXT_TRUST.model,
-            priorProposal: {
-              id: stored.proposalId,
-              revision: stored.revision,
-            },
-            syllabus: compactSyllabusFrom(
-              validation,
-              stored.envelope.syllabus,
-            ),
-            personalization: {
-              summary: stored.envelope.personalization.summary,
-              observedGaps: stored.envelope.personalization.observedGaps,
-              masteryEstablished: false,
-            },
-          },
+          model: this.untrustedModelContext(stored),
           target: {
             remoteStepId: mapping.remoteStepId,
             acceptedProposal: {
@@ -709,11 +680,25 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     };
   }
 
+  private untrustedModelContext(
+    stored: StoredProposal,
+  ): UntrustedModelSyllabusContext {
+    return {
+      trust: ONBOARDING_CONTEXT_TRUST.model,
+      priorProposal: { id: stored.proposalId, revision: stored.revision },
+      syllabus: compactSyllabusFrom(validation, stored.envelope.syllabus),
+      personalization: stored.envelope.personalization,
+    };
+  }
+
   private async remote<T>(
     projectId: string,
     requestId: string,
     request: LearningOnboardingRequest,
-    expectedScope: CourseProposalSuccess['scope'] | SelectedLessonSuccess['scope'] | 'interview-prompt',
+    expectedScope:
+      | CourseProposalSuccess['scope']
+      | SelectedLessonSuccess['scope']
+      | 'interview-prompt',
   ): Promise<
     | { kind: 'body'; body: LearningOnboardingResponse }
     | { kind: 'result'; result: OnboardingResult<T> }
@@ -856,11 +841,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       };
     }
     if (body.outcome === 'unauthenticated') {
-      return unavailable(
-        body.requestId ?? requestId,
-        true,
-        body.message,
-      );
+      return unavailable(body.requestId ?? requestId, true, body.message);
     }
     return {
       outcome: 'save-failed',
@@ -1006,42 +987,40 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       const pathId = randomUUID();
       const topicIds = new Map<string, string>();
       const lessonIds = new Map<string, string>();
-      const topics: PathTopicInput[] = envelope.syllabus.topics.map(
-        (topic) => {
-          const localTopicId = randomUUID();
-          topicIds.set(topic.topicId, localTopicId);
-          return {
-            id: localTopicId,
-            title: topic.title,
-            lessons: topic.lessons.map((lesson): PathLessonInput => {
-              const localLessonId = randomUUID();
-              lessonIds.set(lesson.stepId, localLessonId);
-              const activity =
-                lesson.activity ??
-                lesson.practice?.intendedOutcome ??
-                lesson.objective;
-              const isFirst = lesson.stepId === envelope.firstLesson.stepId;
-              return {
-                id: localLessonId,
-                title: lesson.title,
-                objective: lesson.objective,
-                activity,
-                source: isFirst
-                  ? {
-                      state: 'ready',
-                      sourceRevisionId: teaching.revisionId!,
-                    }
-                  : {
-                      state:
-                        lesson.sourceState === 'unsupported'
-                          ? 'unsupported'
-                          : 'pending',
-                    },
-              };
-            }),
-          };
-        },
-      );
+      const topics: PathTopicInput[] = envelope.syllabus.topics.map((topic) => {
+        const localTopicId = randomUUID();
+        topicIds.set(topic.topicId, localTopicId);
+        return {
+          id: localTopicId,
+          title: topic.title,
+          lessons: topic.lessons.map((lesson): PathLessonInput => {
+            const localLessonId = randomUUID();
+            lessonIds.set(lesson.stepId, localLessonId);
+            const activity =
+              lesson.activity ??
+              lesson.practice?.intendedOutcome ??
+              lesson.objective;
+            const isFirst = lesson.stepId === envelope.firstLesson.stepId;
+            return {
+              id: localLessonId,
+              title: lesson.title,
+              objective: lesson.objective,
+              activity,
+              source: isFirst
+                ? {
+                    state: 'ready',
+                    sourceRevisionId: teaching.revisionId!,
+                  }
+                : {
+                    state:
+                      lesson.sourceState === 'unsupported'
+                        ? 'unsupported'
+                        : 'pending',
+                  },
+            };
+          }),
+        };
+      });
       const firstRemoteTopic = envelope.syllabus.topics.find((topic) =>
         topic.lessons.some(
           (lesson) => lesson.stepId === envelope.firstLesson.stepId,
