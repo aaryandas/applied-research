@@ -68,4 +68,17 @@ describe('PostgreSQL schema declarations', () => {
       expect(sql).toContain(operationId);
     }
   });
+
+  it('seeds an unused global generation-eval allowance without resetting embeddings', () => {
+    const sql = readFileSync(
+      new URL('./migrations/0003_generation_eval.sql', import.meta.url),
+      'utf8',
+    );
+    expect(sql).toContain("'generation-eval'");
+    expect(sql).toContain('2000000');
+    expect(sql).toContain('  10,');
+    expect(sql).toContain('onboarding_proposal');
+    expect(sql).not.toContain('250000');
+    expect(sql).not.toContain(EMBEDDING_EVAL_ALLOWANCE_ID);
+  });
 });

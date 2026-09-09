@@ -9,6 +9,7 @@ import { consoleDiagnostics } from './diagnostics.js';
 export const BACKEND_MIGRATIONS = [
   '0001_authenticated_backend',
   '0002_sourced_backend',
+  '0003_generation_eval',
 ] as const;
 
 export async function applyInitialMigration(

@@ -18,6 +18,7 @@ import {
   MAX_PROVIDER_REQUEST_PRICE_USD,
   MAX_REASONING_TOKENS,
   MODEL_ADMISSION,
+  PROVIDER_ROUTE_ONLY,
 } from './policy.js';
 import { isRemoteText, isUnicodeScalarBoundary } from './text.js';
 
@@ -318,6 +319,7 @@ export function buildProviderBody(request: ProviderLearningRequest): string {
       },
     },
     provider: {
+      only: [...PROVIDER_ROUTE_ONLY],
       allow_fallbacks: false,
       require_parameters: true,
       max_price: {
@@ -327,7 +329,7 @@ export function buildProviderBody(request: ProviderLearningRequest): string {
       },
     },
     max_tokens: MAX_OUTPUT_TOKENS,
-    reasoning: { max_tokens: MAX_REASONING_TOKENS, exclude: true },
+    reasoning: { effort: 'low', exclude: true },
     temperature: 0.2,
   });
 }

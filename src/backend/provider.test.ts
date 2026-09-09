@@ -72,8 +72,9 @@ describe('OpenRouter provider boundary', () => {
     expect(body).toMatchObject({
       model: tutorRequest.model,
       max_tokens: 2048,
-      reasoning: { max_tokens: 1024, exclude: true },
+      reasoning: { effort: 'low', exclude: true },
       provider: {
+        only: ['google-ai-studio'],
         allow_fallbacks: false,
         require_parameters: true,
         max_price: { prompt: 0.75, completion: 3.75, request: 0 },
@@ -111,6 +112,9 @@ describe('OpenRouter provider boundary', () => {
     );
     const expected = Math.ceil(serializedBytes * 0.75 + 3_072 * 3.75);
     expect(reservationMicrousdFor(expensiveSerialization)).toBe(expected);
+    expect(
+      reservationMicrousdFor(expensiveSerialization),
+    ).toBeGreaterThanOrEqual(Math.ceil(serializedBytes * 0.75 + 2_048 * 3.75));
     expect(
       Buffer.byteLength(JSON.stringify(expensiveSerialization)),
     ).toBeLessThanOrEqual(MAX_REQUEST_BYTES);

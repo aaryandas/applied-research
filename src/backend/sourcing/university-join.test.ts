@@ -21,6 +21,7 @@ import { GuardedHttpsClient } from './acquisition/guarded-http.js';
 import type { LiveIndexTransport } from './index/types.js';
 import {
   bindUniversityLane,
+  indexingGrantFromDescriptor,
   mapUniversityAcquisitionFailure,
   universityCandidateId,
   type UniversityAcquisitionApi,
@@ -325,6 +326,22 @@ describe('university acquisition seam', () => {
       catalog: [injected],
     });
     expect(composeCatalogSources()[0]?.sourceId).toBe(SOURCE_ID);
+  });
+
+  it('grants producer indexing for license-permitted unknown catalog rows', () => {
+    const catalog = universityCatalogSource();
+    expect(
+      indexingGrantFromDescriptor({
+        ...catalog,
+        usePolicy: {
+          ...catalog.usePolicy,
+          indexing: {
+            status: 'unknown',
+            reason: 'Not production indexed.',
+          },
+        },
+      }),
+    ).toEqual(permission);
   });
 });
 

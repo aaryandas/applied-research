@@ -12,6 +12,10 @@ import { silentDiagnostics } from './diagnostics.js';
 import type { LearningService } from './learning.js';
 import type { SourcedLearningApi } from './learning-api.js';
 import {
+  handleOnboardingRoute,
+  type OnboardingService,
+} from './onboarding/index.js';
+import {
   API_ORIGIN,
   ELECTRON_AUTH_CALLBACK_PATH,
   ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
@@ -32,6 +36,7 @@ export interface HttpDependencies {
   readonly learning: LearningService;
   readonly sourcing?: SourcingService;
   readonly sourcedLearning?: SourcedLearningApi;
+  readonly onboarding?: OnboardingService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -261,6 +266,14 @@ export function createHttpHandler(
     }
     const disconnect = observeDisconnect(request, response);
     try {
+      const onboardingHandled = await handleOnboardingRoute(
+        url.pathname,
+        request,
+        response,
+        dependencies,
+        disconnect.signal,
+      );
+      if (onboardingHandled) return;
       const handled = await handleSourceRoute(
         url.pathname,
         request,

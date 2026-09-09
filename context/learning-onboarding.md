@@ -108,15 +108,17 @@ retain validated `LearningOnboardingResponse` success envelopes; project
 `CourseProposal`; persist profile, interview, mapping and acceptance receipt;
 never call `acceptSourcedLearning` / `generateSourcedLearning` for this flow.
 
-**Backend / AR-48:** add sibling `POST /v1/learning/onboarding` using
-`parseLearningOnboardingRequestWire` / `parseLearningOnboardingResponseWire` on
-the raw body, then the object parsers. Keep `/v1/learning/sourced` and its
-expected-red route-security tests unchanged. Do not change installed
-foundations, model, spend policy or dependencies. Importing the new API module
-from `src/backend` is enough for `tsconfig.backend.json` (include currently
-lists `learning-api.ts` only; the import graph pulls additional contracts).
-Separately recorded vector-index configuration proof on the candidate is not
-app acceptance.
+**Backend / AR-48:** `POST /v1/learning/onboarding` is registered beside
+`/v1/learning/sourced`. HTTP authenticates the session, parses the raw body
+with `parseLearningOnboardingRequestWire`, and validates outgoing envelopes
+with `parseLearningOnboardingResponse`. Keep the seven sourced 401/400
+security tests unchanged. Proposal id for revise/selected-lesson is the
+client `requestId` of the successful `propose-course` (revision starts at 1).
+Do not change installed foundations, model (`google/gemini-3.8-flash`), or
+dependencies. `AI_ENABLED` remains false until root applies the reviewed
+bounded generation-eval configuration. Importing the API module from
+`src/backend` is enough for `tsconfig.backend.json`. Separately recorded
+vector-index configuration proof on the candidate is not app acceptance.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

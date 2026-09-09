@@ -9,9 +9,8 @@ import { SOURCING_PUBLIC_MESSAGES } from '../../contracts/sourcing.js';
 import type { SourcePassage } from './acquisition/types.js';
 
 /**
- * Narrow AR-57 seam. Root wires
- * `src/backend/university-acquisition/` after that namespace lands.
- * This lane does not copy or edit that directory.
+ * Production university catalog/acquisition join. AR-57 is imported here;
+ * this file does not copy or edit that namespace.
  */
 export interface UniversityByteTransport {
   fetch(
@@ -102,6 +101,18 @@ export function indexingGrantFromDescriptor(
 ): UniversityIndexingGrant {
   const indexing = source.usePolicy.indexing;
   if (indexing.status === 'permitted') return indexing;
+  const acquisition = source.usePolicy.acquisition;
+  if (
+    indexing.status === 'unknown' &&
+    acquisition.status === 'permitted' &&
+    acquisition.basis === 'license'
+  ) {
+    return {
+      status: 'permitted',
+      basis: 'license',
+      evidenceUrl: acquisition.evidenceUrl,
+    };
+  }
   return {
     status: 'unknown',
     reason:

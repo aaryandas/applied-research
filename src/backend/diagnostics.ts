@@ -9,6 +9,8 @@ const DIAGNOSTIC_MESSAGES = {
   'http.handler-failed': 'HTTP request handling failed.',
   'learning.execution-failed': 'Learning request execution failed.',
   'learning.quota-failed': 'Monthly quota lookup failed.',
+  'onboarding.execution-failed': 'Onboarding request execution failed.',
+  'onboarding.idempotency-failed': 'Onboarding request idempotency failed.',
   'provider.request-failed': 'Provider request failed.',
   'sourced.retrieval-failed': 'Sourced retrieval failed.',
   'sourced.support-failed': 'Sourced support checking failed.',
