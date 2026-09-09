@@ -31,7 +31,7 @@ Only Sonar's HTTP port is published, at `127.0.0.1:9000`; PostgreSQL is reachabl
 
 The scanner receives read-only mounts for source, tests, coverage, TypeScript configuration and installed dependencies. It does not mount the credential file, design archives, personal annotations or vendored Effect reference. The token enters through the container environment; users with access to the Docker daemon can inspect container configuration.
 
-Project key: `applied-research-local`. Local scans analyze the current working tree, including uncommitted changes, as one local baseline. SCM analysis is disabled for the isolated scanner mount. These results are not GitHub PR checks or evidence for a committed revision. Hosted GitHub Sonar remains disabled because hosted runners cannot reach localhost; the required GitHub CI gate is independent.
+Project key: `applied-research-local`. Local scans analyze the current working tree, including uncommitted changes, as one local baseline. SCM analysis is disabled for the isolated scanner mount. These results are not GitHub PR checks or evidence for a committed revision. Hosted GitHub Sonar remains a separate main-only workflow (`sonar.yml`, AR-45). It consumes authenticated CI coverage for the current main SHA and cannot reach this localhost instance. The required GitHub CI gate is independent.
 
 ## Recreate on another development machine
 

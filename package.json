@@ -28,7 +28,7 @@
     "test:coverage": "npm run native:node && vitest run --coverage",
     "test:e2e": "npm run native:electron && playwright test",
     "build": "electron-vite build && npm run build:backend",
-    "test:delivery": "node --test scripts/delivery-trust.test.mjs scripts/delivery-review.test.mjs scripts/delivery-queue.test.mjs scripts/delivery-cursor-api.test.mjs scripts/delivery-workflows.test.mjs scripts/delivery-constants.test.mjs scripts/delivery-github.test.mjs",
+    "test:delivery": "node --test scripts/delivery-trust.test.mjs scripts/delivery-review.test.mjs scripts/delivery-queue.test.mjs scripts/delivery-cursor-api.test.mjs scripts/delivery-workflows.test.mjs scripts/delivery-constants.test.mjs scripts/delivery-github.test.mjs scripts/hosted-sonar.test.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:delivery && npm run test:coverage && npm run build",
     "package": "npm run build && electron-builder --dir --publish never",
     "dist": "npm run build && electron-builder --publish never",

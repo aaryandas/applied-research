@@ -22,6 +22,7 @@ This map describes the implemented MVP. See [scope and limitations](mvp.md). Rea
 | `electron-builder.yml`                     | Installer configuration and packaged file scope                       |
 | `.github/workflows/verify.yml`             | Shared cross-platform verification                                    |
 | `.github/workflows/`                       | Pull request CI, candidate releases and optional Sonar analysis       |
+| `scripts/hosted-sonar.mjs`                 | Main-only hosted Sonar consumer of authenticated CI coverage          |
 | `context/design-system/`                   | Shared renderer tokens/fonts/art and standalone interaction specimens |
 | `context/repos/effect/`                    | Read-only upstream reference; not application code                    |
 | `src/contracts/learning-onboarding.ts`     | Desktop onboarding bridge, opaque proposal identity and step mapping  |
