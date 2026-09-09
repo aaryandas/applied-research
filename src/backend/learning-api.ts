@@ -80,6 +80,7 @@ export function makeSourcedLearningApi(
             requestId: request.requestId,
             query: request.operation.goal,
             intent: 'learning' as const,
+            maxPassages: 12,
           };
           const selected = yield* timing.measure(
             'retrievalMs',

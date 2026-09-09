@@ -1,6 +1,6 @@
+import type { EvidenceContext, ProviderLearningRequest } from '../provider.js';
 import { MAX_SOURCE_CHARACTERS } from '../policy.js';
 import type { LearningRequest } from '../../contracts/learning-api.js';
-import type { RetrievalEvidence } from '../../contracts/sourcing.js';
 import { parseLearningRequest } from '../validation.js';
 import type {
   AcquiredSource,
@@ -74,7 +74,7 @@ export function validateSelectedEvidence(
     intent: query.intent,
     query: query.query,
     sourceRevisions,
-    maxPassages: 12,
+    maxPassages: query.maxPassages,
   } satisfies RetrieveEvidenceRequest;
   // Empty sources are a legal no-evidence producer result, not a retrieve call.
   const request: RetrieveEvidenceRequest =
@@ -93,17 +93,8 @@ export function validateSelectedEvidence(
   return boundEvidence({ sources, retrieval });
 }
 
-export interface EvidenceGenerationRequest extends LearningRequest {
-  evidenceContext: {
-    evidence: RetrievalEvidence[];
-    sourceScopes: {
-      sourceId: string;
-      revisionId: string;
-      kind: AcquiredSource['kind'];
-      authorship: AcquiredSource['authorship'];
-      extraction: AcquiredSource['content']['revision']['extraction'];
-    }[];
-  };
+export interface EvidenceGenerationRequest extends ProviderLearningRequest {
+  evidenceContext: EvidenceContext;
 }
 
 export function generationRequestWithEvidence(
@@ -154,13 +145,15 @@ function boundEvidence(
   const sources: AcquiredSource[] = [];
   const gaps: CoverageGap[] = [];
   let characters = 0;
+  const considered = new Set<AcquiredSource>();
   for (const item of [...retrieval.evidence].sort(
     (left, right) => left.provenance.rank - right.provenance.rank,
   )) {
     const source = selected.sources.find((candidate) =>
       matches(candidate, item.sourceVersion),
     );
-    if (!source || sources.includes(source)) continue;
+    if (!source || considered.has(source)) continue;
+    considered.add(source);
     const revision = source.content.revision;
     if (
       source.authorship.kind !== 'authored' ||

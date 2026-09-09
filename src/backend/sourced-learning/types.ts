@@ -24,6 +24,7 @@ export interface LearningEvidenceQuery {
   requestId: string;
   query: string;
   intent: SourcingIntent;
+  maxPassages: number;
 }
 export interface SelectedLearningEvidence {
   sources: AcquiredSource[];
@@ -42,7 +43,7 @@ export interface SupportAssessment {
 }
 export interface SupportReview {
   method: 'model-evaluation' | 'external' | 'not-run';
-  assessments: unknown[];
+  assessments: SupportAssessment[];
   provenance: AiProvenance | null;
   quota: MonthlyQuota | null;
   failure: Exclude<LearningResponse, { outcome: 'success' }> | null;

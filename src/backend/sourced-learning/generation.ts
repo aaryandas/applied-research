@@ -1,3 +1,4 @@
+import { selectedCitation } from './support-validation.js';
 import { Effect } from 'effect';
 import type { PublicAccount } from '../../contracts/learning-api.js';
 import { sha256Text } from '../validation-primitives.js';
@@ -186,10 +187,16 @@ export function generateSourcedLesson(
           generatedAt: lessonResult.provenance.createdAt,
         }),
         stepId: first.id,
-        paragraphs: supportedParagraphs.map(({ text, citations }) => ({
+        paragraphs: supportedParagraphs.map(({ id, text, citations }) => ({
           text,
           kind: 'ai-explanation',
-          citations,
+          citations: citations.filter((citation) =>
+            progress.evidence.some(
+              (item) =>
+                (support.supported.get(id) ?? []).includes(item.evidenceId) &&
+                selectedCitation(citation, [item]),
+            ),
+          ),
         })),
         activity: {
           text: first.activity,

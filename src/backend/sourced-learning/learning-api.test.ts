@@ -154,6 +154,7 @@ interface HarnessOptions {
   path?: unknown;
   lesson?: unknown;
   providerStatus?: number;
+  supportStatus?: number;
   providerToolCalls?: boolean;
   supportBody?: unknown;
   useModelSupport?: boolean;
@@ -256,7 +257,11 @@ async function harness(options: HarnessOptions = {}) {
               },
             ],
           }),
-          { status: options.providerStatus ?? 200 },
+          {
+            status: supportPacket
+              ? (options.supportStatus ?? 200)
+              : (options.providerStatus ?? 200),
+          },
         );
       }),
       config: {
@@ -280,6 +285,7 @@ async function harness(options: HarnessOptions = {}) {
       }
       expect(invocation.account).toEqual(account);
       expect(query.query).toBe('Learn vector addition for robotics');
+      expect(query.maxPassages).toBe(12);
       selected = true;
       return (
         options.selection ?? {
@@ -348,6 +354,22 @@ describe('sourced learning API', () => {
     });
     expect(calls).toBe(0);
   });
+  it('reports paid reviewer failure as unavailable without attributing a negative evidence verdict', async () => {
+    const api = await harness({ useModelSupport: true, supportStatus: 503 });
+    const result = await Effect.runPromise(api.request(account, request));
+    expect(result.supportReviews[0]).toMatchObject({
+      method: 'not-run',
+      failure: { outcome: 'unavailable' },
+    });
+    expect(result.gaps).toEqual([
+      {
+        kind: 'support',
+        message:
+          'Claim support checking is unavailable. Unverified text has been withheld.',
+      },
+    ]);
+  });
+
   it('preserves supported path steps when lesson generation is malformed', async () => {
     const api = await harness({
       lesson: { ...lesson, citations: [{ ...citation, quote: 'fabricated' }] },
@@ -614,12 +636,21 @@ describe('sourced learning API', () => {
         retrieval: {
           outcome: 'success',
           requestId: request.requestId,
-          evidence: [evidence, generatedEvidence],
+          evidence: [
+            evidence,
+            generatedEvidence,
+            {
+              ...generatedEvidence,
+              evidenceId: 'generated-evidence-02',
+              provenance: { ...generatedEvidence.provenance, rank: 3 },
+            },
+          ],
         },
       },
     });
     const result = await Effect.runPromise(api.request(account, request));
     expect(result.outcome).toBe('partial');
+    expect(result.gaps).toHaveLength(1);
     expect(result.sources).toHaveLength(1);
     expect(result.evidence).toHaveLength(1);
     expect(result.lesson?.paragraphs[0]?.text).toBe(lesson.body);
@@ -690,79 +721,128 @@ describe('sourced learning API', () => {
     expect(providerCalls).toBe(4);
   });
 
-  it('reviews a generated verification packet that exceeds the learner source character budget', async () => {
-    const largeText = `${text}${'x'.repeat(12_000 - text.length)}`;
-    const largeHash = createHash('sha256').update(largeText).digest('hex');
-    const bulkySources = [1, 2, 3, 4].map((index) => {
-      const sourceId = `course-0${index}`;
-      return {
-        ...source,
-        sourceId,
-        content: {
-          state: 'acquired' as const,
-          revision: {
-            ...revision,
-            sourceId,
-            revisionId: `revision-0${index}`,
-            canonicalText: largeText,
-            sha256: largeHash,
+  it.each(['cited-only', 'too-large'])(
+    'bounds near-12000-character review evidence: %s',
+    async (packetCase) => {
+      const largeText = `${text}${'x'.repeat(12_000 - text.length)}`;
+      const largeHash = createHash('sha256').update(largeText).digest('hex');
+      const bulkySources = [1, 2, 3, 4].map((index) => {
+        const sourceId = `course-0${index}`;
+        return {
+          ...source,
+          sourceId,
+          content: {
+            state: 'acquired' as const,
+            revision: {
+              ...revision,
+              sourceId,
+              revisionId: `revision-0${index}`,
+              canonicalText: largeText,
+              sha256: largeHash,
+            },
+          },
+        };
+      });
+      const bulkyEvidence = bulkySources.map((item, index) => ({
+        ...evidence,
+        evidenceId: `evidence-0${index + 1}`,
+        locator: {
+          ...evidence.locator,
+          sourceId: item.sourceId,
+          revisionId: item.content.revision.revisionId,
+          start: 0,
+          end: largeText.length,
+          quote: largeText,
+        },
+        sourceVersion: {
+          sourceId: item.sourceId,
+          revisionId: item.content.revision.revisionId,
+          sha256: largeHash,
+          canonicalizationVersion:
+            item.content.revision.canonicalizationVersion,
+        },
+        provenance: { ...evidence.provenance, rank: index + 1 },
+      }));
+      let providerCalls = 0;
+      const api = await harness({
+        useModelSupport: true,
+        path:
+          packetCase === 'too-large'
+            ? {
+                ...path,
+                steps: path.steps.map((item) => ({
+                  ...item,
+                  citations: bulkySources.map((entry) => ({
+                    ...citation,
+                    sourceId: entry.sourceId,
+                    revisionId: entry.content.revision.revisionId,
+                  })),
+                })),
+              }
+            : path,
+        onProviderBody: (body) => {
+          const operation = JSON.parse(
+            JSON.parse(body).messages[1].content,
+          ).operation;
+          if (operation.question?.startsWith('Evaluate claim support')) {
+            expect(
+              operation.sources[0].canonicalText.length,
+            ).toBeLessThanOrEqual(48_000);
+            expect(
+              JSON.parse(operation.sources[0].canonicalText).evidence.map(
+                (item: { evidenceId: string }) => item.evidenceId,
+              ),
+            ).toEqual(['evidence-01']);
+          }
+        },
+        selection: {
+          sources: bulkySources,
+          retrieval: {
+            outcome: 'success',
+            requestId: request.requestId,
+            evidence: bulkyEvidence,
           },
         },
-      };
-    });
-    const bulkyEvidence = bulkySources.map((item, index) => ({
-      ...evidence,
-      evidenceId: `evidence-0${index + 1}`,
-      locator: {
-        ...evidence.locator,
-        sourceId: item.sourceId,
-        revisionId: item.content.revision.revisionId,
-        start: 0,
-        end: largeText.length,
-        quote: largeText,
-      },
-      sourceVersion: {
-        sourceId: item.sourceId,
-        revisionId: item.content.revision.revisionId,
-        sha256: largeHash,
-        canonicalizationVersion: item.content.revision.canonicalizationVersion,
-      },
-      provenance: { ...evidence.provenance, rank: index + 1 },
-    }));
-    let providerCalls = 0;
-    const api = await harness({
-      useModelSupport: true,
-      selection: {
-        sources: bulkySources,
-        retrieval: {
-          outcome: 'success',
-          requestId: request.requestId,
-          evidence: bulkyEvidence,
+        onProvider: () => {
+          providerCalls++;
         },
-      },
-      onProvider: () => {
-        providerCalls++;
-      },
-    });
-    expect(
-      JSON.stringify({
-        claims: path.steps,
-        evidence: bulkyEvidence.map(
-          ({ evidenceId, locator, sourceVersion }) => ({
-            evidenceId,
-            locator,
-            sourceVersion,
-          }),
-        ),
-      }).length,
-    ).toBeGreaterThan(48_000);
-    const result = await Effect.runPromise(api.request(account, request));
-    expect(result.outcome).toBe('sourced');
-    expect(result.path).not.toBeNull();
-    expect(result.supportReviews).toHaveLength(2);
-    expect(result.supportReviews[0]?.provenance?.provider).toBe('openrouter');
-    expect(providerCalls).toBe(4);
-  });
+      });
+      expect(
+        JSON.stringify({
+          claims: path.steps,
+          evidence: bulkyEvidence.map(
+            ({ evidenceId, locator, sourceVersion }) => ({
+              evidenceId,
+              locator,
+              sourceVersion,
+            }),
+          ),
+        }).length,
+      ).toBeGreaterThan(48_000);
+      const result = await Effect.runPromise(api.request(account, request));
+      if (packetCase === 'too-large') {
+        expect(result.outcome).toBe('coverage-pending');
+        expect(result.supportReviews[0]).toMatchObject({
+          method: 'not-run',
+          provenance: null,
+        });
+        expect(result.gaps).toEqual([
+          {
+            kind: 'support',
+            message:
+              'Claim support checking is unavailable. Unverified text has been withheld.',
+          },
+        ]);
+        expect(providerCalls).toBe(1);
+        return;
+      }
+      expect(result.outcome).toBe('sourced');
+      expect(result.path).not.toBeNull();
+      expect(result.supportReviews).toHaveLength(2);
+      expect(result.supportReviews[0]?.provenance?.provider).toBe('openrouter');
+      expect(providerCalls).toBe(4);
+    },
+  );
 
   it('reports backend retrieval, generation and verification latency without pretending desktop loading was measured', async () => {
     let time = 0;
@@ -1039,6 +1119,50 @@ describe('sourced learning API', () => {
     });
     expect(result.failure).toBeNull();
     expect(calls).toBe(0);
+  });
+
+  it('preserves the reviewer evidence mapping for each supported paragraph', async () => {
+    const secondCitation = {
+      ...citation,
+      start: 36,
+      end: 67,
+      quote: 'Vector addition is commutative.',
+    };
+    const secondEvidence: RetrievalEvidence = {
+      ...evidence,
+      evidenceId: 'evidence-02',
+      locator: { ...secondCitation, position: { kind: 'document' } },
+      provenance: { ...evidence.provenance, rank: 2 },
+    };
+    const api = await harness({
+      selection: {
+        sources: [source],
+        retrieval: {
+          outcome: 'success',
+          requestId: request.requestId,
+          evidence: [evidence, secondEvidence],
+        },
+      },
+      lesson: {
+        ...lesson,
+        body: `${lesson.body}\n\nVector addition is commutative.`,
+        citations: [citation, secondCitation],
+      },
+      assessSupport: async (claims) =>
+        claims.map((claim) => ({
+          claimId: claim.id,
+          verdict: 'supported',
+          reason:
+            'The cited passage states the corresponding operation property.',
+          evidenceIds: [
+            claim.id === 'paragraph-2' ? 'evidence-02' : 'evidence-01',
+          ],
+        })),
+    });
+    const result = await Effect.runPromise(api.request(account, request));
+    expect(
+      result.lesson?.paragraphs.map((paragraph) => paragraph.citations),
+    ).toEqual([[citation], [secondCitation]]);
   });
 
   it('turns a first-entry goal into an attributed readable step and activity linked to retrieved immutable evidence', async () => {

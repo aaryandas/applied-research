@@ -1,3 +1,7 @@
+import type {
+  AcquiredSource,
+  RetrievalEvidence,
+} from '../contracts/sourcing.js';
 import { Data, Effect } from 'effect';
 import type {
   GenerateLearningPathOperation,
@@ -45,9 +49,24 @@ export interface ProviderCompletion {
   readonly model: LearningRequest['model'];
 }
 
+/** Backend-only context, attached after authoritative retrieval; never accepted from HTTP clients. */
+export interface EvidenceContext {
+  evidence: RetrievalEvidence[];
+  sourceScopes: {
+    sourceId: string;
+    revisionId: string;
+    kind: AcquiredSource['kind'];
+    authorship: AcquiredSource['authorship'];
+    extraction: AcquiredSource['content']['revision']['extraction'];
+  }[];
+}
+export interface ProviderLearningRequest extends LearningRequest {
+  evidenceContext?: EvidenceContext;
+}
+
 export interface ProviderService {
   readonly complete: (
-    request: LearningRequest,
+    request: ProviderLearningRequest,
   ) => Effect.Effect<ProviderCompletion, ProviderFailure>;
 }
 
@@ -263,7 +282,7 @@ function responseSchema(operation: LearningOperation): Record<string, unknown> {
   };
 }
 
-export function buildProviderBody(request: LearningRequest): string {
+export function buildProviderBody(request: ProviderLearningRequest): string {
   const maximumPromptPrice = Number(MODEL_ADMISSION.inputUsdPerMillionTokens);
   const maximumCompletionPrice = Number(
     MODEL_ADMISSION.outputUsdPerMillionTokens,
@@ -278,7 +297,7 @@ export function buildProviderBody(request: LearningRequest): string {
           apiVersion: request.apiVersion,
           requestId: request.requestId,
           operation: request.operation,
-          ...('evidenceContext' in request
+          ...(request.evidenceContext !== undefined
             ? { evidenceContext: request.evidenceContext }
             : {}),
         }),
@@ -326,7 +345,9 @@ function scaledCoefficient(price: DecimalPrice, scale: number): bigint {
   return price.coefficient * 10n ** BigInt(scale - price.scale);
 }
 
-export function reservationMicrousdFor(request: LearningRequest): number {
+export function reservationMicrousdFor(
+  request: ProviderLearningRequest,
+): number {
   const inputTokenUpperBound = Buffer.byteLength(
     buildProviderBody(request),
     'utf8',
@@ -392,7 +413,7 @@ function knownCost(value: unknown): number | null {
 
 function parseCompletion(
   value: unknown,
-  request: LearningRequest,
+  request: ProviderLearningRequest,
 ): ProviderCompletion {
   const response = object(value, 'Provider response is invalid.');
   const actualMicrousd = knownCost(value);

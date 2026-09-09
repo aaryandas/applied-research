@@ -15,21 +15,23 @@ validates and snapshots the request and copies its account before asynchronous
 work. It does not accept a body-supplied account or select sources from the
 caller's `operation.sources` as retrieval authority.
 
-The mandatory `selectEvidence` dependency accepts `{ requestId, query, intent }`
+The mandatory `selectEvidence` dependency accepts `{ requestId, query, intent, maxPassages }` (currently 12 passages)
 and `{ account, signal }`. It returns `{ sources: AcquiredSource[], retrieval:
 RetrieveEvidenceResponse }` using the frozen AR-30 contract. The producer must
 perform server-authorized discovery/acquisition/retrieval; client-supplied
 permission declarations are not authority. The AR-35 producer and backend HTTP
 composition are not connected in this branch. No fixture adapter ships in
 application code. The producer call has a ten-second bound, with its signal
-aborted on timeout or cancellation.
+aborted on timeout or cancellation. The response is validated against that same
+passage bound. Valid no-evidence/failure outcomes retain their public retrieval
+message even when no acquired sources are returned.
 
 The API validates acquired-source shapes and permissions, the exact requested
 query/intent/request identity, canonical hashes, revision identities and
 scalar-safe UTF-16 quotations using the existing sourcing validators. It takes
 only authored sources with selected evidence, in retrieval rank order, within
 the existing four-source/48,000-character generation budget. It never truncates
-an immutable source to fit the budget. Exclusions, partial retrieval and partial
+an immutable source to fit the budget. Exclusions (once per source), partial retrieval and partial
 extraction become coverage gaps. Full source descriptors and immutable revisions
 remain in the response, including original URLs and discovered provenance.
 
@@ -38,8 +40,10 @@ remain in the response, including original URLs and discovered provenance.
 The supplied `LearningService` continues to own account-scoped idempotency,
 quota reservation/settlement, model allowlisting, provider concurrency,
 cancellation and provider timeout. The final serialized provider body includes
-the selected evidence and source extraction scopes before its reservation is
-calculated. Learner context keeps its original attribution. Source and metadata
+the selected evidence and source extraction scopes through the backend-only
+`ProviderLearningRequest`/`EvidenceContext` types before its reservation is
+calculated. An HTTP regression pins rejection of client-supplied `evidenceContext`.
+Learner context keeps its original attribution. Source and metadata
 instructions remain untrusted data; no tool/code execution is enabled.
 
 The default sequence uses four bounded model requests:
@@ -52,7 +56,12 @@ The default sequence uses four bounded model requests:
 
 Review is another authenticated, quota-controlled learning request, with a
 stable derived request ID. A generated verification packet contains the claims,
-exact retrieved quotations, immutable source identities and extraction scope.
+only cited retrieved quotations, immutable source identities and extraction scope.
+The serialized packet must fit the unchanged 48,000-character source limit;
+packets that remain too large are declined before reservation or provider dispatch.
+A review that cannot run, or whose learning request fails, has method `not-run`
+and an explicit support-checking-unavailable gap, with any failure receipt
+preserved. This is not a negative verdict about the source.
 It is explicitly attributed as generated context, never a discovered primary
 source or human note. Review receipts remain separate from lesson-generation
 provenance and primary source descriptors. Unknown charges preserve the existing
@@ -61,6 +70,9 @@ cannot authorize lesson text.
 
 A semantic verdict must name the exact claim once, give a nonempty bounded
 reason and identify actual evidence within that claim's selected citations.
+Supported lesson paragraphs retain only citations within the evidence IDs named
+by their own validated assessment; the public reviews expose typed
+`SupportAssessment[]`.
 Citation shape, matching quotations, retriever scores and source venue do not
 alone establish support. This separate model evaluation can still be wrong;
 fixture checks do not establish model factuality or live teaching quality.
@@ -113,3 +125,14 @@ instruction, local `npm run check` is required; local Playwright, desktop
 recordings/traces and local Sonar execution are prohibited. Cursor/macOS CI own
 desktop acceptance, and Railway/GitHub own Sonar. Ready for review does not mean
 those pending gates or the full ticket are accepted.
+
+## Review follow-up and ownership
+
+The Fable review of `67f6458` requires a shared `PROMPT_VERSION` bump so ledger
+rows and AI provenance distinguish the revised system prompt, plus a type-only
+`LearningService.request` annotation using `ProviderLearningRequest`. Those
+changes belong to `src/backend/policy.ts` and `src/backend/learning.ts`, outside
+the assigned AR-36 paths. Explicit authorization for these two narrow edits is
+pending; the provider boundary itself is now typed and the HTTP boundary still
+rejects client-supplied evidence context. The unchanged shared prompt version is
+a remaining review blocker, not accepted provenance behavior.

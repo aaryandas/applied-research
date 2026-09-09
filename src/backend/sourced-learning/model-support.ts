@@ -6,6 +6,9 @@ import type {
 } from '../../contracts/learning-api.js';
 import type { RetrievalEvidence } from '../../contracts/sourcing.js';
 import type { LearningService } from '../learning.js';
+import { MAX_SOURCE_CHARACTERS } from '../policy.js';
+import { parseLearningRequest } from '../validation.js';
+import { isAssessment, selectedCitation } from './support-validation.js';
 import { sha256Text } from '../validation-primitives.js';
 import type { SupportClaim, SupportReview } from './types.js';
 
@@ -36,42 +39,54 @@ export function reviewWithLearningService(
     const canonicalText = JSON.stringify({
       claims,
       sourceScopes: context.sourceScopes,
-      evidence: evidence.map(({ evidenceId, locator, sourceVersion }) => ({
-        evidenceId,
-        locator,
-        sourceVersion,
-      })),
+      evidence: evidence
+        .filter((item) =>
+          claims.some((claim) =>
+            claim.citations.some((citation) =>
+              selectedCitation(citation, [item]),
+            ),
+          ),
+        )
+        .map(({ evidenceId, locator, sourceVersion }) => ({
+          evidenceId,
+          locator,
+          sourceVersion,
+        })),
     });
+    if (canonicalText.length > MAX_SOURCE_CHARACTERS) return notRunReview();
     const packetId = `support_${sha256Text(`${context.request.requestId}:${context.phase}`)}`;
-    // Generated packets can exceed the learner source budget: accepted passage
-    // quotes plus claims and JSON overhead. Do not re-apply that cap here.
-    const request: LearningRequest = {
-      apiVersion: context.request.apiVersion,
-      requestId: packetId,
-      model: context.request.model,
-      operation: {
-        kind: 'source-grounded-tutor',
-        question: REVIEW_PROMPT,
-        learnerContext: [],
-        sources: [
-          {
-            sourceId: packetId,
-            revisionId: `revision_${sha256Text(canonicalText)}`,
-            title: 'Generated claim-review packet with retrieved quotations',
-            canonicalText,
-            sha256: sha256Text(canonicalText),
-            format: 'plain-text',
-            canonicalizationVersion: 'support-packet-v1',
-            acquiredAt: context.generatedAt,
-            provenance: { kind: 'generated', locator: null },
+    const request = yield* Effect.try({
+      try: () =>
+        parseLearningRequest({
+          apiVersion: context.request.apiVersion,
+          requestId: packetId,
+          model: context.request.model,
+          operation: {
+            kind: 'source-grounded-tutor',
+            question: REVIEW_PROMPT,
+            learnerContext: [],
+            sources: [
+              {
+                sourceId: packetId,
+                revisionId: `revision_${sha256Text(canonicalText)}`,
+                title:
+                  'Generated claim-review packet with retrieved quotations',
+                canonicalText,
+                sha256: sha256Text(canonicalText),
+                format: 'plain-text',
+                canonicalizationVersion: 'support-packet-v1',
+                acquiredAt: context.generatedAt,
+                provenance: { kind: 'generated', locator: null },
+              },
+            ],
           },
-        ],
-      },
-    };
+        }),
+      catch: (cause) => new ReviewFailure({ cause }),
+    });
     const result = yield* learning.request(context.account, request);
     if (result.outcome !== 'success')
       return {
-        method: 'model-evaluation' as const,
+        method: 'not-run' as const,
         assessments: [],
         provenance: null,
         quota: result.outcome === 'quota-exceeded' ? result.quota : null,
@@ -99,9 +114,24 @@ export function reviewWithLearningService(
           payload.assessments.length > claims.length
         )
           return review;
-        return { ...review, assessments: payload.assessments };
+        return {
+          ...review,
+          assessments: payload.assessments.filter(isAssessment),
+        };
       },
       catch: (cause) => new ReviewFailure({ cause }),
     }).pipe(Effect.catchTag('ReviewFailure', () => Effect.succeed(review)));
-  });
+  }).pipe(
+    Effect.catchTag('ReviewFailure', () => Effect.succeed(notRunReview())),
+  );
+}
+
+function notRunReview(): SupportReview {
+  return {
+    method: 'not-run',
+    assessments: [],
+    provenance: null,
+    quota: null,
+    failure: null,
+  };
 }
