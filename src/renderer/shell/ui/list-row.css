@@ -31,7 +31,11 @@
     border-color var(--duration-press);
 }
 
-.ui-list-row:not(:disabled):not([aria-disabled='true']):hover {
+.ui-list-row:not(:disabled):not([aria-disabled='true']):not(
+    [aria-current]:not([aria-current='false'])
+  ):not([aria-selected='true']):not(
+    [data-selected]:not([data-selected='false'])
+  ):hover {
   background: var(--surface-subtle);
 }
 

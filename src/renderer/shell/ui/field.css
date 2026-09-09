@@ -38,8 +38,18 @@
   opacity: 1;
 }
 
-.ui-input:hover:not(:disabled, [aria-disabled='true'], [readonly]),
-.ui-textarea:hover:not(:disabled, [aria-disabled='true'], [readonly]) {
+.ui-input:hover:not(
+    :disabled,
+    [aria-disabled='true'],
+    [readonly],
+    [aria-invalid='true']
+  ),
+.ui-textarea:hover:not(
+    :disabled,
+    [aria-disabled='true'],
+    [readonly],
+    [aria-invalid='true']
+  ) {
   border-color: var(--ink);
 }
 
@@ -63,7 +73,9 @@
 .ui-input[aria-invalid='true'],
 .ui-textarea[aria-invalid='true'],
 .ui-field--invalid .ui-input,
-.ui-field--invalid .ui-textarea {
+.ui-field--invalid .ui-textarea,
+.ui-field--invalid .ui-input:hover,
+.ui-field--invalid .ui-textarea:hover {
   border-color: var(--danger);
 }
 

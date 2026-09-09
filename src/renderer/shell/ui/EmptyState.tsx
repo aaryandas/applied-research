@@ -34,10 +34,10 @@ export function EmptyState({
       <p className="ui-heading ui-empty-state__title" id={titleId}>
         {title}
       </p>
-      {body === undefined ? null : (
+      {body == null || body === false ? null : (
         <div className="ui-empty-state__body">{body}</div>
       )}
-      {action === undefined ? null : (
+      {action == null || action === false ? null : (
         <div className="ui-empty-state__action">{action}</div>
       )}
     </div>

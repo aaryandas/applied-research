@@ -42,13 +42,13 @@
     [aria-disabled='true'],
     [data-disabled],
     [aria-pressed='true'],
-    [data-selected]
+    [data-selected]:not([data-selected='false'])
   ):hover {
   background: var(--surface-subtle);
 }
 
 .ui-segmented__option[aria-pressed='true'],
-.ui-segmented__option[data-selected] {
+.ui-segmented__option[data-selected]:not([data-selected='false']) {
   background: var(--paper);
   color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--line-strong);
