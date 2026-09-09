@@ -21,6 +21,7 @@ import {
   reservationMicrousdFor,
   type ChargeKnowledge,
   type ProviderCompletion,
+  type ProviderLearningRequest,
   type ProviderService,
 } from './provider.js';
 import { MODEL_ADMISSION, PROMPT_VERSION } from './policy.js';
@@ -31,7 +32,7 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 export interface LearningService {
   readonly request: (
     account: PublicAccount,
-    request: LearningRequest,
+    request: ProviderLearningRequest,
   ) => Effect.Effect<LearningResponse>;
   readonly quota: (
     accountId: string,

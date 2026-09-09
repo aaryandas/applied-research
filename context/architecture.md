@@ -118,3 +118,14 @@ Before domain implementation, design stable source/artifact identities, human-au
 ## Source indexing checkpoint
 
 AR-34 adds a backend-only [versioned passage-index adapter](source-index.md), using AR-30's source/evidence contracts and an injected canonical acquisition/access authority. Synthetic HTTP transport exercises the official turbopuffer REST request shapes, external-vector generation matching, scoped ANN/BM25 retrieval, rank fusion and bounded indexing/deletion. Live provider credentials, embedding configuration, budget enforcement and route/producer composition are not enabled. Canonical sources and durable permission/tombstone state remain authoritative outside the index; an indexed chunk is not independently trusted evidence.
+
+## Sourced learning integration seam — AR-36
+
+The additive [sourced learning backend](sourced-learning.md) retrieves and
+validates immutable evidence before using the existing authenticated learning
+service for path generation, lesson generation and separate semantic support
+checks. It returns supported work with explicit coverage gaps, exact source
+origins, generated lesson identity and backend phase timings. It does not register
+new HTTP/IPC operations or save local records. AR-35 producer composition and
+AR-37/AR-26 trusted desktop adoption remain pending; fixture success is not live
+curriculum, persistence or latency acceptance.
