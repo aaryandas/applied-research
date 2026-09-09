@@ -110,6 +110,9 @@ export const sourceVersions = sqliteTable(
     acquiredAt: text('acquired_at').notNull(),
     provenance: text('provenance').notNull(),
     locator: text('locator'),
+    remoteSourceId: text('remote_source_id'),
+    remoteRevisionId: text('remote_revision_id'),
+    provenanceJson: text('provenance_json'),
   },
   (table) => [
     uniqueIndex('source_versions_source_revision_unique').on(

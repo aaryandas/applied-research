@@ -1,5 +1,15 @@
+import { SourceLearningEntry } from './shell/SourceLearningEntry';
+import type { SourceDesktopBridge } from '../contracts/source-desktop';
+import type { PracticalWorkspaceBridge } from '../contracts/practical-records';
+import { ResearchEntry } from './research/ResearchEntry';
+import {
+  createResearchCallbacks,
+  WorkspaceOperationLifetime,
+} from './shell/research-callbacks';
+import { PracticalSession } from './shell/PracticalSession';
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -30,7 +40,9 @@ import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
 
 interface ShellProps {
-  bridge: DesktopBridge & LearningRecordsBridge;
+  bridge: DesktopBridge &
+    LearningRecordsBridge &
+    Partial<SourceDesktopBridge & PracticalWorkspaceBridge>;
   workspace: LearningWorkspace;
   onWorkspace: (workspace: LearningWorkspace) => void;
   onHome: () => void;
@@ -54,6 +66,15 @@ export function Shell({
     id: string;
     activity: PracticalActivity | null;
   } | null>(null);
+  const [researchVisible, setResearchVisible] = useState(false);
+
+  const [projectLifetime] = useState(() => new WorkspaceOperationLifetime());
+  const registerRevocation = useCallback(
+    (stop: (() => void) | null): void => {
+      projectLifetime.registerPracticalStop(stop);
+    },
+    [projectLifetime],
+  );
   const [query, setQuery] = useState('');
   const reader = useRef<ReaderNavigationControls>(null);
   const settingsEntry = useRef<HTMLElement | null>(null);
@@ -68,6 +89,92 @@ export function Shell({
     message,
     saving,
   } = useWorkspaceFlush();
+  useEffect(() => {
+    projectLifetime.activate(workspace.project.id);
+    void bridge.activateSourceWorkspace?.(workspace.project.id);
+    const revoke = (): void => {
+      projectLifetime.stopPractical();
+      void bridge.cancelPracticalFileSelection?.();
+    };
+    const unsubscribe = bridge.onAccountState((state) => {
+      if (state.session !== 'signed-in') revoke();
+      else void bridge.activateSourceWorkspace?.(workspace.project.id);
+    });
+    window.addEventListener('beforeunload', revoke);
+    return () => {
+      projectLifetime.revoke();
+      revoke();
+      unsubscribe();
+      window.removeEventListener('beforeunload', revoke);
+      void bridge.activateSourceWorkspace?.(null);
+    };
+  }, [bridge, projectLifetime, workspace.project.id]);
+  const practicalBridge =
+    bridge.recordPracticalResult &&
+    bridge.loadPracticalAttempt &&
+    bridge.selectPracticalFile &&
+    bridge.cancelPracticalFileSelection
+      ? {
+          recordPracticalResult: bridge.recordPracticalResult,
+          loadPracticalAttempt: bridge.loadPracticalAttempt,
+          selectPracticalFile: bridge.selectPracticalFile,
+          cancelPracticalFileSelection: bridge.cancelPracticalFileSelection,
+        }
+      : null;
+  const flushResearch = useCallback(async () => {
+    projectLifetime.stopPractical();
+    void bridge.cancelPracticalFileSelection?.();
+    return flush();
+  }, [bridge, flush, projectLifetime]);
+  const openSavedResearch = useCallback(
+    (
+      next: LearningWorkspace,
+      target: { revisionId: string; origin: LearningOrigin | null },
+    ) => {
+      projectLifetime.queueOrigin({
+        ...(target.origin?.path ? { path: target.origin.path } : {}),
+        sourceRevisionId: target.revisionId,
+      });
+      onWorkspace(next);
+      setResearchVisible(false);
+      setDestination('reader');
+    },
+    [onWorkspace, projectLifetime],
+  );
+  const research = useMemo(() => {
+    if (
+      !bridge.activateSourceWorkspace ||
+      !bridge.discoverSources ||
+      !bridge.acquireAndSaveSource ||
+      !bridge.cancelSourceOperation ||
+      !bridge.openSourceOriginal
+    )
+      return null;
+    return createResearchCallbacks({
+      projectId: workspace.project.id,
+      bridge: {
+        activateSourceWorkspace: bridge.activateSourceWorkspace,
+        discoverSources: bridge.discoverSources,
+        acquireAndSaveSource: bridge.acquireAndSaveSource,
+        cancelSourceOperation: bridge.cancelSourceOperation,
+        openSourceOriginal: bridge.openSourceOriginal,
+        getLearningWorkspace: bridge.getLearningWorkspace,
+      },
+      isCurrent: () => projectLifetime.isCurrent(workspace.project.id),
+      flush: flushResearch,
+      openSaved: openSavedResearch,
+    });
+  }, [
+    bridge,
+    workspace.project.id,
+    projectLifetime,
+    flushResearch,
+    openSavedResearch,
+  ]);
+  useEffect(() => {
+    const origin = projectLifetime.takeOrigin(workspace);
+    if (origin) reader.current?.openOrigin(origin);
+  }, [workspace, projectLifetime]);
   const onPathChange = useCallback((path: PathOrigin | undefined): void => {
     setSelectedPath(path);
     setAttempt(null);
@@ -81,7 +188,10 @@ export function Shell({
   );
 
   function go(next: WorkspaceDestination): void {
+    projectLifetime.stopPractical();
+    void bridge.cancelPracticalFileSelection?.();
     void navigate(() => {
+      setResearchVisible(false);
       if (next === 'home') {
         onHome();
         return;
@@ -103,6 +213,8 @@ export function Shell({
     });
   }
   function openOrigin(origin: LearningOrigin): void {
+    projectLifetime.stopPractical();
+    void bridge.cancelPracticalFileSelection?.();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin(origin);
@@ -115,6 +227,8 @@ export function Shell({
     });
   }
   function selectLesson(path: PathOrigin): void {
+    projectLifetime.stopPractical();
+    void bridge.cancelPracticalFileSelection?.();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
@@ -154,6 +268,65 @@ export function Shell({
         onLesson={selectLesson}
       />
       <div className="shell-content">
+        {bridge.generateSourcedLearning && bridge.cancelSourceOperation && (
+          <SourceLearningEntry
+            key={workspace.project.id}
+            projectId={workspace.project.id}
+            bridge={{
+              generateSourcedLearning: bridge.generateSourcedLearning,
+              cancelSourceOperation: bridge.cancelSourceOperation,
+              getLearningWorkspace: bridge.getLearningWorkspace,
+            }}
+            flush={async () => {
+              projectLifetime.stopPractical();
+              void bridge.cancelPracticalFileSelection?.();
+              return flush();
+            }}
+            onSaved={(next, pathId) => {
+              const path = next.paths.find((path) => path.id === pathId);
+              const topic = path?.current.topics[0],
+                lesson = topic?.lessons[0];
+              if (path && topic && lesson)
+                projectLifetime.queueOrigin({
+                  path: {
+                    pathId,
+                    pathRevision: path.currentRevision,
+                    topicId: topic.id,
+                    lessonId: lesson.id,
+                  },
+                  ...(lesson.sourceRevisionId
+                    ? { sourceRevisionId: lesson.sourceRevisionId }
+                    : {}),
+                });
+              onWorkspace(next);
+              setResearchVisible(false);
+              setDestination('reader');
+            }}
+          />
+        )}
+
+        {research && (
+          <>
+            <button
+              onClick={() => {
+                projectLifetime.stopPractical();
+                void bridge.cancelPracticalFileSelection?.();
+                void navigate(() => setResearchVisible((value) => !value));
+              }}
+            >
+              {researchVisible ? 'Return to workspace' : 'Research sources'}
+            </button>
+            <div hidden={!researchVisible}>
+              <ResearchEntry
+                {...research}
+                context={{
+                  projectId: workspace.project.id,
+                  origin: selectedPath ? { path: selectedPath } : null,
+                }}
+              />
+            </div>
+          </>
+        )}
         {isCanvas && (
           <header className="shell-topbar">
             <strong>Canvas</strong>
@@ -183,7 +356,10 @@ export function Shell({
             {message}
           </div>
         )}
-        <div className="shell-reader" hidden={destination !== 'reader'}>
+        <div
+          className="shell-reader"
+          hidden={researchVisible || destination !== 'reader'}
+        >
           <Reader
             bridge={bridge}
             workspace={workspace}
@@ -211,15 +387,31 @@ export function Shell({
           />
         )}
         {attempt && (
-          <div className="shell-scroll" hidden={destination !== 'practical'}>
-            <PracticalWork
-              activity={attempt.activity}
-              attemptId={attempt.id}
-              expectedRevision={0}
-              returnedEvidence={[]}
-              registerFlush={registerPracticalFlush}
-              onReturnToLearning={(activity) => openOrigin(activity.origin)}
-            />
+          <div
+            className="shell-scroll"
+            hidden={researchVisible || destination !== 'practical'}
+          >
+            {practicalBridge ? (
+              <PracticalSession
+                key={`${workspace.project.id}:${attempt.id}`}
+                bridge={practicalBridge}
+                toolBridge={bridge}
+                activity={attempt.activity}
+                attemptId={attempt.id}
+                registerFlush={registerPracticalFlush}
+                registerRevocation={registerRevocation}
+                onReturnToLearning={(activity) => openOrigin(activity.origin)}
+              />
+            ) : (
+              <PracticalWork
+                activity={attempt.activity}
+                attemptId={attempt.id}
+                expectedRevision={0}
+                returnedEvidence={[]}
+                registerFlush={registerPracticalFlush}
+                onReturnToLearning={(activity) => openOrigin(activity.origin)}
+              />
+            )}
           </div>
         )}
         {destination === 'settings' && (

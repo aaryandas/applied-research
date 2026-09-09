@@ -131,3 +131,15 @@ origins, generated lesson identity and backend phase timings. It does not regist
 new HTTP/IPC operations or save local records. AR-35 producer composition and
 AR-37/AR-26 trusted desktop adoption remain pending; fixture success is not live
 curriculum, persistence or latency acceptance.
+
+## Trusted source adoption checkpoint
+
+[AR-37 source adoption](source-adoption.md) adds main-only acquisition/generation
+acceptance to the local store. Validated remote editions map to per-project local
+UUIDs; source content, provenance and Canvas placements commit atomically. Generated
+teaching text remains AI-authored and separately references immutable originals.
+Project/request-scoped commit capabilities reject cancellation and stale results.
+No trusted-content write is exposed through preload; actual authenticated producer,
+selection and shell wiring remain dependent integration work.
+
+The [AR-37 production integration repair](source-adoption-integration.md) installs the named main/preload operations and Shell consumers. `SourceDesktopOperations` owns selected project/request lifetimes; renderer payloads contain bounded requests and identities, never trusted canonical content. Its authenticated HTTP adapter is a required outside-lane composition dependency and is explicitly unavailable until supplied. Practical records use the same SQLite connection and registered additive migration. AR-36 source/teaching/path bundles commit in one outer transaction. Portable source validators take host-supplied hashing; main no longer imports backend services or Effect. Archived editions are decoded separately from current transport admission, and corrupt provenance is isolated to its owning project.
