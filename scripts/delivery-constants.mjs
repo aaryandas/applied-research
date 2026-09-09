@@ -62,8 +62,15 @@ export const INDEPENDENT_REVIEW_RECEIPT_KIND = 'independent-review-run-receipt';
 export const INDEPENDENT_REVIEW_RECEIPT_SCHEMA_VERSION = 1;
 export const INDEPENDENT_REVIEW_RECEIPT_FILE =
   'independent-review-receipt.json';
+export const INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE =
+  'independent-review-launch-receipt.json';
 export const MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES = 65_536;
 export const MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS = 16_384;
+export const INCOMPLETE_CURSOR_RUN_STATUSES = Object.freeze([
+  'CREATING',
+  'PENDING',
+  'RUNNING',
+]);
 export const TRUSTED_LAUNCH_RECEIPT_SOURCE = 'trusted-launch-job';
 export const TRUSTED_LAUNCH_EVENT = 'workflow_dispatch';
 export const DOCUMENTED_AGENT_MODE = 'agent';
@@ -156,6 +163,20 @@ export function independentReviewArtifactName(prNumber, headSha) {
     );
   }
   return `independent-review-${n}-${headSha}`;
+}
+
+export function independentReviewLaunchArtifactName(prNumber, headSha) {
+  const n = Number(prNumber);
+  if (!Number.isInteger(n) || n <= 0 || !isFullSha(headSha)) {
+    throw new Error(
+      'Independent-review launch artifact name requires a live PR number and exact head SHA',
+    );
+  }
+  return `independent-review-launch-${n}-${headSha}`;
+}
+
+export function isIncompleteCursorRunStatus(status) {
+  return INCOMPLETE_CURSOR_RUN_STATUSES.includes(String(status ?? ''));
 }
 
 export function isSyntheticMergeRef(value) {

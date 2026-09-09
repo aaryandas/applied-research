@@ -63,7 +63,12 @@ test('trusted evaluator checks out the default branch only and pins starting eva
     trusted,
     /independent-review-\$\{\{ steps\.evaluate\.outputs\.review_pr_number \}\}/,
   );
-  assert.match(trusted, /actions: write/);
+  assert.match(trusted, /cancel-in-progress: false/);
+  assert.match(
+    trusted,
+    /independent-review-launch-\$\{\{ steps\.evaluate\.outputs\.launch_pr_number \}\}/,
+  );
+  assert.match(trusted, /independent-review-launch-receipt\.json/);
 });
 
 test('F5: queue pull_request job is notice-only; live job is default-branch dispatch', () => {

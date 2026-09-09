@@ -16,6 +16,7 @@ import {
   launchReceiptFailures,
   launchMintFailures,
   parseIndependentReviewReceipt,
+  parseTrustedLaunchReceipt,
   createIndependentReviewRunReceipt,
   parseLaunchReceipt,
   requiredIsolationIds,
@@ -377,5 +378,40 @@ test('independent-review run receipt rejects malformed payloads and accepts a ge
   assert.equal(
     parseIndependentReviewReceipt({ ...receipt, customCheckId: 0 }).reason,
     'receipt-customCheckId',
+  );
+});
+
+test('persisted trusted launch receipt rejects forged payloads and accepts a POST receipt', () => {
+  const receipt = {
+    schemaVersion: 1,
+    kind: LAUNCH_RECEIPT_KIND,
+    source: 'trusted-launch-job',
+    agentId: AGENT,
+    runId: RUN,
+    headSha: HEAD,
+    prNumber: 99,
+    repository: 'aaryandas/applied-research',
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    githubRunId: '42',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_dispatch',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+  };
+  assert.equal(parseTrustedLaunchReceipt(receipt).ok, true);
+  assert.equal(parseTrustedLaunchReceipt('').reason, 'missing-receipt');
+  assert.equal(
+    parseTrustedLaunchReceipt({
+      ...receipt,
+      kind: 'independent-review-run-receipt',
+    }).reason,
+    'receipt-kind',
+  );
+  assert.equal(
+    parseTrustedLaunchReceipt({
+      ...receipt,
+      source: COORDINATOR_DISPATCH_RECEIPT_SOURCE,
+    }).reason,
+    'receipt-source',
   );
 });

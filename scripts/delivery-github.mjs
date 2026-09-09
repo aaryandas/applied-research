@@ -3,17 +3,23 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
   INDEPENDENT_REVIEW_RECEIPT_FILE,
   MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES,
   MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS,
   REVIEW_CHECK_NAME,
   TRUSTED_GITHUB_EVENTS,
+  TRUSTED_LAUNCH_EVENT,
   TRUSTED_REVIEW_JOB_NAME,
   TRUSTED_WORKFLOW_FILE,
   independentReviewArtifactName,
+  independentReviewLaunchArtifactName,
   redactSecrets,
 } from './delivery-constants.mjs';
-import { parseIndependentReviewReceipt } from './delivery-trust.mjs';
+import {
+  parseIndependentReviewReceipt,
+  parseTrustedLaunchReceipt,
+} from './delivery-trust.mjs';
 
 export async function githubJson(
   path,
@@ -463,6 +469,153 @@ export async function bindIndependentReviewDisplay(
     }
   }
   return { ...check, independentReviewBinding: last };
+}
+
+async function verifyTrustedLaunchArtifact({
+  artifact,
+  repository,
+  prNumber,
+  headSha,
+  defaultBranch,
+  token,
+  fetchImpl,
+  extractZipFile,
+}) {
+  if (!artifact || artifact.expired === true) {
+    return failedBinding('expired-artifact');
+  }
+  if (Number(artifact.size_in_bytes) > MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES) {
+    return failedBinding('artifact-too-large');
+  }
+  const runId = artifact.workflow_run?.id;
+  if (!/^\d+$/.test(String(runId ?? ''))) {
+    return failedBinding('artifact-missing-workflow-run');
+  }
+  const github = { token, fetchImpl };
+  const run = await fetchWorkflowRun(repository, runId, github);
+  if (Number(run?.id) !== Number(runId)) {
+    return failedBinding('run-id-mismatch');
+  }
+  if (run.path !== TRUSTED_WORKFLOW_FILE) {
+    return failedBinding('wrong-workflow');
+  }
+  if (run.event !== TRUSTED_LAUNCH_EVENT) {
+    return failedBinding('wrong-event');
+  }
+  if (!run.head_branch || run.head_branch !== defaultBranch) {
+    return failedBinding('dispatch-not-default-branch');
+  }
+  const jobs = await fetchWorkflowRunJobs(repository, run.id, github);
+  const job = (jobs ?? []).find(
+    (entry) => entry.name === TRUSTED_REVIEW_JOB_NAME,
+  );
+  if (!job) {
+    return failedBinding('missing-expected-job');
+  }
+  if (Number(job.run_id) !== Number(run.id)) {
+    return failedBinding('job-run-mismatch');
+  }
+  if (job.status !== 'completed' || job.conclusion !== 'success') {
+    return failedBinding('job-not-success');
+  }
+  const zip = await downloadActionsArtifactZip(repository, artifact.id, github);
+  const extract = extractZipFile ?? extractNamedFileFromZip;
+  let raw;
+  try {
+    raw = extract(zip, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE);
+  } catch {
+    return failedBinding('receipt-extract-failed');
+  }
+  const parsed = parseTrustedLaunchReceipt(raw);
+  if (!parsed.ok) {
+    return failedBinding(parsed.reason);
+  }
+  const receipt = parsed.receipt;
+  if (Number(receipt.prNumber) !== Number(prNumber)) {
+    return failedBinding('receipt-wrong-pr');
+  }
+  if (receipt.headSha !== headSha) {
+    return failedBinding('receipt-wrong-sha');
+  }
+  if (Number(receipt.githubRunId) !== Number(run.id)) {
+    return failedBinding('receipt-wrong-run');
+  }
+  if (receipt.githubWorkflowSha !== run.head_sha) {
+    return failedBinding('receipt-wrong-workflow-sha');
+  }
+  if (receipt.githubEvent !== TRUSTED_LAUNCH_EVENT) {
+    return failedBinding('receipt-wrong-event');
+  }
+  if (receipt.repository && receipt.repository !== repository) {
+    return failedBinding('receipt-wrong-repo');
+  }
+  return {
+    ok: true,
+    reason: undefined,
+    receipt,
+    githubRunId: String(run.id),
+    workflowPath: run.path,
+    event: run.event,
+    jobName: job.name,
+    jobId: String(job.id),
+    headBranch: run.head_branch ?? null,
+    runHeadSha: run.head_sha ?? null,
+    headSha,
+    prNumber: Number(prNumber),
+    agentId: receipt.agentId,
+    runId: receipt.runId,
+    artifactId: artifact.id,
+  };
+}
+
+export async function bindTrustedLaunchReceipt({
+  repository,
+  prNumber,
+  headSha,
+  defaultBranch = 'main',
+  token,
+  fetchImpl = fetch,
+  extractZipFile,
+} = {}) {
+  let artifactName;
+  try {
+    artifactName = independentReviewLaunchArtifactName(prNumber, headSha);
+  } catch {
+    return failedBinding('invalid-artifact-name');
+  }
+  const artifacts = await listActionsArtifactsByName(repository, artifactName, {
+    token,
+    fetchImpl,
+  });
+  if (!artifacts.length) {
+    return failedBinding('missing-artifact');
+  }
+  let last = failedBinding('no-matching-receipt');
+  for (const artifact of artifacts) {
+    if (artifact.name && artifact.name !== artifactName) {
+      last = failedBinding('artifact-name-mismatch');
+      continue;
+    }
+    try {
+      const binding = await verifyTrustedLaunchArtifact({
+        artifact,
+        repository,
+        prNumber,
+        headSha,
+        defaultBranch,
+        token,
+        fetchImpl,
+        extractZipFile,
+      });
+      if (binding.ok) {
+        return binding;
+      }
+      last = binding;
+    } catch (error) {
+      last = failedBinding(redactSecrets(error.message));
+    }
+  }
+  return last;
 }
 
 export async function fetchReviewThreads(repository, prNumber, options) {

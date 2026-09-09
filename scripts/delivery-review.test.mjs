@@ -5,10 +5,12 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   AGENT_ID,
+  INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
   LAUNCH_RECEIPT_KIND,
   MISSING_CURSOR_API_KEY,
   REQUIRED_MODEL_ID,
   REQUIRED_MODEL_PARAMS,
+  REVIEW_CHECK_NAME,
   TRUSTED_LAUNCH_RECEIPT_SOURCE,
   TRUSTED_WORKFLOW_FILE,
   isSyntheticMergeRef,
@@ -20,9 +22,11 @@ import {
   evaluateFromCursor,
   evaluateIndependentReview,
   main,
+  mainEvaluate,
   maybeLaunchReview,
   missingKeyResult,
   parseReviewVerdict,
+  persistIndependentReviewLaunchReceipt,
   persistIndependentReviewReceipt,
   resolveReviewModel,
 } from './delivery-review.mjs';
@@ -1080,6 +1084,558 @@ test('trusted evaluate persists a run artifact receipt with the custom check id'
     assert.match(gh, /review_receipt_file=independent-review-receipt.json/);
     assert.match(gh, /review_pr_number=99/);
     assert.match(gh, new RegExp(`review_head_sha=${HEAD}`));
+  } finally {
+    process.chdir(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const WORKFLOW_SHA = 'dddddddddddddddddddddddddddddddddddddddd';
+const OTHER_RUN = 'run-99999999-9999-9999-9999-999999999999';
+
+function bothJson(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async text() {
+      return JSON.stringify(body);
+    },
+    async json() {
+      return body;
+    },
+  };
+}
+
+function evaluateEnv(overrides = {}) {
+  return {
+    TRUSTED_DEFAULT_BRANCH: 'true',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_DEFAULT_BRANCH: 'main',
+    CURSOR_REVIEW_LAUNCH: 'true',
+    CURSOR_API_KEY: 'cursor_test-key',
+    GITHUB_TOKEN: 'ghs_test',
+    GITHUB_ACTOR: 'aaryandas',
+    GITHUB_TRIGGERING_ACTOR: 'aaryandas',
+    GITHUB_RUN_ID: '42',
+    GITHUB_SHA: WORKFLOW_SHA,
+    REPOSITORY: 'aaryandas/applied-research',
+    GITHUB_REPOSITORY: 'aaryandas/applied-research',
+    PR_NUMBER: '99',
+    HEAD_SHA: HEAD,
+    IMPLEMENTER_AGENT_ID: IMPLEMENTER,
+    VERIFIER_AGENT_ID: VERIFIER,
+    RECORDER_AGENT_ID: RECORDER,
+    ...overrides,
+  };
+}
+
+function silentLog() {
+  return { log() {}, error() {} };
+}
+
+test('two-invocation flow POSTs once while RUNNING then resumes FINISHED with zero POST', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ar-two-invocation-'));
+  const output1 = join(dir, 'github-output-1');
+  const output2 = join(dir, 'github-output-2');
+  const previous = process.cwd();
+  process.chdir(dir);
+  const state = {
+    cursorStatus: 'RUNNING',
+    agentPosts: 0,
+    checkPosts: 0,
+    artifacts: [],
+    launchReceipt: null,
+    fetchedRuns: [],
+    checkBody: null,
+  };
+  const fetchImpl = async (url, init) => {
+    const href = String(url);
+    const method = init?.method ?? 'GET';
+    if (href.includes('/v1/models')) return bothJson(catalog);
+    if (href.includes('/collaborators/')) {
+      return bothJson({ permission: 'admin' });
+    }
+    if (href.includes('/pulls/99') && !href.includes('/comments')) {
+      return bothJson(launchPr());
+    }
+    if (href.includes('/contents/.github/workflows')) {
+      return bothJson([]);
+    }
+    if (href.includes('/v1/agents') && method === 'POST') {
+      state.agentPosts += 1;
+      return bothJson({
+        agent: documentedAgent(),
+        run: documentedRun({ status: 'RUNNING', result: '' }),
+      });
+    }
+    if (href.includes(`/v1/agents/${AGENT}/runs/`)) {
+      const runId = href.split('/runs/')[1];
+      state.fetchedRuns.push(runId);
+      return bothJson(
+        documentedRun({
+          id: runId,
+          status: state.cursorStatus,
+          result:
+            state.cursorStatus === 'FINISHED' ? documentedRun().result : '',
+        }),
+      );
+    }
+    if (href.includes(`/v1/agents/${AGENT}/artifacts`)) {
+      return bothJson({ items: [] });
+    }
+    if (href.includes(`/v1/agents/${AGENT}`)) {
+      return bothJson(
+        documentedAgent({
+          latestRunId: OTHER_RUN,
+        }),
+      );
+    }
+    if (href.includes('/actions/artifacts?name=')) {
+      return bothJson({
+        total_count: state.artifacts.length,
+        artifacts: state.artifacts,
+      });
+    }
+    if (href.endsWith('/actions/artifacts/7/zip')) {
+      return {
+        ok: true,
+        status: 200,
+        body: Buffer.from('PK'),
+        async arrayBuffer() {
+          return Buffer.from('PK');
+        },
+        async json() {
+          return {};
+        },
+      };
+    }
+    if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
+      return bothJson({
+        jobs: [
+          {
+            id: 8,
+            name: 'Cursor Cloud Grok 4.6 Extra High',
+            run_id: 42,
+            status: 'completed',
+            conclusion: 'success',
+            check_run_url:
+              'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+          },
+        ],
+      });
+    }
+    if (href.endsWith('/actions/runs/42')) {
+      return bothJson({
+        id: 42,
+        path: TRUSTED_WORKFLOW_FILE,
+        event: 'workflow_dispatch',
+        head_branch: 'main',
+        head_sha: WORKFLOW_SHA,
+      });
+    }
+    if (href.endsWith('/check-runs') && method === 'POST') {
+      state.checkPosts += 1;
+      state.checkBody = JSON.parse(init.body);
+      return bothJson({ id: 9001 });
+    }
+    if (href.includes('/issues/99/comments') && method === 'POST') {
+      return bothJson({ id: 1 });
+    }
+    throw new Error(`unexpected fetch ${method} ${href}`);
+  };
+
+  try {
+    process.exitCode = 0;
+    const first = await mainEvaluate(evaluateEnv({ GITHUB_OUTPUT: output1 }), {
+      fetchImpl,
+      log: silentLog(),
+    });
+    assert.equal(first.pending, true);
+    assert.equal(first.status, 'PENDING');
+    assert.equal(first.passed, false);
+    assert.equal(process.exitCode, 0);
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.checkPosts, 0);
+    const launchWritten = JSON.parse(
+      await readFile(join(dir, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE), 'utf8'),
+    );
+    assert.equal(launchWritten.runId, RUN);
+    assert.equal(launchWritten.githubEvent, 'workflow_dispatch');
+    assert.equal(launchWritten.repository, 'aaryandas/applied-research');
+    const gh1 = await readFile(output1, 'utf8');
+    assert.match(
+      gh1,
+      /launch_receipt_file=independent-review-launch-receipt.json/,
+    );
+    assert.equal(state.fetchedRuns.includes(OTHER_RUN), false);
+
+    state.launchReceipt = launchWritten;
+    state.cursorStatus = 'FINISHED';
+    state.artifacts = [
+      {
+        id: 7,
+        name: `independent-review-launch-99-${HEAD}`,
+        expired: false,
+        size_in_bytes: 200,
+        workflow_run: { id: 42, head_sha: WORKFLOW_SHA },
+      },
+    ];
+    process.exitCode = 0;
+    const second = await mainEvaluate(
+      evaluateEnv({
+        GITHUB_OUTPUT: output2,
+        GITHUB_RUN_ID: '99',
+        GITHUB_EVENT_NAME: 'workflow_run',
+        EVENT_NAME: 'workflow_run',
+        CURSOR_REVIEW_LAUNCH: 'true',
+      }),
+      {
+        fetchImpl,
+        log: silentLog(),
+        extractZipFile: () => JSON.stringify(state.launchReceipt),
+      },
+    );
+    assert.equal(second.passed, true);
+    assert.equal(second.status, 'PASS');
+    assert.equal(state.agentPosts, 1);
+    assert.equal(state.checkPosts, 1);
+    assert.equal(state.checkBody.head_sha, HEAD);
+    assert.equal(state.checkBody.name, REVIEW_CHECK_NAME);
+    assert.equal(state.checkBody.conclusion, 'success');
+    assert.equal(process.exitCode, 0);
+    assert.equal(state.fetchedRuns.includes(OTHER_RUN), false);
+    assert.equal(
+      state.fetchedRuns.every((id) => id === RUN),
+      true,
+    );
+    const reviewWritten = JSON.parse(
+      await readFile(join(dir, 'independent-review-receipt.json'), 'utf8'),
+    );
+    assert.equal(reviewWritten.customCheckId, 9001);
+    assert.equal(reviewWritten.githubRunId, 99);
+    assert.notEqual(reviewWritten.customCheckId, 111);
+    assert.equal(reviewWritten.criticRunId, RUN);
+    const gh2 = await readFile(output2, 'utf8');
+    assert.match(gh2, /review_receipt_file=independent-review-receipt.json/);
+    assert.equal(gh2.includes('launch_receipt_file='), false);
+  } finally {
+    process.exitCode = 0;
+    process.chdir(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('HTTP 409 on an existing agent does not mint a launch receipt from latestRunId', async () => {
+  let gotAgent = false;
+  let posted = 0;
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv(),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/')) {
+        return bothJson({ permission: 'admin' });
+      }
+      if (href.includes('/pulls/99')) {
+        return bothJson(launchPr());
+      }
+      if (href.includes('/v1/agents/') && (init?.method ?? 'GET') === 'GET') {
+        gotAgent = true;
+        throw new Error('must not GET existing agent');
+      }
+      if (href.includes('/v1/agents') && init?.method === 'POST') {
+        posted += 1;
+        return {
+          ok: false,
+          status: 409,
+          async text() {
+            return JSON.stringify({ agentId: AGENT, latestRunId: OTHER_RUN });
+          },
+          async json() {
+            return { agentId: AGENT, latestRunId: OTHER_RUN };
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.launched, false);
+  assert.equal(posted, 1);
+  assert.equal(gotAgent, false);
+  assert.equal(result.receipt, undefined);
+  assert.match(result.reason, /HTTP 409/);
+});
+
+test('create response without original run id cannot mint from latestRunId', async () => {
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv(),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/')) {
+        return bothJson({ permission: 'admin' });
+      }
+      if (href.includes('/pulls/99')) {
+        return bothJson(launchPr());
+      }
+      if (href.includes('/v1/agents') && init?.method === 'POST') {
+        return bothJson({
+          agent: documentedAgent({ latestRunId: OTHER_RUN }),
+          run: null,
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.launched, false);
+  assert.match(result.reason, /original run id/);
+});
+
+test('evaluateFromCursor GETs the receipt run id, not a later latestRunId', async () => {
+  const fetched = [];
+  const result = await evaluateFromCursor({
+    apiKey: 'cursor_test-key',
+    prUrl: PR_URL,
+    expectedHeadSha: HEAD,
+    implementerAgentId: IMPLEMENTER,
+    verifierAgentId: VERIFIER,
+    recorderAgentId: RECORDER,
+    launchReceipt: receipt(),
+    env: {
+      TRUSTED_DEFAULT_BRANCH: 'true',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_DEFAULT_BRANCH: 'main',
+      GITHUB_TOKEN: 'ghs_test',
+      GITHUB_REPOSITORY: 'aaryandas/applied-research',
+    },
+    fetchImpl: async (url) => {
+      const href = String(url);
+      fetched.push(href);
+      if (href.includes('/v1/models')) return bothJson(catalog);
+      if (href.includes(`/v1/agents/${AGENT}/runs/${OTHER_RUN}`)) {
+        throw new Error('must not GET latestRunId');
+      }
+      if (href.includes(`/v1/agents/${AGENT}/runs/${RUN}`)) {
+        return bothJson(documentedRun());
+      }
+      if (href.includes(`/v1/agents/${AGENT}/artifacts`)) {
+        return bothJson({ items: [] });
+      }
+      if (href.includes(`/v1/agents/${AGENT}`)) {
+        return bothJson(documentedAgent({ latestRunId: OTHER_RUN }));
+      }
+      if (href.includes('/actions/runs/1')) {
+        return bothJson({
+          id: 1,
+          path: TRUSTED_WORKFLOW_FILE,
+          event: 'workflow_run',
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.passed, true);
+  assert.equal(
+    fetched.some((href) => href.includes(`/runs/${OTHER_RUN}`)),
+    false,
+  );
+});
+
+test('stale live PR head denies before launch or resume', async () => {
+  const previousExit = process.exitCode;
+  try {
+    await assert.rejects(
+      () =>
+        mainEvaluate(evaluateEnv({ HEAD_SHA: STALE }), {
+          fetchImpl: async (url) => {
+            const href = String(url);
+            if (href.includes('/pulls/99')) return bothJson(launchPr());
+            throw new Error(`unexpected fetch ${href}`);
+          },
+          log: silentLog(),
+        }),
+      /does not match live PR head/,
+    );
+  } finally {
+    process.exitCode = previousExit ?? 0;
+  }
+});
+
+test('forged launch artifact is denied even when launch is enabled', async () => {
+  let posted = false;
+  const previousExit = process.exitCode;
+  try {
+    const result = await mainEvaluate(evaluateEnv(), {
+      fetchImpl: async (url, init) => {
+        const href = String(url);
+        if (href.includes('/pulls/99') && !href.includes('/comments')) {
+          return bothJson(launchPr());
+        }
+        if (href.includes('/contents/.github/workflows')) return bothJson([]);
+        if (href.includes('/actions/artifacts?name=')) {
+          return bothJson({
+            total_count: 1,
+            artifacts: [
+              {
+                id: 7,
+                name: `independent-review-launch-99-${HEAD}`,
+                expired: false,
+                size_in_bytes: 200,
+                workflow_run: { id: 42, head_sha: WORKFLOW_SHA },
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
+          return bothJson({
+            jobs: [
+              {
+                id: 8,
+                name: 'Cursor Cloud Grok 4.6 Extra High',
+                run_id: 42,
+                status: 'completed',
+                conclusion: 'success',
+                check_run_url:
+                  'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/actions/runs/42')) {
+          return bothJson({
+            id: 42,
+            path: TRUSTED_WORKFLOW_FILE,
+            event: 'workflow_dispatch',
+            head_branch: 'main',
+            head_sha: WORKFLOW_SHA,
+          });
+        }
+        if (href.endsWith('/actions/artifacts/7/zip')) {
+          return {
+            ok: true,
+            status: 200,
+            body: Buffer.from('PK'),
+            async arrayBuffer() {
+              return Buffer.from('PK');
+            },
+            async json() {
+              return {};
+            },
+          };
+        }
+        if (href.includes('/v1/agents') && init?.method === 'POST') {
+          posted = true;
+          throw new Error('must not POST Cursor');
+        }
+        if (href.includes('/issues/99/comments')) return bothJson({ id: 1 });
+        throw new Error(`unexpected fetch ${href}`);
+      },
+      log: silentLog(),
+      extractZipFile: () =>
+        JSON.stringify(
+          receipt({
+            githubEvent: 'workflow_dispatch',
+            githubWorkflowSha: WORKFLOW_SHA,
+            kind: 'copied-summary',
+          }),
+        ),
+    });
+    assert.equal(result.passed, false);
+    assert.equal(result.status, 'FAIL');
+    assert.equal(posted, false);
+    assert.match(result.failures.join('\n'), /rejected/);
+  } finally {
+    process.exitCode = previousExit ?? 0;
+  }
+});
+
+test('caller JSON cannot substitute for the launch artifact', async () => {
+  let posted = false;
+  const previousExit = process.exitCode;
+  try {
+    const result = await mainEvaluate(
+      evaluateEnv({
+        CURSOR_REVIEW_LAUNCH: 'false',
+        CURSOR_LAUNCH_RECEIPT_JSON: JSON.stringify(receipt()),
+      }),
+      {
+        fetchImpl: async (url, init) => {
+          const href = String(url);
+          if (href.includes('/pulls/99') && !href.includes('/comments')) {
+            return bothJson(launchPr());
+          }
+          if (href.includes('/contents/.github/workflows')) return bothJson([]);
+          if (href.includes('/actions/artifacts?name=')) {
+            return bothJson({ total_count: 0, artifacts: [] });
+          }
+          if (href.includes('/v1/agents') && init?.method === 'POST') {
+            posted = true;
+            throw new Error('must not POST Cursor');
+          }
+          if (href.includes('/issues/99/comments')) return bothJson({ id: 1 });
+          throw new Error(`unexpected fetch ${href}`);
+        },
+        log: silentLog(),
+      },
+    );
+    assert.equal(result.passed, false);
+    assert.equal(posted, false);
+    assert.equal(result.status, 'PENDING');
+  } finally {
+    process.exitCode = previousExit ?? 0;
+  }
+});
+
+test('trusted evaluate persists the launch receipt separately from the review receipt', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ar-launch-receipt-'));
+  const output = join(dir, 'github-output');
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    persistIndependentReviewLaunchReceipt(
+      createLaunchReceipt({
+        agentId: AGENT,
+        runId: RUN,
+        headSha: HEAD,
+        prNumber: 99,
+        prUrl: PR_URL,
+        repository: 'aaryandas/applied-research',
+        githubRunId: '42',
+        githubWorkflowSha: WORKFLOW_SHA,
+        githubEvent: 'workflow_dispatch',
+      }),
+      { githubOutput: output },
+    );
+    const written = JSON.parse(
+      await readFile(join(dir, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE), 'utf8'),
+    );
+    assert.equal(written.runId, RUN);
+    assert.equal(written.repository, 'aaryandas/applied-research');
+    const gh = await readFile(output, 'utf8');
+    assert.match(
+      gh,
+      /launch_receipt_file=independent-review-launch-receipt.json/,
+    );
+    assert.match(gh, /launch_pr_number=99/);
   } finally {
     process.chdir(previous);
     await rm(dir, { recursive: true, force: true });

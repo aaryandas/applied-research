@@ -142,20 +142,12 @@ export async function createCloudReviewAgent(body, options = {}) {
   if (options.idempotencyKey) {
     headers['Idempotency-Key'] = options.idempotencyKey;
   }
-  try {
-    return await cursorRequest('/v1/agents', {
-      ...requestOptions(options),
-      method: 'POST',
-      body,
-      headers,
-    });
-  } catch (error) {
-    if (error.status === 409 && AGENT_ID.test(body?.agentId ?? '')) {
-      const agent = await getAgent(body.agentId, options);
-      return { agent, run: null, idempotentReplay: true };
-    }
-    throw error;
-  }
+  return cursorRequest('/v1/agents', {
+    ...requestOptions(options),
+    method: 'POST',
+    body,
+    headers,
+  });
 }
 
 export function assertPinnedStartingRef(agent, expectedHeadSha) {

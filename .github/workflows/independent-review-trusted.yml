@@ -15,6 +15,10 @@ name: Independent review
 # Documented API mode is agent; prompt policy is not a read-only sandbox.
 # Queue proof is an Actions artifact receipt from this job (custom check id,
 # PR, SHA) plus GET of this run/job — not details_url or check summary text.
+# Fresh authorized POST persists independent-review-launch-{pr}-{sha} with the
+# exact trusted launch receipt (agent/run/model/params/workflow SHA+path+run).
+# Later trusted evaluate and workflow_run load that artifact, GET the original
+# run, and must not POST again. HTTP 409 on an existing agent is fail-closed.
 #
 # Existing GitHub Environment trusted-main already holds the authorized
 # Cursor key. Deployment branch policy: type=branch, name=main. The
@@ -58,7 +62,7 @@ permissions:
 
 concurrency:
   group: independent-review-trusted-${{ github.event.workflow_run.head_branch || inputs.pr_number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -109,5 +113,13 @@ jobs:
         with:
           name: independent-review-${{ steps.evaluate.outputs.review_pr_number }}-${{ steps.evaluate.outputs.review_head_sha }}
           path: independent-review-receipt.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload independent-review launch receipt
+        if: ${{ always() && steps.evaluate.outputs.launch_receipt_file != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: independent-review-launch-${{ steps.evaluate.outputs.launch_pr_number }}-${{ steps.evaluate.outputs.launch_head_sha }}
+          path: independent-review-launch-receipt.json
           if-no-files-found: ignore
           retention-days: 7

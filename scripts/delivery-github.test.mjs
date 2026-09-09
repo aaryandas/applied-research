@@ -7,15 +7,22 @@ import { test } from 'node:test';
 import {
   GITHUB_ACTIONS_APP_ID,
   GITHUB_ACTIONS_APP_SLUG,
+  INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
   INDEPENDENT_REVIEW_RECEIPT_FILE,
   INDEPENDENT_REVIEW_RECEIPT_KIND,
+  LAUNCH_RECEIPT_KIND,
+  REQUIRED_MODEL_ID,
+  REQUIRED_MODEL_PARAMS,
   REVIEW_CHECK_NAME,
+  TRUSTED_LAUNCH_RECEIPT_SOURCE,
   TRUSTED_REVIEW_JOB_NAME,
   TRUSTED_WORKFLOW_FILE,
   independentReviewArtifactName,
+  independentReviewLaunchArtifactName,
 } from './delivery-constants.mjs';
 import {
   bindIndependentReviewDisplay,
+  bindTrustedLaunchReceipt,
   extractNamedFileFromZip,
   parseActionsRunJob,
   parseNativeJobCheckRunId,
@@ -356,6 +363,190 @@ test('unzip extracts the official artifact receipt file when unzip exists', () =
     );
     assert.match(extracted, new RegExp(INDEPENDENT_REVIEW_RECEIPT_KIND));
     assert.match(extracted, /"customCheckId":9001/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function genuineLaunchReceipt(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    kind: LAUNCH_RECEIPT_KIND,
+    source: TRUSTED_LAUNCH_RECEIPT_SOURCE,
+    agentId: AGENT,
+    runId: RUN,
+    headSha: HEAD,
+    prNumber: 99,
+    prUrl: 'https://github.com/aaryandas/applied-research/pull/99',
+    repository: 'aaryandas/applied-research',
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    idempotencyKey: `independent-review:aaryandas/applied-research:99:${HEAD}`,
+    githubRunId: '42',
+    githubWorkflowSha: MAIN,
+    githubEvent: 'workflow_dispatch',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+    launchedAt: '2026-09-09T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function mockLaunchWorld({
+  artifacts,
+  run,
+  jobs,
+  receipt,
+  zipStatus = 200,
+} = {}) {
+  const artifactName = independentReviewLaunchArtifactName(99, HEAD);
+  const listed = artifacts ?? [
+    {
+      id: 7,
+      name: artifactName,
+      expired: false,
+      size_in_bytes: 200,
+      workflow_run: { id: 42, head_sha: MAIN },
+    },
+  ];
+  const runBody = run ?? {
+    id: 42,
+    path: TRUSTED_WORKFLOW_FILE,
+    event: 'workflow_dispatch',
+    name: 'Independent review',
+    head_branch: 'main',
+    head_sha: MAIN,
+  };
+  const jobBodies = jobs ?? [
+    {
+      id: 8,
+      name: TRUSTED_REVIEW_JOB_NAME,
+      run_id: 42,
+      status: 'completed',
+      conclusion: 'success',
+      check_run_url:
+        'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+    },
+  ];
+  const receiptBody = receipt ?? genuineLaunchReceipt();
+  return {
+    artifactName,
+    receiptBody,
+    fetchImpl: async (url) => {
+      const href = String(url);
+      if (href.includes(`/actions/artifacts?name=`)) {
+        return json({ total_count: listed.length, artifacts: listed });
+      }
+      if (href.endsWith('/actions/artifacts/7/zip')) {
+        return {
+          ok: zipStatus >= 200 && zipStatus < 300,
+          status: zipStatus,
+          body: Buffer.from('PK'),
+          async arrayBuffer() {
+            return Buffer.from('PK');
+          },
+        };
+      }
+      if (href.endsWith('/actions/runs/42/jobs?per_page=100')) {
+        return json({ jobs: jobBodies });
+      }
+      if (href.endsWith('/actions/runs/42')) {
+        return json(runBody);
+      }
+      throw new Error(`unexpected ${href}`);
+    },
+    extractZipFile: () => JSON.stringify(receiptBody),
+  };
+}
+
+async function bindLaunch(world) {
+  return bindTrustedLaunchReceipt({
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    headSha: HEAD,
+    defaultBranch: 'main',
+    token: 'ghs_test',
+    fetchImpl: world.fetchImpl,
+    extractZipFile: world.extractZipFile,
+  });
+}
+
+test('genuine launch binding uses the POST receipt artifact, not caller JSON', async () => {
+  const bound = await bindLaunch(mockLaunchWorld());
+  assert.equal(bound.ok, true);
+  assert.equal(bound.receipt.runId, RUN);
+  assert.equal(bound.receipt.agentId, AGENT);
+  assert.equal(bound.event, 'workflow_dispatch');
+  assert.equal(bound.runHeadSha, MAIN);
+  assert.notEqual(bound.runHeadSha, HEAD);
+  assert.equal(bound.headSha, HEAD);
+});
+
+test('missing or foreign launch artifacts fail closed and do not become model proof', async () => {
+  assert.equal(
+    (await bindLaunch(mockLaunchWorld({ artifacts: [] }))).reason,
+    'missing-artifact',
+  );
+  const foreign = mockLaunchWorld({
+    run: {
+      id: 42,
+      path: '.github/workflows/steal.yml',
+      event: 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: MAIN,
+    },
+  });
+  assert.equal((await bindLaunch(foreign)).reason, 'wrong-workflow');
+  const evaluateOnly = mockLaunchWorld({
+    run: {
+      id: 42,
+      path: TRUSTED_WORKFLOW_FILE,
+      event: 'workflow_run',
+      head_branch: 'main',
+      head_sha: MAIN,
+    },
+  });
+  assert.equal((await bindLaunch(evaluateOnly)).reason, 'wrong-event');
+  const wrongSha = mockLaunchWorld({
+    receipt: genuineLaunchReceipt({
+      headSha: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    }),
+  });
+  assert.equal((await bindLaunch(wrongSha)).reason, 'receipt-wrong-sha');
+  const wrongRun = mockLaunchWorld({
+    receipt: genuineLaunchReceipt({ githubRunId: '99' }),
+  });
+  assert.equal((await bindLaunch(wrongRun)).reason, 'receipt-wrong-run');
+  const forged = mockLaunchWorld({
+    receipt: {
+      ...genuineLaunchReceipt(),
+      kind: INDEPENDENT_REVIEW_RECEIPT_KIND,
+    },
+  });
+  assert.equal((await bindLaunch(forged)).reason, 'receipt-kind');
+});
+
+test('unzip extracts the official launch receipt file when unzip exists', () => {
+  const zipProbe = spawnSync('zip', ['-v'], { encoding: 'utf8' });
+  const unzipProbe = spawnSync('unzip', ['-v'], { encoding: 'utf8' });
+  if (zipProbe.error || unzipProbe.error) {
+    return;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'ar-launch-receipt-zip-'));
+  try {
+    const receipt = genuineLaunchReceipt();
+    const jsonPath = join(dir, INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE);
+    const zipPath = join(dir, 'artifact.zip');
+    writeFileSync(jsonPath, JSON.stringify(receipt));
+    const zipped = spawnSync('zip', ['-q', '-j', zipPath, jsonPath], {
+      encoding: 'utf8',
+    });
+    assert.equal(zipped.status, 0, zipped.stderr);
+    const extracted = extractNamedFileFromZip(
+      readFileSync(zipPath),
+      INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
+    );
+    assert.match(extracted, new RegExp(LAUNCH_RECEIPT_KIND));
+    assert.match(extracted, new RegExp(`"runId":"${RUN}"`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

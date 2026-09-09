@@ -6,6 +6,7 @@ import {
   AGENT_MODE_IS_NOT_READONLY,
   DOCUMENTED_AGENT_MODE,
   FORBIDDEN_REVIEW_ROLES,
+  INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
   INDEPENDENT_REVIEW_RECEIPT_FILE,
   INDEPENDENT_REVIEWER,
   INDEPENDENT_REVIEW_NAME,
@@ -26,6 +27,7 @@ import {
   TRUSTED_WORKFLOW_FILE,
   UNTRUSTED_CURSOR_CREDENTIAL,
   isFullSha,
+  isIncompleteCursorRunStatus,
   isSyntheticMergeRef,
   modelParamsMatch,
   redactSecrets,
@@ -40,6 +42,7 @@ import {
   listModels,
 } from './delivery-cursor-api.mjs';
 import {
+  bindTrustedLaunchReceipt,
   fetchCollaboratorPermission,
   fetchCommitPulls,
   fetchPullRequest,
@@ -62,7 +65,6 @@ import {
   launchReceiptFailures,
   requiredIsolationIds,
   reviewIdempotencyKey,
-  untrustedEnvLaunchReceipt,
 } from './delivery-trust.mjs';
 
 export const REVIEW_PROMPT = `You are the independent critic for Applied Research. You are not the implementer, not the cloud verifier, and not the demo recorder.
@@ -489,6 +491,7 @@ export function createLaunchReceipt({
     headSha,
     prNumber: Number(prNumber),
     prUrl,
+    repository: repository ?? null,
     modelId: REQUIRED_MODEL_ID,
     modelParams: [...REQUIRED_MODEL_PARAMS],
     idempotencyKey: reviewIdempotencyKey({
@@ -598,21 +601,57 @@ export async function evaluateFromCursor({
   let agent;
   let run;
   let artifacts = { items: [] };
+  const originalRunId = launchReceipt.runId;
+  if (
+    !RUN_ID.test(originalRunId ?? '') &&
+    !String(originalRunId ?? '').startsWith('run-')
+  ) {
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [
+        'Launch receipt is missing the original Cursor run id from the trusted POST; latestRunId is not a launch receipt',
+      ],
+      evidence: null,
+    };
+  }
   try {
     agent = await getAgent(launchReceipt.agentId, { apiKey, fetchImpl, env });
     assertPinnedStartingRef(agent, expectedHeadSha);
-    const runId = launchReceipt.runId ?? agent.latestRunId;
-    if (runId) run = await getRun(agent.id, runId, { apiKey, fetchImpl, env });
+    run = await getRun(agent.id, originalRunId, { apiKey, fetchImpl, env });
     try {
       artifacts = await listArtifacts(agent.id, { apiKey, fetchImpl, env });
     } catch {
       /* Artifact listing is optional; agent URL still required for PASS. */
     }
   } catch (error) {
+    const message = redactSecrets(error.message);
+    if (/startingRef/.test(message)) {
+      return {
+        passed: false,
+        status: 'FAIL',
+        failures: [message],
+        evidence: null,
+      };
+    }
     return {
       passed: false,
-      status: 'FAIL',
-      failures: [redactSecrets(error.message)],
+      status: 'PENDING',
+      pending: true,
+      failures: [
+        `Could not GET original Cursor run ${originalRunId} from the trusted launch receipt: ${message}`,
+      ],
+      evidence: null,
+    };
+  }
+  if (isIncompleteCursorRunStatus(run?.status)) {
+    return {
+      passed: false,
+      status: 'PENDING',
+      pending: true,
+      failures: [
+        `Original Cursor run ${originalRunId} is ${run.status}; resume that trusted launch without a new POST`,
+      ],
       evidence: null,
     };
   }
@@ -735,27 +774,49 @@ export async function maybeLaunchReview({
     repository,
     prNumber,
   });
-  const created = await createCloudReviewAgent(body, {
-    apiKey,
-    fetchImpl,
-    env,
-    idempotencyKey: reviewIdempotencyKey({
-      repository,
-      prNumber,
-      headSha,
-    }),
-  });
+  let created;
+  try {
+    created = await createCloudReviewAgent(body, {
+      apiKey,
+      fetchImpl,
+      env,
+      idempotencyKey: reviewIdempotencyKey({
+        repository,
+        prNumber,
+        headSha,
+      }),
+    });
+  } catch (error) {
+    if (Number(error.status) === 409) {
+      return {
+        launched: false,
+        reason:
+          'HTTP 409 on an existing agent is not a trusted POST receipt; matching deterministic agentId or prompt is not Grok 4.6 Extra High proof. Fail closed without minting a launch receipt from latestRunId.',
+      };
+    }
+    throw error;
+  }
   const agent = created?.agent;
   const run = created?.run;
+  const originalRunId = run?.id;
+  if (
+    !RUN_ID.test(originalRunId ?? '') &&
+    !String(originalRunId ?? '').startsWith('run-')
+  ) {
+    return {
+      launched: false,
+      reason:
+        'Cursor Cloud create agent did not return the original run id; latestRunId is not a launch receipt',
+    };
+  }
   return {
     launched: true,
     agentId: agent?.id,
-    runId: run?.id ?? agent?.latestRunId,
+    runId: originalRunId,
     agentUrl: agent?.url,
-    idempotentReplay: Boolean(created?.idempotentReplay),
     receipt: createLaunchReceipt({
       agentId: agent?.id,
-      runId: run?.id ?? agent?.latestRunId,
+      runId: originalRunId,
       headSha,
       prNumber,
       prUrl,
@@ -855,6 +916,9 @@ async function publishCheck({
   env = process.env,
 }) {
   if (!token) return null;
+  if (result?.pending === true || result?.status === 'PENDING') {
+    return null;
+  }
   const posted = await postCheckRun(
     repository,
     {
@@ -908,6 +972,32 @@ async function publishCheck({
     githubOutput: env.GITHUB_OUTPUT,
   });
   return posted;
+}
+
+export function persistIndependentReviewLaunchReceipt(
+  receipt,
+  {
+    githubOutput,
+    writeFile = writeFileSync,
+    appendOutput = appendFileSync,
+  } = {},
+) {
+  writeFile(
+    INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
+    `${JSON.stringify(receipt)}\n`,
+    'utf8',
+  );
+  if (!githubOutput) return INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE;
+  const values = {
+    launch_receipt_file: INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE,
+    launch_pr_number: String(receipt.prNumber),
+    launch_head_sha: receipt.headSha,
+  };
+  const lines = Object.entries(values)
+    .map(([key, value]) => `${key}=${String(value).replaceAll('\n', '')}`)
+    .join('\n');
+  appendOutput(githubOutput, `${lines}\n`);
+  return INDEPENDENT_REVIEW_LAUNCH_RECEIPT_FILE;
 }
 
 export async function mainUntrusted(env = process.env, deps = {}) {
@@ -977,63 +1067,92 @@ export async function mainEvaluate(env = process.env, deps = {}) {
 
   let result;
   let launch = { launched: false };
-  let launchReceipt = null;
-  try {
-    if (env[LAUNCH_RECEIPT_ENV]?.trim()) {
-      launchReceipt = untrustedEnvLaunchReceipt(env[LAUNCH_RECEIPT_ENV]);
-    }
-  } catch (error) {
+  if (env[LAUNCH_RECEIPT_ENV]?.trim()) {
+    log.log(
+      'CURSOR_LAUNCH_RECEIPT_JSON is ignored; coordinator JSON is not model proof',
+    );
+  }
+
+  if (!apiKey) {
+    result = missingKeyResult();
+  } else if (!token) {
     result = {
       passed: false,
       status: 'FAIL',
-      failures: [error.message],
+      failures: [
+        'GITHUB_TOKEN is required to load the trusted launch artifact and GET its Actions run; caller JSON is not a substitute',
+      ],
       evidence: null,
     };
-  }
-
-  if (!result && !apiKey) {
-    result = missingKeyResult();
-  } else if (!result) {
-    result = await evaluateFromCursor({
-      apiKey,
-      prUrl,
-      expectedHeadSha: headSha,
-      ...isolation,
-      launchReceipt,
-      env,
+  } else {
+    const bound = await bindTrustedLaunchReceipt({
+      repository,
+      prNumber,
+      headSha,
+      defaultBranch: env.GITHUB_DEFAULT_BRANCH ?? 'main',
+      token,
       fetchImpl,
+      extractZipFile: deps.extractZipFile,
     });
-    if (!result.passed && env.CURSOR_REVIEW_LAUNCH === 'true') {
-      const catalog = await listModels({ apiKey, fetchImpl, env });
-      launch = await maybeLaunchReview({
+    if (bound.ok) {
+      result = await evaluateFromCursor({
         apiKey,
-        launch: true,
-        model: resolveReviewModel(catalog),
         prUrl,
-        repoUrl: `https://github.com/${repository}`,
-        headSha,
-        ticket,
-        repository,
-        prNumber,
+        expectedHeadSha: headSha,
+        ...isolation,
+        launchReceipt: bound.receipt,
         env,
         fetchImpl,
       });
-      if (launch.receipt) {
-        launchReceipt = launch.receipt;
+    } else if (bound.reason === 'missing-artifact') {
+      if (env.CURSOR_REVIEW_LAUNCH === 'true') {
+        const catalog = await listModels({ apiKey, fetchImpl, env });
+        launch = await maybeLaunchReview({
+          apiKey,
+          launch: true,
+          model: resolveReviewModel(catalog),
+          prUrl,
+          repoUrl: `https://github.com/${repository}`,
+          headSha,
+          ticket,
+          repository,
+          prNumber,
+          env,
+          fetchImpl,
+        });
+      }
+      if (launch.launched && launch.receipt) {
+        persistIndependentReviewLaunchReceipt(launch.receipt, {
+          githubOutput: env.GITHUB_OUTPUT,
+        });
         log.log(`LAUNCH_RECEIPT_JSON=${JSON.stringify(launch.receipt)}`);
         result = await evaluateFromCursor({
           apiKey,
           prUrl,
           expectedHeadSha: headSha,
           ...isolation,
-          launchReceipt,
+          launchReceipt: launch.receipt,
           env,
           fetchImpl,
         });
+      } else {
+        const conflict = /HTTP 409/.test(launch.reason ?? '');
+        result = {
+          passed: false,
+          status: conflict ? 'FAIL' : 'PENDING',
+          failures: [launch.reason ?? MISSING_LAUNCH_RECEIPT],
+          evidence: null,
+        };
       }
-      if (!result.passed) {
-        result.status = result.status === 'FAIL' ? 'FAIL' : 'PENDING';
-      }
+    } else {
+      result = {
+        passed: false,
+        status: 'FAIL',
+        failures: [
+          `Trusted launch artifact rejected (${bound.reason}); caller JSON, comments, check summaries, details_url, and arbitrary existing agents are not model proof`,
+        ],
+        evidence: null,
+      };
     }
   }
 
@@ -1061,7 +1180,9 @@ export async function mainEvaluate(env = process.env, deps = {}) {
     log.error(redactSecrets(error.message));
   }
 
-  if (!result.passed) {
+  if (result.pending === true) {
+    process.exitCode = 0;
+  } else if (!result.passed) {
     process.exitCode = 1;
   }
   return result;

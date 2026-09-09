@@ -138,6 +138,45 @@ test('F3: create sends startingRef, Idempotency-Key, and omits prUrl', async () 
   assert.equal(Object.hasOwn(body.repos[0], 'prUrl'), false);
 });
 
+test('HTTP 409 on create is fail-closed and does not GET the existing agent', async () => {
+  let gotAgent = false;
+  await assert.rejects(
+    () =>
+      createCloudReviewAgent(
+        {
+          prompt: { text: 'review' },
+          agentId: 'bc-aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa',
+        },
+        {
+          apiKey: 'cursor_test',
+          fetchImpl: async (url) => {
+            const href = String(url);
+            if (
+              href.endsWith(
+                '/v1/agents/bc-aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa',
+              )
+            ) {
+              gotAgent = true;
+              throw new Error('must not GET existing agent');
+            }
+            return {
+              ok: false,
+              status: 409,
+              async text() {
+                return '{"agentId":"bc-aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa"}';
+              },
+            };
+          },
+        },
+      ),
+    (error) => {
+      assert.equal(error.status, 409);
+      return /returned 409/.test(error.message);
+    },
+  );
+  assert.equal(gotAgent, false);
+});
+
 test('F3: GET startingRef must equal the live head', () => {
   const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const STALE = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';

@@ -112,6 +112,98 @@ export function parseLaunchReceipt(raw) {
   return parsed;
 }
 
+export function parseTrustedLaunchReceipt(raw) {
+  if (raw == null || raw === '') {
+    return { ok: false, reason: 'missing-receipt' };
+  }
+  if (
+    typeof raw === 'string' &&
+    raw.length > MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS
+  ) {
+    return { ok: false, reason: 'receipt-too-large' };
+  }
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false, reason: 'receipt-not-json' };
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, reason: 'receipt-not-object' };
+  }
+  if (parsed.schemaVersion !== LAUNCH_RECEIPT_SCHEMA_VERSION) {
+    return { ok: false, reason: 'receipt-schema' };
+  }
+  if (parsed.kind !== LAUNCH_RECEIPT_KIND) {
+    return { ok: false, reason: 'receipt-kind' };
+  }
+  if (parsed.source !== TRUSTED_LAUNCH_RECEIPT_SOURCE) {
+    return { ok: false, reason: 'receipt-source' };
+  }
+  if (!AGENT_ID.test(parsed.agentId ?? '')) {
+    return { ok: false, reason: 'receipt-agentId' };
+  }
+  if (
+    !RUN_ID.test(parsed.runId ?? '') &&
+    !String(parsed.runId ?? '').startsWith('run-')
+  ) {
+    return { ok: false, reason: 'receipt-runId' };
+  }
+  if (!isFullSha(parsed.headSha)) {
+    return { ok: false, reason: 'receipt-headSha' };
+  }
+  if (parsed.modelId !== REQUIRED_MODEL_ID) {
+    return { ok: false, reason: 'receipt-modelId' };
+  }
+  if (!modelParamsMatch(parsed.modelParams ?? [])) {
+    return { ok: false, reason: 'receipt-modelParams' };
+  }
+  if (!/^\d+$/.test(String(parsed.githubRunId ?? ''))) {
+    return { ok: false, reason: 'receipt-githubRunId' };
+  }
+  if (!isFullSha(parsed.githubWorkflowSha)) {
+    return { ok: false, reason: 'receipt-githubWorkflowSha' };
+  }
+  if (parsed.workflowPath !== TRUSTED_WORKFLOW_FILE) {
+    return { ok: false, reason: 'receipt-workflowPath' };
+  }
+  if (!TRUSTED_GITHUB_EVENTS.includes(parsed.githubEvent)) {
+    return { ok: false, reason: 'receipt-githubEvent' };
+  }
+  const prNumber = Number(parsed.prNumber);
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    return { ok: false, reason: 'receipt-prNumber' };
+  }
+  const repository =
+    parsed.repository == null || parsed.repository === ''
+      ? null
+      : String(parsed.repository);
+  return {
+    ok: true,
+    receipt: {
+      schemaVersion: parsed.schemaVersion,
+      kind: parsed.kind,
+      source: parsed.source,
+      agentId: String(parsed.agentId),
+      runId: String(parsed.runId),
+      headSha: String(parsed.headSha),
+      prNumber,
+      prUrl: parsed.prUrl ?? null,
+      repository,
+      modelId: parsed.modelId,
+      modelParams: parsed.modelParams,
+      idempotencyKey: parsed.idempotencyKey ?? null,
+      githubRunId: String(parsed.githubRunId),
+      githubWorkflowSha: String(parsed.githubWorkflowSha),
+      githubEvent: parsed.githubEvent,
+      workflowPath: parsed.workflowPath,
+      launchedAt: parsed.launchedAt ?? null,
+    },
+  };
+}
+
 export function untrustedEnvLaunchReceipt(raw) {
   const parsed = parseLaunchReceipt(raw);
   return {
