@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { event, github, publishStatus } from './workflow-api.mjs';
+import { event, github, publishStatus, repository } from './workflow-api.mjs';
 import { reviewPassed } from './workflow-gates.mjs';
 
 const number =
@@ -10,6 +10,8 @@ if (!Number.isSafeInteger(number) || number < 1)
   throw new Error('Missing pull request number');
 const pr = await github(`pulls/${number}`);
 const context = 'Fable review';
+if (pr.user?.type !== 'User' || pr.head.repo?.full_name !== repository)
+  throw new Error('Review requires a human-authored same-repository PR');
 if (process.argv[2] === 'begin') {
   if (pr.draft || pr.state !== 'open')
     throw new Error('Review requires an open, ready PR');
@@ -33,7 +35,10 @@ if (process.argv[2] === 'begin') {
     /* Invalid model output fails closed below. */
   }
   const passed =
+    process.env.REVIEW_JOB_RESULT === 'success' &&
     process.env.REVIEW_OUTCOME === 'success' &&
+    pr.state === 'open' &&
+    !pr.draft &&
     pr.head.sha === sha &&
     reviewPassed(review, sha);
   await publishStatus(sha, {

@@ -1,5 +1,11 @@
 // Runs only from the trusted base checkout. Never executes pull-request code.
-import { event, github, paginate, publishStatus } from './workflow-api.mjs';
+import {
+  event,
+  github,
+  paginate,
+  publishStatus,
+  repository,
+} from './workflow-api.mjs';
 import { ticketIdentifier, verificationPassed } from './workflow-gates.mjs';
 
 async function linear(query, variables) {
@@ -21,6 +27,12 @@ async function linear(query, variables) {
 }
 
 async function checkPull(pr) {
+  if (pr.user?.type !== 'User' || pr.head.repo?.full_name !== repository)
+    return {
+      state: 'failure',
+      description:
+        'Linear verification requires a human-authored same-repository PR',
+    };
   const identifier = ticketIdentifier(pr);
   if (!identifier)
     return {
