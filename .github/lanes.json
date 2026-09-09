@@ -22,6 +22,7 @@
     "reader": ["src/renderer/reader/**"],
     "canvas": ["src/renderer/canvas/**"],
     "practical": ["src/renderer/practical/**"],
+    "research": ["src/renderer/research/**"],
     "settings": ["src/renderer/settings/**"],
     "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
     "opening": [
