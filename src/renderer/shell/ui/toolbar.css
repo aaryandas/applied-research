@@ -1,0 +1,80 @@
+/* Owns: .ui-toolbar, .ui-toolbar__group, .ui-toolbar__spacer, .ui-toolbar__title,
+   .ui-toolbar__actions, .ui-action-row.
+
+   Settled values. Three live bars occupy the top slot and disagree; this layer picks one of
+   each so the adoption PRs have something to converge on.
+
+     height  48px (var(--space-12))  .shell-topbar 48px and the approved prototype
+                                     .canvas-topbar 48px agree; .canvas-toolbar is 46px.
+                                     .app-header's 76px is app chrome around the brand, not
+                                     this primitive, and is the outlier that loses.
+     gap     16px (var(--space-4))   three bars use 18px, which has no token; --space-4 is the
+                                     nearest one. .app-header's 32px loses with its height.
+     border  none, var(--paper) background. The founder's Structure decision is "Remove
+                                     structural separators around navigation, headers, rails
+                                     and sections; group with spacing", and the approved
+                                     prototype contains no border-bottom at all. .app-header
+                                     and .canvas-toolbar draw a hairline, but they are the
+                                     app's older chrome, not the reference.
+     padding 0 var(--space-4)        .shell-topbar and the prototype .canvas-topbar are 0 16px;
+                                     .app-header/.canvas-toolbar are 32px inline, which is page
+                                     chrome rather than the strip itself.
+
+   Parts use `__` per the README naming rule even where the ticket wrote a single hyphen. */
+
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: var(--space-4);
+  min-height: var(--space-12);
+  padding: 0 var(--space-4);
+  background: var(--paper);
+}
+
+/* Related controls that must not be split by a wrap. min-width lets a group holding a title
+   shrink instead of pushing the strip wider. Matches .workspace-heading / .active-view (8px). */
+.ui-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ui-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+/* 13px in .shell-topbar strong and the prototype .canvas-topbar strong; the scale has no 13px,
+   so --text-sm. Truncation comes from .shell-project-context. */
+.ui-toolbar__title {
+  min-width: 0;
+  overflow: hidden;
+  font: 500 var(--text-sm) / 1.5 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Trailing controls. margin-inline-start replaces the `margin-left: auto` on .app-header nav
+   and on .shell-topbar > button:last-child. Gap follows the approved prototype's 4px
+   (.canvas-topbar .actions, .workspace-header .actions) over .app-header nav's 18px, because
+   these sit at the crowded end of the strip. white-space inherits down to the labels. */
+.ui-toolbar__actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+/* A row of buttons closing a panel, form or composer: .opening-actions, .reader-actions,
+   .explanation-actions and the prototype .review-footer all use 8px, so 8px. Margins stay with
+   the surface — only .composer-actions and .explanation-actions carry any, and they differ. */
+.ui-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
