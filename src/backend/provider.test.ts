@@ -72,8 +72,9 @@ describe('OpenRouter provider boundary', () => {
     expect(body).toMatchObject({
       model: tutorRequest.model,
       max_tokens: 2048,
-      reasoning: { max_tokens: 1024, exclude: true },
+      reasoning: { effort: 'low', exclude: true },
       provider: {
+        only: ['google-ai-studio'],
         allow_fallbacks: false,
         require_parameters: true,
         max_price: { prompt: 0.75, completion: 3.75, request: 0 },
@@ -111,6 +112,9 @@ describe('OpenRouter provider boundary', () => {
     );
     const expected = Math.ceil(serializedBytes * 0.75 + 3_072 * 3.75);
     expect(reservationMicrousdFor(expensiveSerialization)).toBe(expected);
+    expect(
+      reservationMicrousdFor(expensiveSerialization),
+    ).toBeGreaterThanOrEqual(Math.ceil(serializedBytes * 0.75 + 2_048 * 3.75));
     expect(
       Buffer.byteLength(JSON.stringify(expensiveSerialization)),
     ).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
@@ -338,7 +342,7 @@ describe('learning-path validation', () => {
     learnerContext: [],
   };
 
-  it('accepts bounded path steps without inferring mastery', () => {
+  it('accepts bounded path steps with explicit roles and no inferred mastery', () => {
     const contribution = parseProviderContribution(
       {
         kind: 'learning-path',
@@ -349,18 +353,378 @@ describe('learning-path validation', () => {
             objective: 'Notice code units.',
             activity: 'Compare string lengths.',
             citations: [],
+            role: 'concept',
+            practice: null,
           },
           {
             title: 'Apply',
             objective: 'Use exact offsets.',
             activity: 'Anchor a quote.',
             citations: [],
+            role: 'practice',
+            practice: {
+              intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+              setup: 'Open the cited Unicode passage beside a local editor.',
+              instructions:
+                'Select the cited quote using the supplied start and end offsets.',
+              observableCheckpoints: [
+                'The selected range matches the cited quote exactly.',
+                'The offsets are JavaScript UTF-16 indexes from the source.',
+              ],
+              expectedArtifact:
+                'A short note showing the cited quote and the exact offsets used to select it.',
+              reflectionPrompt:
+                'Which cited offset rule would break if the quote were counted in code points?',
+              tool: {
+                kind: 'learner-external',
+                toolName: 'Local text editor',
+                intendedUse:
+                  'Select the cited quote using the supplied UTF-16 offsets.',
+              },
+            },
           },
         ],
       },
       operation,
     );
     expect(contribution.kind).toBe('learning-path');
-    expect(JSON.stringify(contribution)).not.toContain('master');
+    if (contribution.kind === 'learning-path') {
+      expect(contribution.steps[0]).toMatchObject({
+        role: 'concept',
+        practice: null,
+      });
+      expect(contribution.steps[1]).toMatchObject({
+        role: 'practice',
+        practice: { author: 'ai', masteryEstablished: false },
+      });
+      expect(JSON.stringify(contribution.steps[1]?.practice)).not.toMatch(
+        /"masteryEstablished":true/,
+      );
+    }
+  });
+
+  it('rejects a capstone role without a generated practice brief', () => {
+    expect(() =>
+      parseProviderContribution(
+        {
+          kind: 'learning-path',
+          title: 'Unicode foundations',
+          steps: [
+            {
+              title: 'Read',
+              objective: 'Notice code units.',
+              activity: 'Compare string lengths.',
+              citations: [],
+              role: 'concept',
+              practice: null,
+            },
+            {
+              title: 'Capstone',
+              objective: 'Synthesize the cited method.',
+              activity: 'Produce the artifact.',
+              citations: [],
+              role: 'capstone',
+              practice: null,
+            },
+          ],
+        },
+        operation,
+      ),
+    ).toThrow(/practice brief/);
+  });
+
+  it('rejects a concept step that smuggles a practice brief', () => {
+    expect(() =>
+      parseProviderContribution(
+        {
+          kind: 'learning-path',
+          title: 'Unicode foundations',
+          steps: [
+            {
+              title: 'Read',
+              objective: 'Notice code units.',
+              activity: 'Compare string lengths.',
+              citations: [],
+              role: 'concept',
+              practice: {
+                intendedOutcome: 'Do not infer mastery from this title.',
+                setup: 'Open the cited Unicode passage.',
+                instructions: 'Read the cited offsets.',
+                observableCheckpoints: ['The cited quote is visible.'],
+                expectedArtifact: 'A note that only restates the cited quote.',
+                reflectionPrompt: 'Which cited offset rule is in the source?',
+                tool: {
+                  kind: 'learner-external',
+                  toolName: 'Local text editor',
+                  intendedUse: 'Read the cited quote.',
+                },
+              },
+            },
+            {
+              title: 'Apply',
+              objective: 'Use exact offsets.',
+              activity: 'Anchor a quote.',
+              citations: [],
+              role: 'practice',
+              practice: {
+                intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                setup: 'Open the cited Unicode passage beside a local editor.',
+                instructions:
+                  'Select the cited quote using the supplied start and end offsets.',
+                observableCheckpoints: [
+                  'The selected range matches the cited quote exactly.',
+                ],
+                expectedArtifact:
+                  'A short note showing the cited quote and the exact offsets used to select it.',
+                reflectionPrompt:
+                  'Which cited offset rule would break if the quote were counted in code points?',
+                tool: {
+                  kind: 'app-hosted-catalog',
+                  toolId: 'desmos-graphing',
+                },
+              },
+            },
+          ],
+        },
+        operation,
+      ),
+    ).toThrow(/cannot include a practice brief/);
+  });
+
+  it('binds catalog tools and ignores model-supplied mastery fields', () => {
+    const contribution = parseProviderContribution(
+      {
+        kind: 'learning-path',
+        title: 'Unicode foundations',
+        steps: [
+          {
+            title: 'Read',
+            objective: 'Notice code units.',
+            activity: 'Compare string lengths.',
+            citations: [],
+            role: 'setup',
+            practice: null,
+          },
+          {
+            title: 'Graph the cited comparison',
+            objective: 'Plot the cited offsets.',
+            activity: 'Graph the cited comparison.',
+            citations: [],
+            role: 'practice',
+            practice: {
+              intendedOutcome:
+                'Plot the cited comparison without claiming mastery.',
+              setup: 'Open the cited Unicode passage beside Desmos.',
+              instructions:
+                'Graph only the cited comparison using the supplied offsets.',
+              observableCheckpoints: [
+                'The graph uses the cited offsets.',
+                'No extra function is invented.',
+              ],
+              expectedArtifact:
+                'A Desmos graph that shows only the cited Unicode comparison.',
+              reflectionPrompt:
+                'Which cited offset would move if counted in code points?',
+              tool: {
+                kind: 'app-hosted-catalog',
+                toolId: 'desmos-graphing',
+              },
+            },
+          },
+        ],
+      },
+      operation,
+    );
+    expect(contribution.kind).toBe('learning-path');
+    if (contribution.kind === 'learning-path') {
+      expect(contribution.steps[1]?.practice).toMatchObject({
+        author: 'ai',
+        masteryEstablished: false,
+        tool: { kind: 'app-hosted-catalog', toolId: 'desmos-graphing' },
+      });
+    }
+    expect(() =>
+      parseProviderContribution(
+        {
+          kind: 'learning-path',
+          title: 'Unicode foundations',
+          steps: [
+            {
+              title: 'Read',
+              objective: 'Notice code units.',
+              activity: 'Compare string lengths.',
+              citations: [],
+              role: 'concept',
+              practice: null,
+            },
+            {
+              title: 'Apply',
+              objective: 'Use exact offsets.',
+              activity: 'Anchor a quote.',
+              citations: [],
+              role: 'practice',
+              practice: {
+                author: 'human',
+                masteryEstablished: true,
+                intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                setup: 'Open the cited Unicode passage beside a local editor.',
+                instructions: 'Select the cited quote.',
+                observableCheckpoints: ['The selected range matches.'],
+                expectedArtifact: 'A short note showing the cited quote.',
+                reflectionPrompt: 'Which cited offset rule is in the source?',
+                tool: {
+                  kind: 'learner-external',
+                  toolName: 'Local text editor',
+                  intendedUse: 'Select the cited quote.',
+                },
+              },
+            },
+          ],
+        },
+        operation,
+      ),
+    ).toThrow(/practice brief is invalid/);
+  });
+
+  it('accepts GeoGebra catalog tools and rejects invalid practice tools', () => {
+    const contribution = parseProviderContribution(
+      {
+        kind: 'learning-path',
+        title: 'Unicode foundations',
+        steps: [
+          {
+            title: 'Read',
+            objective: 'Notice code units.',
+            activity: 'Compare string lengths.',
+            citations: [],
+            role: 'concept',
+            practice: null,
+          },
+          {
+            title: 'Graph the cited comparison',
+            objective: 'Plot the cited offsets.',
+            activity: 'Graph the cited comparison.',
+            citations: [],
+            role: 'practice',
+            practice: {
+              intendedOutcome:
+                'Plot the cited comparison without claiming mastery.',
+              setup: 'Open the cited Unicode passage beside GeoGebra.',
+              instructions:
+                'Graph only the cited comparison using the supplied offsets.',
+              observableCheckpoints: [
+                'The graph uses the cited offsets.',
+                'No extra function is invented.',
+              ],
+              expectedArtifact:
+                'A GeoGebra graph that shows only the cited Unicode comparison.',
+              reflectionPrompt:
+                'Which cited offset would move if counted in code points?',
+              tool: {
+                kind: 'app-hosted-catalog',
+                toolId: 'geogebra-graphing',
+              },
+            },
+          },
+        ],
+      },
+      operation,
+    );
+    expect(contribution.kind).toBe('learning-path');
+    if (contribution.kind === 'learning-path') {
+      expect(contribution.steps[1]?.practice?.tool).toEqual({
+        kind: 'app-hosted-catalog',
+        toolId: 'geogebra-graphing',
+      });
+    }
+
+    const invalidTools = [
+      { kind: 'app-hosted-catalog', toolId: 'unknown-graphing' },
+      { kind: 'browser-tool', toolName: 'x', intendedUse: 'y' },
+      {
+        kind: 'learner-external',
+        toolName: 'Local text editor',
+        intendedUse: 'Select the cited quote.',
+        extra: true,
+      },
+    ];
+    for (const tool of invalidTools) {
+      expect(() =>
+        parseProviderContribution(
+          {
+            kind: 'learning-path',
+            title: 'Unicode foundations',
+            steps: [
+              {
+                title: 'Read',
+                objective: 'Notice code units.',
+                activity: 'Compare string lengths.',
+                citations: [],
+                role: 'concept',
+                practice: null,
+              },
+              {
+                title: 'Apply',
+                objective: 'Use exact offsets.',
+                activity: 'Anchor a quote.',
+                citations: [],
+                role: 'practice',
+                practice: {
+                  intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                  setup:
+                    'Open the cited Unicode passage beside a local editor.',
+                  instructions: 'Select the cited quote.',
+                  observableCheckpoints: ['The selected range matches.'],
+                  expectedArtifact: 'A short note showing the cited quote.',
+                  reflectionPrompt: 'Which cited offset rule is in the source?',
+                  tool,
+                },
+              },
+            ],
+          },
+          operation,
+        ),
+      ).toThrow(/practice tool is invalid/);
+    }
+
+    expect(() =>
+      parseProviderContribution(
+        {
+          kind: 'learning-path',
+          title: 'Unicode foundations',
+          steps: [
+            {
+              title: 'Read',
+              objective: 'Notice code units.',
+              activity: 'Compare string lengths.',
+              citations: [],
+              role: 'mystery',
+              practice: null,
+            },
+            {
+              title: 'Apply',
+              objective: 'Use exact offsets.',
+              activity: 'Anchor a quote.',
+              citations: [],
+              role: 'practice',
+              practice: {
+                intendedOutcome: 'Anchor a quote with exact UTF-16 offsets.',
+                setup: 'Open the cited Unicode passage beside a local editor.',
+                instructions: 'Select the cited quote.',
+                observableCheckpoints: ['The selected range matches.'],
+                expectedArtifact: 'A short note showing the cited quote.',
+                reflectionPrompt: 'Which cited offset rule is in the source?',
+                tool: {
+                  kind: 'learner-external',
+                  toolName: 'Local text editor',
+                  intendedUse: 'Select the cited quote.',
+                },
+              },
+            },
+          ],
+        },
+        operation,
+      ),
+    ).toThrow(/role is invalid/);
   });
 });

@@ -75,6 +75,30 @@ export interface LearningPathStep {
   objective: string;
   activity: string;
   citations: SourceCitation[];
+  /** Explicit provider role. Never inferred from source titles or position. */
+  role?: 'concept' | 'setup' | 'practice' | 'capstone';
+  practice?: {
+    kind: 'source-supported-practice-brief';
+    author: 'ai';
+    masteryEstablished: false;
+    intendedOutcome: string;
+    setup: string;
+    tool:
+      | {
+          kind: 'app-hosted-catalog';
+          toolId: 'desmos-graphing' | 'geogebra-graphing';
+        }
+      | {
+          kind: 'learner-external';
+          toolName: string;
+          intendedUse: string;
+        };
+    instructions: string;
+    observableCheckpoints: string[];
+    expectedArtifact: string;
+    reflectionPrompt: string;
+    sourceIds: string[];
+  } | null;
 }
 
 export interface LearningPathContribution {

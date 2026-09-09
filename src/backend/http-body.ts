@@ -39,6 +39,18 @@ export function writeJson(
 }
 
 export async function readJson(request: IncomingMessage): Promise<unknown> {
+  const text = await readRawJsonBody(request);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new BodyError('The request body is not valid JSON.');
+  }
+}
+
+export async function readRawJsonBody(
+  request: IncomingMessage,
+  maxBytes = MAX_REQUEST_BYTES,
+): Promise<string> {
   if (!request.headers['content-type']?.startsWith('application/json')) {
     throw new BodyError('Content-Type must be application/json.');
   }
@@ -46,7 +58,7 @@ export async function readJson(request: IncomingMessage): Promise<unknown> {
   if (
     !Number.isFinite(declaredLength) ||
     declaredLength < 0 ||
-    declaredLength > MAX_REQUEST_BYTES
+    declaredLength > maxBytes
   ) {
     throw new BodyError('The request body is too large.');
   }
@@ -55,17 +67,16 @@ export async function readJson(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytes += buffer.byteLength;
-    if (bytes > MAX_REQUEST_BYTES) {
+    if (bytes > maxBytes) {
       throw new BodyError('The request body is too large.');
     }
     chunks.push(buffer);
   }
   if (bytes === 0) throw new BodyError('The request body is required.');
   try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(
+    return new TextDecoder('utf-8', { fatal: true }).decode(
       Buffer.concat(chunks),
     );
-    return JSON.parse(text);
   } catch {
     throw new BodyError('The request body is not valid JSON.');
   }

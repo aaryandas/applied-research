@@ -56,8 +56,25 @@ export const TURBOPUFFER_FOUNDER_REGION: TurbopufferRegion = 'aws-us-west-2';
 export const MAX_EMBEDDING_BATCH = 32;
 export const MAX_EMBEDDING_INPUT_CHARACTERS = 8_000;
 export const MAX_OUTPUT_CHARACTERS = 24_000;
+/**
+ * Top-level OpenRouter `max_tokens`. Combined reasoning + visible output cap
+ * for the approved Gemini 3.8 Flash route, not a visible-only ceiling.
+ */
 export const MAX_OUTPUT_TOKENS = 2_048;
+/**
+ * Conservative monetary reservation margin used with `MAX_OUTPUT_TOKENS`.
+ * Not an independent verified thinking ceiling; do not treat sample usage as
+ * proof of a lower output bound.
+ */
 export const MAX_REASONING_TOKENS = 1_024;
+export const COMBINED_OUTPUT_TOKEN_CAP = MAX_OUTPUT_TOKENS;
+export const PROVIDER_ROUTE_ONLY = ['google-ai-studio'] as const;
+export const GENERATION_EVAL_LIMIT_MICROUSD = 2_000_000;
+export const GENERATION_EVAL_DISPATCH_LIMIT = 10;
+export const GENERATION_EVAL_ALLOWANCE_ID =
+  'ar48-initial-generation-evaluation-2026-09-09';
+export const GENERATION_EVAL_PRIOR_SETTLED_MICROUSD = 0;
+export const GENERATION_EVAL_PRIOR_DISPATCHES = 0;
 export const MAX_PROVIDER_DURATION_MS = 45_000;
 export const MAX_CONCURRENT_PROVIDER_REQUESTS = 8;
 export const MAX_IN_FLIGHT_REQUESTS_PER_ACCOUNT = 2;

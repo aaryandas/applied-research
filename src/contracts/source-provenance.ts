@@ -1,9 +1,9 @@
-import type { AiProvenance } from './learning-api';
-import type { SourceCitation } from './learning-records';
+import type { AiProvenance } from './learning-api.js';
+import type { SourceCitation } from './learning-records.js';
 import type {
   AcquiredCanonicalSourceRevision,
   SourceDescriptor,
-} from './sourcing';
+} from './sourcing.js';
 
 export interface DiscoveredSourceProvenance {
   kind: 'discovered';

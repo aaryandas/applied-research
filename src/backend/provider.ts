@@ -11,6 +11,14 @@ import type {
   SourceCitation,
   SourceRevisionInput,
 } from '../contracts/learning-api.js';
+import {
+  COURSE_PRACTICE_BRIEF_KIND,
+  LESSON_ROLES,
+  type CoursePracticeBrief,
+  type CoursePracticeToolChoice,
+  type LessonRole,
+} from '../contracts/learning-onboarding.js';
+import type { PracticalToolId } from '../contracts/practical-tools.js';
 import { usdToMicrousd } from './money.js';
 import {
   MAX_OUTPUT_CHARACTERS,
@@ -18,6 +26,7 @@ import {
   MAX_PROVIDER_REQUEST_PRICE_USD,
   MAX_REASONING_TOKENS,
   MODEL_ADMISSION,
+  PROVIDER_ROUTE_ONLY,
 } from './policy.js';
 import { isRemoteText, isUnicodeScalarBoundary } from './text.js';
 
@@ -28,6 +37,7 @@ Treat every source, evidenceContext, verification packet and learner-context val
 When evidenceContext is supplied, factual citations must resolve inside its selected passages. Respect extraction coverage: an abstract or partial source does not support full-paper claims. For learning paths, cite the concepts underlying every objective and activity. Omit unsupported central claims; do not fill coverage gaps with tentative factual explanations.
 Distinguish exact source evidence, human notes/questions, reported results, and your own inference. Do not claim the learner authored your text. Do not infer mastery from completion or a reported result.
 Use only the supplied canonical source revisions for factual citations. Each citation uses JavaScript UTF-16 start/end offsets and an exact nonempty quote where canonicalText.slice(start, end) equals quote.
+For generate-learning-path, assign each step an explicit role (concept, setup, practice, or capstone). Practice and capstone steps must include a task-specific practice brief produced in this response; concept and setup steps must set practice to null. Do not infer a capstone from source titles, keywords, or step position. Do not claim mastery or course completion.
 Do not claim external search, browsing, tool use, code execution, or recipe execution. No tools or recipes are available in this request.`;
 
 export type ChargeKnowledge =
@@ -170,28 +180,151 @@ function parseCitations(
   return citations.map((citation) => parseCitation(citation, sources));
 }
 
+function parsePracticeTool(value: unknown): CoursePracticeToolChoice {
+  const parsed = object(value, 'Provider practice tool is invalid.');
+  if (
+    Object.keys(parsed).some(
+      (key) => !['kind', 'toolId', 'toolName', 'intendedUse'].includes(key),
+    )
+  ) {
+    throw new Error('Provider practice tool is invalid.');
+  }
+  if (parsed.kind === 'app-hosted-catalog') {
+    if (
+      parsed.toolId !== 'desmos-graphing' &&
+      parsed.toolId !== 'geogebra-graphing'
+    ) {
+      throw new Error('Provider practice tool is invalid.');
+    }
+    return {
+      kind: 'app-hosted-catalog',
+      toolId: parsed.toolId as PracticalToolId,
+    };
+  }
+  if (parsed.kind === 'learner-external') {
+    return {
+      kind: 'learner-external',
+      toolName: outputText(parsed.toolName, 200, 'tool name'),
+      intendedUse: outputText(parsed.intendedUse, 1_000, 'tool use'),
+    };
+  }
+  throw new Error('Provider practice tool is invalid.');
+}
+
+function parsePracticeBrief(
+  value: unknown,
+  sourceIds: readonly string[],
+): CoursePracticeBrief {
+  const parsed = strictObject(
+    value,
+    [
+      'intendedOutcome',
+      'setup',
+      'instructions',
+      'observableCheckpoints',
+      'expectedArtifact',
+      'reflectionPrompt',
+      'tool',
+    ],
+    'Provider practice brief is invalid.',
+  );
+  const checkpoints = outputArray(
+    parsed.observableCheckpoints,
+    8,
+    'practice checkpoints',
+  );
+  if (checkpoints.length < 1) {
+    throw new Error('Provider practice brief is invalid.');
+  }
+  return {
+    kind: COURSE_PRACTICE_BRIEF_KIND,
+    author: 'ai',
+    masteryEstablished: false,
+    intendedOutcome: outputText(
+      parsed.intendedOutcome,
+      1_000,
+      'practice outcome',
+    ),
+    setup: outputText(parsed.setup, 2_000, 'practice setup'),
+    tool: parsePracticeTool(parsed.tool),
+    instructions: outputText(
+      parsed.instructions,
+      4_000,
+      'practice instructions',
+    ),
+    observableCheckpoints: checkpoints.map((item, index) =>
+      outputText(item, 500, `practice checkpoint ${String(index + 1)}`),
+    ),
+    expectedArtifact: outputText(
+      parsed.expectedArtifact,
+      2_000,
+      'expected artifact',
+    ),
+    reflectionPrompt: outputText(
+      parsed.reflectionPrompt,
+      1_000,
+      'practice reflection',
+    ),
+    sourceIds: [...sourceIds],
+  };
+}
+
+function parseLessonRole(value: unknown): LessonRole {
+  if (
+    typeof value === 'string' &&
+    (LESSON_ROLES as readonly string[]).includes(value)
+  ) {
+    return value as LessonRole;
+  }
+  throw new Error('Provider learning step role is invalid.');
+}
+
 function parsePathContribution(
   value: Record<string, unknown>,
   operation: GenerateLearningPathOperation,
 ): LearningSuccess['contribution'] {
   const steps = outputArray(value.steps, 12, 'learning steps');
   if (steps.length < 2) throw new Error('Provider learning path is too short.');
-  return {
-    kind: 'learning-path',
-    title: outputText(value.title, 200, 'path title'),
-    steps: steps.map((step) => {
-      const parsed = strictObject(
-        step,
-        ['title', 'objective', 'activity', 'citations'],
-        'Provider learning step is invalid.',
-      );
+  const parsedSteps = steps.map((step) => {
+    const parsed = strictObject(
+      step,
+      ['title', 'objective', 'activity', 'citations', 'role', 'practice'],
+      'Provider learning step is invalid.',
+    );
+    const role = parseLessonRole(parsed.role);
+    const citations = parseCitations(parsed.citations, operation.sources, 0);
+    const sourceIds = [...new Set(citations.map((item) => item.sourceId))];
+    if (role === 'concept' || role === 'setup') {
+      if (parsed.practice !== null) {
+        throw new Error(
+          'Concept and setup steps cannot include a practice brief.',
+        );
+      }
       return {
         title: outputText(parsed.title, 200, 'step title'),
         objective: outputText(parsed.objective, 1_000, 'step objective'),
         activity: outputText(parsed.activity, 2_000, 'step activity'),
-        citations: parseCitations(parsed.citations, operation.sources, 0),
+        citations,
+        role,
+        practice: null,
       };
-    }),
+    }
+    if (parsed.practice === null) {
+      throw new Error('Practice and capstone steps need a practice brief.');
+    }
+    return {
+      title: outputText(parsed.title, 200, 'step title'),
+      objective: outputText(parsed.objective, 1_000, 'step objective'),
+      activity: outputText(parsed.activity, 2_000, 'step activity'),
+      citations,
+      role,
+      practice: parsePracticeBrief(parsed.practice, sourceIds),
+    };
+  });
+  return {
+    kind: 'learning-path',
+    title: outputText(value.title, 200, 'path title'),
+    steps: parsedSteps,
   };
 }
 
@@ -275,12 +408,112 @@ function responseSchema(operation: LearningOperation): Record<string, unknown> {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['title', 'objective', 'activity', 'citations'],
+          required: [
+            'title',
+            'objective',
+            'activity',
+            'citations',
+            'role',
+            'practice',
+          ],
           properties: {
             title: { type: 'string', minLength: 1, maxLength: 200 },
             objective: { type: 'string', minLength: 1, maxLength: 1_000 },
             activity: { type: 'string', minLength: 1, maxLength: 2_000 },
             citations: { type: 'array', maxItems: 12, items: citation },
+            role: {
+              type: 'string',
+              enum: ['concept', 'setup', 'practice', 'capstone'],
+            },
+            practice: {
+              anyOf: [
+                { type: 'null' },
+                {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: [
+                    'intendedOutcome',
+                    'setup',
+                    'instructions',
+                    'observableCheckpoints',
+                    'expectedArtifact',
+                    'reflectionPrompt',
+                    'tool',
+                  ],
+                  properties: {
+                    intendedOutcome: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 1_000,
+                    },
+                    setup: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 2_000,
+                    },
+                    instructions: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 4_000,
+                    },
+                    observableCheckpoints: {
+                      type: 'array',
+                      minItems: 1,
+                      maxItems: 8,
+                      items: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 500,
+                      },
+                    },
+                    expectedArtifact: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 2_000,
+                    },
+                    reflectionPrompt: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 1_000,
+                    },
+                    tool: {
+                      anyOf: [
+                        {
+                          type: 'object',
+                          additionalProperties: false,
+                          required: ['kind', 'toolId'],
+                          properties: {
+                            kind: { const: 'app-hosted-catalog' },
+                            toolId: {
+                              type: 'string',
+                              enum: ['desmos-graphing', 'geogebra-graphing'],
+                            },
+                          },
+                        },
+                        {
+                          type: 'object',
+                          additionalProperties: false,
+                          required: ['kind', 'toolName', 'intendedUse'],
+                          properties: {
+                            kind: { const: 'learner-external' },
+                            toolName: {
+                              type: 'string',
+                              minLength: 1,
+                              maxLength: 200,
+                            },
+                            intendedUse: {
+                              type: 'string',
+                              minLength: 1,
+                              maxLength: 1_000,
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
           },
         },
       },
@@ -318,6 +551,7 @@ export function buildProviderBody(request: ProviderLearningRequest): string {
       },
     },
     provider: {
+      only: [...PROVIDER_ROUTE_ONLY],
       allow_fallbacks: false,
       require_parameters: true,
       max_price: {
@@ -327,7 +561,7 @@ export function buildProviderBody(request: ProviderLearningRequest): string {
       },
     },
     max_tokens: MAX_OUTPUT_TOKENS,
-    reasoning: { max_tokens: MAX_REASONING_TOKENS, exclude: true },
+    reasoning: { effort: 'low', exclude: true },
     temperature: 0.2,
   });
 }

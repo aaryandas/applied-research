@@ -24,7 +24,8 @@ function scaledCoefficient(price: DecimalPrice, scale: number): bigint {
   return price.coefficient * 10n ** BigInt(scale - price.scale);
 }
 
-/** Planner-specific reservation from the actual planner body, not tutor/path JSON. */
+/** Planner-specific reservation from the actual planner body, not tutor/path JSON.
+ * MAX_REASONING_TOKENS is a monetary margin, not a request thinking ceiling. */
 export function reservationMicrousdForPlannerBody(body: string): number {
   const inputTokenUpperBound = Buffer.byteLength(body, 'utf8');
   const outputTokenUpperBound = MAX_OUTPUT_TOKENS + MAX_REASONING_TOKENS;

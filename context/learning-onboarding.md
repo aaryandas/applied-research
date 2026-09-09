@@ -40,9 +40,16 @@ projects `CourseProposal`.
 - Account comes from the authenticated session. Request bodies must not include
   `accountId`, `account`, `evidenceContext`, canonical source text, `usePolicy`,
   `sourcePolicy`, paid-retry flags, `evidence` or `sourceScopes`.
-- Human profile, interview answers and unacquired seed URLs are
-  `untrusted-human-context`. Prior syllabus text is `untrusted-model-context`.
+- Human profile, interview answers, private pasted seed text, and unacquired
+  seed URLs are `untrusted-human-context`. `pastedSeedText` is a required
+  bounded string or `null` (blank/null clears). Exact paste is planning data
+  only: never acquisition, embedding, citations, seed locators, or trusted
+  question instructions. Prior syllabus text is `untrusted-model-context`.
   Neither is source-evidence authority. Backend reacquires permitted originals.
+- Propose/revise bind `profileRevision` to the interview/proposal row.
+  Selected-lesson generation may send the **live** profile after later edits
+  and must not rewrite accepted interview, syllabus, or historical
+  `profileRevision` on the stored proposal.
 - AI personalization and diagnostic observations are `author: 'ai'` with
   `masteryEstablished: false`. Reading or a working artifact is not mastery.
 - `acceptCourse` / `ensureLesson` accept only opaque identity and a stored
@@ -119,17 +126,36 @@ validated success envelopes and resolves opaque proposal+revision on accept.
 flow. Tests apply 0005 onto an already-migrated store connection until the
 journal patch lands.
 
-**Backend / AR-48:** sibling `POST /v1/learning/onboarding` (`LEARNING_ONBOARDING_PATH`,
-`LEARNING_ONBOARDING_METHOD`, `LEARNING_ONBOARDING_API_VERSION = 2026-09-09`).
-Parse with `parseLearningOnboardingRequestWire` /
-`parseLearningOnboardingResponseWire` on the **raw** body, then object
-parsers. Desktop uses the existing fixed-origin authenticated main transport
-and cookie session. Until the worker finishes, return an explicit
+**Backend / AR-48:** sibling `POST /v1/learning/onboarding`
+(`LEARNING_ONBOARDING_PATH`, `LEARNING_ONBOARDING_METHOD`,
+`LEARNING_ONBOARDING_API_VERSION = 2026-09-09`) is registered beside
+`/v1/learning/sourced` (freeze `329a343`; independent critic review is still
+active). HTTP authenticates the session, parses the raw body with
+`parseLearningOnboardingRequestWire`, and validates outgoing envelopes with
+`parseLearningOnboardingResponse` / `parseLearningOnboardingResponseWire`.
+Desktop uses the existing fixed-origin authenticated main transport and cookie
+session. Keep `/v1/learning/sourced` and its expected-red route-security tests
+unchanged. Proposal id for revise/selected-lesson is the client `requestId` of
+the successful `propose-course` (revision starts at 1). Do not change
+installed foundations, model (`google/gemini-3.8-flash`), spend policy, or
+dependencies. `AI_ENABLED` remains false until root applies the reviewed
+bounded generation-eval configuration. Generated lesson titles and objectives
+are untrusted `evidenceContext.targetStep` values; the trusted tutor question
+is the fixed sourced-lesson instruction. Exact bounded `pastedSeedText` is
+emitted into untrusted `learnerContext` (`human-note` `humanpaste`) including
+when the value is `null` (cleared omission). Paste is private human planning
+context, not evidence, and must not be acquired or placed on
+`seedRevisionLocators`. Selected-lesson requests may send a newer live profile
+revision than the accepted interview stored; that does not rewrite accepted
+history. Syllabus lesson roles and capstone briefs must be explicit provider
+output. Source-title keywords and generic fill-in briefs are not proof of a
+substantial capstone. Public cancellation and invalid-envelope failures
+preserve phase accounting (`charged` / `reservation-retained`) instead of
+claiming a release. Until a worker can complete, return an explicit
 `unavailable` envelope (`retryable: true` only when `accounting` is `none` or
-`released`). Do not fake production success. Keep `/v1/learning/sourced` and
-its expected-red route-security tests unchanged. Do not change installed
-foundations, model, spend policy or dependencies. Importing the API module
-from `src/backend` is enough for `tsconfig.backend.json`.
+`released`). Do not fake production success. Importing the API module from
+`src/backend` is enough for `tsconfig.backend.json`. Separately recorded
+vector-index configuration proof on the candidate is not app acceptance.
 
 Operations this desktop already sends:
 
@@ -142,12 +168,9 @@ Operations this desktop already sends:
 
 Human context is `untrusted-human-context` (goal, focus, depth, live intended
 profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
-`pastedSeedText` is private human paste or `null`; it is not evidence and must
-not be acquired or placed on `seedRevisionLocators`. Prior syllabus is
-`untrusted-model-context`. Selected-lesson requests may send a newer live
-profile revision than the accepted interview stored; that does not rewrite
-accepted history. A source URL or pasted excerpt is data, never trusted
-instructions. Accept and ensure-lesson do not send canonical lesson/source JSON.
+Prior syllabus is `untrusted-model-context`. A source URL or pasted excerpt is
+data, never trusted instructions. Accept and ensure-lesson do not send
+canonical lesson/source JSON.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

@@ -1,16 +1,10 @@
 import { Cause, Effect, Exit, Option } from 'effect';
 import type {
-  LearningRequest,
-  LearningResponse,
   MonthlyQuota,
   PublicAccount,
   SourceRevisionLocator,
 } from '../../contracts/learning-api.js';
-import type {
-  AccountingStore,
-  ReservationResult,
-  SettlementInput,
-} from '../accounting.js';
+import { AccountingFailure } from '../accounting.js';
 import { utcMonthStart } from '../accounting.js';
 import type { BackendConfig } from '../config.js';
 import type { Diagnostics } from '../diagnostics.js';
@@ -19,11 +13,21 @@ import { ProviderFailure, type ChargeKnowledge } from '../provider.js';
 import { MODEL_ADMISSION } from '../policy.js';
 import {
   buildPlannerBody,
-  plannerAccountingRequest,
   type ExplanationPlannerProvider,
   type PlannerCompletion,
 } from './provider.js';
 import { reservationMicrousdForPlannerBody } from './reservation.js';
+import {
+  plannerInputHash,
+  type PlannerAccountingStore,
+  type PlannerReservationResult,
+  type PlannerSettlementInput,
+} from './planner-accounting.js';
+import {
+  GENERATION_EVAL_ALLOWANCE_NAME,
+  type GenerationEvalLedger,
+} from './generation-eval.js';
+import { decodePlannerHttpResponse } from './response-decode.js';
 import {
   EXPLANATION_PLANNER_PROMPT_VERSION,
   type ExplanationPlanHttpResponse,
@@ -41,7 +45,8 @@ export interface ExplanationPlannerService {
 }
 
 export interface ExplanationPlannerServiceOptions {
-  readonly accounting: AccountingStore;
+  readonly accounting: PlannerAccountingStore;
+  readonly generation: GenerationEvalLedger;
   readonly provider: ExplanationPlannerProvider;
   readonly config: Pick<
     BackendConfig,
@@ -118,6 +123,19 @@ function successResponse(
   };
 }
 
+function cancelledAccounting(
+  charge: ChargeKnowledge,
+): 'released' | 'charged' | 'reservation-retained' {
+  switch (charge.kind) {
+    case 'none':
+      return 'released';
+    case 'known':
+      return 'charged';
+    case 'unknown':
+      return 'reservation-retained';
+  }
+}
+
 function settlementResponse(
   requestId: string,
   charge: ChargeKnowledge,
@@ -137,22 +155,9 @@ function settlementResponse(
   return unavailable(requestId, 'reservation-retained');
 }
 
-function cancelledAccounting(
-  charge: ChargeKnowledge,
-): 'released' | 'charged' | 'reservation-retained' {
-  switch (charge.kind) {
-    case 'none':
-      return 'released';
-    case 'known':
-      return 'charged';
-    case 'unknown':
-      return 'reservation-retained';
-  }
-}
-
 function failureDisposition(
   charge: ChargeKnowledge,
-): SettlementInput['disposition'] {
+): PlannerSettlementInput['disposition'] {
   switch (charge.kind) {
     case 'none':
       return { kind: 'release' };
@@ -167,19 +172,88 @@ function failureDisposition(
   }
 }
 
-function asLearningResponse(
+function replayStored(
+  requestId: string,
+  stored: ExplanationPlanHttpResponse,
+): ExplanationPlanHttpResponse {
+  const decoded = decodePlannerHttpResponse(stored, requestId);
+  if (!decoded.ok) {
+    return unavailable(
+      requestId,
+      'reservation-retained',
+      'The stored planner result could not be validated.',
+    );
+  }
+  return decoded.value;
+}
+
+type RestoreInterruptibility = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) => Effect.Effect<A, E, R>;
+
+function settleMonthly(
+  options: ExplanationPlannerServiceOptions,
+  account: PublicAccount,
+  requestId: string,
+  monthStart: string,
   response: ExplanationPlanHttpResponse,
-): LearningResponse {
-  if (response.outcome !== 'success') return response;
-  throw new Error('Planner success cannot settle as a tutor contribution.');
+  disposition: PlannerSettlementInput['disposition'],
+): Effect.Effect<ExplanationPlanHttpResponse> {
+  const diagnostics = options.diagnostics ?? silentDiagnostics;
+  return options.accounting
+    .settle({
+      accountId: account.id,
+      requestId,
+      monthStart,
+      now: options.now(),
+      response,
+      disposition,
+      limitMicrousd: options.config.monthlyLimitMicrousd,
+    })
+    .pipe(
+      Effect.map((quota) =>
+        response.outcome === 'success' ? { ...response, quota } : response,
+      ),
+      Effect.catchAll((cause) => {
+        diagnostics.report('accounting.settlement-failed', cause);
+        return Effect.succeed(unavailable(requestId, 'reservation-retained'));
+      }),
+    );
+}
+
+function settleGeneration(
+  options: ExplanationPlannerServiceOptions,
+  request: ExplanationPlannerRequest,
+  inputHash: string,
+  dispatched: boolean,
+  charge: ChargeKnowledge,
+  cancelled: boolean,
+): Effect.Effect<void> {
+  const diagnostics = options.diagnostics ?? silentDiagnostics;
+  return options.generation
+    .settle({
+      requestId: request.requestId,
+      inputHash,
+      dispatched,
+      charge,
+      cancelled,
+    })
+    .pipe(
+      Effect.catchAll((cause: AccountingFailure) => {
+        diagnostics.report('accounting.settlement-failed', cause);
+        return Effect.void;
+      }),
+    );
 }
 
 function handleProviderFailure(
   options: ExplanationPlannerServiceOptions,
   account: PublicAccount,
-  request: LearningRequest,
+  request: ExplanationPlannerRequest,
+  inputHash: string,
   monthStart: string,
   failure: ProviderFailure,
+  dispatched: boolean,
 ): Effect.Effect<ExplanationPlanHttpResponse> {
   const diagnostics = options.diagnostics ?? silentDiagnostics;
   diagnostics.report('provider.request-failed', failure);
@@ -188,46 +262,36 @@ function handleProviderFailure(
     failure.charge,
     failure.cancelled,
   );
-  const disposition = failureDisposition(failure.charge);
-  return options.accounting
-    .settle({
-      accountId: account.id,
-      requestId: request.requestId,
-      monthStart,
-      now: options.now(),
-      response: asLearningResponse(
-        response.outcome === 'success'
-          ? unavailable(request.requestId, 'none')
-          : response,
+  return settleMonthly(
+    options,
+    account,
+    request.requestId,
+    monthStart,
+    response,
+    failureDisposition(failure.charge),
+  ).pipe(
+    Effect.tap(() =>
+      settleGeneration(
+        options,
+        request,
+        inputHash,
+        dispatched,
+        failure.charge,
+        failure.cancelled,
       ),
-      disposition,
-      limitMicrousd: options.config.monthlyLimitMicrousd,
-    })
-    .pipe(
-      Effect.as(response),
-      Effect.catchAll((cause) => {
-        diagnostics.report('accounting.settlement-failed', cause);
-        return Effect.succeed(
-          unavailable(request.requestId, 'reservation-retained'),
-        );
-      }),
-    );
+    ),
+  );
 }
-
-type RestoreInterruptibility = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-) => Effect.Effect<A, E, R>;
 
 function completeReservation(
   options: ExplanationPlannerServiceOptions,
   account: PublicAccount,
   plannerRequest: ExplanationPlannerRequest,
-  accountingRequest: LearningRequest,
-  reservation: Extract<ReservationResult, { kind: 'reserved' }>,
+  inputHash: string,
+  reservationQuota: MonthlyQuota,
   monthStart: string,
   restore: RestoreInterruptibility,
 ): Effect.Effect<ExplanationPlanHttpResponse> {
-  const diagnostics = options.diagnostics ?? silentDiagnostics;
   let providerDispatched = false;
   const providerAttempt = Effect.suspend(() => {
     providerDispatched = true;
@@ -247,46 +311,39 @@ function completeReservation(
     Effect.flatMap((providerExit) => {
       if (Exit.isSuccess(providerExit)) {
         const completion = providerExit.value;
+        const charge: ChargeKnowledge = {
+          kind: 'known',
+          actualMicrousd: completion.actualMicrousd,
+        };
         const provisionalResponse = successResponse(
           plannerRequest,
           completion,
-          reservation.quota,
+          reservationQuota,
           options.now(),
         );
-        const settleResponse: LearningResponse = {
-          outcome: 'unavailable',
-          requestId: plannerRequest.requestId,
-          message: 'Planner settlement placeholder.',
-          retryable: false,
-          accounting: 'charged',
-        };
-        return options.accounting
-          .settle({
-            accountId: account.id,
-            requestId: accountingRequest.requestId,
-            monthStart,
-            now: options.now(),
-            response: settleResponse,
-            disposition: {
-              kind: 'charge',
-              actualMicrousd: completion.actualMicrousd,
-              providerRequestId: completion.providerRequestId,
-            },
-            limitMicrousd: options.config.monthlyLimitMicrousd,
-          })
-          .pipe(
-            Effect.map((quota) =>
-              provisionalResponse.outcome === 'success'
-                ? { ...provisionalResponse, quota }
-                : provisionalResponse,
+        return settleMonthly(
+          options,
+          account,
+          plannerRequest.requestId,
+          monthStart,
+          provisionalResponse,
+          {
+            kind: 'charge',
+            actualMicrousd: completion.actualMicrousd,
+            providerRequestId: completion.providerRequestId,
+          },
+        ).pipe(
+          Effect.tap(() =>
+            settleGeneration(
+              options,
+              plannerRequest,
+              inputHash,
+              true,
+              charge,
+              false,
             ),
-            Effect.catchAll((cause) => {
-              diagnostics.report('accounting.settlement-failed', cause);
-              return Effect.succeed(
-                unavailable(plannerRequest.requestId, 'reservation-retained'),
-              );
-            }),
-          );
+          ),
+        );
       }
       const typedFailure = Option.getOrUndefined(
         Cause.failureOption(providerExit.cause),
@@ -295,15 +352,18 @@ function completeReservation(
         return handleProviderFailure(
           options,
           account,
-          accountingRequest,
+          plannerRequest,
+          inputHash,
           monthStart,
           typedFailure,
+          providerDispatched,
         );
       }
       return handleProviderFailure(
         options,
         account,
-        accountingRequest,
+        plannerRequest,
+        inputHash,
         monthStart,
         new ProviderFailure({
           message: Cause.isInterruptedOnly(providerExit.cause)
@@ -313,38 +373,25 @@ function completeReservation(
           cancelled: Cause.isInterruptedOnly(providerExit.cause),
           cause: providerExit.cause,
         }),
+        providerDispatched,
       );
     }),
   );
 }
 
-function handleReservation(
+function afterMonthlyReserve(
   options: ExplanationPlannerServiceOptions,
   account: PublicAccount,
   plannerRequest: ExplanationPlannerRequest,
-  accountingRequest: LearningRequest,
+  inputHash: string,
   monthStart: string,
-  reservation: ReservationResult,
+  reservation: PlannerReservationResult,
   restore: RestoreInterruptibility,
 ): Effect.Effect<ExplanationPlanHttpResponse> {
   switch (reservation.kind) {
-    case 'reserved':
-      return completeReservation(
-        options,
-        account,
-        plannerRequest,
-        accountingRequest,
-        reservation,
-        monthStart,
-        restore,
-      );
     case 'duplicate':
       return Effect.succeed(
-        unavailable(
-          plannerRequest.requestId,
-          'none',
-          'This request id was already used.',
-        ),
+        replayStored(plannerRequest.requestId, reservation.response),
       );
     case 'in-progress':
       return Effect.succeed(
@@ -375,6 +422,94 @@ function handleReservation(
         message: 'The monthly AI allowance is exhausted.',
         quota: reservation.quota,
       });
+    case 'reserved':
+      return options.generation
+        .admit({
+          requestId: plannerRequest.requestId,
+          inputHash,
+          reservationMicrousd: reservationMicrousdForPlannerBody(
+            buildPlannerBody(plannerRequest),
+          ),
+        })
+        .pipe(
+          Effect.flatMap((decision) => {
+            if (decision.kind === 'replay') {
+              return settleMonthly(
+                options,
+                account,
+                plannerRequest.requestId,
+                monthStart,
+                unavailable(
+                  plannerRequest.requestId,
+                  'released',
+                  'This request id was already used.',
+                ),
+                { kind: 'release' },
+              );
+            }
+            if (decision.kind === 'exhausted') {
+              return settleMonthly(
+                options,
+                account,
+                plannerRequest.requestId,
+                monthStart,
+                unavailable(
+                  plannerRequest.requestId,
+                  'released',
+                  `The ${GENERATION_EVAL_ALLOWANCE_NAME} physical generation allowance is exhausted.`,
+                ),
+                { kind: 'release' },
+              );
+            }
+            if (decision.kind === 'conflict') {
+              return settleMonthly(
+                options,
+                account,
+                plannerRequest.requestId,
+                monthStart,
+                {
+                  outcome: 'invalid-request',
+                  requestId: plannerRequest.requestId,
+                  message:
+                    'The request id was already used for different input.',
+                },
+                { kind: 'release' },
+              );
+            }
+            if (decision.kind === 'in-progress') {
+              return Effect.succeed(
+                unavailable(
+                  plannerRequest.requestId,
+                  'reservation-retained',
+                  'This request is already in progress or awaiting cost reconciliation.',
+                ),
+              );
+            }
+            return completeReservation(
+              options,
+              account,
+              plannerRequest,
+              inputHash,
+              reservation.quota,
+              monthStart,
+              restore,
+            );
+          }),
+          Effect.catchAll((cause: AccountingFailure) => {
+            (options.diagnostics ?? silentDiagnostics).report(
+              'accounting.reservation-failed',
+              cause,
+            );
+            return settleMonthly(
+              options,
+              account,
+              plannerRequest.requestId,
+              monthStart,
+              unavailable(plannerRequest.requestId, 'reservation-retained'),
+              { kind: 'retain' },
+            );
+          }),
+        );
   }
 }
 
@@ -401,7 +536,7 @@ export function makeExplanationPlannerService(
         }
         const monthStart = utcMonthStart(now);
         const diagnostics = options.diagnostics ?? silentDiagnostics;
-        const accountingRequest = plannerAccountingRequest(plannerRequest);
+        const inputHash = plannerInputHash(plannerRequest);
         const reservationMicrousd = reservationMicrousdForPlannerBody(
           buildPlannerBody(plannerRequest),
         );
@@ -409,7 +544,8 @@ export function makeExplanationPlannerService(
           options.accounting
             .reserve({
               accountId: account.id,
-              request: accountingRequest,
+              request: plannerRequest,
+              inputHash,
               monthStart,
               now,
               limitMicrousd: options.config.monthlyLimitMicrousd,
@@ -417,17 +553,17 @@ export function makeExplanationPlannerService(
             })
             .pipe(
               Effect.flatMap((reservation) =>
-                handleReservation(
+                afterMonthlyReserve(
                   options,
                   account,
                   plannerRequest,
-                  accountingRequest,
+                  inputHash,
                   monthStart,
                   reservation,
                   restore,
                 ),
               ),
-              Effect.catchAll((cause) => {
+              Effect.catchAll((cause: AccountingFailure) => {
                 diagnostics.report('accounting.reservation-failed', cause);
                 return Effect.succeed(
                   unavailable(plannerRequest.requestId, 'reservation-retained'),

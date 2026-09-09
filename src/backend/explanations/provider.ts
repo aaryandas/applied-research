@@ -6,17 +6,22 @@ import {
   MAX_OUTPUT_CHARACTERS,
   MAX_OUTPUT_TOKENS,
   MAX_PROVIDER_REQUEST_PRICE_USD,
-  MAX_REASONING_TOKENS,
   MODEL_ADMISSION,
 } from '../policy.js';
 import { ProviderFailure } from '../provider.js';
 import { isRemoteText } from '../text.js';
+import { bindPlanToCanonicalSources } from './canonical-citations.js';
 import {
   EXPLANATION_PLANNER_JSON_SCHEMA,
   EXPLANATION_PLANNER_SYSTEM_PROMPT,
 } from './schema.js';
 import type { ExplanationPlannerRequest } from './types.js';
 import type { ExplanationPlan } from './plan-decode.js';
+
+/** Admitted OpenRouter route. AR-48 should export this shared policy. */
+export const ADMITTED_OPENROUTER_ROUTE = 'google-ai-studio' as const;
+/** Supported thinking level. 1024 is a reservation margin, not a request ceiling. */
+export const ADMITTED_REASONING_EFFORT = 'low' as const;
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MAX_PROVIDER_RESPONSE_BYTES = 128 * 1024;
@@ -80,6 +85,7 @@ export function buildPlannerBody(request: ExplanationPlannerRequest): string {
       },
     },
     provider: {
+      only: [ADMITTED_OPENROUTER_ROUTE],
       allow_fallbacks: false,
       require_parameters: true,
       max_price: {
@@ -89,7 +95,7 @@ export function buildPlannerBody(request: ExplanationPlannerRequest): string {
       },
     },
     max_tokens: MAX_OUTPUT_TOKENS,
-    reasoning: { max_tokens: MAX_REASONING_TOKENS, exclude: true },
+    reasoning: { effort: ADMITTED_REASONING_EFFORT, exclude: true },
     temperature: 0.2,
   });
 }
@@ -183,7 +189,7 @@ function parsePlannerCompletion(
     throw new Error('Provider planner output is invalid.');
   }
   return {
-    plan: plan.value,
+    plan: bindPlanToCanonicalSources(plan.value, request.operation.sources),
     providerRequestId: outputText(response.id, 200, 'request identifier'),
     actualMicrousd,
     model: request.model,
