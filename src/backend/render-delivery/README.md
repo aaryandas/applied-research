@@ -15,6 +15,8 @@ are an internal mirror until that checkpoint is published.
   without generating certificates. AR-48 joins submit through the account-scoped
   planner receipt reader; it does not use a global project ACL, `allowAll`, or
   client recipe/origin trust. See [render grant](../../context/render-grant.md).
+  worker daemon. `failClosedOriginOwnership` is the default until AR-48 injects
+  account-bound evidence. Railway is the API, not the Manim host.
 - One in-flight render per account; the worker still allows one active container
   and at most eight resident jobs.
 - Recipe JSON is the existing installed `linear-transform` /

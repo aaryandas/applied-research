@@ -86,6 +86,10 @@ to install Docker, pin the image, and confirm `--network=none`.
 - Operator-supplied mTLS material for API → worker (not generated in-app)
 - AR-48 registration of `/v1/render/jobs` and `/v1/render/artifacts/:mediaId`
   using the planner render receipt (not a global project ACL)
+- AR-48 account-bound origin ownership evidence (Railway has no local SQLite
+  project graph; `failClosedOriginOwnership` is the default)
+- AR-48 registration of `/v1/render/jobs` and `/v1/render/artifacts/:mediaId`
+  plus remote-engine composition
 - Coordinator CSP / `ar-media:` protocol wiring for Electron playback
 
 Until those exist, this slice is internally testable with fake transports and

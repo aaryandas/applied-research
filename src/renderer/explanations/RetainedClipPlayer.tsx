@@ -255,7 +255,7 @@ function ClipSession({
   const [enlarged, setEnlarged] = useState(false);
   const [playbackStartMs, setPlaybackStartMs] = useState<number | null>(null);
   const labelId = useId();
-  const failedOpen = Boolean(openError && usingPrior);
+  const priorActuallyAvailable = usingPrior && Boolean(objectUrl) && !openError;
   const [captionUrl, setCaptionUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -408,7 +408,9 @@ function ClipSession({
       {(error || openError) && (
         <p className="retained-clip__error" role="alert">
           {openError ?? error}
-          {failedOpen ? ' Previous clip is still available.' : ''}
+          {priorActuallyAvailable && error
+            ? ' Previous clip is still available.'
+            : ''}
         </p>
       )}
       {busy && (

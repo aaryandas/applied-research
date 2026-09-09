@@ -2,6 +2,10 @@
 
 Execution policy reflecting the founder’s decisions and current delivery evidence, updated September 9, 2026. Read this before [next-run](next-run.md). It supersedes conflicting execution instructions in older handoffs, workflow examples and agent files. Product requirements, process isolation, credential ownership and substantive quality gates remain in force.
 
+## Founder integration override — September 9, 2026
+
+The founder explicitly instructed the coordinator to integrate all implemented project work, resolve merge conflicts, and merge it into main without waiting for CI or Sonar. This overrides the merge prerequisites below for this consolidation. Existing CI and Sonar outcomes remain truthful; failures are not relabeled as passes. Product acceptance, provider budgets, credential isolation and deployment authorization remain separate. Obsolete overlapping implementations are reconciled to the newer behavior rather than restored over it.
+
 ## Execution and ownership
 
 - Implementation and independent standards/spec criticism run on **Cursor Cloud, Grok 4.6, Extra High (`xhigh`)**. Do not launch Fable, local/headless Cursor inference or replacement local coding workers. Use the existing cloud worker for a ticket when continuing its work.

@@ -5,16 +5,26 @@ AR-54 does not edit `http.ts`, `runtime.ts`, `provider.ts`, `policy.ts`,
 Shell. Apply these narrow patches in a coordinator/integration PR after this
 slice is reviewed.
 
+Remote delivery composition is in:
+
+- [AR48-REMOTE-DELIVERY.md](./AR48-REMOTE-DELIVERY.md) — remote engine, origin grant, public routes
+- [AR51-CLIP-IDENTITY.md](./AR51-CLIP-IDENTITY.md) — reserved explanation IDs and previous useful result
+- [AR53-CLIP-STAGE-CONTRACT.md](./AR53-CLIP-STAGE-CONTRACT.md) — nonnegative verified stage seconds (**published** `dc2ad20ebe1064d0febc4623807920aae1c4e0d8`)
+- [AR56-CLIP-PLAYER.md](./AR56-CLIP-PLAYER.md) — opaque `ar-media:` mount
+- [LANE-ALLOWLIST.md](./LANE-ALLOWLIST.md) — `src/main/clip-*.ts`
+
 Public artifact types remain AR-53. Replace the internal mirror in
 `src/backend/render-delivery/types.ts` with that import when the checkpoint SHA
 is posted.
 
-## 1. Lane (already proposed on this PR)
+## 1. Lane
 
 `.github/lanes.json` `lane:explanations` includes:
 
 - `src/backend/render-delivery/**`
+- `src/render-worker/**`
 - `src/main/retained-media-*.ts`
+- `src/main/clip-*.ts`
 
 ## 2. `tsconfig.backend.json`
 
@@ -134,7 +144,11 @@ player is the clip consumer.
 
 - Trusted Docker context + pinned ARM image on GitHub-hosted `ubuntu-24.04-arm`
   (proposed job in `manim-evidence.yml`; AR-41 must publish and run it)
-- AR-53 public type names
+- AR-53 public type names. Nonnegative verified stage seconds are published at
+  `dc2ad20ebe1064d0febc4623807920aae1c4e0d8` (see
+  [AR53-CLIP-STAGE-CONTRACT.md](./AR53-CLIP-STAGE-CONTRACT.md)). PR67
+  cherry-picks that commit; Lane guard may flag `src/contracts/**` until
+  that contracts PR lands on `main`. Do not change allowlists.
 - AR-48 route composition
 - Electron CSP/protocol registration
 - Reader/Canvas artifact node
