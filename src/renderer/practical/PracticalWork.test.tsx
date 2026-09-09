@@ -51,6 +51,18 @@ function commit(input: RecordPracticalResultInput) {
   });
 }
 
+it('revokes activity guidance when the mounted activity is unexpectedly disposed', () => {
+  const stop = vi.fn(async () => {});
+  const mounted = render(
+    <PracticalWork
+      {...props()}
+      activityGuidance={{ status: 'active', start: async () => {}, stop }}
+    />,
+  );
+  mounted.unmount();
+  expect(stop).toHaveBeenCalled();
+});
+
 it('shows an honest empty state without activity controls', () => {
   render(<PracticalWork {...props()} activity={null} />);
   expect(screen.getByText(/Choose a lesson with an activity/)).toBeVisible();
@@ -677,4 +689,63 @@ it('blocks navigation when guidance cannot stop and preserves draft text', async
     'Keep this draft',
   );
   expect(screen.queryByText('private adapter detail')).not.toBeInTheDocument();
+});
+
+it('registers the mounted producer resolver and exposes current writing, then revokes it on replacement', async () => {
+  const options = props();
+  const uuid = (digit: string) =>
+    `${digit.repeat(8)}-${digit.repeat(4)}-${digit.repeat(4)}-${digit.repeat(4)}-${digit.repeat(12)}`;
+  options.activity = {
+    projectId: uuid('1'),
+    origin: {
+      path: {
+        pathId: uuid('2'),
+        pathRevision: 1,
+        topicId: uuid('3'),
+        lessonId: uuid('4'),
+      },
+    },
+    title: 'Owned activity',
+    objective: 'Compare',
+    instructions: 'Try one input',
+  };
+  options.attemptId = uuid('5');
+  let resolveTarget: import('./context-resolver').PracticalContextResolver['resolveTarget'] =
+    async () => ({ status: 'unavailable', message: 'Not mounted' });
+  const unregister = vi.fn();
+  const registerResolver = vi.fn((resolve: typeof resolveTarget) => {
+    resolveTarget = resolve;
+    return unregister;
+  });
+  const mounted = render(
+    <PracticalWork {...options} companionContext={{ registerResolver }} />,
+  );
+  const target = {
+    trigger: 'explicit-action' as const,
+    target: {
+      scope: 'applied-research' as const,
+      surface: 'practical-work' as const,
+      activity: options.activity,
+      attemptId: options.attemptId,
+      target: 'reflection' as const,
+    },
+  };
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Your interpretation/ }),
+    { target: { value: '  My fresh wording\n' } },
+  );
+  expect(
+    await resolveTarget(target, new AbortController().signal),
+  ).toMatchObject({
+    context: {
+      text: '  My fresh wording\n',
+      version: { kind: 'unsaved-draft', lastAcknowledgedRevision: null },
+    },
+  });
+  expect(registerResolver).toHaveBeenCalledTimes(1);
+  mounted.unmount();
+  expect(unregister).toHaveBeenCalledOnce();
+  expect(
+    await resolveTarget(target, new AbortController().signal),
+  ).toMatchObject({ status: 'cancelled' });
 });

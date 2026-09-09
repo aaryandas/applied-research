@@ -26,6 +26,10 @@ import {
   type PracticalActivityGuidance,
 } from './ActivityGuidanceControls';
 import { PracticalField } from './PracticalField';
+import {
+  createPracticalContextResolver,
+  type PracticalContextRegistration,
+} from './context-resolver';
 import { exceedsPracticalFieldLimit } from './draft-limits';
 import {
   evidenceReference,
@@ -54,6 +58,8 @@ export interface PracticalWorkProps {
   evidenceStatus?: PracticalEvidenceStatus;
   tool?: PracticalTool;
   activityGuidance?: PracticalActivityGuidance;
+  /** Stable mounted registration from the AR-25 requester; reads only on explicit resolution. */
+  companionContext?: PracticalContextRegistration;
   selectFile?: () => Promise<SelectedPracticalFile | null>;
   recordPracticalResult?: (
     input: RecordPracticalResultInput,
@@ -171,6 +177,28 @@ function ActivityWork(
     activityGuidance,
   } = props;
   const stopGuidance = activityGuidance?.stop;
+  const { companionContext, attemptId } = props;
+  useEffect(() => {
+    if (!companionContext) return;
+    const resolver = createPracticalContextResolver({
+      ...companionContext,
+      identity: { activity, attemptId },
+      getSnapshot: session.getContextSnapshot,
+    });
+    const unregister = companionContext.registerResolver(
+      resolver.resolveTarget,
+    );
+    return () => {
+      resolver.dispose();
+      unregister();
+    };
+  }, [activity, attemptId, session, companionContext]);
+  useEffect(
+    () => () => {
+      void stopGuidance?.().catch(() => {});
+    },
+    [stopGuidance],
+  );
   const evidence = mergeEvidence(returnedEvidence, files);
   useEffect(() => {
     session.setEvidence({

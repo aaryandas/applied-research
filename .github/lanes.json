@@ -21,7 +21,11 @@
     ],
     "reader": ["src/renderer/reader/**"],
     "canvas": ["src/renderer/canvas/**"],
-    "practical": ["src/renderer/practical/**"],
+    "practical": [
+      "src/renderer/practical/**",
+      "src/main/practical-*.ts",
+      "src/contracts/practical*.ts"
+    ],
     "settings": ["src/renderer/settings/**"],
     "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
     "opening": [

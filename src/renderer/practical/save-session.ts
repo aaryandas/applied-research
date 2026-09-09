@@ -26,6 +26,13 @@ export interface PracticalSaveState {
     | 'too-long';
 }
 
+export interface PracticalSaveSnapshot {
+  generation: number;
+  draft: PracticalDraft;
+  saved: { revision: number; draft: PracticalDraft } | null;
+  evidence: PracticalEvidenceState;
+}
+
 export interface PracticalSaveOptions {
   input: RecordPracticalResultInput;
   commit?: (
@@ -41,6 +48,7 @@ export function createPracticalSaveSession(options: PracticalSaveOptions): {
   setEvidence: (evidence: PracticalEvidenceState) => void;
   addEvidence: (item: ReturnedPracticalEvidence) => void;
   flush: () => Promise<PracticalFlushResult>;
+  getContextSnapshot: () => PracticalSaveSnapshot;
 } {
   let draft = structuredClone(options.input.draft);
   let evidence = options.evidence ?? { status: 'ready', items: [] };
@@ -50,6 +58,11 @@ export function createPracticalSaveSession(options: PracticalSaveOptions): {
   let revision = options.input.expectedRevision;
   let acknowledgement: CommitAcknowledgement | null = null;
   let pending: Promise<PracticalFlushResult> | null = null;
+  let generation = 0;
+  let saved =
+    options.input.expectedRevision > 0
+      ? { revision, draft: structuredClone(draft) }
+      : null;
 
   const report = (status: PracticalSaveState['status']): void =>
     options.onChange({ draft, status });
@@ -76,13 +89,14 @@ export function createPracticalSaveSession(options: PracticalSaveOptions): {
         return { status: 'blocked', reason: 'unavailable' };
       }
       const savingVersion = version;
+      const savingDraft = structuredClone(draft);
       report('saving');
       let result: PracticalCommitResult;
       try {
         result = await options.commit({
           ...options.input,
           expectedRevision: revision,
-          draft,
+          draft: structuredClone(savingDraft),
         });
       } catch {
         report('failed');
@@ -108,6 +122,8 @@ export function createPracticalSaveSession(options: PracticalSaveOptions): {
       }
       revision = ack.revision;
       acknowledgement = ack;
+      saved = { revision, draft: savingDraft };
+      generation += 1;
       savedVersion = savingVersion;
     }
     report(acknowledgement ? 'saved' : 'draft');
@@ -115,18 +131,23 @@ export function createPracticalSaveSession(options: PracticalSaveOptions): {
   }
 
   return {
+    getContextSnapshot: () =>
+      structuredClone({ generation, draft, saved, evidence }),
     update(next) {
-      draft = { ...draft, ...next };
+      draft = { ...draft, ...structuredClone(next) };
+      generation += 1;
       version += 1;
       if (conflicted) report('conflict');
       else if (exceedsPracticalFieldLimit(draft)) report('too-long');
       else report(pending ? 'saving' : 'draft');
     },
     setEvidence(next) {
-      evidence = next;
+      evidence = structuredClone(next);
+      generation += 1;
     },
     addEvidence(item) {
       evidence = { ...evidence, items: mergeEvidence(evidence.items, [item]) };
+      generation += 1;
     },
     flush() {
       if (pending) return pending;
