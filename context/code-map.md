@@ -26,6 +26,31 @@ This map describes the implemented MVP. See [scope and limitations](mvp.md). Rea
 | `context/repos/effect/`                    | Read-only upstream reference; not application code                       |
 | `src/contracts/learning-onboarding.ts`     | Desktop onboarding bridge, opaque proposal identity and step mapping     |
 | `src/contracts/learning-onboarding-api.ts` | Sibling `POST /v1/learning/onboarding` envelope and admission bounds     |
+| Location                                   | Responsibility                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| `src/main/index.ts`                        | Electron application and window lifecycle, security configuration     |
+| `src/main/startup-error.ts`                | Allow-listed startup messages and privacy-safe typed diagnostics      |
+| `src/main/navigation.ts`                   | Renderer navigation policy and adjacent unit tests                    |
+| `src/preload/index.ts`                     | Named workspace/account/tutor/tool bridge and subscriptions           |
+| `src/contracts/desktop.ts`                 | Shared serializable desktop bridge contract                           |
+| `src/contracts/desktop-auth.ts`            | Public account/session states, fixed origin/scheme and auth channels  |
+| `src/contracts/learning-api.ts`            | Authenticated backend request/response, provenance and quota contract |
+| `src/backend/`                             | Better Auth, PostgreSQL, sourced discover/acquire/learning HTTP       |
+| `tests/backend-postgres/`                  | Disposable real PostgreSQL migration/auth/accounting verification     |
+| `src/renderer/`                            | Canvas, companion, tool panel, matrix experiment, styles and UI tests |
+| `tests/e2e/`                               | Real Electron smoke tests                                             |
+| `scripts/test-packaged.mjs`                | Smoke test against the packaged application                           |
+| `drizzle/`                                 | Authoritative reviewed SQLite migrations and migration journal        |
+| `scripts/release-assets.mjs`               | Release asset selection                                               |
+| `electron.vite.config.ts`                  | Main, preload and renderer builds                                     |
+| `electron-builder.yml`                     | Installer configuration and packaged file scope                       |
+| `.github/workflows/verify.yml`             | Shared cross-platform verification                                    |
+| `.github/workflows/`                       | Pull request CI, candidate releases and optional Sonar analysis       |
+| `scripts/hosted-sonar.mjs`                 | Main-only hosted Sonar consumer of authenticated CI coverage          |
+| `context/design-system/`                   | Shared renderer tokens/fonts/art and standalone interaction specimens |
+| `context/repos/effect/`                    | Read-only upstream reference; not application code                    |
+| `src/contracts/learning-onboarding.ts`     | Desktop onboarding bridge, opaque proposal identity and step mapping  |
+| `src/contracts/learning-onboarding-api.ts` | Sibling `POST /v1/learning/onboarding` envelope and admission bounds  |
 
 Unit tests live beside their source. The MVP modules below own the implemented responsibilities.
 
