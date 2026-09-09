@@ -12,12 +12,25 @@ const posixHost = typeof process.getuid === 'function';
 const workers: AnimationRenderWorker[] = [];
 const roots: string[] = [];
 const json = JSON.stringify(LINEAR_EXAMPLE);
+const TEST_DOCKER_CONTEXT = 'desktop-linux';
 async function create(
   run: (request: ProcessRequest) => Promise<ProcessResult>,
+  extra: {
+    docker?: string;
+    dockerContext?: string;
+    ffmpeg?: string;
+    ffprobe?: string;
+    timeoutMs?: number;
+  } = {},
 ): Promise<AnimationRenderWorker> {
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'ar-worker-test-'));
   roots.push(temporaryRoot);
-  const worker = await AnimationRenderWorker.create({ run, temporaryRoot });
+  const worker = await AnimationRenderWorker.create({
+    run,
+    temporaryRoot,
+    dockerContext: TEST_DOCKER_CONTEXT,
+    ...extra,
+  });
   workers.push(worker);
   return worker;
 }
@@ -78,6 +91,8 @@ describe.skipIf(!posixHost)('bounded render queue', () => {
       MANIM_IMAGE,
     ])
       expect(args).toContain(arg);
+    expect(args?.[0]).toBe('--context');
+    expect(args?.[1]).toBe(TEST_DOCKER_CONTEXT);
     expect(args).toContain(`${process.getuid?.()}:${process.getgid?.()}`);
     await worker.release('../escape');
     await worker.release(outcome.jobId);
@@ -228,8 +243,22 @@ describe.skipIf(!posixHost)('bounded render queue', () => {
     const root = await mkdtemp(join(tmpdir(), 'ar,mount-'));
     roots.push(root);
     await expect(
-      AnimationRenderWorker.create({ temporaryRoot: root }),
+      AnimationRenderWorker.create({
+        temporaryRoot: root,
+        dockerContext: TEST_DOCKER_CONTEXT,
+      }),
     ).rejects.toThrow('commas');
+    const missingContext = await mkdtemp(join(tmpdir(), 'ar-worker-ctx-'));
+    roots.push(missingContext);
+    await expect(
+      AnimationRenderWorker.create({ temporaryRoot: missingContext }),
+    ).rejects.toThrow('dockerContext');
+    await expect(
+      AnimationRenderWorker.create({
+        temporaryRoot: missingContext,
+        dockerContext: 'orbstack;rm',
+      }),
+    ).rejects.toThrow('trusted');
   });
 });
 
@@ -291,6 +320,69 @@ it.skipIf(!posixHost)(
       diagnostics: { stdout: '', stderr: 'Executable not found' },
     });
     expect(run).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.skipIf(!posixHost)(
+  'threads the selected Docker context into every Docker invocation',
+  async () => {
+    const context = 'ci-github-linux';
+    const run = vi.fn(successfulRuntime);
+    const worker = await create(run, { dockerContext: context });
+    expect((await worker.render(json)).status).toBe('succeeded');
+    const dockerCalls = run.mock.calls
+      .map(([request]) => request)
+      .filter(
+        (request) =>
+          request.command !== 'ffprobe' && request.command !== 'ffmpeg',
+      );
+    expect(dockerCalls.length).toBeGreaterThan(0);
+    for (const request of dockerCalls) {
+      expect(request.args[0]).toBe('--context');
+      expect(request.args[1]).toBe(context);
+      expect(request.args).not.toContain('orbstack');
+    }
+  },
+);
+
+it.skipIf(!posixHost)(
+  'reports a missing image as runtime failure, not success',
+  async () => {
+    const run = vi.fn(
+      async (request: ProcessRequest): Promise<ProcessResult> => {
+        if (request.args.includes('run'))
+          return { ...OK_PROCESS, code: 1, stderr: 'No such image' };
+        return OK_PROCESS;
+      },
+    );
+    const worker = await create(run);
+    expect(await worker.render(json)).toEqual({
+      status: 'failed',
+      reason: 'runtime',
+      diagnostics: { stdout: '', stderr: 'No such image' },
+    });
+  },
+);
+
+it.skipIf(!posixHost)(
+  'does not publish an artifact when FFprobe is unavailable',
+  async () => {
+    const { runProcess } = await import('./process.js');
+    const worker = await create(
+      async (request) => {
+        if (
+          request.command === '/no/ar/ffprobe' ||
+          request.command === '/no/ar/ffmpeg'
+        )
+          return runProcess(request);
+        return successfulRuntime(request);
+      },
+      { ffprobe: '/no/ar/ffprobe', ffmpeg: '/no/ar/ffmpeg' },
+    );
+    expect(await worker.render(json)).toMatchObject({
+      status: 'failed',
+      reason: 'artifact',
+    });
   },
 );
 
