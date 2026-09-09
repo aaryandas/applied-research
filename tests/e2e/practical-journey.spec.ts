@@ -155,7 +155,14 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
       });
     }, evidencePath);
     await page.getByRole('button', { name: 'Select a result file' }).click();
-    await expect(page.getByText('trial.txt')).toBeVisible();
+    await expect(
+      page.getByText(
+        'text/plain · 16 bytes · user-selected evidence, not an app measurement or source citation',
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('combobox', { name: 'Produce the output evidence' }),
+    ).toContainText('trial.txt');
     await page.getByRole('button', { name: 'Preview' }).click();
     await expect(page.getByLabel('Retained file preview')).toContainText(
       'trial-output=12',
