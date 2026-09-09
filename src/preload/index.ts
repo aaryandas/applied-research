@@ -19,7 +19,7 @@ import {
 } from '../contracts/practical-records';
 import { contextBridge, ipcRenderer } from 'electron';
 import {
-  readDesktopTestEnvironment,
+  desktopTestEnvironmentFromArgv,
   type DesktopBridge,
 } from '../contracts/desktop';
 import {
@@ -88,9 +88,7 @@ const desktop: DesktopBridge &
   info: {
     platform: process.platform,
     electronVersion: process.versions.electron,
-    testEnvironment: readDesktopTestEnvironment(
-      process.env.APPLIED_RESEARCH_TEST_ENVIRONMENT,
-    ),
+    testEnvironment: desktopTestEnvironmentFromArgv(process.argv),
   },
   accountStatus: () => ipcRenderer.invoke(AUTH_CHANNELS.accountStatus),
   signIn: () => ipcRenderer.invoke(AUTH_CHANNELS.signIn),

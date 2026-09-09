@@ -6,7 +6,10 @@ import {
 export const DESKTOP_E2E_ENV_VALUE: DesktopTestEnvironment =
   DESKTOP_E2E_TEST_ENVIRONMENT;
 
-/** Explicit bounded Electron test seam. Never a real-user or live-provider claim. */
+/** Explicit bounded Electron test seam for unpackaged Playwright `args: ['.']`.
+ * Main admits it only when `!app.isPackaged` (same as DIRECT_TUTOR). Never a
+ * real-user, live-provider, or packaged-release fixture.
+ */
 export function desktopE2EEnv(
   directory: string,
   extra: Record<string, string> = {},

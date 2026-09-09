@@ -6,6 +6,7 @@ import {
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
 import { SOURCE_CHANNELS } from '../contracts/source-desktop';
+import { DESKTOP_E2E_WINDOW_ARGUMENT } from '../contracts/desktop';
 
 vi.mock('electron', () => {
   const ipcRenderer = {
@@ -66,5 +67,31 @@ describe('preload named desktop bridge', () => {
       CONTEXTUAL_HELP_CHANNELS.loadCapture,
       SOURCE_CHANNELS.activate,
     ]);
+  });
+
+  it('does not enable the desktop-e2e fixture from process env alone', async () => {
+    vi.stubEnv('APPLIED_RESEARCH_TEST_ENVIRONMENT', 'desktop-e2e');
+    try {
+      await import('./index');
+      const desktop = vi.mocked(contextBridge.exposeInMainWorld).mock
+        .calls[0]![1] as { info: { testEnvironment: string | null } };
+      expect(desktop.info.testEnvironment).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('admits desktop-e2e only from the main-owned window argument', async () => {
+    const argv = process.argv.slice();
+    process.argv.push(DESKTOP_E2E_WINDOW_ARGUMENT);
+    try {
+      await import('./index');
+      const desktop = vi.mocked(contextBridge.exposeInMainWorld).mock
+        .calls[0]![1] as { info: { testEnvironment: string | null } };
+      expect(desktop.info.testEnvironment).toBe('desktop-e2e');
+    } finally {
+      process.argv.length = 0;
+      process.argv.push(...argv);
+    }
   });
 });

@@ -22,7 +22,10 @@ import {
   LEARNING_ONBOARDING_RESUME_CHANNELS,
 } from '../contracts/learning-onboarding';
 import { CONTEXTUAL_HELP_CHANNELS } from '../contracts/contextual-help-desktop';
-import { readDesktopTestEnvironment } from '../contracts/desktop';
+import {
+  admitDesktopTestEnvironment,
+  desktopE2EAdditionalArguments,
+} from './desktop-test-environment';
 import { LearningOnboardingOperations } from './learning-onboarding';
 import { makeAuthenticatedOnboardingTransport } from './learning-onboarding-transport';
 import { ContextualHelpOperations } from './contextual-help-operations';
@@ -105,9 +108,10 @@ const apiKey = developmentTutorEnabled
   ? (process.env.OPENROUTER_API_KEY ?? '')
   : '';
 let model = process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL;
-const desktopTestEnvironment = readDesktopTestEnvironment(
-  process.env.APPLIED_RESEARCH_TEST_ENVIRONMENT,
-);
+const desktopTestEnvironment = admitDesktopTestEnvironment({
+  isPackaged: app.isPackaged,
+  envValue: process.env.APPLIED_RESEARCH_TEST_ENVIRONMENT,
+});
 const authStorage = createAuthStorage(
   join(app.getPath('userData'), 'auth', 'session.json'),
   consoleDesktopAuthDiagnostics,
@@ -179,6 +183,9 @@ async function createWindow(): Promise<void> {
       sandbox: true,
       webSecurity: true,
       webviewTag: false,
+      additionalArguments: desktopE2EAdditionalArguments(
+        desktopTestEnvironment,
+      ),
     },
   });
   mainWindow = window;

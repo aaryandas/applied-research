@@ -21,6 +21,10 @@ import {
   useElectronCloseHandling,
 } from './electron-lifecycle';
 import { desktopE2EEnv } from './desktop-e2e-env';
+import {
+  packagedDesktopRuntime,
+  startLearningWorkspace,
+} from './start-learning-workspace';
 
 const evidence = process.env.AR24_EVIDENCE_DIR;
 const ASSEMBLY_QUOTE = 'A beacon module stacks a base, board, core and cover.';
@@ -64,10 +68,7 @@ async function openContextualWorkspace(
 ): Promise<Page> {
   const page = await application.firstWindow();
   useElectronCloseHandling(page);
-  await page
-    .getByLabel('What do you want to learn about?', { exact: true })
-    .fill('Inspect an assembly and a robot arm');
-  await page.getByRole('button', { name: 'Start learning' }).click();
+  await startLearningWorkspace(page, 'Inspect an assembly and a robot arm');
   await expect(
     page.getByRole('button', { name: 'Add source', exact: true }),
   ).toBeVisible();
@@ -159,6 +160,10 @@ async function loadSceneState(
 }
 
 test('manipulates actual local scenes, measures endpoints, pauses, and recovers context loss', async () => {
+  test.skip(
+    packagedDesktopRuntime(),
+    'Visual persist is unpackaged test-transport only; packaged production requires authenticated planner.',
+  );
   test.skip(
     process.platform !== 'darwin',
     'Capture stays disabled without a real GPU (xvfb / Windows CI).',
@@ -462,6 +467,10 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
 });
 
 test('offers usable text and parameters when WebGL context creation is unavailable', async () => {
+  test.skip(
+    packagedDesktopRuntime(),
+    'Visual persist is unpackaged test-transport only; packaged production requires authenticated planner.',
+  );
   test.info().annotations.push({
     type: 'not-acceptance',
     description:
@@ -510,6 +519,10 @@ test('offers usable text and parameters when WebGL context creation is unavailab
 });
 
 test('preserves typed arm drafts and exact camera pose across blur and focus', async () => {
+  test.skip(
+    packagedDesktopRuntime(),
+    'Visual persist is unpackaged test-transport only; packaged production requires authenticated planner.',
+  );
   test.skip(
     process.platform !== 'darwin',
     'Capture stays disabled without a real GPU (xvfb / Windows CI).',

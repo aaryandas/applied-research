@@ -21,10 +21,22 @@ import type { DesktopAccountState, DesktopSignOutResult } from './desktop-auth';
 export const DESKTOP_E2E_TEST_ENVIRONMENT = 'desktop-e2e' as const;
 export type DesktopTestEnvironment = typeof DESKTOP_E2E_TEST_ENVIRONMENT;
 
+/** Main-owned Chromium additionalArgument. Preload must not trust process env. */
+export const DESKTOP_E2E_WINDOW_ARGUMENT =
+  `--applied-research-test-entry=${DESKTOP_E2E_TEST_ENVIRONMENT}` as const;
+
 export function readDesktopTestEnvironment(
   value: string | undefined,
 ): DesktopTestEnvironment | null {
   return value === DESKTOP_E2E_TEST_ENVIRONMENT
+    ? DESKTOP_E2E_TEST_ENVIRONMENT
+    : null;
+}
+
+export function desktopTestEnvironmentFromArgv(
+  argv: readonly string[],
+): DesktopTestEnvironment | null {
+  return argv.includes(DESKTOP_E2E_WINDOW_ARGUMENT)
     ? DESKTOP_E2E_TEST_ENVIRONMENT
     : null;
 }

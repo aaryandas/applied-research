@@ -24,6 +24,7 @@ import {
   settleActivatedWorkspace,
 } from './guest-lifecycle';
 import { desktopE2EEnv } from './desktop-e2e-env';
+import { startLearningWorkspace } from './start-learning-workspace';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
@@ -84,6 +85,35 @@ async function resizeViewport(
   return true;
 }
 
+test('packaged production cannot skip Opening from the desktop-e2e environment', async () => {
+  test.skip(!PACKAGED, 'Production-mode negative for the packaged executable.');
+  const directory = mkdtempSync(
+    join(tmpdir(), 'applied-electron-packaged-e2e-'),
+  );
+  const application = await launch(directory);
+  try {
+    const page = await application.firstWindow();
+    useElectronCloseHandling(page);
+    await expect(
+      page.getByLabel('What do you want to learn about?', { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByLabel('What do you want to learn about?', { exact: true })
+      .fill('Keep propose and accept required in packaged production');
+    await page.getByRole('button', { name: 'Start learning' }).click();
+    await expect(
+      page.getByText(/uncertainty is a valid answer/i),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Reading' })).toHaveCount(0);
+    expect(
+      await page.evaluate(() => window.desktop.info.testEnvironment ?? null),
+    ).toBeNull();
+  } finally {
+    await closeTestApplication(application);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('saves an offline learning space, edits and layout across a real Electron restart', async () => {
   test.setTimeout(60_000);
   const directory = mkdtempSync(join(tmpdir(), 'applied-electron-'));
@@ -105,10 +135,7 @@ test('saves an offline learning space, edits and layout across a real Electron r
     ).toBe('undefined');
     await page.evaluate(() => window.open('https://example.com'));
     expect(application.windows()).toHaveLength(1);
-    await page
-      .getByLabel('What do you want to learn about?', { exact: true })
-      .fill('Understand linear transformations');
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    await startLearningWorkspace(page, 'Understand linear transformations');
     await page.getByRole('button', { name: 'Add source', exact: true }).click();
     await page.getByLabel('Source title').fill('Synthetic shear source');
     await page
@@ -279,10 +306,7 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
     const page = await application.firstWindow();
     useElectronCloseHandling(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page
-      .getByLabel('What do you want to learn about?', { exact: true })
-      .fill('Build an intuition for linear algebra');
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    await startLearningWorkspace(page, 'Build an intuition for linear algebra');
     await settleActivatedWorkspace(page);
     // Guest and development tutor controls are no longer shell destinations.
     // Exercise their supported named preload operations against real main and SQLite.
@@ -606,7 +630,18 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await input.focus();
     await expect(input).toBeFocused();
     await input.fill('A robot that can find its way');
-    await input.press('Enter');
+    if (PACKAGED) {
+      await page.evaluate(async () => {
+        await window.desktop.createProject('A robot that can find its way');
+      });
+      await page.reload();
+      useElectronCloseHandling(page);
+      await page
+        .getByRole('button', { name: /A robot that can find its way/ })
+        .click();
+    } else {
+      await input.press('Enter');
+    }
     await expect(page.locator('.reader-project')).toHaveText(
       'A robot that can find its way',
     );
@@ -753,7 +788,16 @@ test('ports the accepted Opening with live entry, saved rows, fonts and keyboard
     await page.screenshot({
       path: test.info().outputPath('opening-long-input-820x620.png'),
     });
-    await page.getByRole('button', { name: 'Start learning' }).click();
+    if (PACKAGED) {
+      await page.evaluate(async (topic) => {
+        await window.desktop.createProject(topic);
+      }, longTopic.trim());
+      await page.reload();
+      useElectronCloseHandling(page);
+      await page.getByRole('button', { name: longTopic.trim() }).click();
+    } else {
+      await page.getByRole('button', { name: 'Start learning' }).click();
+    }
     await expect(page.locator('.reader-project')).toHaveText(longTopic.trim());
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await expect(

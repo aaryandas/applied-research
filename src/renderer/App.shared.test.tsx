@@ -245,3 +245,21 @@ it('opens a fresh project through the desktop-e2e seam instead of onboarding', a
     screen.queryByText(/uncertainty is a valid answer/i),
   ).not.toBeInTheDocument();
 });
+
+it('keeps Opening onboarding when the renderer forges a non-admitted test environment', async () => {
+  const { bridge, onboarding } = setup();
+  (bridge.info as { testEnvironment: string | null }).testEnvironment =
+    'desktop-e2e-forged';
+  vi.mocked(bridge.listProjects).mockResolvedValue([]);
+  render(<App bridge={bridge} />);
+  fireEvent.change(
+    await screen.findByLabelText('What do you want to learn about?'),
+    { target: { value: 'Keep propose and accept required' } },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start learning' }));
+  expect(
+    await screen.findByText(/uncertainty is a valid answer/i),
+  ).toBeVisible();
+  expect(onboarding.proposeCourse).not.toHaveBeenCalled();
+  expect(screen.queryByRole('heading', { name: 'Reading' })).toBeNull();
+});
