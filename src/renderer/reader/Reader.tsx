@@ -364,13 +364,22 @@ function ProjectReader({
         />
       );
     return (
-      <>
-        <h2>Start with a source</h2>
-        <p>Add pasted text to read and keep notes in your own words.</p>
-        <button onClick={() => void retainSelectionAndBegin('question')}>
-          Save a question
-        </button>
-      </>
+      <div className="ui-empty-state">
+        <h2 className="ui-heading ui-empty-state__title">
+          Start with a source
+        </h2>
+        <p className="ui-empty-state__body">
+          Add pasted text to read and keep notes in your own words.
+        </p>
+        <div className="ui-empty-state__action">
+          <button
+            className="ui-button ui-button--text"
+            onClick={() => void retainSelectionAndBegin('question')}
+          >
+            Save a question
+          </button>
+        </div>
+      </div>
     );
   }
   return (
@@ -391,13 +400,18 @@ function ProjectReader({
         <header className="reader-header">
           <h1>Reading</h1>
           <button
+            className="ui-button ui-button--secondary"
             onClick={() => void beforeNavigation(() => setImporting('new'))}
           >
             Add source
           </button>
         </header>
         {workspace.unreadableProjects.map((diagnostic, index) => (
-          <p role="alert" key={`${diagnostic.projectId}-${index}`}>
+          <p
+            role="alert"
+            className="ui-alert ui-alert--error"
+            key={`${diagnostic.projectId}-${index}`}
+          >
             Saved project content could not be read: {diagnostic.reason}
           </p>
         ))}

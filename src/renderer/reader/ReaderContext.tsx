@@ -6,6 +6,7 @@ import type {
   LearningWorkspace,
   SourceRecord,
 } from '../../contracts/learning-records';
+import { EmptyState } from '../shell/ui';
 import { DraftSession } from './draft-session';
 import { NoteComposer } from './NoteComposer';
 import { EntryOrigin, InsightSupports } from './EntryOrigin';
@@ -34,6 +35,9 @@ export function ReaderContext({
   onSource,
 }: Readonly<ReaderContextProps>): ReactElement {
   const humanSupports = workspace.entries.filter(isHumanSupport);
+  const insights = workspace.entries.filter(
+    (entry) => entry.current.kind === 'insight',
+  );
   return (
     <aside className="reader-context" aria-label="Reading context">
       <NoteComposer session={session} workspace={workspace} />
@@ -44,12 +48,12 @@ export function ReaderContext({
           <Tab id="sources">Sources</Tab>
         </TabList>
         <TabPanel id="notes">
-          <h2 className="reader-visually-hidden">Notes and questions</h2>
+          <h2 className="ui-sr-only">Notes and questions</h2>
           {humanSupports.length === 0 && (
-            <p className="reader-muted">
-              Highlight a passage and click Note to summarize it in your own
-              words.
-            </p>
+            <EmptyState
+              title="No notes yet"
+              body="Highlight a passage and click Note to summarize it in your own words."
+            />
           )}
           {humanSupports.map((entry) => (
             <section className="reader-entry" key={entry.id}>
@@ -71,7 +75,12 @@ export function ReaderContext({
                 Human {entry.current.kind} · revision {entry.currentRevision}
               </p>
               <p className="reader-human">{entry.current.body}</p>
-              <button onClick={() => onEdit(entry)}>Edit</button>
+              <button
+                className="ui-button ui-button--text"
+                onClick={() => onEdit(entry)}
+              >
+                Edit
+              </button>
               <EntryOrigin
                 revision={entry.current}
                 workspace={workspace}
@@ -79,41 +88,46 @@ export function ReaderContext({
               />
             </section>
           ))}
-          <button disabled={supports.length < 2 || busy} onClick={onInsight}>
+          <button
+            className="ui-button ui-button--secondary"
+            disabled={supports.length < 2 || busy}
+            onClick={onInsight}
+          >
             Create insight
           </button>
         </TabPanel>
         <TabPanel id="insights">
-          <h2 className="reader-visually-hidden">Insights</h2>
-          {workspace.entries
-            .filter((entry) => entry.current.kind === 'insight')
-            .map((entry) => (
-              <section key={entry.id}>
-                <p className="reader-coordinate">
-                  {entry.current.authorKind === 'human' ? 'Human' : 'AI'}{' '}
-                  insight
-                </p>
-                <p
-                  className={
-                    entry.current.authorKind === 'human'
-                      ? 'reader-human'
-                      : undefined
-                  }
-                >
-                  {entry.current.body}
-                </p>
-                <InsightSupports
-                  revision={entry.current}
-                  workspace={workspace}
-                  onOpen={onOpenOrigin}
-                />
-              </section>
-            ))}
+          <h2 className="ui-sr-only">Insights</h2>
+          {insights.map((entry) => (
+            <section key={entry.id}>
+              <p className="reader-coordinate">
+                {entry.current.authorKind === 'human' ? 'Human' : 'AI'} insight
+              </p>
+              <p
+                className={
+                  entry.current.authorKind === 'human'
+                    ? 'reader-human'
+                    : undefined
+                }
+              >
+                {entry.current.body}
+              </p>
+              <InsightSupports
+                revision={entry.current}
+                workspace={workspace}
+                onOpen={onOpenOrigin}
+              />
+            </section>
+          ))}
         </TabPanel>
         <TabPanel id="sources">
-          <h2 className="reader-visually-hidden">Sources</h2>
+          <h2 className="ui-sr-only">Sources</h2>
           {workspace.sources.map((source) => (
-            <button key={source.id} onClick={() => onSource(source)}>
+            <button
+              className="ui-button"
+              key={source.id}
+              onClick={() => onSource(source)}
+            >
               {source.currentVersion.title}
             </button>
           ))}

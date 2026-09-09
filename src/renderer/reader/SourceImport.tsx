@@ -75,16 +75,16 @@ export function SourceImport({
   }
   return (
     <form
-      className="reader-import"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
       <h2>{source ? 'Update source' : 'Add a source'}</h2>
-      <label>
-        <span>Source title</span>
+      <label className="ui-field">
+        <span className="ui-field__label">Source title</span>
         <input
+          className="ui-input"
           required
           value={title}
           readOnly={saving}
@@ -92,9 +92,10 @@ export function SourceImport({
           onChange={(event) => setTitle(event.target.value)}
         />
       </label>
-      <label>
-        <span>Exact source text</span>
+      <label className="ui-field">
+        <span className="ui-field__label">Exact source text</span>
         <textarea
+          className="ui-textarea"
           required
           value={text}
           readOnly={saving}
@@ -102,9 +103,10 @@ export function SourceImport({
           onChange={(event) => setText(event.target.value)}
         />
       </label>
-      <label>
-        <span>Source locator (optional)</span>
+      <label className="ui-field">
+        <span className="ui-field__label">Source locator (optional)</span>
         <input
+          className="ui-input"
           type="url"
           value={locator}
           readOnly={saving}
@@ -112,9 +114,14 @@ export function SourceImport({
           onChange={(event) => setLocator(event.target.value)}
         />
       </label>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p className="ui-alert ui-alert--error" role="alert">
+          {error}
+        </p>
+      )}
       {conflictRevision !== null && (
         <button
+          className="ui-button"
           type="button"
           onClick={async () => {
             try {
@@ -150,6 +157,7 @@ export function SourceImport({
             {latestSource.currentVersion.canonicalText}
           </p>
           <button
+            className="ui-button"
             type="button"
             onClick={() => {
               setExpectedRevision(latestSource.currentRevision);
@@ -164,15 +172,21 @@ export function SourceImport({
           </button>
         </section>
       )}
-      <div className="reader-actions">
+      <div className="ui-action-row">
         <button
+          className="ui-button ui-button--primary"
           type="submit"
           disabled={conflictRevision !== null}
           aria-disabled={saving}
         >
           {saving ? 'Importing…' : 'Import source'}
         </button>
-        <button type="button" disabled={saving} onClick={onCancel}>
+        <button
+          className="ui-button ui-button--text"
+          type="button"
+          disabled={saving}
+          onClick={onCancel}
+        >
           Discard import
         </button>
       </div>
