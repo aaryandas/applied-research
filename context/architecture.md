@@ -107,3 +107,13 @@ Before domain implementation, design stable source/artifact identities, human-au
   GitHub or Railway evidence.
 - The same smoke test runs against the unpacked application, catching missing preload/renderer files and packaging mistakes.
 - CI runs on Linux, Windows, and macOS. This is a scaffold verification floor; live provider/learning-quality evaluations and production capacity checks remain outstanding.
+
+## Trusted source adoption checkpoint
+
+[AR-37 source adoption](source-adoption.md) adds main-only acquisition/generation
+acceptance to the local store. Validated remote editions map to per-project local
+UUIDs; source content, provenance and Canvas placements commit atomically. Generated
+teaching text remains AI-authored and separately references immutable originals.
+Project/request-scoped commit capabilities reject cancellation and stale results.
+No trusted-content write is exposed through preload; actual authenticated producer,
+selection and shell wiring remain dependent integration work.

@@ -1,3 +1,5 @@
+import type { SourceFormat } from './learning-api';
+import type { SourceProvenance } from './source-provenance';
 import type { Citation, EntryKind } from './workspace';
 
 export const LEARNING_CHANNELS = {
@@ -70,13 +72,10 @@ export interface SourceVersion {
   title: string;
   canonicalText: string;
   sha256: string;
-  format: 'plain-text';
-  canonicalizationVersion: '1';
+  format: SourceFormat;
+  canonicalizationVersion: string;
   acquiredAt: string;
-  provenance: {
-    kind: 'human-imported';
-    locator: string | null;
-  };
+  provenance: SourceProvenance;
 }
 
 export interface SourceRecord {

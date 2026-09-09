@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_890_400_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_915_600_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -48,6 +48,9 @@ const EXPECTED_TABLE_COLUMNS = {
     'acquired_at',
     'provenance',
     'locator',
+    'remote_source_id',
+    'remote_revision_id',
+    'provenance_json',
   ],
   source_highlights: [
     'id',
@@ -476,6 +479,10 @@ function runPendingMigrations(
   migrationsFolder: string,
 ): void {
   const migrationTableExisted = tableNames(database).includes(MIGRATIONS_TABLE);
+  // SQLite's generalized ALTER TABLE procedure requires this outside the
+  // transaction. Migration 0002 checks every foreign key before it can commit.
+  const foreignKeys = database.pragma('foreign_keys', { simple: true });
+  database.pragma('foreign_keys = OFF');
   try {
     migrate(drizzle(database), { migrationsFolder });
   } catch (error_) {
@@ -484,6 +491,10 @@ function runPendingMigrations(
       code: 'migration-execution-failed',
       cause: error_,
     });
+  } finally {
+    database.pragma(
+      foreignKeys === 1 ? 'foreign_keys = ON' : 'foreign_keys = OFF',
+    );
   }
 }
 

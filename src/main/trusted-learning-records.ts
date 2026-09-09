@@ -20,6 +20,7 @@ export interface TrustedLearningPathAcceptance {
       objective: string;
       activity: string;
       citations: SourceCitation[];
+      sourceRevisionId?: string;
     }>;
   };
 }
@@ -148,6 +149,14 @@ export function decodeTrustedLearningPath(
             4_000,
           ),
           citations: step.citations.map(citation),
+          ...(step.sourceRevisionId === undefined
+            ? {}
+            : {
+                sourceRevisionId: decodeUuid(
+                  step.sourceRevisionId,
+                  'lesson source revision id',
+                ),
+              }),
         };
       }),
     },

@@ -65,6 +65,9 @@ export function writeTextSource(
         .where(eq(sourceVersions.id, existing.currentVersionId))
         .get()
     : undefined;
+  if (currentVersion && currentVersion.provenance !== 'human-imported') {
+    throw new Error('Trusted sources cannot be edited through human import.');
+  }
   const locator = input.locator ?? null;
   const sha256 = createHash('sha256').update(input.text, 'utf8').digest('hex');
   if (
