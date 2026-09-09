@@ -51,7 +51,11 @@
       "src/renderer/Opening.tsx",
       "src/renderer/Opening.test.tsx",
       "src/renderer/FieldAtlas.tsx",
-      "src/renderer/assets/**"
+      "src/renderer/assets/**",
+      "src/renderer/onboarding/**",
+      "src/renderer/settings/LearnerProfile*",
+      "src/main/learning-onboarding*.ts",
+      "drizzle/0005_learning_onboarding.sql"
     ],
     "storage": [
       "src/main/workspace-*.ts",
