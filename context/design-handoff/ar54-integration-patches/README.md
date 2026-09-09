@@ -9,6 +9,7 @@ Remote delivery composition is in:
 
 - [AR48-REMOTE-DELIVERY.md](./AR48-REMOTE-DELIVERY.md) — remote engine, origin grant, public routes
 - [AR51-CLIP-IDENTITY.md](./AR51-CLIP-IDENTITY.md) — reserved explanation IDs and previous useful result
+- [AR53-CLIP-STAGE-CONTRACT.md](./AR53-CLIP-STAGE-CONTRACT.md) — nonnegative verified stage seconds (**pending**)
 - [AR56-CLIP-PLAYER.md](./AR56-CLIP-PLAYER.md) — opaque `ar-media:` mount
 - [LANE-ALLOWLIST.md](./LANE-ALLOWLIST.md) — `src/main/clip-*.ts`
 
@@ -143,7 +144,9 @@ player is the clip consumer.
 
 - Trusted Docker context + pinned ARM image on GitHub-hosted `ubuntu-24.04-arm`
   (proposed job in `manim-evidence.yml`; AR-41 must publish and run it)
-- AR-53 public type names
+- AR-53 public type names **and nonnegative verified stage seconds**
+  (see [AR53-CLIP-STAGE-CONTRACT.md](./AR53-CLIP-STAGE-CONTRACT.md); pending
+  until the contracts owner applies it)
 - AR-48 route composition
 - Electron CSP/protocol registration
 - Reader/Canvas artifact node
