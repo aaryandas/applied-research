@@ -64,6 +64,13 @@
       "when": 1788955200000,
       "tag": "0008_explanation_canvas_placements",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788966000000,
+      "tag": "0009_learning_adjustment_history",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@ import type { Project } from '../contracts/workspace';
 import { hasEntryOriginColumns } from './entry-origin-persistence';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_955_200_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_966_000_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -319,6 +319,30 @@ const EXPECTED_TABLE_COLUMNS = {
     'x',
     'y',
     'updated_at',
+  ],
+  learning_adjustment_revisions: [
+    'project_id',
+    'adjustment_id',
+    'revision',
+    'accepted_proposal_id',
+    'accepted_proposal_revision',
+    'envelope_json',
+    'projection_json',
+    'proposed_request_id',
+    'reviewed_path_revision',
+    'reviewed_accepted_adjustment_id',
+    'reviewed_accepted_adjustment_revision',
+    'reviewed_base_digest',
+    'proposed_at',
+  ],
+  learning_adjustment_acceptances: [
+    'request_id',
+    'project_id',
+    'adjustment_id',
+    'adjustment_revision',
+    'reviewed_base_digest',
+    'resulting_path_revision',
+    'accepted_at',
   ],
   __drizzle_migrations: ['id', 'hash', 'created_at'],
 } as const;

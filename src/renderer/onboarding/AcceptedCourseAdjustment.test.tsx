@@ -32,6 +32,53 @@ const proposal: CourseAdjustmentProposal = {
       field: 'practice',
       before: 'Produce a working tokenizer on a short corpus.',
       after: 'Produce a tokenizer and a documented unknown-token rule.',
+      practiceBefore: {
+        kind: 'source-supported-practice-brief',
+        author: 'ai',
+        masteryEstablished: false,
+        intendedOutcome: 'Produce a working tokenizer on a short corpus.',
+        setup: 'Python 3, a small text file, and the paper vocabulary rules.',
+        tool: {
+          kind: 'learner-external',
+          toolName: 'Python and a local editor',
+          intendedUse:
+            'Implement tokenization outside the app and return the vocabulary file.',
+        },
+        instructions:
+          'Tokenize the sample corpus using the paper’s rules and save the vocabulary.',
+        observableCheckpoints: [
+          'Vocabulary size is computed from the corpus.',
+          'Unknown tokens have an explicit rule.',
+        ],
+        expectedArtifact: 'A tokenizer script plus a saved vocabulary file.',
+        reflectionPrompt:
+          'What broke when the corpus differed from the paper example?',
+        sourceIds: ['openalex_W1'],
+      },
+      practiceAfter: {
+        kind: 'source-supported-practice-brief',
+        author: 'ai',
+        masteryEstablished: false,
+        intendedOutcome:
+          'Produce a tokenizer and a documented unknown-token rule.',
+        setup: 'Python 3, a small text file, and the paper vocabulary rules.',
+        tool: {
+          kind: 'learner-external',
+          toolName: 'Python and a local editor',
+          intendedUse:
+            'Implement tokenization outside the app and return the vocabulary file.',
+        },
+        instructions:
+          'Tokenize the sample corpus using the paper’s rules and save the vocabulary.',
+        observableCheckpoints: [
+          'Vocabulary size is computed from the corpus.',
+          'Unknown tokens have an explicit rule.',
+        ],
+        expectedArtifact: 'A tokenizer script plus a saved vocabulary file.',
+        reflectionPrompt:
+          'What broke when the corpus differed from the paper example?',
+        sourceIds: ['openalex_W1'],
+      },
     },
   ],
   sources: [
@@ -53,6 +100,11 @@ const proposal: CourseAdjustmentProposal = {
   ],
   gaps: [],
   acceptance: 'ready',
+  reviewedBase: {
+    pathRevision: 1,
+    acceptedAdjustment: null,
+    digest: '0000000000000000000000000000000000000000000000000000000000000000',
+  },
 };
 
 function snapshot() {
@@ -88,6 +140,7 @@ function snapshot() {
       },
     },
     adjustment: null,
+    acceptedAdjustment: null,
   };
 }
 
@@ -115,6 +168,20 @@ it('shows before/after overlay and requires explicit accept without rewriting re
           recordedRevision: 1,
           remoteStepId: 'step-002',
           lessonTitle: 'Tokenizer practice',
+          activity: {
+            projectId: proposal.projectId,
+            origin: {
+              path: {
+                pathId: '11111111-1111-4111-8111-111111111111',
+                pathRevision: 1,
+                topicId: '22222222-2222-4222-8222-222222222222',
+                lessonId: '33333333-3333-4333-8333-333333333333',
+              },
+            },
+            title: 'Tokenizer practice',
+            instructions: 'Tokenize a short corpus outside the app.',
+            objective: 'Produce a working tokenizer on a short corpus.',
+          },
         },
       ]}
       bridge={
@@ -147,16 +214,36 @@ it('shows before/after overlay and requires explicit accept without rewriting re
     screen.getByText('Tokenizer unknown-token handling before LoRA.'),
   ).toBeVisible();
   expect(
+    screen.getByText(/Outcome: Produce a working tokenizer on a short corpus/),
+  ).toBeVisible();
+  expect(
     screen.getByText(
-      'Produce a tokenizer and a documented unknown-token rule.',
+      /Outcome: Produce a tokenizer and a documented unknown-token rule/,
     ),
   ).toBeVisible();
+  expect(screen.getAllByText(/Setup: Python 3, a small text file/).length).toBe(
+    2,
+  );
+  expect(
+    screen.getAllByText(/Expected artifact: A tokenizer script/).length,
+  ).toBe(2);
+  expect(
+    screen.getAllByText(/Reflection: What broke when the corpus differed/)
+      .length,
+  ).toBe(2);
+  expect(screen.getAllByText(/Sources: openalex_W1/).length).toBe(2);
   expect(propose).toHaveBeenCalledWith(
     expect.objectContaining({
       notes: 'Tokenizer practice still failed on unknown tokens.',
       progress: {
         practicalAttempts: [
-          expect.objectContaining({ remoteStepId: 'step-002' }),
+          expect.objectContaining({
+            remoteStepId: 'step-002',
+            activity: expect.objectContaining({
+              projectId: proposal.projectId,
+              title: 'Tokenizer practice',
+            }),
+          }),
         ],
       },
     }),

@@ -166,6 +166,10 @@ const desktop: DesktopBridge &
     ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.accept, input),
   ensureLesson: (input) =>
     ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.ensureLesson, input),
+  proposeAcceptedCourseAdjustment: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.adjust, input),
+  acceptCourseAdjustment: (input) =>
+    ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.acceptAdjustment, input),
   cancelLearningOnboarding: (input) =>
     ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.cancel, input),
   getContinueLearning: () =>

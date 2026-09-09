@@ -479,6 +479,20 @@ async function createWindow(): Promise<void> {
       value as Parameters<LearningOnboardingOperations['ensureLesson']>[0],
     ),
   );
+  handle(LEARNING_ONBOARDING_CHANNELS.adjust, (value) =>
+    onboardingOperations.proposeAcceptedCourseAdjustment(
+      value as Parameters<
+        LearningOnboardingOperations['proposeAcceptedCourseAdjustment']
+      >[0],
+    ),
+  );
+  handle(LEARNING_ONBOARDING_CHANNELS.acceptAdjustment, (value) =>
+    onboardingOperations.acceptCourseAdjustment(
+      value as Parameters<
+        LearningOnboardingOperations['acceptCourseAdjustment']
+      >[0],
+    ),
+  );
   handle(LEARNING_ONBOARDING_CHANNELS.cancel, (value) =>
     onboardingOperations.cancelLearningOnboarding(
       value as Parameters<

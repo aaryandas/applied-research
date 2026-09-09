@@ -4,6 +4,7 @@ import type {
   CourseProposalSuccess,
   InterviewPromptSuccess,
   LearningOnboardingRequest,
+  ReviewedCourseProjection,
   SelectedLessonSuccess,
   UntrustedHumanLearnerContext,
 } from '../contracts/learning-onboarding-api';
@@ -11,6 +12,68 @@ import {
   LEARNING_ONBOARDING_API_VERSION,
   ONBOARDING_CONTEXT_TRUST,
 } from '../contracts/learning-onboarding-api';
+import { createLearningOnboardingValidation } from '../contracts/learning-onboarding-validation';
+import { sha256Text } from './source-contract-validation';
+
+const onboardingValidation = createLearningOnboardingValidation(sha256Text);
+
+export function reviewedBaseFromRequest(request: LearningOnboardingRequest): {
+  pathRevision: number;
+  acceptedAdjustment: ReviewedCourseProjection['acceptedAdjustment'];
+  digest: string;
+} {
+  const reviewed =
+    request.operation.kind === 'adjust-accepted-course' ||
+    request.operation.kind === 'generate-selected-lesson' ||
+    request.operation.kind === 'revise-course'
+      ? request.operation.model.reviewedCourse
+      : null;
+  const syllabus =
+    request.operation.kind === 'adjust-accepted-course' ||
+    request.operation.kind === 'generate-selected-lesson' ||
+    request.operation.kind === 'revise-course'
+      ? request.operation.model.syllabus
+      : undefined;
+  const projection = reviewed ?? {
+    acceptedAdjustment: null,
+    pathRevision: 1,
+    focus: null,
+    depth: null,
+    pendingFieldChanges: [],
+  };
+  const pending = [
+    ...projection.pendingFieldChanges.map((change) => ({
+      remoteStepId: change.remoteStepId,
+      field: change.field,
+      value: change.value,
+      practiceDigest: null as string | null,
+    })),
+    ...(syllabus?.topics ?? []).flatMap((topic) =>
+      topic.lessons
+        .filter(
+          (lesson) =>
+            lesson.sourceState !== 'ready' && lesson.practiceDigest !== null,
+        )
+        .map((lesson) => ({
+          remoteStepId: lesson.stepId,
+          field: 'practice' as const,
+          value: '',
+          practiceDigest: lesson.practiceDigest,
+        })),
+    ),
+  ];
+  return {
+    pathRevision: projection.pathRevision,
+    acceptedAdjustment: projection.acceptedAdjustment,
+    digest: onboardingValidation.reviewedBaseDigest({
+      pathRevision: projection.pathRevision,
+      acceptedAdjustment: projection.acceptedAdjustment,
+      focus: projection.focus,
+      depth: projection.depth,
+      pending,
+    }),
+  };
+}
 import type { AcquiredSource } from '../contracts/sourcing';
 import type { ProposalSource } from '../contracts/learning-onboarding';
 
@@ -465,10 +528,22 @@ export function adjustmentSuccess(
           field: 'practice',
           before: tokenizerBrief.intendedOutcome,
           after: adjusted.intendedOutcome,
+          practiceBefore: tokenizerBrief,
           practice: adjusted,
         },
       ],
       citations: [citation],
+      reviewedBase: {
+        pathRevision: 1,
+        acceptedAdjustment: null,
+        digest: onboardingValidation.reviewedBaseDigest({
+          pathRevision: 1,
+          acceptedAdjustment: null,
+          focus: null,
+          depth: null,
+          pending: [],
+        }),
+      },
     },
     sources: [acquiredSource],
     bibliography: [bibliographySource],

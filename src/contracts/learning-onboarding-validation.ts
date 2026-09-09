@@ -36,6 +36,7 @@ import type {
   CourseAdjustmentPatch,
   CourseAdjustmentPatchField,
   CourseAdjustmentProgress,
+  CourseAdjustmentReviewedBase,
   GenerateSelectedLessonOperation,
   GeneratedCoursePracticeBrief,
   HumanDiagnosticAnswer,
@@ -58,8 +59,10 @@ import type {
   OnboardingUnavailable,
   OpaqueRevisionRef,
   PracticalAttemptLocator,
+  PracticalAttemptWorkContext,
   ProposalSource,
   ProposeCourseOperation,
+  ReviewedCourseProjection,
   ReviseCourseOperation,
   SeedRevisionLocator,
   SelectedLessonSuccess,
@@ -67,29 +70,31 @@ import type {
   UntrustedHumanLearnerContext,
   UntrustedModelSyllabusContext,
 } from './learning-onboarding-api.js';
-import type {
-  AcceptCourseAdjustmentInput,
-  AcceptCourseInput,
-  AcceptedStepMapping,
-  AdjustAcceptedCourseInput,
-  CourseAdjustmentProposal,
-  CourseProposal,
-  EnsureLessonInput,
-  InterviewAnswer,
-  InterviewDraft,
-  InterviewPrompt,
-  InterviewPromptInput,
-  InterviewRecord,
-  LearnerProfile,
-  LearnerProfileDraft,
-  LearningOnboardingSnapshot,
-  OnboardingRequest,
-  ProposeCourseInput,
-  RevisionWrite,
-  ReviseCourseInput,
-  SaveLearnerProfileInput,
-  SaveLearningInterviewInput,
+import {
+  ADJUSTMENT_NOTES_PROMPT_ID,
+  type AcceptCourseAdjustmentInput,
+  type AcceptCourseInput,
+  type AcceptedStepMapping,
+  type AdjustAcceptedCourseInput,
+  type CourseAdjustmentProposal,
+  type CourseProposal,
+  type EnsureLessonInput,
+  type InterviewAnswer,
+  type InterviewDraft,
+  type InterviewPrompt,
+  type InterviewPromptInput,
+  type InterviewRecord,
+  type LearnerProfile,
+  type LearnerProfileDraft,
+  type LearningOnboardingSnapshot,
+  type OnboardingRequest,
+  type ProposeCourseInput,
+  type RevisionWrite,
+  type ReviseCourseInput,
+  type SaveLearnerProfileInput,
+  type SaveLearningInterviewInput,
 } from './learning-onboarding.js';
+import { isPracticalActivity } from './practical-work.js';
 import { isRemoteText } from './source-text.js';
 import { createSourceContractValidation } from './source-contract-validation.js';
 import {
@@ -231,6 +236,18 @@ export interface LearningOnboardingValidation {
   parseAdjustAcceptedCourseInput(value: unknown): AdjustAcceptedCourseInput;
   parseAcceptCourseAdjustmentInput(value: unknown): AcceptCourseAdjustmentInput;
   parseCourseAdjustmentProposal(value: unknown): CourseAdjustmentProposal;
+  reviewedBaseDigest(input: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    focus: string | null;
+    depth: LessonDepth | null;
+    pending: readonly {
+      remoteStepId: string;
+      field: 'objective' | 'activity' | 'practice';
+      value: string;
+      practiceDigest: string | null;
+    }[];
+  }): string;
   parseOnboardingRequest(value: unknown): OnboardingRequest;
   parseCourseProposal(value: unknown): CourseProposal;
   parseAcceptedStepMapping(value: unknown): AcceptedStepMapping;
@@ -415,6 +432,39 @@ export function createLearningOnboardingValidation(
           brief.reflectionPrompt,
           brief.sourceIds.join('\n'),
         ].join('\0'),
+      ),
+    );
+  }
+
+  function reviewedBaseDigest(input: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    focus: string | null;
+    depth: LessonDepth | null;
+    pending: readonly {
+      remoteStepId: string;
+      field: 'objective' | 'activity' | 'practice';
+      value: string;
+      practiceDigest: string | null;
+    }[];
+  }): string {
+    const pending = [...input.pending]
+      .map(
+        (item) =>
+          `${item.remoteStepId}\0${item.field}\0${item.value}\0${item.practiceDigest ?? ''}`,
+      )
+      .sort();
+    return validateSha256(
+      sha256Text(
+        [
+          String(input.pathRevision),
+          input.acceptedAdjustment
+            ? `${input.acceptedAdjustment.id}:${input.acceptedAdjustment.revision}`
+            : '',
+          input.focus ?? '',
+          input.depth ?? '',
+          ...pending,
+        ].join('\n'),
       ),
     );
   }
@@ -1056,7 +1106,16 @@ export function createLearningOnboardingValidation(
         'attemptId',
         'recordedRevision',
         'remoteStepId',
+        'activity',
       ]);
+      if (!isPracticalActivity(locator.activity)) {
+        invalid('Practical attempt activity identity is invalid.');
+      }
+      if (
+        locator.activity.projectId !== identifier(input.projectId, 'Project id')
+      ) {
+        invalid('Practical attempt activity must belong to this project.');
+      }
       return {
         attemptId: identifier(locator.attemptId, 'Attempt id'),
         recordedRevision: boundedInteger(
@@ -1066,6 +1125,7 @@ export function createLearningOnboardingValidation(
           'Attempt revision',
         ),
         remoteStepId: identifier(locator.remoteStepId, 'Remote step id'),
+        activity: locator.activity,
       };
     });
     if (
@@ -1610,6 +1670,7 @@ export function createLearningOnboardingValidation(
       'sources',
       'gaps',
       'acceptance',
+      'reviewedBase',
     ]);
     rejectForbiddenAuthority(input);
     if (
@@ -1632,12 +1693,29 @@ export function createLearningOnboardingValidation(
         'field',
         'before',
         'after',
+        'practiceBefore',
+        'practiceAfter',
       ]);
       if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, patch.field)) {
         invalid('Course adjustment patch field is invalid.');
       }
       if (patch.sourceState === 'ready') {
         invalid('Ready lessons cannot appear in an adjustment overlay.');
+      }
+      const field: CourseAdjustmentPatchField = patch.field;
+      const practiceBefore =
+        field === 'practice'
+          ? patch.practiceBefore === null
+            ? null
+            : practiceBrief(patch.practiceBefore)
+          : null;
+      const practiceAfter =
+        field === 'practice' ? practiceBrief(patch.practiceAfter) : null;
+      if (field !== 'practice' && patch.practiceBefore !== null) {
+        invalid('Non-practice adjustment patches cannot include a brief.');
+      }
+      if (field !== 'practice' && patch.practiceAfter !== null) {
+        invalid('Non-practice adjustment patches cannot include a brief.');
       }
       return {
         remoteStepId: identifier(patch.remoteStepId, 'Remote step id'),
@@ -1647,7 +1725,7 @@ export function createLearningOnboardingValidation(
           'Lesson title',
         ),
         sourceState: sourceState(patch.sourceState),
-        field: patch.field,
+        field,
         before: boundedText(
           patch.before,
           LIMITS.adjustmentBeforeAfterCharacters,
@@ -1658,6 +1736,8 @@ export function createLearningOnboardingValidation(
           LIMITS.adjustmentBeforeAfterCharacters,
           'Adjustment after',
         ),
+        practiceBefore,
+        practiceAfter,
       };
     });
     if (
@@ -1719,6 +1799,7 @@ export function createLearningOnboardingValidation(
       sources,
       gaps: gaps(input.gaps),
       acceptance: input.acceptance,
+      reviewedBase: reviewedBaseRef(input.reviewedBase),
     };
   }
 
@@ -1824,6 +1905,7 @@ export function createLearningOnboardingValidation(
       'proposal',
       'accepted',
       'adjustment',
+      'acceptedAdjustment',
     ]);
     const accepted =
       input.accepted === null
@@ -1873,6 +1955,10 @@ export function createLearningOnboardingValidation(
         input.adjustment === null
           ? null
           : parseCourseAdjustmentProposal(input.adjustment),
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
     };
   }
 
@@ -1920,9 +2006,13 @@ export function createLearningOnboardingValidation(
       if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
         invalid('Diagnostic answers must be untrusted human context.');
       }
+      const promptId = identifier(input.promptId, 'Prompt id');
+      if (promptId === ADJUSTMENT_NOTES_PROMPT_ID) {
+        invalid('Adjustment notes cannot be stored as diagnostic answers.');
+      }
       return {
         trust: input.trust,
-        promptId: identifier(input.promptId, 'Prompt id'),
+        promptId,
         answer: boundedText(
           input.answer,
           LIMITS.diagnosticAnswerCharacters,
@@ -2079,12 +2169,71 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function reviewedCourseProjection(value: unknown): ReviewedCourseProjection {
+    const input = strictRecord(value, [
+      'acceptedAdjustment',
+      'pathRevision',
+      'focus',
+      'depth',
+      'pendingFieldChanges',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (
+      !isDenseArray(input.pendingFieldChanges) ||
+      input.pendingFieldChanges.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Reviewed pending field changes are invalid.');
+    }
+    const pendingFieldChanges = input.pendingFieldChanges.map((item) => {
+      const change = strictRecord(item, ['remoteStepId', 'field', 'value']);
+      if (change.field !== 'objective' && change.field !== 'activity') {
+        invalid('Reviewed pending field is invalid.');
+      }
+      const field: 'objective' | 'activity' = change.field;
+      const fieldLimit =
+        field === 'objective'
+          ? LIMITS.objectiveCharacters
+          : LIMITS.activityCharacters;
+      return {
+        remoteStepId: identifier(change.remoteStepId, 'Remote step id'),
+        field,
+        value: boundedText(change.value, fieldLimit, 'Reviewed pending field'),
+      };
+    });
+    if (
+      new Set(
+        pendingFieldChanges.map((item) => `${item.remoteStepId}:${item.field}`),
+      ).size !== pendingFieldChanges.length
+    ) {
+      invalid('Reviewed pending field changes must be distinct.');
+    }
+    return {
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
+      pathRevision: boundedInteger(
+        input.pathRevision,
+        1,
+        LIMITS.revision,
+        'Path revision',
+      ),
+      focus:
+        input.focus === null
+          ? null
+          : boundedText(input.focus, LIMITS.focusCharacters, 'Reviewed focus'),
+      depth: input.depth === null ? null : depth(input.depth),
+      pendingFieldChanges,
+    };
+  }
+
   function modelContext(value: unknown): UntrustedModelSyllabusContext {
     const input = strictRecord(value, [
       'trust',
       'priorProposal',
       'syllabus',
       'personalization',
+      'reviewedCourse',
     ]);
     rejectForbiddenAuthority(input);
     if (input.trust !== ONBOARDING_CONTEXT_TRUST.model) {
@@ -2098,6 +2247,10 @@ export function createLearningOnboardingValidation(
         input.personalization === null
           ? null
           : personalization(input.personalization),
+      reviewedCourse:
+        input.reviewedCourse === null
+          ? null
+          : reviewedCourseProjection(input.reviewedCourse),
     };
   }
 
@@ -2124,6 +2277,7 @@ export function createLearningOnboardingValidation(
         'attemptId',
         'recordedRevision',
         'remoteStepId',
+        'work',
       ]);
       rejectForbiddenAuthority(locator);
       if (
@@ -2147,6 +2301,7 @@ export function createLearningOnboardingValidation(
           'Attempt revision',
         ),
         remoteStepId,
+        work: practicalAttemptWork(locator.work),
       };
       return parsed;
     });
@@ -2159,6 +2314,65 @@ export function createLearningOnboardingValidation(
     return { trust: input.trust, practicalAttempts };
   }
 
+  function practicalAttemptWork(value: unknown): PracticalAttemptWorkContext {
+    const input = strictRecord(value, [
+      'activityOrigin',
+      'reflection',
+      'reportedResult',
+      'recordedAt',
+      'masteryEstablished',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.masteryEstablished !== false) {
+      invalid('Practical work cannot establish mastery.');
+    }
+    const origin = strictRecord(input.activityOrigin, [
+      'pathId',
+      'pathRevision',
+      'topicId',
+      'lessonId',
+    ]);
+    const reflection = strictRecord(input.reflection, ['authorKind', 'text']);
+    if (reflection.authorKind !== 'human') {
+      invalid('Practical reflection must remain human-authored.');
+    }
+    const reported = strictRecord(input.reportedResult, ['kind', 'text']);
+    if (reported.kind !== 'user-reported-text') {
+      invalid('Practical reported result must be learner-authored text.');
+    }
+    return {
+      activityOrigin: {
+        pathId: identifier(origin.pathId, 'Path id'),
+        pathRevision: boundedInteger(
+          origin.pathRevision,
+          1,
+          LIMITS.revision,
+          'Path revision',
+        ),
+        topicId: identifier(origin.topicId, 'Topic id'),
+        lessonId: identifier(origin.lessonId, 'Lesson id'),
+      },
+      reflection: {
+        authorKind: 'human',
+        text: boundedText(
+          reflection.text,
+          LIMITS.diagnosticAnswerCharacters,
+          'Practical reflection',
+        ),
+      },
+      reportedResult: {
+        kind: 'user-reported-text',
+        text: boundedText(
+          reported.text,
+          LIMITS.diagnosticAnswerCharacters,
+          'Practical reported result',
+        ),
+      },
+      recordedAt: isoTimestamp(input.recordedAt, 'Recorded at'),
+      masteryEstablished: false,
+    };
+  }
+
   function interviewOrProposeOperation(
     input: Record<string, unknown>,
     human: UntrustedHumanLearnerContext,
@@ -2168,7 +2382,8 @@ export function createLearningOnboardingValidation(
       input.changes !== undefined ||
       input.target !== undefined ||
       input.progress !== undefined ||
-      input.acceptedProposal !== undefined
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
     ) {
       invalid('Onboarding operation fields are invalid.');
     }
@@ -2183,14 +2398,19 @@ export function createLearningOnboardingValidation(
     if (
       input.target !== undefined ||
       input.progress !== undefined ||
-      input.acceptedProposal !== undefined
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
     )
       invalid('Revise-course fields are invalid.');
     const changes = strictRecord(input.changes, ['focus', 'depth']);
+    const revisedModel = modelContext(input.model);
+    if (revisedModel.reviewedCourse !== null) {
+      invalid('Revise-course cannot carry an accepted-course overlay.');
+    }
     return {
       kind: 'revise-course',
       human,
-      model: modelContext(input.model),
+      model: revisedModel,
       changes: {
         focus: boundedText(
           changes.focus,
@@ -2206,7 +2426,14 @@ export function createLearningOnboardingValidation(
     input: Record<string, unknown>,
     human: UntrustedHumanLearnerContext,
   ): GenerateSelectedLessonOperation {
-    if (input.progress !== undefined || input.acceptedProposal !== undefined) {
+    if (
+      input.progress !== undefined ||
+      input.acceptedProposal !== undefined ||
+      input.notes !== undefined
+    ) {
+      invalid('Selected-lesson fields are invalid.');
+    }
+    if (input.notes !== undefined) {
       invalid('Selected-lesson fields are invalid.');
     }
     const target = strictRecord(input.target, [
@@ -2280,6 +2507,7 @@ export function createLearningOnboardingValidation(
       'target',
       'progress',
       'acceptedProposal',
+      'notes',
     ]);
     if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
       invalid('Onboarding operation is not supported.');
@@ -2296,6 +2524,9 @@ export function createLearningOnboardingValidation(
         invalid('Accepted-course adjustment fields are invalid.');
       }
       const model = modelContext(input.model);
+      if (model.reviewedCourse === null) {
+        invalid('Accepted-course adjustment requires reviewed course context.');
+      }
       const acceptedProposal = opaqueRef(input.acceptedProposal);
       if (
         acceptedProposal.id !== model.priorProposal.id ||
@@ -2305,9 +2536,18 @@ export function createLearningOnboardingValidation(
           'Adjustment proposal identity does not match the retained syllabus.',
         );
       }
+      const notes =
+        input.notes === null
+          ? null
+          : boundedText(
+              input.notes,
+              LIMITS.diagnosticAnswerCharacters,
+              'Adjustment notes',
+            );
       const adjusted: AdjustAcceptedCourseOperation = {
         kind: 'adjust-accepted-course',
         human,
+        notes,
         model,
         progress: adjustmentProgress(
           input.progress,
@@ -3221,6 +3461,7 @@ export function createLearningOnboardingValidation(
       'field',
       'before',
       'after',
+      'practiceBefore',
       'practice',
     ]);
     if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, input.field)) {
@@ -3235,9 +3476,18 @@ export function createLearningOnboardingValidation(
     if (compact.sourceState === 'ready') {
       invalid('Accepted ready lessons cannot be replaced by an adjustment.');
     }
+    const practiceBefore =
+      field === 'practice'
+        ? input.practiceBefore === null
+          ? null
+          : practiceBrief(input.practiceBefore)
+        : null;
     const practice =
       field === 'practice' ? practiceBrief(input.practice) : null;
     if (field !== 'practice' && input.practice !== null) {
+      invalid('Non-practice adjustment patches cannot include a brief.');
+    }
+    if (field !== 'practice' && input.practiceBefore !== null) {
       invalid('Non-practice adjustment patches cannot include a brief.');
     }
     if (field === 'practice' && !isPracticeRole(compact.role)) {
@@ -3256,7 +3506,15 @@ export function createLearningOnboardingValidation(
     if (before === after && field !== 'practice') {
       invalid('Adjustment patches must change the named field.');
     }
-    return { remoteStepId, field, before, after, practice };
+    if (
+      field === 'practice' &&
+      practiceBefore &&
+      practice &&
+      practiceBriefDigest(practiceBefore) === practiceBriefDigest(practice)
+    ) {
+      invalid('Adjustment patches must change the named field.');
+    }
+    return { remoteStepId, field, before, after, practiceBefore, practice };
   }
 
   function adjustmentSuccess(
@@ -3302,6 +3560,7 @@ export function createLearningOnboardingValidation(
       'depth',
       'patches',
       'citations',
+      'reviewedBase',
     ]);
     const acceptedProposal = opaqueRef(body.acceptedProposal);
     if (
@@ -3389,6 +3648,22 @@ export function createLearningOnboardingValidation(
     if (summary.masteryEstablished !== false) {
       invalid('Adjustment observations cannot establish mastery.');
     }
+    const reviewed = request.operation.model.reviewedCourse;
+    const reviewedBase = reviewedBaseRef(body.reviewedBase);
+    if (
+      !reviewed ||
+      reviewedBase.pathRevision !== reviewed.pathRevision ||
+      (reviewedBase.acceptedAdjustment === null) !==
+        (reviewed.acceptedAdjustment === null) ||
+      (reviewedBase.acceptedAdjustment &&
+        reviewed.acceptedAdjustment &&
+        (reviewedBase.acceptedAdjustment.id !==
+          reviewed.acceptedAdjustment.id ||
+          reviewedBase.acceptedAdjustment.revision !==
+            reviewed.acceptedAdjustment.revision))
+    ) {
+      invalid('Adjustment reviewed base does not match the request.');
+    }
     return {
       outcome: 'success',
       requestId: identifier(input.requestId, 'Request id'),
@@ -3400,6 +3675,7 @@ export function createLearningOnboardingValidation(
         depth: depthChange,
         patches,
         citations,
+        reviewedBase,
       },
       sources,
       bibliography: listedBibliography,
@@ -3407,6 +3683,27 @@ export function createLearningOnboardingValidation(
       gaps: input.gaps === undefined ? [] : gaps(input.gaps),
       provenance: input.provenance.map(provenance),
       quota: quota(input.quota),
+    };
+  }
+
+  function reviewedBaseRef(value: unknown): CourseAdjustmentReviewedBase {
+    const input = strictRecord(value, [
+      'pathRevision',
+      'acceptedAdjustment',
+      'digest',
+    ]);
+    return {
+      pathRevision: boundedInteger(
+        input.pathRevision,
+        1,
+        LIMITS.revision,
+        'Path revision',
+      ),
+      acceptedAdjustment:
+        input.acceptedAdjustment === null
+          ? null
+          : opaqueRef(input.acceptedAdjustment),
+      digest: validateSha256(input.digest),
     };
   }
 
@@ -3508,6 +3805,7 @@ export function createLearningOnboardingValidation(
     parseAdjustAcceptedCourseInput,
     parseAcceptCourseAdjustmentInput,
     parseCourseAdjustmentProposal,
+    reviewedBaseDigest,
     parseOnboardingRequest,
     parseCourseProposal,
     parseAcceptedStepMapping,

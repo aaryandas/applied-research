@@ -1411,6 +1411,7 @@ it('requests an AI follow-up after the human diagnostic and keeps the answer sep
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           saveLearningInterview: vi.fn(async () => ({
             status: 'saved' as const,
@@ -1483,6 +1484,7 @@ it('uses a local follow-up when the planner is unavailable and keeps retry', asy
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           saveLearningInterview: vi.fn(async () => ({
             status: 'saved' as const,
@@ -1537,6 +1539,7 @@ it('reopens an AI follow-up and its human answer without mixing attribution', as
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           getPastedSource: vi.fn(async () => null),
           requestInterviewPrompt: vi.fn(),
@@ -1578,6 +1581,7 @@ it('surfaces persistHandle failures instead of swallowing unmount saves', async 
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           saveLearningInterview: saveInterview,
           getPastedSource: vi.fn(async () => null),
@@ -1609,6 +1613,7 @@ it('surfaces persistHandle failures instead of swallowing unmount saves', async 
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           saveLearningInterview: saveInterview,
           getPastedSource: vi.fn(async () => null),
@@ -1657,6 +1662,7 @@ it('refuses persistHandle while a follow-up request is running', async () => {
             proposal: null,
             accepted: null,
             adjustment: null,
+            acceptedAdjustment: null,
           })),
           saveLearningInterview: vi.fn(async () => ({
             status: 'saved' as const,

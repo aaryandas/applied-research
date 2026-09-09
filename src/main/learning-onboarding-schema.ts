@@ -75,18 +75,44 @@ export const acceptedStepMappings = sqliteTable(
   (table) => [primaryKey({ columns: [table.projectId, table.remoteStepId] })],
 );
 
-export const learningAdjustments = sqliteTable('learning_adjustments', {
-  projectId: text('project_id').primaryKey(),
-  adjustmentId: text('adjustment_id').notNull(),
-  revision: integer('revision').notNull(),
-  acceptedProposalId: text('accepted_proposal_id').notNull(),
-  acceptedProposalRevision: integer('accepted_proposal_revision').notNull(),
-  envelopeJson: text('envelope_json').notNull(),
-  projectionJson: text('projection_json').notNull(),
-  acceptedAt: text('accepted_at'),
-  requestId: text('request_id'),
-  updatedAt: text('updated_at').notNull(),
-});
+export const learningAdjustmentRevisions = sqliteTable(
+  'learning_adjustment_revisions',
+  {
+    projectId: text('project_id').notNull(),
+    adjustmentId: text('adjustment_id').notNull(),
+    revision: integer('revision').notNull(),
+    acceptedProposalId: text('accepted_proposal_id').notNull(),
+    acceptedProposalRevision: integer('accepted_proposal_revision').notNull(),
+    envelopeJson: text('envelope_json').notNull(),
+    projectionJson: text('projection_json').notNull(),
+    proposedRequestId: text('proposed_request_id').notNull(),
+    reviewedPathRevision: integer('reviewed_path_revision').notNull(),
+    reviewedAcceptedAdjustmentId: text('reviewed_accepted_adjustment_id'),
+    reviewedAcceptedAdjustmentRevision: integer(
+      'reviewed_accepted_adjustment_revision',
+    ),
+    reviewedBaseDigest: text('reviewed_base_digest').notNull(),
+    proposedAt: text('proposed_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.projectId, table.adjustmentId, table.revision],
+    }),
+  ],
+);
+
+export const learningAdjustmentAcceptances = sqliteTable(
+  'learning_adjustment_acceptances',
+  {
+    requestId: text('request_id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    adjustmentId: text('adjustment_id').notNull(),
+    adjustmentRevision: integer('adjustment_revision').notNull(),
+    reviewedBaseDigest: text('reviewed_base_digest').notNull(),
+    resultingPathRevision: integer('resulting_path_revision').notNull(),
+    acceptedAt: text('accepted_at').notNull(),
+  },
+);
 
 export const learningResume = sqliteTable('learning_resume', {
   id: integer('id').primaryKey(),
@@ -110,7 +136,8 @@ export const learningOnboardingSchema = {
   learningProposals,
   learningAcceptances,
   acceptedStepMappings,
-  learningAdjustments,
+  learningAdjustmentRevisions,
+  learningAdjustmentAcceptances,
   learningResume,
 };
 
@@ -118,16 +145,31 @@ const ONBOARDING_SQL = join(
   import.meta.dirname,
   '../../drizzle/0005_learning_onboarding.sql',
 );
+const ADJUSTMENT_HISTORY_SQL = join(
+  import.meta.dirname,
+  '../../drizzle/0009_learning_adjustment_history.sql',
+);
 
-/** Apply 0005 onto an already-migrated store connection in tests or handoff. */
+function tableExists(database: Database.Database, name: string): boolean {
+  return Boolean(
+    database
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(name),
+  );
+}
+
+/**
+ * Apply 0005 then 0009 onto an already-migrated store connection in tests
+ * or handoff. Production registration stays with AR-56. Do not skip 0009
+ * just because 0005 tables already exist.
+ */
 export function applyLearningOnboardingTables(
   database: Database.Database,
 ): void {
-  const exists = database
-    .prepare(
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'learner_profile'",
-    )
-    .get();
-  if (exists) return;
-  database.exec(readFileSync(ONBOARDING_SQL, 'utf8'));
+  if (!tableExists(database, 'learner_profile')) {
+    database.exec(readFileSync(ONBOARDING_SQL, 'utf8'));
+  }
+  if (!tableExists(database, 'learning_adjustment_revisions')) {
+    database.exec(readFileSync(ADJUSTMENT_HISTORY_SQL, 'utf8'));
+  }
 }

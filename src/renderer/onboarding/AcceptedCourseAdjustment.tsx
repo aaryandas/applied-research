@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   CourseAdjustmentEvidenceItem,
   CourseAdjustmentProposal,
+  CoursePracticeBrief,
   LearnerProfile,
   LearningOnboardingSnapshot,
   OnboardingFailureOutcome,
@@ -38,6 +39,23 @@ function describeFailure(
     default:
       return message;
   }
+}
+
+function practiceBriefText(brief: CoursePracticeBrief): string {
+  const tool =
+    brief.tool.kind === 'app-hosted-catalog'
+      ? `App-hosted tool ${brief.tool.toolId}`
+      : `${brief.tool.toolName}: ${brief.tool.intendedUse}`;
+  return [
+    `Outcome: ${brief.intendedOutcome}`,
+    `Tool: ${tool}`,
+    `Setup: ${brief.setup}`,
+    `Instructions: ${brief.instructions}`,
+    `Checkpoints: ${brief.observableCheckpoints.join('; ')}`,
+    `Expected artifact: ${brief.expectedArtifact}`,
+    `Reflection: ${brief.reflectionPrompt}`,
+    `Sources: ${brief.sourceIds.join(', ')}`,
+  ].join('\n');
 }
 
 export function AcceptedCourseAdjustment({
@@ -137,6 +155,7 @@ export function AcceptedCourseAdjustment({
             attemptId: item.attemptId,
             recordedRevision: item.recordedRevision,
             remoteStepId: item.remoteStepId,
+            activity: item.activity,
           })),
         },
         consent: 'acquire-learning-evidence',
@@ -343,8 +362,16 @@ export function AcceptedCourseAdjustment({
                   <td>
                     {patch.lessonTitle} · {patch.field} ({patch.sourceState})
                   </td>
-                  <td>{patch.before}</td>
-                  <td>{patch.after}</td>
+                  <td>
+                    {patch.field === 'practice' && patch.practiceBefore
+                      ? practiceBriefText(patch.practiceBefore)
+                      : patch.before}
+                  </td>
+                  <td>
+                    {patch.field === 'practice' && patch.practiceAfter
+                      ? practiceBriefText(patch.practiceAfter)
+                      : patch.after}
+                  </td>
                 </tr>
               ))}
             </tbody>

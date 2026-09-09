@@ -3,9 +3,16 @@
 Lane `opening` cannot independently edit journal, WorkspaceStore, workspace-schema
 export, App/Shell/preload/main registration, or the `DesktopBridge` intersection.
 Apply these diffs on `codex/ar-walkthrough-integration` (or cherry-pick onto the
-integration merge). Do not use migration 0004 (AR-50) or 0006 (AR-56).
+integration merge). Do not use migration 0004 (AR-50) or 0006 (AR-56). **0008
+remains exclusively AR-51 placements.** AR-47 owns `drizzle/0009_learning_adjustment_history.sql`
+intent; root/AR-56 owns journal registration and `EXPECTED_TABLE_COLUMNS` via
+`table_xinfo`. Do not rewrite or reapply 0005. Do not restore pre-cleanup
+contract files wholesale; AR-60 `84c9bdd` patterns apply to additive types only
+once root supplies the approved resulting-main base.
 
-Consumer branch: `codex/ar-47-onboarding-cloud`  
+Consumer branch: `codex/ar-47-onboarding-cloud` · PR 59 (draft; **not**
+lane/CI/acceptance ready until contract, 0008/0009 journal, and shared-owner
+joins land).
 Independently reviewed producer (Standards/Spec PASS, keep; do not remake): `9c325f590494c4f86dd5ef6ae1d68473a33cf100`.
 Implementation origin: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89`.
 Coverage/late-cancel: `fe8bbefc1f9e80fce3d930315ecb1fa927a7effa` (keep; do not remake).
@@ -15,16 +22,27 @@ contracts `4738c4713eaee8a583bd138ca5ef76edbc9eafdf`,
 main overlay `0e5a2a03cb6c642335090f276cd05b144c796186`,
 Opening mount `5cd07e4c7d80f7d5b3d68c02b49adb44c0321bde`,
 live intended profile + follow-up gating `80105d67d13be1461668576be79897a353700b49`.
+Frozen remainder checkpoint (adaptive follow-up, live-profile display, awaited
+Back save): `0f87a73ea0f9fffd86a8e2aa703b4f823faed147`.
+W42 immutable-history commits (split lanes; do not squash):
+contracts `aafb60025aed48c0b1c8abaffbb6104903ca507a` + type-narrow `7f5799ac84f71cf1946f7dc6afd0a515c8873c25`,
+SQL `de3eaa816d02118f2307327b7bd4a6efce025e15` (`drizzle/0009_learning_adjustment_history.sql` only),
+records `40b6faf1bf134bce453c8ee745bf6cbb4a8506bf`,
+producer `befd229fee193cf331758665e7d0f12a9d34f2b9`,
+renderer `f2b0588dd2875478c8e594e51f070150ad47f0fd`.
 Docs/handoff pin is this file’s commit; published HEAD is `git rev-parse origin/codex/ar-47-onboarding-cloud`.  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
 Patch path: `context/ar-47-onboarding-handoff.md`
 
 Until these patches land, unit tests apply `drizzle/0005_learning_onboarding.sql`
-onto an already-constructed `WorkspaceStore` connection via
-`applyLearningOnboardingTables`. Production desktop will not see the tables
+then `drizzle/0009_learning_adjustment_history.sql` onto an already-constructed
+`WorkspaceStore` connection via `applyLearningOnboardingTables`. That helper
+must not return early just because 0005 tables exist; skipping 0009 hides the
+missing-history-table bug. Production desktop will not see onboarding tables
 until journal + `EXPECTED_TABLE_COLUMNS` + `LATEST_WORKSPACE_MIGRATION` land
-together.
+together. Do not register 0009 before 0008 exists. Do not claim PR 59 is
+lane/CI/acceptance ready from synthetic unit tests.
 
 Endpoint dependency: AR-48 `POST /v1/learning/onboarding`. Main already sends
 reviewed request envelopes. The worker may return explicit `unavailable`. Do
@@ -140,6 +158,67 @@ Insert into `EXPECTED_TABLE_COLUMNS` immediately before `__drizzle_migrations`:
     'updated_at',
   ],
 ```
+
+`learning_adjustments` belongs **only** to the 0005-only stage. After 0009
+runs it is dropped. Do not leave both table names in the final
+`EXPECTED_TABLE_COLUMNS`.
+
+## 2b. Forward migration 0009 (AR-47 SQL; root/AR-56 journal)
+
+SQL file already exists: `drizzle/0009_learning_adjustment_history.sql`.
+**Do not consume 0008.** Suggested journal `when`: `1788966000000`. Register
+only after 0005→0006→0007→0008 exist in the production chain. Do not rewrite
+0005 or reset databases.
+
+```json
+{
+  "idx": "<next after 0008>",
+  "version": "6",
+  "when": 1788966000000,
+  "tag": "0009_learning_adjustment_history",
+  "breakpoints": true
+}
+```
+
+```ts
+export const LATEST_WORKSPACE_MIGRATION = 1_788_966_000_000;
+```
+
+Replace `learning_adjustments` in `EXPECTED_TABLE_COLUMNS` (verify with
+`table_xinfo`, not a comment) with:
+
+```ts
+  learning_adjustment_revisions: [
+    'project_id',
+    'adjustment_id',
+    'revision',
+    'accepted_proposal_id',
+    'accepted_proposal_revision',
+    'envelope_json',
+    'projection_json',
+    'proposed_request_id',
+    'reviewed_path_revision',
+    'reviewed_accepted_adjustment_id',
+    'reviewed_accepted_adjustment_revision',
+    'reviewed_base_digest',
+    'proposed_at',
+  ],
+  learning_adjustment_acceptances: [
+    'request_id',
+    'project_id',
+    'adjustment_id',
+    'adjustment_revision',
+    'reviewed_base_digest',
+    'resulting_path_revision',
+    'accepted_at',
+  ],
+```
+
+0009 creates `learning_adjustments` with `IF NOT EXISTS` so stores that never
+had an adjustment table still upgrade, copies the one surviving legacy row
+when present (sentinel `reviewed_base_digest` of 64 zeros; synthetic
+`lp-`/`la-` request ids when `request_id` is null), then `DROP TABLE
+learning_adjustments`. Do not fabricate missing prior revisions.
 
 ## 3. `src/main/workspace-schema.ts`
 
@@ -346,9 +425,13 @@ still lands a new topic in Reader. When the onboarding methods exist:
   `openProject` (that would present an empty project as a course).
 - Pass `onboarding={{ createDraftProject, bridge, onAccepted, adjustmentEvidence }}`.
   `adjustmentEvidence(projectId)` is AR-56 owned: resolve existing
-  `practical-records` attempt summaries for accepted practice mappings into
-  `{ attemptId, recordedRevision, remoteStepId, lessonTitle }`. Do not invent
-  attempts. Empty is honest when none exist.
+  `practical-records` attempts for accepted practice mappings into
+  `{ attemptId, recordedRevision, remoteStepId, lessonTitle, activity }`.
+  `activity` must be the **stored historical** `PracticalActivity` from
+  `PracticalRecords` (path revision/topic/lesson/source origin at record time).
+  Do not reconstruct it from today's path revision. Do not invent attempts.
+  Empty is honest when none exist. Opaque ids alone are not work content;
+  selected file metadata is not canonical source evidence or mastery.
 - Hold `const onboardingPersistRef = useRef<OnboardingDraftPersist>(null)` and
   pass it to Opening. Opening forwards `OnboardingFlow.persistHandle`.
 - **Native close / Home barrier (root-owned; unused in this producer):**
@@ -453,9 +536,9 @@ separately authorized $2/10 evaluation cap as this ticket’s monthly quota.
 | -------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `interview-prompt`         | `interview-prompt`                   | User-initiated follow-up only. Prompt is AI-authored; not a human diagnostic answer.                                                                                                                                                                                                  |
 | `propose-course`           | `complete-syllabus-and-first-lesson` |                                                                                                                                                                                                                                                                                       |
-| `revise-course`            | `complete-syllabus-and-first-lesson` | Preview only. Must not run after accept.                                                                                                                                                                                                                                              |
-| `generate-selected-lesson` | `selected-existing-lesson`           | Compact syllabus may already show updated pending `practiceDigest` after an accepted overlay. `target.practice` must match that digest. Do **not** reject live `human.profileRevision` ≠ stored interview `profileRevision`.                                                          |
-| `adjust-accepted-course`   | `accepted-course-adjustment`         | **New.** Overlay only. Forbidden: replacement `syllabus`, new lesson/path IDs, `evidence` authority field, ready-lesson patches, `masteryEstablished: true`. Progress key is `progress.practicalAttempts` (locators). Human notes arrive as `adjustment-notes-01` on `human.answers`. |
+| `revise-course`            | `complete-syllabus-and-first-lesson` | Preview only. Must not run after accept. `model.reviewedCourse` **must be `null`**.                                                                                                                                                                                                   |
+| `generate-selected-lesson` | `selected-existing-lesson`           | Compact syllabus may already show updated pending `practiceDigest` after an accepted overlay. `target.practice` must match that digest. `model.reviewedCourse` is required and may be `null` when no overlay is accepted. Do **not** reject live `human.profileRevision` ≠ stored interview `profileRevision`. |
+| `adjust-accepted-course`   | `accepted-course-adjustment`         | Overlay only. Forbidden: replacement `syllabus`, new lesson/path IDs, `evidence` authority field, ready-lesson patches, `masteryEstablished: true`. Progress key is `progress.practicalAttempts`. Human notes are `operation.notes` (`string \| null`); **not** `human.answers`. `model.reviewedCourse` **must be non-null**. |
 
 Parse with `parseLearningOnboardingRequestWire` /
 `parseLearningOnboardingResponseWire` on the **raw** body. `progress` is
@@ -464,35 +547,84 @@ illegal on interview/propose/revise. Selected-lesson must not have a root
 `acceptedProposal` (it lives on `target`). Success envelopes other than
 `accepted-course-adjustment` must omit `adjustment`.
 
-### `adjust-accepted-course` mapping (exact)
+### `adjust-accepted-course` mapping (exact; W42)
+
+Supply this parser/request delta **before** AR-48 changes its producer. No
+second planner, endpoint, model, quota, or source-policy change. Keep
+`LEARNING_ONBOARDING_LIMITS.diagnosticAnswers = 6` and
+`diagnosticAnswerCharacters = 4000`. Keep 64 KiB wire admission.
 
 Request `operation`:
 
 - `kind: 'adjust-accepted-course'`
 - `human`: live intended profile (`profileRevision` may be newer than the
-  stored interview bind). Interview answers remain historical self-report.
-  Optional notes are extra human answers with prompt id `adjustment-notes-01`
-  (`ADJUSTMENT_NOTES_PROMPT_ID`). Still `untrusted-human-context`.
-- `model`: retained compact syllabus as `untrusted-model-context`. Ready steps
-  stay byte-identical. Pending `practiceDigest` may already reflect a prior
-  accepted overlay.
+  stored interview bind). Interview answers remain the six HUMAN diagnostic
+  answers (`UntrustedHumanLearnerContext.answers`). Reject
+  `promptId === 'adjustment-notes-01'` (`ADJUSTMENT_NOTES_PROMPT_ID`) on
+  those answers. Constant stays exported; do not raise the diagnostic-answer
+  limit to hide notes.
+- `notes`: required `string | null`. Same character bound as a diagnostic
+  answer. Desktop empty notes become `null`. Never slice notes into
+  `human.answers` / `extraAnswers` / `appliedAdjustmentNotes`.
+- `model`: retained compact syllabus as `untrusted-model-context`. Ready
+  steps stay byte-identical. **Required key** `reviewedCourse` (non-null on
+  this operation):
+
+```ts
+{
+  acceptedAdjustment: OpaqueRevisionRef | null; // latest accepted overlay, or null
+  pathRevision: number;                         // live path revision at propose
+  focus: string | null;                         // effective accepted overlay focus
+  depth: LessonDepth | null;
+  pendingFieldChanges: {
+    remoteStepId: string;
+    field: 'objective' | 'activity';
+    value: string;
+  }[];
+}
+```
+
+  Compact lessons still omit objective/activity; those AI changes live here,
+  not on `human.answers`. Practice digests stay on `syllabus` /
+  `target.practice`.
 - `progress`: `{ trust: 'untrusted-human-context', practicalAttempts: PracticalAttemptLocator[] }`.
-  Locators are `{ trust, kind: 'practical-attempt-locator', attemptId, recordedRevision, remoteStepId }`.
-  Empty is honest. These are not mastery and not `evidence`.
+  Locators are `{ trust, kind: 'practical-attempt-locator', attemptId, recordedRevision, remoteStepId, work }`.
+  `work` is required:
+
+```ts
+{
+  activityOrigin: { pathId, pathRevision, topicId, lessonId };
+  reflection: { authorKind: 'human'; text: string };
+  reportedResult: { kind: 'user-reported-text'; text: string };
+  recordedAt: string;
+  masteryEstablished: false;
+}
+```
+
+  Empty `practicalAttempts` is honest. These are not mastery, not `evidence`,
+  and must not include selected-file metadata.
 - `acceptedProposal`: opaque id+revision equal to `model.priorProposal`.
 
 Success body (`scope: 'accepted-course-adjustment'`):
 
-- `adjustment`: `{ acceptedProposal, summary, focus, depth, patches, citations }`.
+- `adjustment`: `{ acceptedProposal, summary, focus, depth, patches, citations, reviewedBase }`.
   `summary.masteryEstablished` must be `false`. `focus`/`depth` are `{before,after}`
   or null. `patches` name pending `remoteStepId` + `field` (`objective` |
-  `activity` | `practice`) with visible before/after. Practice patches include
-  the replacement `CoursePracticeBrief`; others have `practice: null`.
+  `activity` | `practice`) with visible before/after of the **named field**.
+  Practice patches include `practiceBefore` (current retained brief) and
+  `practice` (replacement brief); others have both null. Do not substitute an
+  unrelated summary string for the practice brief.
+- `reviewedBase`: `{ pathRevision, acceptedAdjustment, digest }` must match
+  `request.operation.model.reviewedCourse` path revision and accepted overlay
+  identity. Desktop recomputes the digest from live pending fields + pending
+  practice digests.
 - **Must not** include `syllabus`, `firstLesson`, `lesson`, or new identities.
 - Citations/evidence must be acquired originals already in `sources`.
-- Desktop retains the envelope under `learning_adjustments` and applies only
-  after explicit `acceptCourseAdjustment`. Ready completed lessons, path IDs,
-  accepted proposal identity, and human/AI attribution stay.
+- Desktop retains the envelope as an **immutable revision row**
+  (`learning_adjustment_revisions`) and applies it only after explicit
+  `acceptCourseAdjustment` (receipt in `learning_adjustment_acceptances`).
+  Propose B leaves accepted A active. Ready completed lessons, path IDs,
+  original syllabus acceptance, and human/AI attribution stay.
 
 Until this operation is real, return explicit `unavailable`
 (`retryable: true` only when `accounting` is `none` or `released`). Do not
@@ -567,15 +699,20 @@ Background/goals/diagnostic answers and optional paste stay.
 **W42 accepted-course overlay.** `revise-course` still replaces a _preview_
 syllabus and cannot safely express post-accept review. Named operation
 `adjust-accepted-course` (scope `accepted-course-adjustment`) proposes a
-bounded overlay: focus/depth before-after, pending practice/objective patches,
-citations from acquired evidence. Explicit **Accept overlay** applies pending
-practice briefs only. Ready lessons, path IDs, accepted proposal identity, and
-human/AI attribution stay. Self-report is not mastery. Opening mounts
+bounded overlay: focus/depth before-after, pending practice/objective/activity
+patches with full practice briefs, citations from acquired evidence, and a
+deterministic `reviewedBase`. Explicit **Accept overlay** sends only the opaque
+adjustment revision; main applies the stored proposal inside one
+`LearningOnboardingRecords.transaction`. Propose B leaves accepted A active.
+Ready lessons, path IDs, original syllabus acceptance, and human/AI
+attribution stay. Notes stay on `operation.notes`. Opening mounts
 `AcceptedCourseAdjustment` from **Review course from your work**. The sheet
 shows live intended profile bytes (`getLearnerProfile` /
 `getLearnerProfileView`) separately from historical interview answers and from
-any AI assessment (`author: 'ai'`, mastery not established). Empty Practical
-locators are honest until AR-56 passes `adjustmentEvidence`.
+any AI assessment (`author: 'ai'`, mastery not established), and renders the
+stored practice before/after (tool, setup, instructions, checkpoints, artifact,
+reflection, sources). Empty Practical locators are honest until AR-56 passes
+historical `activity` on `adjustmentEvidence`.
 
 **Honest persist (P2).** Unmount `.catch(() => undefined)` is gone. Back and
 `OnboardingDraftPersist.persistDraft()` share one in-flight save and surface
@@ -587,18 +724,23 @@ while that hook is unused.
 
 ### Residual joins (assembler / AR-56 / AR-48 / coordinator)
 
-Do not treat these as AR-47 producer Done:
+Do not treat these as AR-47 producer Done. PR 59 is **not** lane/CI/acceptance
+ready until these dependencies resolve. Independent critic still required.
 
 1. Journal idx 5 `0005_learning_onboarding` **including** `learning_adjustments`
-   columns in `EXPECTED_TABLE_COLUMNS` (section 2). Tests still apply 0005 onto
-   an already-migrated store until the journal lands.
-2. WorkspaceStore `onboardingRecords()`, `DesktopBridge` intersection, preload
-   - `src/main/index.ts` handlers for `adjust` / `acceptAdjustment` (sections
-     4–7).
-3. App section 8: `onboarding` bridge, `resumeDraft` reopen, Continue learning,
-   `adjustmentEvidence(projectId)` from existing `practical-records` (attempt
-   summaries for accepted practice mappings; do not invent attempts), and the
-   **native-close persist hook**:
+   columns in `EXPECTED_TABLE_COLUMNS` (section 2) for the 0005-only stage.
+   Tests apply 0005 **then 0009** via `applyLearningOnboardingTables`.
+2. After AR-51 `0008` exists: journal `0009_learning_adjustment_history`
+   (`when` 1788966000000), drop `learning_adjustments` from
+   `EXPECTED_TABLE_COLUMNS`, add the two history tables, bump
+   `LATEST_WORKSPACE_MIGRATION` (section 2b). Root/AR-56 owns that registration.
+3. WorkspaceStore `onboardingRecords()`, `DesktopBridge` intersection, preload
+   / `src/main/index.ts` handlers for `adjust` / `acceptAdjustment` (sections
+   4–7). Do not collide with the current main Sonar correction batch.
+4. App section 8: `onboarding` bridge, `resumeDraft` reopen, Continue learning,
+   `adjustmentEvidence(projectId)` from existing `practical-records` with
+   **historical** `PracticalActivity` (not today's path), and the
+   **native-close persist hook** (still unused in this producer):
 
 ```ts
 const persist = await onboardingPersistRef.current?.persistDraft();
@@ -607,13 +749,16 @@ if (persist === 'failed') {
 }
 ```
 
-4. Shell may reuse `AcceptedCourseAdjustment`; pass locators through
+5. Shell may reuse `AcceptedCourseAdjustment`; pass locators through
    `adjustmentEvidence`. AR-56 owns `ensureLesson` renderer lifetime, Reader
    handoff, resume barrier.
-5. AR-48 must map `adjust-accepted-course` as specified above. No second
-   provider/budget. Compact syllabus after overlay accept may carry updated
-   pending `practiceDigest`; selected-lesson `target.practice` must match.
-6. SettingsPanel LearnerProfile mount (section 10).
+6. AR-48 must map `adjust-accepted-course` as specified above (`notes`,
+   `reviewedCourse`, locator `work`, patch `practiceBefore`, `reviewedBase`).
+   No second provider/budget. Compact syllabus after overlay accept may carry
+   updated pending `practiceDigest`; selected-lesson `target.practice` must
+   match. Objective/activity overlays are on `reviewedCourse.pendingFieldChanges`.
+7. SettingsPanel LearnerProfile mount (section 10).
 
 This producer does not edit `App.tsx` / `Shell.tsx` / `Reader*` /
-`src/main/index.ts` / preload / WorkspaceStore / journal / workflow.
+`src/main/index.ts` / preload / WorkspaceStore / `workspace-migration.ts` /
+journal / Practical producer / workflow.

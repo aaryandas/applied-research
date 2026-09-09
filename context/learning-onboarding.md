@@ -116,17 +116,21 @@ opaque accept, selected-lesson generation, accepted-course overlay
 follow-up, and learner profile live in `src/main/learning-onboarding*.ts`,
 `src/renderer/onboarding/**`, `Opening.tsx`, and
 `src/renderer/settings/LearnerProfile*`. Migration
-`drizzle/0005_learning_onboarding.sql` (including `learning_adjustments`) is
-reserved; coordinator must register journal idx 5 `when: 1788937200000`,
-`EXPECTED_TABLE_COLUMNS`, `LATEST_WORKSPACE_MIGRATION = 1_788_937_200_000`,
+`drizzle/0005_learning_onboarding.sql` (legacy mutable `learning_adjustments`)
+is reserved; `drizzle/0009_learning_adjustment_history.sql` replaces that table
+with immutable revision rows and acceptance receipts. Coordinator must
+register journal idx 5 `when: 1788937200000` for 0005, then — after AR-51
+0008 — journal 0009 `when: 1788966000000`, `EXPECTED_TABLE_COLUMNS` (drop
+`learning_adjustments`; add `learning_adjustment_revisions` /
+`learning_adjustment_acceptances`), `LATEST_WORKSPACE_MIGRATION`,
 WorkspaceStore/preload/main `Window.desktop` intersection, and App/Shell/Reader
 resume plus native-close persist patches. Exact ready-to-apply diffs:
 [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
 Renderer submits opaque identity, human drafts and consent only. Main retains
 validated success envelopes and resolves opaque proposal+revision on accept.
 `generateSourcedLearning` / `acceptSourcedLearning` are never used for this
-flow. Tests apply 0005 onto an already-migrated store connection until the
-journal patch lands.
+flow. Tests apply 0005 then 0009 onto an already-migrated store connection
+until those journal patches land. Do not rewrite 0005 or consume 0008.
 
 **Backend / AR-48:** sibling `POST /v1/learning/onboarding`
 (`LEARNING_ONBOARDING_PATH`, `LEARNING_ONBOARDING_METHOD`,
@@ -189,9 +193,16 @@ module from
 vector-index configuration proof on the candidate is not app acceptance.
 `adjust-accepted-course` is a bounded overlay of an **accepted** course. It
 must not emit a replacement syllabus or new path/lesson IDs. Ready completed
-lessons cannot be patched. Progress locators live on `progress.practicalAttempts`,
-never the forbidden `evidence` authority field. Human notes use prompt id
-`adjustment-notes-01`. Planner `summary.masteryEstablished` stays `false`.
+lessons cannot be patched. Progress locators live on `progress.practicalAttempts`
+with required resolved `work` (human reflection/result, historical activity
+origin); never the forbidden `evidence` authority field. Human notes are
+`operation.notes` (`string | null`, same character bound as a diagnostic
+answer) and must not appear on `human.answers`. Reject prompt id
+`adjustment-notes-01` on diagnostic answers; do not raise the six-answer
+limit. `model.reviewedCourse` is required: `null` on revise-course, non-null
+on adjust, nullable on generate-selected-lesson. Planner
+`summary.masteryEstablished` stays `false`. Practice patches carry the full
+before/after `CoursePracticeBrief`. Propose B must leave accepted A active.
 `revise-course` remains preview-only and must not run after accept. Exact
 request/success fields: [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
 
