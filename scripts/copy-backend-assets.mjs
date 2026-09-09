@@ -18,6 +18,8 @@ for (const filename of await readdir(sourceDirectory)) {
 
 await build({
   configFile: false,
+  // Library mode preserves process.env references unless explicitly replaced.
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   logLevel: 'warn',
   build: {
     emptyOutDir: false,
