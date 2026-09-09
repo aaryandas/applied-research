@@ -43,6 +43,12 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `tests/backend-postgres/authenticated-backend.test.ts`: destructive, disposable-database-only proof of the actual migration, Better Auth session adapter and concurrent Drizzle transactions.
 - `railway.json`, `.env.example`, `tsconfig.backend.json`, `scripts/copy-backend-assets.mjs`: deploy build/start/migration wiring and placeholder-only configuration.
 
+## Evidence selection
+
+- `src/backend/sourcing/retrieval/selection.ts`: one backend-only deterministic learning/research selection seam over frozen sourcing contracts; no adapter or route composition.
+- `src/backend/sourcing/retrieval/{identity,ranking,fusion,diversity,passages,validation}.ts`: stable work/version grouping, attributed policy signals, reciprocal rank fusion, coverage diversity, exact permitted canonical passages and bounded input validation.
+- `src/backend/sourcing/retrieval/selection.test.ts`: synthetic public-seam acceptance cases; [selection policy and outstanding relevance/integration acceptance](evidence-selection.md).
+
 ## MVP modules
 
 - `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
