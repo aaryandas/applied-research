@@ -69,20 +69,37 @@ Candidate `38237efc` same-id guest guard is merged. True workspace **change** ca
 
 ## Validation
 
-Node 24. Format/lint/types pass on this revision. Shared Reader/Shell tests cover Home/Cmd+S resume, failed resume without Home success, fresh selection after chrome blur, retained citation navigation (including unavailable cited revisions), and Ask focus with preserved draft.
+Node 24. Format/lint/types pass. Delivery 108/108 pass. Focused Shell/App/RetainedScene/contextual/validation/preload pass. Full corpus **194 files / 1976 tests** pass on a clean rerun (`PracticalSession` “selected context is unavailable” failed once under the first `npm run check` parallel run and passed isolation + the coverage rerun — AR50 flake, not masked). Build pass. `npm run check` still fails the **branch** gate only.
 
-`vitest run --coverage` on the **restored full candidate corpus** (thresholds unchanged at 90%):
+`vitest run --coverage` on the **restored full candidate corpus** (thresholds unchanged at 90%; include/exclude unchanged):
 
-| Metric     | Actual                  | Gate |
-| ---------- | ----------------------- | ---- |
-| Statements | 90.94%                  | 90%  |
-| Branches   | **85.83%** (9467/11029) | 90%  |
-| Functions  | 93.99%                  | 90%  |
-| Lines      | 92.62%                  | 90%  |
+| Metric     | d5 `d5ca0a2`            | this head               | Gate | Candidate `38237efc` claim |
+| ---------- | ----------------------- | ----------------------- | ---- | -------------------------- |
+| Statements | 90.94%                  | 90.92% (13380/14715)    | 90%  | —                          |
+| Branches   | **85.83%** (9467/11029) | **85.76%** (9507/11085) | 90%  | 90.29% on that corpus      |
+| Functions  | 93.99%                  | 93.92% (3077/3276)      | 90%  | —                          |
+| Lines      | 92.62%                  | 92.61% (12482/13477)    | 90%  | —                          |
 
-`npm run check` fails the branch gate. Thresholds were not lowered. Producer internals remain in the corpus. The 66f **89.11%** figure was against a narrowed exclude list and is not comparable. Root’s native correction remains **29 patterns / 31 lines**. Do not re-introduce coverage exclusions for producer-owned files. Covering AR47/AR51 owned feature tests stays on those producers.
+d5’s **85.83%** is real and is not hidden. This head added covered branches (9467→9507) and more corpus branches (11029→11085), so the percentage is slightly lower. Candidate **90.29% / 1806 tests** is not comparable to this full producer-internal corpus. Thresholds were not lowered. No policy exclusions.
 
-**Root retarget:** `tests/e2e/explanations.spec.ts` now drives the mounted contextual help / `RetainedScene` path. Production Opening still requires propose/accept. Automated desktop setup uses the explicit `desktop-e2e` test environment seam. Cloud may run these tests; it does not claim MP4 acceptance. Isolated SceneCanvas tests stay.
+### Top 10 uncovered modules by LCOV branch miss count
+
+| #   | Module                                              | Hit/Found | Miss | Owner / concrete gap                                                                                                           |
+| --- | --------------------------------------------------- | --------- | ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `src/backend/explanations/plan-decode.ts`           | 7/118     | 111  | AR51 planner decode + AR48 unregistered `POST /v1/learning/explanation-plans`. Almost unexecuted in the desktop corpus.        |
+| 2   | `src/main/explanation-records.ts`                   | 46/135    | 89   | AR51 retained SQLite read/write paths (grounding, origin decode, capture rows) beyond the harness happy path.                  |
+| 3   | `src/main/contextual-help-operations.ts`            | 117/200   | 83   | AR51 tutor/planner/cancel/quota; AR56 owns only the signed-out `desktop-e2e` visual persist seam.                              |
+| 4   | `src/main/contextual-help-learning.ts`              | 75/137    | 62   | AR51 remote plan/tutor response decode.                                                                                        |
+| 5   | `src/renderer/explanations/ContextualHelpPanel.tsx` | 77/133    | 56   | AR51 Ask↔Visual `selectionIdentity` (including `selection.kind`); next panel producer is active — do not merge that head here. |
+| 6   | `src/renderer/canvas/use-canvas-authoring.tsx`      | 111/147   | 36   | AR49 Canvas authoring edge states.                                                                                             |
+| 7   | `src/backend/sourcing/composition.ts`               | 76/111    | 35   | AR48 OpenAlex/catalog composition.                                                                                             |
+| 8   | `src/backend/explanations/service.ts`               | 11/46     | 35   | AR51/AR48 planner service; route still unregistered.                                                                           |
+| 9   | `src/main/learning-onboarding.ts`                   | 196/229   | 33   | AR47 `ensureLesson` stale-after-`profileRevision`, profile/paste. Reviewed `fe8bbefc` is already merged.                       |
+| 10  | `src/renderer/reader/Reader.tsx`                    | 138/166   | 28   | Shared Reader remaining branches (import/edit/restore). Resume/citation/reveal stay on this assembly.                          |
+
+Also zero-hit: `src/backend/explanations/http.ts` 0/27 (AR48 unregistered HTTP), `src/renderer/ReaderExplanations.tsx` 0/4 (unmounted demo). AR56-owned remainders: `Shell.tsx` 159/182 (23), `App.tsx` 40/48 (8), `RetainedScene.tsx` 18/46 (28, capture/error UI). `validation.ts` 31/31.
+
+`tests/e2e/explanations.spec.ts` drives the mounted contextual help / `RetainedScene` path. Production Opening still requires propose/accept. Automated desktop setup uses the explicit `desktop-e2e` test environment seam. Cloud may run these tests; it does not claim MP4 acceptance. Darwin GPU capture tests skip on this Linux VM. Isolated SceneCanvas tests stay.
 
 Not run here (root-owned): hosted macOS CI, packaged smoke, live auth/provider, Sonar, desktop recording, connected Cloud acceptance. Do not self-PASS or mark Done.
 
