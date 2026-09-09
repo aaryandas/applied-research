@@ -151,7 +151,7 @@ it('refuses an unknown catalog tool', () => {
 it('refuses a second embedded open while one is already pending', async () => {
   const bridge = {
     onToolState: () => () => {},
-    openTool: vi.fn(async () => new Promise(() => {})),
+    openTool: vi.fn(() => new Promise<void>(() => {})),
     closeTool: vi.fn(async () => {}),
     openExternal: vi.fn(async () => {}),
   };

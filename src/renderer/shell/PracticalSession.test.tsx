@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi, type Mock } from 'vitest';
 import type {
   LoadPracticalJourneyResult,
   PracticalAttemptJourney,
@@ -159,7 +159,7 @@ function renderSession(
     onResumeAttempt?: (attemptId: string) => void;
     onStartNewAttempt?: () => void;
     onReturnToLearning?: (next: PracticalActivity) => void;
-    requestGuidance?: CompanionSessionOptions['requestGuidance'];
+    requestGuidance?: Mock<CompanionSessionOptions['requestGuidance']>;
     omitGuidance?: boolean;
     strict?: boolean;
   } = {},
@@ -717,23 +717,14 @@ it('shows authenticated guidance as unavailable when the transport is omitted', 
 });
 
 it('shows a loaded supported tool without launching a native guest', async () => {
-  const bridge = sessionBridge({
-    loadPracticalJourney: vi.fn(async () =>
-      loadedJourney({
-        ...savedAttempt(),
-        workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
-      }),
-    ),
-  });
-  const loaded = loadedJourney({
-    ...savedAttempt(),
-    workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
-  });
+  const loaded = loadedJourney(savedAttempt());
   loaded.journey = {
     ...loaded.journey,
     workChoice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
   };
-  vi.mocked(bridge.loadPracticalJourney).mockResolvedValue(loaded);
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(async () => loaded),
+  });
   const { view, tools } = renderSession({ bridge });
   await waitFor(() =>
     expect(
