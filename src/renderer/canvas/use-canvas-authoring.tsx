@@ -143,9 +143,6 @@ export function useCanvasAuthoring({
     placeCommitted();
     return placement.flush();
   }, [placement, placeCommitted, session]);
-  useEffect(() => {
-    if (authoring.pendingPlacement) placeCommitted();
-  }, [authoring.pendingPlacement, placeCommitted]);
 
   const openComposer = useCallback(
     (
@@ -518,7 +515,7 @@ export function useCanvasAuthoring({
           onDismiss={dismissMenu}
         />
       )}
-      <CanvasComposer session={session} workspace={workspace} />
+      <CanvasComposer session={session} workspace={workspace} onFlush={flush} />
       {authoring.notice && !authoring.draft && (
         <output className="workspace-canvas-authoring-notice">
           {authoring.notice}

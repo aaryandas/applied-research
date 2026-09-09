@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type {
   LearningWorkspace,
   PathOrigin,
@@ -28,9 +28,11 @@ export function ReaderSidebar({
   collapsed = false,
 }: Readonly<ReaderSidebarProps>): ReactElement {
   const [manualCollapsed, setManualCollapsed] = useState<boolean | null>(null);
-  useEffect(() => {
+  const [collapseSource, setCollapseSource] = useState(collapsed);
+  if (collapseSource !== collapsed) {
+    setCollapseSource(collapsed);
     setManualCollapsed(null);
-  }, [collapsed]);
+  }
   const isCollapsed = manualCollapsed ?? collapsed;
   const toggleLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
   return (

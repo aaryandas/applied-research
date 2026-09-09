@@ -95,8 +95,10 @@ function CanvasSession({
     .filter((node) => node.selected)
     .map((node) => node.id);
   const onEditEntryRef = useRef(onEditEntry);
-  onEditEntryRef.current = onEditEntry;
   const flushRef = useRef<() => Promise<boolean>>(async () => true);
+  useEffect(() => {
+    onEditEntryRef.current = onEditEntry;
+  }, [onEditEntry]);
   const authoring = useCanvasAuthoring({
     workspace,
     view,
@@ -154,15 +156,16 @@ function CanvasSession({
       'Map centered at a readable scale. Pan to reach nodes outside the viewport.',
     );
   }, [flow]);
+  const flushAuthoring = authoring.flush;
   const flush = useCallback(async (): Promise<boolean> => {
-    const saved = await authoring.flush();
+    const saved = await flushAuthoring();
     if (!active.current) return false;
     setNavigationBlocked(!saved);
     if (saved) setNotice('');
     return saved;
-  }, [authoring.flush]);
-  flushRef.current = flush;
+  }, [flushAuthoring]);
   useEffect(() => {
+    flushRef.current = flush;
     registerFlush(flush);
     return () => registerFlush(null);
   }, [registerFlush, flush]);

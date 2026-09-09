@@ -98,9 +98,11 @@ function InsightSupports({
 export function CanvasComposer({
   session,
   workspace,
+  onFlush,
 }: Readonly<{
   session: AuthoringSession;
   workspace: LearningWorkspace;
+  onFlush?: () => Promise<boolean>;
 }>): ReactElement | null {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const body = useRef<HTMLTextAreaElement>(null);
@@ -206,7 +208,7 @@ export function CanvasComposer({
           disabled={Boolean(state.conflict)}
           aria-disabled={state.saving}
           onClick={() => {
-            if (!state.saving) void session.flush();
+            if (!state.saving) void (onFlush ?? session.flush)();
           }}
         >
           {state.saving
