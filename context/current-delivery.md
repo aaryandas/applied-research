@@ -33,3 +33,9 @@ While status automation is being repaired, the coordinator may manually reconcil
 3. **Resolve configuration once.** Inspect the real run and authoritative settings, assign one owner, apply one bounded fix and verify it. Repeated setup attempts or duplicate workers do not replace that evidence.
 4. **Keep provenance through integration.** Bind source, launch, review, recording and CI evidence to exact revisions and actual owners. A merge or new commit requires reassessing the affected evidence.
 5. **Make status reflect work.** Reconcile started work conservatively while automation is repaired. Partial demos, unavailable runtimes and blocked authentication remain explicit gaps, never completion signals.
+
+## Current consumer leases
+
+AR47 owns Opening, new onboarding UI/main modules, LearnerProfile files and migration `0005_learning_onboarding.sql`; the coordinator owns journal/shared store/App/Shell/preload application of its precise integration patches. AR50 keeps migration0004. AR51 owns migration0006_contextual_retention for retained explanations; AR56 reserves0007 for entry origins if needed. AR58 owns six new backend boundary test files; AR48 retains existing backend production and tests. Final AR52 `bca886a` and AR53 `32d3344` passed independent Cloud review and are integrated at `f32b548`; consumer implementation may proceed.
+
+AR51 owns the new contextual main/backend modules, contextual explanation UI and migration0006; AR54 retains clip player/media/render-worker files. Shared store/IPC/Reader/Canvas mounts stay coordinator-owned patches.

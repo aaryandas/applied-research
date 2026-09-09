@@ -45,13 +45,21 @@
       "src/renderer/explanations/**",
       "src/render-worker/**",
       "src/backend/render-delivery/**",
-      "src/main/retained-media-*.ts"
+      "src/main/retained-media-*.ts",
+      "src/main/contextual-help-*.ts",
+      "src/main/explanation-*.ts",
+      "src/backend/explanations/**",
+      "drizzle/0006_contextual_retention.sql"
     ],
     "opening": [
       "src/renderer/Opening.tsx",
       "src/renderer/Opening.test.tsx",
       "src/renderer/FieldAtlas.tsx",
-      "src/renderer/assets/**"
+      "src/renderer/assets/**",
+      "src/renderer/onboarding/**",
+      "src/renderer/settings/LearnerProfile*",
+      "src/main/learning-onboarding*.ts",
+      "drizzle/0005_learning_onboarding.sql"
     ],
     "storage": [
       "src/main/workspace-*.ts",
@@ -98,6 +106,11 @@
       "playwright.config.ts",
       "tsconfig*.json",
       ".prettierignore"
+    ],
+    "companion": [
+      "src/renderer/companion/**",
+      "src/main/guidance-*.ts",
+      "src/backend/companion/**"
     ]
   }
 }
