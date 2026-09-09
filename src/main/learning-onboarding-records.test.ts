@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { courseSuccess } from './learning-onboarding.fixtures';
-import { LearningOnboardingRecords } from './learning-onboarding-records';
+import {
+  LEGACY_REVIEWED_BASE_DIGEST,
+  LearningOnboardingRecords,
+} from './learning-onboarding-records';
 import { applyLearningOnboardingTables } from './learning-onboarding-schema';
 import type { WorkspaceDatabase } from './workspace-schema';
 import { WorkspaceStore } from './workspace-store';
@@ -243,6 +246,239 @@ describe('learning onboarding records', () => {
       end: 9,
       quote: 'Attention',
     });
-    expect(records.getAdjustmentByRequest('missing-request')).toBeNull();
+    expect(
+      records.getAdjustmentByProposedRequest('missing-request'),
+    ).toBeNull();
+    expect(
+      records.getAdjustmentAcceptanceByRequest('missing-request'),
+    ).toBeNull();
+  });
+
+  it('keeps accepted overlay A when proposing B and rolls back a failed accept transaction', () => {
+    const { records, store } = setup();
+    const project = store.create('Learn transformers from original sources.');
+    const first = sampleRevision(project.id, 1, 'request-a');
+    records.insertAdjustmentRevision(project.id, first);
+    records.insertAdjustmentAcceptance({
+      requestId: 'accept-a',
+      projectId: project.id,
+      adjustmentId: first.adjustmentId,
+      adjustmentRevision: 1,
+      reviewedBaseDigest: first.reviewedBaseDigest,
+      resultingPathRevision: 1,
+      acceptedAt: '2026-09-09T12:00:00.000Z',
+    });
+    const second = sampleRevision(project.id, 2, 'request-b');
+    records.insertAdjustmentRevision(project.id, second);
+    const snap = records.snapshot(project.id);
+    expect(snap.acceptedAdjustment).toEqual({
+      id: first.adjustmentId,
+      revision: 1,
+    });
+    expect(snap.adjustment?.revision).toBe(2);
+    expect(records.listAdjustmentRevisions(project.id)).toHaveLength(2);
+    expect(() =>
+      records.transaction((transaction) => {
+        records.insertAdjustmentAcceptance(
+          {
+            requestId: 'accept-b',
+            projectId: project.id,
+            adjustmentId: second.adjustmentId,
+            adjustmentRevision: 2,
+            reviewedBaseDigest: second.reviewedBaseDigest,
+            resultingPathRevision: 2,
+            acceptedAt: '2026-09-09T12:01:00.000Z',
+          },
+          transaction,
+        );
+        throw new Error('stop after receipt write');
+      }),
+    ).toThrow('stop after receipt write');
+    expect(
+      records.getLatestAcceptedAdjustment(project.id)?.receipt.requestId,
+    ).toBe('accept-a');
+    expect(records.getPendingAdjustment(project.id)?.revision).toBe(2);
+  });
+
+  it('migrates stores without an adjustment table and preserves one legacy row', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'ar47-migrate-'));
+    const store = new WorkspaceStore(join(directory, 'workspace.sqlite'));
+    const internals = store as unknown as {
+      database: Database.Database;
+      orm: WorkspaceDatabase;
+    };
+    cleanups.push(() => {
+      store.close();
+      rmSync(directory, { recursive: true, force: true });
+    });
+    const project = store.create('Learn transformers from original sources.');
+    internals.database.exec(
+      readFileSync(
+        join(import.meta.dirname, '../../drizzle/0005_learning_onboarding.sql'),
+        'utf8',
+      ),
+    );
+    internals.database.exec('DROP TABLE learning_adjustments');
+    applyLearningOnboardingTables(internals.database);
+    const empty = new LearningOnboardingRecords(internals.orm);
+    expect(empty.listAdjustmentRevisions(project.id)).toEqual([]);
+    expect(empty.snapshot(project.id).acceptedAdjustment).toBeNull();
+
+    const legacyDir = mkdtempSync(join(tmpdir(), 'ar47-legacy-'));
+    const legacyStore = new WorkspaceStore(join(legacyDir, 'workspace.sqlite'));
+    const legacyInternals = legacyStore as unknown as {
+      database: Database.Database;
+      orm: WorkspaceDatabase;
+    };
+    cleanups.push(() => {
+      legacyStore.close();
+      rmSync(legacyDir, { recursive: true, force: true });
+    });
+    const legacyProject = legacyStore.create(
+      'Learn transformers from original sources.',
+    );
+    legacyInternals.database.exec(
+      readFileSync(
+        join(import.meta.dirname, '../../drizzle/0005_learning_onboarding.sql'),
+        'utf8',
+      ),
+    );
+    const adjustmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const envelope = JSON.stringify({
+      outcome: 'success',
+      requestId: 'legacy-adjust',
+      adjustment: {
+        patches: [
+          {
+            remoteStepId: 'step-002',
+            field: 'practice',
+            practice: { kind: 'kept' },
+          },
+        ],
+      },
+    });
+    const projection = JSON.stringify({
+      id: adjustmentId,
+      revision: 1,
+      patches: [{ remoteStepId: 'step-002', field: 'practice' }],
+    });
+    legacyInternals.database
+      .prepare(
+        `INSERT INTO learning_adjustments (
+          project_id, adjustment_id, revision, accepted_proposal_id,
+          accepted_proposal_revision, envelope_json, projection_json,
+          accepted_at, request_id, updated_at
+        ) VALUES (?, ?, 1, 'proposal-01', 1, ?, ?, ?, 'legacy-adjust', ?)`,
+      )
+      .run(
+        legacyProject.id,
+        adjustmentId,
+        envelope,
+        projection,
+        '2026-09-09T12:00:00.000Z',
+        '2026-09-09T12:00:00.000Z',
+      );
+    applyLearningOnboardingTables(legacyInternals.database);
+    const migrated = new LearningOnboardingRecords(legacyInternals.orm);
+    const history = migrated.listAdjustmentRevisions(legacyProject.id);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.envelope.adjustment.patches[0]?.practice).toEqual({
+      kind: 'kept',
+    });
+    expect(migrated.snapshot(legacyProject.id).acceptedAdjustment).toEqual({
+      id: adjustmentId,
+      revision: 1,
+    });
+    expect(migrated.getPendingAdjustment(legacyProject.id)).toBeNull();
+    expect(
+      legacyInternals.database
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'learning_adjustments'",
+        )
+        .get(),
+    ).toBeUndefined();
   });
 });
+
+function sampleRevision(
+  projectId: string,
+  revision: number,
+  requestId: string,
+) {
+  return {
+    adjustmentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    revision,
+    acceptedProposalId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    acceptedProposalRevision: 1,
+    envelope: {
+      outcome: 'success' as const,
+      requestId,
+      scope: 'accepted-course-adjustment' as const,
+      adjustment: {
+        acceptedProposal: {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          revision: 1,
+        },
+        summary: {
+          author: 'ai' as const,
+          summary: 'Pending tokenizer practice.',
+          observedGaps: [],
+          masteryEstablished: false as const,
+        },
+        focus: null,
+        depth: null,
+        patches: [],
+        citations: [],
+        reviewedBase: {
+          pathRevision: 1,
+          acceptedAdjustment: null,
+          digest: LEGACY_REVIEWED_BASE_DIGEST,
+        },
+      },
+      sources: [],
+      bibliography: [],
+      evidence: [],
+      gaps: [],
+      provenance: [],
+      quota: {
+        month: '2026-09',
+        limitMicrousd: 1,
+        committedMicrousd: 0,
+        reservedMicrousd: 0,
+        remainingMicrousd: 1,
+      },
+    },
+    projection: {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      revision,
+      projectId,
+      acceptedProposal: {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        revision: 1,
+      },
+      title: 'Transformers from sources',
+      summary: {
+        author: 'ai' as const,
+        summary: 'Pending tokenizer practice.',
+        observedGaps: [] as string[],
+        masteryEstablished: false as const,
+      },
+      focus: null,
+      depth: null,
+      patches: [],
+      sources: [],
+      gaps: [],
+      acceptance: 'ready' as const,
+      reviewedBase: {
+        pathRevision: 1,
+        acceptedAdjustment: null,
+        digest: LEGACY_REVIEWED_BASE_DIGEST,
+      },
+    },
+    proposedRequestId: requestId,
+    reviewedPathRevision: 1,
+    reviewedAcceptedAdjustment: null,
+    reviewedBaseDigest: LEGACY_REVIEWED_BASE_DIGEST,
+    proposedAt: '2026-09-09T12:00:00.000Z',
+  };
+}

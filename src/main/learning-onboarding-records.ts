@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type {
   AcceptedOnboarding,
   AcceptedStepMapping,
@@ -25,11 +25,15 @@ import {
   acceptedStepMappings,
   learnerProfile,
   learningAcceptances,
-  learningAdjustments,
+  learningAdjustmentAcceptances,
+  learningAdjustmentRevisions,
   learningInterviews,
   learningProposals,
   learningResume,
 } from './learning-onboarding-schema';
+
+export const LEGACY_REVIEWED_BASE_DIGEST =
+  '0000000000000000000000000000000000000000000000000000000000000000';
 
 export type StoredProposal = {
   proposalId: string;
@@ -39,15 +43,28 @@ export type StoredProposal = {
   projection: CourseProposal;
 };
 
-export type StoredAdjustment = {
+export type StoredAdjustmentRevision = {
   adjustmentId: string;
   revision: number;
   acceptedProposalId: string;
   acceptedProposalRevision: number;
   envelope: AcceptedCourseAdjustmentSuccess;
   projection: CourseAdjustmentProposal;
-  acceptedAt: string | null;
-  requestId: string | null;
+  proposedRequestId: string;
+  reviewedPathRevision: number;
+  reviewedAcceptedAdjustment: OpaqueRevisionRef | null;
+  reviewedBaseDigest: string;
+  proposedAt: string;
+};
+
+export type StoredAdjustmentAcceptance = {
+  requestId: string;
+  projectId: string;
+  adjustmentId: string;
+  adjustmentRevision: number;
+  reviewedBaseDigest: string;
+  resultingPathRevision: number;
+  acceptedAt: string;
 };
 
 export type StoredMappingRow = AcceptedStepMapping & {
@@ -71,8 +88,80 @@ export type ProfileView = {
   assessment: OnboardingPersonalization | null;
 };
 
+type OnboardingConnection = WorkspaceDatabase | WorkspaceTransaction;
+
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function coerceAdjustmentProjection(json: string): CourseAdjustmentProposal {
+  const value: unknown = JSON.parse(json);
+  if (!isRecord(value)) {
+    throw new Error('Stored adjustment projection is invalid.');
+  }
+  const patches = Array.isArray(value.patches)
+    ? value.patches.map((item) => {
+        const patch = isRecord(item) ? item : {};
+        return {
+          ...patch,
+          practiceBefore: patch.practiceBefore ?? null,
+          practiceAfter: patch.practiceAfter ?? patch.practice ?? null,
+        };
+      })
+    : [];
+  const reviewedBase = isRecord(value.reviewedBase)
+    ? value.reviewedBase
+    : {
+        pathRevision: 1,
+        acceptedAdjustment: null,
+        digest: LEGACY_REVIEWED_BASE_DIGEST,
+      };
+  return {
+    ...(value as unknown as CourseAdjustmentProposal),
+    patches: patches as CourseAdjustmentProposal['patches'],
+    reviewedBase: reviewedBase as CourseAdjustmentProposal['reviewedBase'],
+  };
+}
+
+function coerceAdjustmentEnvelope(
+  json: string,
+): AcceptedCourseAdjustmentSuccess {
+  const value: unknown = JSON.parse(json);
+  if (!isRecord(value) || !isRecord(value.adjustment)) {
+    throw new Error('Stored adjustment envelope is invalid.');
+  }
+  const adjustment = value.adjustment;
+  const patches = Array.isArray(adjustment.patches)
+    ? adjustment.patches.map((item) => {
+        const patch = isRecord(item) ? item : {};
+        return {
+          ...patch,
+          practiceBefore: patch.practiceBefore ?? null,
+          practice: patch.practice ?? null,
+        };
+      })
+    : [];
+  const reviewedBase = isRecord(adjustment.reviewedBase)
+    ? adjustment.reviewedBase
+    : {
+        pathRevision: 1,
+        acceptedAdjustment: null,
+        digest: LEGACY_REVIEWED_BASE_DIGEST,
+      };
+  return {
+    ...(value as unknown as AcceptedCourseAdjustmentSuccess),
+    adjustment: {
+      ...(adjustment as unknown as AcceptedCourseAdjustmentSuccess['adjustment']),
+      patches:
+        patches as AcceptedCourseAdjustmentSuccess['adjustment']['patches'],
+      reviewedBase:
+        reviewedBase as AcceptedCourseAdjustmentSuccess['adjustment']['reviewedBase'],
+    },
+  };
 }
 
 /** Uses the store-owned connection. Does not open a second database. */
@@ -81,6 +170,10 @@ export class LearningOnboardingRecords {
 
   transaction<T>(fn: (transaction: WorkspaceTransaction) => T): T {
     return this.database.transaction(fn, { behavior: 'immediate' });
+  }
+
+  private connection(transaction?: WorkspaceTransaction): OnboardingConnection {
+    return transaction ?? this.database;
   }
 
   getProfileView(): ProfileView {
@@ -179,8 +272,11 @@ export class LearningOnboardingRecords {
       .run();
   }
 
-  getInterview(projectId: string): InterviewRecord | null {
-    const row = this.database
+  getInterview(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): InterviewRecord | null {
+    const row = this.connection(transaction)
       .select()
       .from(learningInterviews)
       .where(eq(learningInterviews.projectId, projectId))
@@ -201,8 +297,11 @@ export class LearningOnboardingRecords {
     };
   }
 
-  getPastedSource(projectId: string): string | null {
-    const row = this.database
+  getPastedSource(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): string | null {
+    const row = this.connection(transaction)
       .select({ pastedSourceText: learningInterviews.pastedSourceText })
       .from(learningInterviews)
       .where(eq(learningInterviews.projectId, projectId))
@@ -269,8 +368,11 @@ export class LearningOnboardingRecords {
     });
   }
 
-  getProposal(projectId: string): StoredProposal | null {
-    const row = this.database
+  getProposal(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredProposal | null {
+    const row = this.connection(transaction)
       .select()
       .from(learningProposals)
       .where(eq(learningProposals.projectId, projectId))
@@ -328,8 +430,11 @@ export class LearningOnboardingRecords {
     });
   }
 
-  getAcceptance(projectId: string): AcceptedOnboarding | null {
-    const row = this.database
+  getAcceptance(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): AcceptedOnboarding | null {
+    const row = this.connection(transaction)
       .select()
       .from(learningAcceptances)
       .where(eq(learningAcceptances.projectId, projectId))
@@ -375,7 +480,7 @@ export class LearningOnboardingRecords {
     },
     transaction?: WorkspaceTransaction,
   ): void {
-    const connection = transaction ?? this.database;
+    const connection = this.connection(transaction);
     connection
       .insert(learningAcceptances)
       .values({
@@ -396,7 +501,7 @@ export class LearningOnboardingRecords {
     transaction?: WorkspaceTransaction,
   ): void {
     if (rows.length === 0) return;
-    const connection = transaction ?? this.database;
+    const connection = this.connection(transaction);
     const projectId = rows[0]!.projectId;
     connection
       .delete(acceptedStepMappings)
@@ -421,82 +526,258 @@ export class LearningOnboardingRecords {
     }
   }
 
-  getAdjustment(projectId: string): StoredAdjustment | null {
-    const row = this.database
-      .select()
-      .from(learningAdjustments)
-      .where(eq(learningAdjustments.projectId, projectId))
-      .get();
-    if (!row) return null;
+  private mapAdjustmentRevision(row: {
+    adjustmentId: string;
+    revision: number;
+    acceptedProposalId: string;
+    acceptedProposalRevision: number;
+    envelopeJson: string;
+    projectionJson: string;
+    proposedRequestId: string;
+    reviewedPathRevision: number;
+    reviewedAcceptedAdjustmentId: string | null;
+    reviewedAcceptedAdjustmentRevision: number | null;
+    reviewedBaseDigest: string;
+    proposedAt: string;
+  }): StoredAdjustmentRevision {
     return {
       adjustmentId: row.adjustmentId,
       revision: row.revision,
       acceptedProposalId: row.acceptedProposalId,
       acceptedProposalRevision: row.acceptedProposalRevision,
-      envelope: parseJson(row.envelopeJson),
-      projection: parseJson(row.projectionJson),
-      acceptedAt: row.acceptedAt,
-      requestId: row.requestId,
+      envelope: coerceAdjustmentEnvelope(row.envelopeJson),
+      projection: coerceAdjustmentProjection(row.projectionJson),
+      proposedRequestId: row.proposedRequestId,
+      reviewedPathRevision: row.reviewedPathRevision,
+      reviewedAcceptedAdjustment:
+        row.reviewedAcceptedAdjustmentId &&
+        row.reviewedAcceptedAdjustmentRevision
+          ? {
+              id: row.reviewedAcceptedAdjustmentId,
+              revision: row.reviewedAcceptedAdjustmentRevision,
+            }
+          : null,
+      reviewedBaseDigest: row.reviewedBaseDigest,
+      proposedAt: row.proposedAt,
     };
   }
 
-  getAdjustmentByRequest(requestId: string): {
-    projectId: string;
-    stored: StoredAdjustment;
-  } | null {
-    const row = this.database
+  listAdjustmentRevisions(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentRevision[] {
+    return this.connection(transaction)
       .select()
-      .from(learningAdjustments)
-      .where(eq(learningAdjustments.requestId, requestId))
+      .from(learningAdjustmentRevisions)
+      .where(eq(learningAdjustmentRevisions.projectId, projectId))
+      .orderBy(desc(learningAdjustmentRevisions.revision))
+      .all()
+      .map((row) => this.mapAdjustmentRevision(row));
+  }
+
+  getAdjustmentRevision(
+    projectId: string,
+    adjustmentId: string,
+    revision: number,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentRevision | null {
+    const row = this.connection(transaction)
+      .select()
+      .from(learningAdjustmentRevisions)
+      .where(
+        and(
+          eq(learningAdjustmentRevisions.projectId, projectId),
+          eq(learningAdjustmentRevisions.adjustmentId, adjustmentId),
+          eq(learningAdjustmentRevisions.revision, revision),
+        ),
+      )
       .get();
-    if (!row) return null;
+    return row ? this.mapAdjustmentRevision(row) : null;
+  }
+
+  getLatestAdjustmentRevision(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentRevision | null {
+    const row = this.connection(transaction)
+      .select()
+      .from(learningAdjustmentRevisions)
+      .where(eq(learningAdjustmentRevisions.projectId, projectId))
+      .orderBy(desc(learningAdjustmentRevisions.revision))
+      .get();
+    return row ? this.mapAdjustmentRevision(row) : null;
+  }
+
+  getPendingAdjustment(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentRevision | null {
+    const revisions = this.listAdjustmentRevisions(projectId, transaction);
+    const accepted = new Set(
+      this.listAdjustmentAcceptances(projectId, transaction).map(
+        (item) => `${item.adjustmentId}:${String(item.adjustmentRevision)}`,
+      ),
+    );
+    return (
+      revisions.find(
+        (item) =>
+          !accepted.has(`${item.adjustmentId}:${String(item.revision)}`),
+      ) ?? null
+    );
+  }
+
+  getLatestAcceptedAdjustment(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): {
+    revision: StoredAdjustmentRevision;
+    receipt: StoredAdjustmentAcceptance;
+  } | null {
+    const receipt = this.connection(transaction)
+      .select()
+      .from(learningAdjustmentAcceptances)
+      .where(eq(learningAdjustmentAcceptances.projectId, projectId))
+      .orderBy(desc(learningAdjustmentAcceptances.adjustmentRevision))
+      .get();
+    if (!receipt) return null;
+    const revision = this.getAdjustmentRevision(
+      projectId,
+      receipt.adjustmentId,
+      receipt.adjustmentRevision,
+      transaction,
+    );
+    if (!revision) return null;
     return {
-      projectId: row.projectId,
-      stored: {
-        adjustmentId: row.adjustmentId,
-        revision: row.revision,
-        acceptedProposalId: row.acceptedProposalId,
-        acceptedProposalRevision: row.acceptedProposalRevision,
-        envelope: parseJson(row.envelopeJson),
-        projection: parseJson(row.projectionJson),
-        acceptedAt: row.acceptedAt,
-        requestId: row.requestId,
+      revision,
+      receipt: {
+        requestId: receipt.requestId,
+        projectId: receipt.projectId,
+        adjustmentId: receipt.adjustmentId,
+        adjustmentRevision: receipt.adjustmentRevision,
+        reviewedBaseDigest: receipt.reviewedBaseDigest,
+        resultingPathRevision: receipt.resultingPathRevision,
+        acceptedAt: receipt.acceptedAt,
       },
     };
   }
 
-  saveAdjustment(
+  listAdjustmentAcceptances(
     projectId: string,
-    stored: StoredAdjustment,
-  ): StoredAdjustment {
-    const updatedAt = new Date().toISOString();
-    const values = {
-      projectId,
-      adjustmentId: stored.adjustmentId,
-      revision: stored.revision,
-      acceptedProposalId: stored.acceptedProposalId,
-      acceptedProposalRevision: stored.acceptedProposalRevision,
-      envelopeJson: JSON.stringify(stored.envelope),
-      projectionJson: JSON.stringify(stored.projection),
-      acceptedAt: stored.acceptedAt,
-      requestId: stored.requestId,
-      updatedAt,
-    };
-    const current = this.getAdjustment(projectId);
-    if (current) {
-      this.database
-        .update(learningAdjustments)
-        .set(values)
-        .where(eq(learningAdjustments.projectId, projectId))
-        .run();
-    } else {
-      this.database.insert(learningAdjustments).values(values).run();
-    }
-    return stored;
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentAcceptance[] {
+    return this.connection(transaction)
+      .select()
+      .from(learningAdjustmentAcceptances)
+      .where(eq(learningAdjustmentAcceptances.projectId, projectId))
+      .all()
+      .map((row) => ({
+        requestId: row.requestId,
+        projectId: row.projectId,
+        adjustmentId: row.adjustmentId,
+        adjustmentRevision: row.adjustmentRevision,
+        reviewedBaseDigest: row.reviewedBaseDigest,
+        resultingPathRevision: row.resultingPathRevision,
+        acceptedAt: row.acceptedAt,
+      }));
   }
 
-  listMappings(projectId: string): StoredMappingRow[] {
-    return this.database
+  getAdjustmentByProposedRequest(
+    requestId: string,
+    transaction?: WorkspaceTransaction,
+  ): { projectId: string; stored: StoredAdjustmentRevision } | null {
+    const row = this.connection(transaction)
+      .select()
+      .from(learningAdjustmentRevisions)
+      .where(eq(learningAdjustmentRevisions.proposedRequestId, requestId))
+      .get();
+    if (!row) return null;
+    return {
+      projectId: row.projectId,
+      stored: this.mapAdjustmentRevision(row),
+    };
+  }
+
+  getAdjustmentAcceptanceByRequest(
+    requestId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentAcceptance | null {
+    const row = this.connection(transaction)
+      .select()
+      .from(learningAdjustmentAcceptances)
+      .where(eq(learningAdjustmentAcceptances.requestId, requestId))
+      .get();
+    if (!row) return null;
+    return {
+      requestId: row.requestId,
+      projectId: row.projectId,
+      adjustmentId: row.adjustmentId,
+      adjustmentRevision: row.adjustmentRevision,
+      reviewedBaseDigest: row.reviewedBaseDigest,
+      resultingPathRevision: row.resultingPathRevision,
+      acceptedAt: row.acceptedAt,
+    };
+  }
+
+  insertAdjustmentRevision(
+    projectId: string,
+    stored: StoredAdjustmentRevision,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentRevision {
+    const write = (connection: OnboardingConnection) => {
+      connection
+        .insert(learningAdjustmentRevisions)
+        .values({
+          projectId,
+          adjustmentId: stored.adjustmentId,
+          revision: stored.revision,
+          acceptedProposalId: stored.acceptedProposalId,
+          acceptedProposalRevision: stored.acceptedProposalRevision,
+          envelopeJson: JSON.stringify(stored.envelope),
+          projectionJson: JSON.stringify(stored.projection),
+          proposedRequestId: stored.proposedRequestId,
+          reviewedPathRevision: stored.reviewedPathRevision,
+          reviewedAcceptedAdjustmentId:
+            stored.reviewedAcceptedAdjustment?.id ?? null,
+          reviewedAcceptedAdjustmentRevision:
+            stored.reviewedAcceptedAdjustment?.revision ?? null,
+          reviewedBaseDigest: stored.reviewedBaseDigest,
+          proposedAt: stored.proposedAt,
+        })
+        .run();
+      return stored;
+    };
+    if (transaction) return write(transaction);
+    return this.transaction((active) => write(active));
+  }
+
+  insertAdjustmentAcceptance(
+    receipt: StoredAdjustmentAcceptance,
+    transaction?: WorkspaceTransaction,
+  ): StoredAdjustmentAcceptance {
+    const write = (connection: OnboardingConnection) => {
+      connection
+        .insert(learningAdjustmentAcceptances)
+        .values({
+          requestId: receipt.requestId,
+          projectId: receipt.projectId,
+          adjustmentId: receipt.adjustmentId,
+          adjustmentRevision: receipt.adjustmentRevision,
+          reviewedBaseDigest: receipt.reviewedBaseDigest,
+          resultingPathRevision: receipt.resultingPathRevision,
+          acceptedAt: receipt.acceptedAt,
+        })
+        .run();
+      return receipt;
+    };
+    if (transaction) return write(transaction);
+    return this.transaction((active) => write(active));
+  }
+
+  listMappings(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): StoredMappingRow[] {
+    return this.connection(transaction)
       .select()
       .from(acceptedStepMappings)
       .where(eq(acceptedStepMappings.projectId, projectId))
@@ -522,8 +803,9 @@ export class LearningOnboardingRecords {
     remoteStepId: string,
     practice: CoursePracticeBrief,
     practiceDigest: string,
+    transaction?: WorkspaceTransaction,
   ): boolean {
-    const result = this.database
+    const result = this.connection(transaction)
       .update(acceptedStepMappings)
       .set({
         practiceDigest,
@@ -539,19 +821,29 @@ export class LearningOnboardingRecords {
     return result.changes > 0;
   }
 
-  snapshot(projectId: string): LearningOnboardingSnapshot {
-    const interview = this.getInterview(projectId);
-    const proposal = this.getProposal(projectId);
-    const accepted = this.getAcceptance(projectId);
-    const storedAdjustment = this.getAdjustment(projectId);
+  snapshot(
+    projectId: string,
+    transaction?: WorkspaceTransaction,
+  ): LearningOnboardingSnapshot {
+    const interview = this.getInterview(projectId, transaction);
+    const proposal = this.getProposal(projectId, transaction);
+    const accepted = this.getAcceptance(projectId, transaction);
+    const pending = this.getPendingAdjustment(projectId, transaction);
+    const acceptedOverlay = this.getLatestAcceptedAdjustment(
+      projectId,
+      transaction,
+    );
     return {
       interview,
       proposal: accepted ? null : (proposal?.projection ?? null),
       accepted,
-      adjustment:
-        accepted && storedAdjustment && storedAdjustment.acceptedAt === null
-          ? storedAdjustment.projection
-          : null,
+      adjustment: pending?.projection ?? null,
+      acceptedAdjustment: acceptedOverlay
+        ? {
+            id: acceptedOverlay.revision.adjustmentId,
+            revision: acceptedOverlay.revision.revision,
+          }
+        : null,
     };
   }
 
@@ -585,7 +877,7 @@ export class LearningOnboardingRecords {
     resume: Omit<ContinueLearningResume, 'updatedAt'>,
     transaction?: WorkspaceTransaction,
   ): void {
-    const connection = transaction ?? this.database;
+    const connection = this.connection(transaction);
     const updatedAt = new Date().toISOString();
     const current = connection.select().from(learningResume).get();
     const values = {
