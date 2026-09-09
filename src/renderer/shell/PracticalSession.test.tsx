@@ -96,6 +96,18 @@ async function waitForCheckedTrialAndResolver(): Promise<void> {
   });
 }
 
+/** Loaded reflection text can appear before requester/resolver arm Ask. */
+async function waitForReflectionAskReady(text: string): Promise<void> {
+  await waitFor(() => {
+    expect(
+      screen.getByRole('textbox', { name: /Your interpretation/ }),
+    ).toHaveValue(text);
+    expect(
+      screen.getByRole('button', { name: 'Ask about my reflection' }),
+    ).toBeEnabled();
+  });
+}
+
 function committed(input: {
   activity: PracticalActivity;
   attemptId: string;
@@ -272,11 +284,7 @@ function retainedJourney(options: {
 }
 
 it('asks with the reopened attempt and exact owned reflection through the mounted AR-19 resolver', async () => {
-  vi.stubGlobal('matchMedia', () => ({
-    matches: false,
-    addEventListener() {},
-    removeEventListener() {},
-  }));
+  stubHost();
   const activity: PracticalActivity = {
     projectId: 'a1234567-1234-4234-8234-123456789012',
     origin: {
@@ -344,11 +352,7 @@ it('asks with the reopened attempt and exact owned reflection through the mounte
       requestGuidance={requestGuidance}
     />,
   );
-  await waitFor(() =>
-    expect(
-      screen.getByRole('textbox', { name: /Your interpretation/ }),
-    ).toHaveValue(' My exact saved reflection. '),
-  );
+  await waitForReflectionAskReady(' My exact saved reflection. ');
   fireEvent.click(
     screen.getByRole('button', { name: 'Ask about my reflection' }),
   );
@@ -377,6 +381,57 @@ it('asks with the reopened attempt and exact owned reflection through the mounte
     },
   });
   revoke();
+  view.unmount();
+});
+
+it('does not offer Ask during a deferred journey load, then sends one owned reflection request', async () => {
+  const pending = deferred<LoadPracticalJourneyResult>();
+  const bridge = sessionBridge({
+    loadPracticalJourney: vi.fn(() => pending.promise),
+  });
+  const { view, requestGuidance } = renderSession({
+    bridge,
+    attemptId: seedAttemptId,
+  });
+  expect(screen.getByText('Loading activity…')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Ask about my reflection' }),
+  ).not.toBeInTheDocument();
+  expect(requestGuidance).not.toHaveBeenCalled();
+  await resolveDeferred(pending, loadedJourney(savedAttempt()));
+  await waitForReflectionAskReady(' My exact saved reflection. ');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Ask about my reflection' }),
+  );
+  await waitFor(() => expect(requestGuidance).toHaveBeenCalledTimes(1));
+  expect(requestGuidance.mock.calls[0]![0]).toMatchObject({
+    requestedTarget: {
+      attemptId: savedAttemptId,
+      activity,
+      target: 'reflection',
+    },
+    pageAccess: 'none',
+    context: {
+      authorKind: 'human',
+      text: ' My exact saved reflection. ',
+      version: { kind: 'saved', revision: 3 },
+    },
+  });
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Your interpretation/ }),
+    { target: { value: ' My exact unsaved reflection. ' } },
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Ask about my reflection' }),
+  );
+  await waitFor(() => expect(requestGuidance).toHaveBeenCalledTimes(2));
+  expect(requestGuidance.mock.calls[1]![0]).toMatchObject({
+    requestedTarget: { attemptId: savedAttemptId },
+    context: {
+      text: ' My exact unsaved reflection. ',
+      version: { kind: 'unsaved-draft', lastAcknowledgedRevision: 3 },
+    },
+  });
   view.unmount();
 });
 
@@ -410,6 +465,11 @@ it('does not request guidance until an explicit action after a deferred empty-at
   pending.resolve(loadedJourney(null));
   await waitFor(() =>
     expect(screen.getByLabelText('Expected outcome')).toHaveValue(''),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Ask about my reflection' }),
+    ).toBeEnabled(),
   );
   expect(requestGuidance).not.toHaveBeenCalled();
   fireEvent.change(
@@ -728,11 +788,7 @@ it('shows authenticated guidance as unavailable when the transport is omitted', 
     loadPracticalJourney: vi.fn(async () => loadedJourney(savedAttempt())),
   });
   const { view } = renderSession({ bridge, omitGuidance: true });
-  await waitFor(() =>
-    expect(
-      screen.getByRole('textbox', { name: /Your interpretation/ }),
-    ).toHaveValue(' My exact saved reflection. '),
-  );
+  await waitForReflectionAskReady(' My exact saved reflection. ');
   fireEvent.click(
     screen.getByRole('button', { name: 'Ask about my reflection' }),
   );
