@@ -49,21 +49,62 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
   const openingRef = useRef(false);
   const [opening, setOpening] = useState(false);
   const pending = useRef<AbortController | null>(null);
-  const acquisitions = useRef(new Set<AbortController>());
+  const acquisitions = useRef(new Map<string, AbortController>());
+  const [acquiringIds, setAcquiringIds] = useState<readonly string[]>([]);
+  const [deniedIds, setDeniedIds] = useState<readonly string[]>([]);
+  const [sourceAlerts, setSourceAlerts] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const questionField = useRef<HTMLTextAreaElement>(null);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   useEffect(
     () => () => {
       pending.current?.abort();
-      for (const controller of acquisitions.current) controller.abort();
+      for (const controller of acquisitions.current.values())
+        controller.abort();
     },
     [],
   );
-  function retainAcquisition(controller: AbortController): () => void {
-    acquisitions.current.add(controller);
-    return () => {
-      acquisitions.current.delete(controller);
-    };
+  function setSourceAlert(sourceId: string, message: string): void {
+    setSourceAlerts((current) => {
+      if ((current[sourceId] ?? '') === message) return current;
+      if (!message) {
+        return Object.fromEntries(
+          Object.entries(current).filter(([id]) => id !== sourceId),
+        );
+      }
+      return { ...current, [sourceId]: message };
+    });
+  }
+  function releaseAcquisition(
+    sourceId: string,
+    controller: AbortController,
+  ): void {
+    if (acquisitions.current.get(sourceId) !== controller) return;
+    acquisitions.current.delete(sourceId);
+    setAcquiringIds((ids) =>
+      ids.includes(sourceId) ? ids.filter((id) => id !== sourceId) : ids,
+    );
+  }
+  function retainAcquisition(
+    sourceId: string,
+    controller: AbortController,
+  ): () => void {
+    acquisitions.current.set(sourceId, controller);
+    setAcquiringIds((ids) =>
+      ids.includes(sourceId) ? ids : [...ids, sourceId],
+    );
+    return () => releaseAcquisition(sourceId, controller);
+  }
+  function cancelAcquisition(sourceId: string): void {
+    const controller = acquisitions.current.get(sourceId);
+    if (!controller) return;
+    controller.abort();
+    releaseAcquisition(sourceId, controller);
+    setSourceAlert(sourceId, SOURCING_PUBLIC_MESSAGES.cancelled);
+  }
+  function denyAcquisition(sourceId: string): void {
+    setDeniedIds((ids) => (ids.includes(sourceId) ? ids : [...ids, sourceId]));
   }
   useLayoutEffect(() => {
     if (results) resultsHeading.current?.focus();
@@ -278,7 +319,17 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
               operation={results.operation}
               callbacks={props}
               opening={opening}
-              retainAcquisition={retainAcquisition}
+              acquiring={acquiringIds.includes(source.sourceId)}
+              permissionDenied={deniedIds.includes(source.sourceId)}
+              acquisitionMessage={sourceAlerts[source.sourceId] ?? ''}
+              retainAcquisition={(controller) =>
+                retainAcquisition(source.sourceId, controller)
+              }
+              onCancelAcquisition={() => cancelAcquisition(source.sourceId)}
+              onPermissionDenied={() => denyAcquisition(source.sourceId)}
+              onAcquisitionMessage={(message) =>
+                setSourceAlert(source.sourceId, message)
+              }
               onSaved={(result) => saveReference(result, results.operation)}
               saved={
                 references.find(

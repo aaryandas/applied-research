@@ -466,6 +466,13 @@ it('keeps an in-flight save after a refined search and still opens the committed
   fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
   expect(operation.signal.aborted).toBe(false);
   await waitFor(() => expect(callbacks.onDiscover).toHaveBeenCalledTimes(2));
+  expect(
+    screen.getByRole('button', { name: 'Acquiring and saving…' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Cancel acquisition' }),
+  ).toBeVisible();
+  expect(callbacks.onAcquireAndSave).toHaveBeenCalledTimes(1);
   await act(async () => finish(savedResult(request.requestId)));
   expect(callbacks.onOpenReader).toHaveBeenCalledWith({
     projectId: 'project-a',
@@ -477,6 +484,54 @@ it('keeps an in-flight save after a refined search and still opens the committed
   expect(
     screen.getByRole('region', { name: 'Saved references' }),
   ).toHaveTextContent('local-original-v2');
+});
+
+it('keeps a remounted source busy and reports the original acquire failure', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'Does retrieval practice help learning?';
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'success',
+      requestId: request.requestId,
+      candidates: [readablePaper()],
+    }),
+  );
+  let finish: (
+    result: Awaited<ReturnType<ResearchEntryProps['onAcquireAndSave']>>,
+  ) => void = () => {};
+  callbacks.onAcquireAndSave = vi.fn<ResearchEntryProps['onAcquireAndSave']>(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Acquire & read' }),
+  );
+  const request = vi.mocked(callbacks.onAcquireAndSave).mock.calls[0]![0];
+  fireEvent.change(screen.getByRole('textbox', { name: 'Research question' }), {
+    target: { value: 'A refined retrieval question' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  await waitFor(() => expect(callbacks.onDiscover).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    finish({
+      outcome: 'not-permitted',
+      requestId: request.requestId,
+      message: 'Source acquisition is not permitted.',
+      decision: 'forbidden',
+    }),
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Source acquisition is not permitted.',
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Acquire & read' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText(/Link only/)).toBeVisible();
+  expect(callbacks.onOpenReader).not.toHaveBeenCalled();
 });
 
 it('lets the learner cancel acquisition and ignores a late committed response', async () => {

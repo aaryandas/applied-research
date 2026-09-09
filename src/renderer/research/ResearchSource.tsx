@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react';
+import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import {
   SOURCING_API_VERSION,
   SOURCING_PUBLIC_MESSAGES,
@@ -33,7 +27,13 @@ interface ResearchSourceProps {
   saved: SavedResult | undefined;
   onOpenSaved: () => Promise<void>;
   opening: boolean;
+  acquiring: boolean;
+  permissionDenied: boolean;
+  acquisitionMessage: string;
   retainAcquisition: (controller: AbortController) => () => void;
+  onCancelAcquisition: () => void;
+  onPermissionDenied: () => void;
+  onAcquisitionMessage: (message: string) => void;
 }
 
 export function ResearchSource({
@@ -44,11 +44,16 @@ export function ResearchSource({
   saved,
   onOpenSaved,
   opening,
+  acquiring,
+  permissionDenied,
+  acquisitionMessage,
   retainAcquisition,
+  onCancelAcquisition,
+  onPermissionDenied,
+  onAcquisitionMessage,
 }: Readonly<ResearchSourceProps>): ReactElement {
-  const [acquiring, setAcquiring] = useState(false);
-  const [message, setMessage] = useState('');
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [linkMessage, setLinkMessage] = useState('');
+  const message = linkMessage || acquisitionMessage;
   const acquisitionAllowed = canAcquire(source) && !permissionDenied && !saved;
   const acquireButton = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -56,21 +61,14 @@ export function ResearchSource({
       acquireButton.current?.focus();
   }, [acquiring, message]);
   const pending = useRef<AbortController | null>(null);
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
   const providerIdentity = source.providerIds[0];
   async function acquire(): Promise<void> {
-    if (pending.current || !providerIdentity) return;
+    if (pending.current || acquiring || !providerIdentity) return;
     const controller = new AbortController();
     pending.current = controller;
     const release = retainAcquisition(controller);
-    setAcquiring(true);
-    setMessage('');
+    setLinkMessage('');
+    onAcquisitionMessage('');
     const requestId = crypto.randomUUID();
     try {
       const result = await callbacks.onAcquireAndSave(
@@ -91,43 +89,39 @@ export function ResearchSource({
           result.source.sourceId !== source.sourceId ||
           result.source.content.revision.sourceId !== source.sourceId);
       if (wrongRequest || wrongSource) {
-        if (mounted.current)
-          setMessage(
-            'The saved source did not match this request. Search again.',
-          );
+        onAcquisitionMessage(
+          'The saved source did not match this request. Search again.',
+        );
         return;
       }
       if (result.outcome === 'saved') {
         pending.current = null;
-        if (mounted.current) setAcquiring(false);
+        release();
         await onSaved(result);
-      } else if (mounted.current) {
-        setPermissionDenied(result.outcome === 'not-permitted');
-        setMessage(researchMessage(result));
+      } else {
+        if (result.outcome === 'not-permitted') onPermissionDenied();
+        onAcquisitionMessage(researchMessage(result));
       }
     } catch {
-      if (!controller.signal.aborted && mounted.current)
-        setMessage('The source could not be saved. Try acquiring it again.');
+      if (!controller.signal.aborted)
+        onAcquisitionMessage(
+          'The source could not be saved. Try acquiring it again.',
+        );
     } finally {
       release();
-      if (!controller.signal.aborted) {
-        pending.current = null;
-        if (mounted.current) setAcquiring(false);
-      }
+      if (!controller.signal.aborted) pending.current = null;
     }
   }
   function cancelAcquisition(): void {
-    pending.current?.abort();
     pending.current = null;
-    setAcquiring(false);
-    setMessage(SOURCING_PUBLIC_MESSAGES.cancelled);
+    onCancelAcquisition();
   }
   async function openOriginal(target: ResearchLinkTarget): Promise<void> {
     try {
       if ((await callbacks.onOpenOriginal(target)) === 'unavailable')
-        setMessage('The original link is unavailable.');
+        setLinkMessage('The original link is unavailable.');
     } catch {
-      setMessage('The original link is unavailable.');
+      setLinkMessage('The original link is unavailable.');
     }
   }
   const isAbstract = source.providerIds.some(
