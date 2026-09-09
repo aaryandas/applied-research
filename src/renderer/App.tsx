@@ -5,7 +5,10 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import type { DesktopBridge } from '../contracts/desktop';
+import {
+  DESKTOP_E2E_TEST_ENVIRONMENT,
+  type DesktopBridge,
+} from '../contracts/desktop';
 import type {
   LearningRecordsBridge,
   LearningWorkspace,
@@ -39,6 +42,15 @@ function hasOnboardingBridge(
   bridge: AppBridge,
 ): bridge is AppBridge & LearningOnboardingBridge {
   return typeof bridge.proposeCourse === 'function';
+}
+
+function openingUsesOnboarding(
+  bridge: AppBridge,
+): bridge is AppBridge & LearningOnboardingBridge {
+  return (
+    hasOnboardingBridge(bridge) &&
+    bridge.info.testEnvironment !== DESKTOP_E2E_TEST_ENVIRONMENT
+  );
 }
 
 export function App({ bridge }: { bridge: AppBridge }): ReactElement {
@@ -269,7 +281,7 @@ export function App({ bridge }: { bridge: AppBridge }): ReactElement {
                   span: card.span,
                 });
               }}
-              {...(hasOnboardingBridge(bridge)
+              {...(openingUsesOnboarding(bridge)
                 ? {
                     onboarding: {
                       createDraftProject,

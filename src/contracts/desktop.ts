@@ -17,9 +17,22 @@ import type {
 import type { LearningRecordsBridge } from './learning-records';
 import type { DesktopAccountState, DesktopSignOutResult } from './desktop-auth';
 
+/** Opt-in Electron launch flag. Production never sets this. */
+export const DESKTOP_E2E_TEST_ENVIRONMENT = 'desktop-e2e' as const;
+export type DesktopTestEnvironment = typeof DESKTOP_E2E_TEST_ENVIRONMENT;
+
+export function readDesktopTestEnvironment(
+  value: string | undefined,
+): DesktopTestEnvironment | null {
+  return value === DESKTOP_E2E_TEST_ENVIRONMENT
+    ? DESKTOP_E2E_TEST_ENVIRONMENT
+    : null;
+}
+
 export interface DesktopInfo {
   readonly platform: string;
   readonly electronVersion: string;
+  readonly testEnvironment?: DesktopTestEnvironment | null;
 }
 export interface DesktopBridge {
   readonly info: DesktopInfo;

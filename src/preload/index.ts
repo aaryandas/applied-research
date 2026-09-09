@@ -18,7 +18,10 @@ import {
   type PracticalWorkspaceBridge,
 } from '../contracts/practical-records';
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopBridge } from '../contracts/desktop';
+import {
+  readDesktopTestEnvironment,
+  type DesktopBridge,
+} from '../contracts/desktop';
 import {
   AUTH_CHANNELS,
   type DesktopAccountState,
@@ -85,6 +88,9 @@ const desktop: DesktopBridge &
   info: {
     platform: process.platform,
     electronVersion: process.versions.electron,
+    testEnvironment: readDesktopTestEnvironment(
+      process.env.APPLIED_RESEARCH_TEST_ENVIRONMENT,
+    ),
   },
   accountStatus: () => ipcRenderer.invoke(AUTH_CHANNELS.accountStatus),
   signIn: () => ipcRenderer.invoke(AUTH_CHANNELS.signIn),

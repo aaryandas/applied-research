@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { DesktopBridge } from '../contracts/desktop';
+import {
+  DESKTOP_E2E_TEST_ENVIRONMENT,
+  type DesktopBridge,
+} from '../contracts/desktop';
 import type {
   DesktopAccountState,
   DesktopSignOutResult,
@@ -86,7 +89,12 @@ function onboardingBridge(workspace: LearningWorkspace, project: Project) {
   return methods;
 }
 
-function setup(options: { draft?: boolean } = {}) {
+function setup(
+  options: {
+    draft?: boolean;
+    testEnvironment?: typeof DESKTOP_E2E_TEST_ENVIRONMENT | null;
+  } = {},
+) {
   const records = fixture();
   const workspace = records.workspace;
   const project: Project = { ...workspace.project, entries: [] };
@@ -116,7 +124,11 @@ function setup(options: { draft?: boolean } = {}) {
     LearningOnboardingResumeBridge = {
     ...records.bridge,
     ...onboarding,
-    info: { platform: 'test', electronVersion: 'test' },
+    info: {
+      platform: 'test',
+      electronVersion: 'test',
+      testEnvironment: options.testEnvironment ?? null,
+    },
     accountStatus: vi.fn(async () => signedOut),
     signIn: vi.fn(async () => signedOut),
     cancelSignIn: vi.fn(async () => signedOut),
@@ -210,4 +222,26 @@ it('mounts Learner profile in Settings apart from Account and Appearance', async
   ).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Account' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Appearance' })).toBeVisible();
+});
+
+it('opens a fresh project through the desktop-e2e seam instead of onboarding', async () => {
+  const { bridge, onboarding } = setup({
+    testEnvironment: DESKTOP_E2E_TEST_ENVIRONMENT,
+  });
+  vi.mocked(bridge.listProjects).mockResolvedValue([]);
+  render(<App bridge={bridge} />);
+  fireEvent.change(
+    await screen.findByLabelText('What do you want to learn about?'),
+    { target: { value: 'Inspect an assembly without proposing a course' } },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start learning' }));
+  expect(await screen.findByRole('heading', { name: 'Reading' })).toBeVisible();
+  expect(bridge.createProject).toHaveBeenCalledWith(
+    'Inspect an assembly without proposing a course',
+  );
+  expect(bridge.getLearningWorkspace).toHaveBeenCalled();
+  expect(onboarding.proposeCourse).not.toHaveBeenCalled();
+  expect(
+    screen.queryByText(/uncertainty is a valid answer/i),
+  ).not.toBeInTheDocument();
 });

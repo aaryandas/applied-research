@@ -7,6 +7,7 @@ import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+import { desktopE2EEnv } from './desktop-e2e-env';
 
 test('Practical journey retains an accepted lesson activity, brief, imported evidence and exact origin', async () => {
   test.setTimeout(120_000);
@@ -42,12 +43,7 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
   const launch = () =>
     electron.launch({
       args: ['.'],
-      env: {
-        ...process.env,
-        APPLIED_RESEARCH_DATA_DIR: directory,
-        APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR: 'false',
-        OPENROUTER_API_KEY: '',
-      },
+      env: desktopE2EEnv(directory),
     });
   let application = await launch();
   try {

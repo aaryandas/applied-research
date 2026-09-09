@@ -23,17 +23,16 @@ import {
   readGuestLifecycle,
   settleActivatedWorkspace,
 } from './guest-lifecycle';
+import { desktopE2EEnv } from './desktop-e2e-env';
 
 function launch(directory: string, key = ''): Promise<ElectronApplication> {
   const executablePath = process.env.ELECTRON_EXECUTABLE_PATH;
   return electron.launch({
     ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }),
-    env: {
-      ...process.env,
-      APPLIED_RESEARCH_DATA_DIR: directory,
+    env: desktopE2EEnv(directory, {
       APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR: key ? 'true' : 'false',
       OPENROUTER_API_KEY: key,
-    },
+    }),
   });
 }
 

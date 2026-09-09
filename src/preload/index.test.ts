@@ -34,6 +34,7 @@ describe('preload named desktop bridge', () => {
     );
     const desktop = vi.mocked(contextBridge.exposeInMainWorld).mock
       .calls[0]![1] as {
+      info: { testEnvironment: string | null };
       getLearnerProfile: () => Promise<unknown>;
       proposeCourse: (input: unknown) => Promise<unknown>;
       getContinueLearning: () => Promise<unknown>;
@@ -42,6 +43,7 @@ describe('preload named desktop bridge', () => {
       loadTrustedSceneCapture: (input: unknown) => Promise<unknown>;
       activateSourceWorkspace: (projectId: string) => Promise<unknown>;
     };
+    expect(desktop.info.testEnvironment).toBeNull();
     await desktop.getLearnerProfile();
     await desktop.proposeCourse({ projectId: 'p', requestId: 'r' });
     await desktop.getContinueLearning();

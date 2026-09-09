@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import {
   EXPLANATION_VERSION,
   type ExplanationSpec,
@@ -8,6 +8,7 @@ import {
   type RetainedExplanation,
   type SceneCaptureRequest,
   type SceneLocalState,
+  type TrustedSceneCapture,
 } from '../../contracts/explanation-artifacts';
 import { ExplanationExperience } from './ExplanationExperience';
 
@@ -22,11 +23,20 @@ export function RetainedScene({
   readonly scene: SceneLocalState | null;
   readonly active: boolean;
   readonly onParameters: (state: SceneLocalState) => void;
-  readonly onCaptureRequest: (request: SceneCaptureRequest) => void;
+  readonly onCaptureRequest: (
+    request: SceneCaptureRequest,
+  ) => Promise<TrustedSceneCapture | void> | TrustedSceneCapture | void;
 }): ReactElement | null {
   const useful = explanation.attempts.find(
     (attempt) => attempt.attemptId === explanation.usefulAttemptId,
   );
+  const [trustedCapture, setTrustedCapture] =
+    useState<TrustedSceneCapture | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  useEffect(() => {
+    setTrustedCapture(null);
+    setCaptureError(null);
+  }, [explanation.explanationId, explanation.usefulAttemptId]);
   if (useful?.result?.kind !== 'scene') return null;
   const parameters = scene?.parameters ?? useful.result.initialParameters;
   const origin = explanation.origin.sourceRevisionId
@@ -65,25 +75,56 @@ export function RetainedScene({
     spec = { ...identity, recipe: 'spatial-assembly', parameters: assembly };
   }
   return (
-    <ExplanationExperience
-      spec={spec}
-      active={active}
-      plannedParameters={useful.result.initialParameters}
-      parameterRevision={scene?.parameterRevision ?? 1}
-      onChange={(next) => {
-        onParameters({
-          kind: 'scene-local-state',
-          explanationId: explanation.explanationId,
-          parameterRevision: (scene?.parameterRevision ?? 1) + 1,
-          parameters: next.parameters,
-          camera: scene?.camera ?? {
-            position: { x: 0, y: 0, z: 13 },
-            target: { x: 0, y: 0, z: 0 },
-          },
-        });
-      }}
-      onCapture={() => undefined}
-      onRetainedCapture={onCaptureRequest}
-    />
+    <>
+      <ExplanationExperience
+        spec={spec}
+        active={active}
+        plannedParameters={useful.result.initialParameters}
+        parameterRevision={scene?.parameterRevision ?? 1}
+        onChange={(next) => {
+          onParameters({
+            kind: 'scene-local-state',
+            explanationId: explanation.explanationId,
+            parameterRevision: (scene?.parameterRevision ?? 1) + 1,
+            parameters: next.parameters,
+            camera: scene?.camera ?? {
+              position: { x: 0, y: 0, z: 13 },
+              target: { x: 0, y: 0, z: 0 },
+            },
+          });
+        }}
+        onCapture={() => undefined}
+        onRetainedCapture={(request) => {
+          void Promise.resolve(onCaptureRequest(request)).then(
+            (captured) => {
+              if (captured && captured.kind === 'app-measured') {
+                setTrustedCapture(captured);
+                setCaptureError(null);
+                return;
+              }
+              setCaptureError(
+                'Main did not return a trusted scene capture. Parameters are unchanged.',
+              );
+            },
+            (failure: unknown) => {
+              setCaptureError(
+                failure instanceof Error
+                  ? failure.message
+                  : 'Could not retain this capture. Parameters are unchanged.',
+              );
+            },
+          );
+        }}
+      />
+      {captureError ? <p role="alert">{captureError}</p> : null}
+      {trustedCapture ? (
+        <output className="explanation-capture">
+          <strong>Captured · app-measured</strong>
+          <pre aria-label="Captured scene record">
+            {JSON.stringify(trustedCapture, null, 2)}
+          </pre>
+        </output>
+      ) : null}
+    </>
   );
 }

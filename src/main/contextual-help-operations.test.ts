@@ -551,6 +551,87 @@ describe('contextual help operations', () => {
     expect(listed[0]?.attempts[0]).not.toHaveProperty('media');
     expect(unavailableClipPlayback().kind).toBe('unavailable');
   });
+
+  it('serves a local visual scene in desktop-e2e without claiming remote auth', async () => {
+    const harness = openExplanationHarness();
+    cleanups.push(() => harness.close());
+    const operations = new ContextualHelpOperations({
+      records: harness.records,
+      authenticated: () => false,
+      transport: null,
+      testEnvironment: 'desktop-e2e',
+      now: () => new Date(createdAt),
+      randomUUID: () => '22000000-0000-4000-8000-000000000008',
+    });
+    operations.activate(harness.projectId);
+    await expect(
+      operations.request({
+        contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
+        projectId: harness.projectId,
+        requestId: '11000000-0000-4000-8000-000000000008',
+        expectedProjectGeneration: 1,
+        expectedRequestGeneration: 0,
+        origin: {
+          kind: 'source-highlight',
+          sourceRevisionId: harness.revisionId,
+          highlightId: harness.highlightId,
+        },
+        intent: 'text',
+        question: { kind: 'app-authored', intent: 'explain-this-passage' },
+      }),
+    ).resolves.toMatchObject({ outcome: 'unauthenticated' });
+    const assembly = await operations.request({
+      contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
+      projectId: harness.projectId,
+      requestId: '11000000-0000-4000-8000-000000000009',
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+      origin: {
+        kind: 'source-highlight',
+        sourceRevisionId: harness.revisionId,
+        highlightId: harness.highlightId,
+      },
+      intent: 'visual',
+      question: { kind: 'app-authored', intent: 'explain-this-visually' },
+    });
+    expect(assembly.outcome).toBe('success');
+    const loaded = operations.load({
+      projectId: harness.projectId,
+      explanationId:
+        assembly.outcome === 'success' ? assembly.explanationId : '',
+    });
+    expect(loaded?.attempts[0]?.result).toMatchObject({
+      kind: 'scene',
+      family: 'spatial-assembly',
+    });
+    expect(loaded?.attempts[0]?.provenance).toBeNull();
+    const arm = await operations.request({
+      contractVersion: CONTEXTUAL_HELP_CONTRACT_VERSION,
+      projectId: harness.projectId,
+      requestId: '11000000-0000-4000-8000-000000000010',
+      expectedProjectGeneration: 1,
+      expectedRequestGeneration: 0,
+      origin: {
+        kind: 'source-highlight',
+        sourceRevisionId: harness.revisionId,
+        highlightId: harness.highlightId,
+      },
+      intent: 'visual',
+      question: { kind: 'human', text: 'Show a two-link arm' },
+    });
+    expect(arm.outcome).toBe('success');
+    const listed = operations.list({ projectId: harness.projectId });
+    const useful = listed
+      .at(-1)
+      ?.attempts.find(
+        (attempt) => attempt.attemptId === listed.at(-1)?.usefulAttemptId,
+      );
+    expect(useful?.result).toMatchObject({
+      kind: 'scene',
+      family: 'two-link-arm',
+      initialParameters: DEFAULT_ARM,
+    });
+  });
 });
 
 describe('contextual help named channels', () => {

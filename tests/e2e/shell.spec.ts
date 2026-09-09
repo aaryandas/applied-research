@@ -7,6 +7,7 @@ import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+import { desktopE2EEnv } from './desktop-e2e-env';
 
 test('wires a real saved source through Reader, Canvas, Settings and restart', async () => {
   test.setTimeout(90_000);
@@ -14,12 +15,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
   const launch = () =>
     electron.launch({
       args: ['.'],
-      env: {
-        ...process.env,
-        APPLIED_RESEARCH_DATA_DIR: directory,
-        APPLIED_RESEARCH_ENABLE_DIRECT_TUTOR: 'false',
-        OPENROUTER_API_KEY: '',
-      },
+      env: desktopE2EEnv(directory),
     });
   let application = await launch();
   try {

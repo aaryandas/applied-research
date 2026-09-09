@@ -16,11 +16,15 @@ import {
   type RetainedExplanation,
   type RetainedExplanationResult,
   type SceneLocalState,
+  type SupportedExplanationPlan,
   type TrustedSceneCapture,
 } from '../contracts/explanation-artifacts';
+import { DEFAULT_ARM } from '../contracts/explanations';
+import { DESKTOP_E2E_TEST_ENVIRONMENT } from '../contracts/desktop';
 import {
   LEARNING_API_VERSION,
   LEARNING_MODEL_ALLOWLIST,
+  type AiProvenance,
   type LearningRequest,
   type SourceCitation,
 } from '../contracts/learning-api';
@@ -82,7 +86,13 @@ export interface ContextualHelpOperationsOptions {
   now?: () => Date;
   randomUUID?: () => string;
   requestClip?: (plan: ExplanationPlan) => Promise<ClipPlaybackResult>;
+  testEnvironment?: typeof DESKTOP_E2E_TEST_ENVIRONMENT | null;
 }
+
+type DesktopE2EScenePlan = Extract<
+  SupportedExplanationPlan,
+  { family: 'spatial-assembly' | 'two-link-arm' }
+>;
 
 function questionText(request: ContextualHelpRequest): string {
   if (request.question.kind === 'human') return request.question.text;
@@ -180,6 +190,19 @@ export class ContextualHelpOperations {
       };
     }
     if (!this.options.authenticated() || !this.options.transport) {
+      if (
+        this.options.testEnvironment === DESKTOP_E2E_TEST_ENVIRONMENT &&
+        request.intent === 'visual'
+      ) {
+        const authority = this.resolveAuthority(request);
+        if ('outcome' in authority) return authority;
+        return this.persistSupportedScene(
+          request,
+          authority,
+          this.desktopE2EVisualPlan(request),
+          null,
+        );
+      }
       return {
         outcome: 'unauthenticated',
         requestId: request.requestId,
@@ -581,47 +604,12 @@ export class ContextualHelpOperations {
       );
     }
     if (plan.family === 'spatial-assembly' || plan.family === 'two-link-arm') {
-      const result: RetainedExplanationResult = {
-        kind: 'scene',
-        family: plan.family,
-        assetVersion: SCENE_ASSET_VERSION,
-        initialParameters: plan.parameters,
-      };
-      const persisted = this.commit(
+      return this.persistSupportedScene(
         request,
         authority,
-        {
-          attemptId,
-          explanationId: '',
-          intent: 'visual',
-          status: 'ready',
-          requestedAt: now,
-          completedAt: now,
-          humanQuestion: request.question,
-          aiResponse: null,
-          provenance: decoded.value.provenance,
-          citations:
-            plan.sourceSupport.kind === 'cited-source'
-              ? [...plan.sourceSupport.citations]
-              : [],
-          plan,
-          result,
-        },
-        true,
+        plan,
+        decoded.value.provenance,
       );
-      if (persisted.outcome === 'success') {
-        this.options.records.saveSceneState(request.projectId, {
-          kind: 'scene-local-state',
-          explanationId: persisted.explanationId,
-          parameterRevision: 1,
-          parameters: plan.parameters,
-          camera: {
-            position: { x: 0, y: 0, z: 13 },
-            target: { x: 0, y: 0, z: 0 },
-          },
-        });
-      }
-      return persisted;
     }
     const clip = await (
       this.options.requestClip ?? (async () => unavailableClipPlayback())
@@ -670,6 +658,107 @@ export class ContextualHelpOperations {
       },
       false,
     );
+  }
+
+  private desktopE2EVisualPlan(
+    request: ContextualHelpRequest,
+  ): DesktopE2EScenePlan {
+    const arm = /arm/i.test(questionText(request));
+    if (arm) {
+      return {
+        status: 'supported',
+        family: 'two-link-arm',
+        parameters: { ...DEFAULT_ARM },
+        stages: [{ name: 'Compose', seconds: 2 }],
+        caption:
+          'A planar two-link arm served by the desktop-e2e test environment. Not a live provider result.',
+        copy: {
+          role: 'untrusted-display-copy',
+          title: 'Two-link arm',
+          quote: null,
+        },
+        sourceSupport: {
+          kind: 'illustrative-assumption',
+          note: 'Original geometry from the desktop-e2e test environment, not a live model.',
+        },
+        rationale: {
+          role: 'untrusted-display-copy',
+          text: 'Bounded test-environment scene. Not a remote planner response.',
+        },
+      };
+    }
+    return {
+      status: 'supported',
+      family: 'spatial-assembly',
+      parameters: { separation: 0, selectedPart: 'core' },
+      stages: [{ name: 'Inspect', seconds: 2 }],
+      caption:
+        'Beacon module served by the desktop-e2e test environment. Not a live provider result.',
+      copy: {
+        role: 'untrusted-display-copy',
+        title: 'Beacon module',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption',
+        note: 'Original geometry from the desktop-e2e test environment, not a live model.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy',
+        text: 'Bounded test-environment scene. Not a remote planner response.',
+      },
+    };
+  }
+
+  private persistSupportedScene(
+    request: ContextualHelpRequest,
+    authority: ResolvedAuthority,
+    plan: DesktopE2EScenePlan,
+    provenance: AiProvenance | null,
+  ): ContextualHelpResponse {
+    const now = this.clock().toISOString();
+    const attemptId = this.createId();
+    const result: RetainedExplanationResult = {
+      kind: 'scene',
+      family: plan.family,
+      assetVersion: SCENE_ASSET_VERSION,
+      initialParameters: plan.parameters,
+    };
+    const persisted = this.commit(
+      request,
+      authority,
+      {
+        attemptId,
+        explanationId: '',
+        intent: 'visual',
+        status: 'ready',
+        requestedAt: now,
+        completedAt: now,
+        humanQuestion: request.question,
+        aiResponse: null,
+        provenance,
+        citations:
+          plan.sourceSupport.kind === 'cited-source'
+            ? [...plan.sourceSupport.citations]
+            : [],
+        plan,
+        result,
+      },
+      true,
+    );
+    if (persisted.outcome === 'success') {
+      this.options.records.saveSceneState(request.projectId, {
+        kind: 'scene-local-state',
+        explanationId: persisted.explanationId,
+        parameterRevision: 1,
+        parameters: plan.parameters,
+        camera: {
+          position: { x: 0, y: 0, z: 13 },
+          target: { x: 0, y: 0, z: 0 },
+        },
+      });
+    }
+    return persisted;
   }
 
   private refuseLongOrInadmissible(

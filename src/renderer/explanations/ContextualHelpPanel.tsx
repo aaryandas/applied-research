@@ -387,9 +387,9 @@ export function ContextualHelpPanel({
               state: next,
             });
           }}
-          onCaptureRequest={(request: SceneCaptureRequest) => {
-            void bridge.acceptSceneCapture({ projectId, request });
-          }}
+          onCaptureRequest={(request: SceneCaptureRequest) =>
+            bridge.acceptSceneCapture({ projectId, request })
+          }
         />
       )}
     </section>
