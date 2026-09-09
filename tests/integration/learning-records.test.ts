@@ -1277,6 +1277,7 @@ it('refuses entry origins until reserved 0007 is applied, then persists exact pa
   expect(store.getLearningWorkspace(project.id).entries).toHaveLength(1);
 
   store.applyReservedEntryOriginMigration();
+  store.applyReservedEntryOriginMigration();
   const child = committed(
     store.saveReadingNote({
       projectId: project.id,
@@ -1406,6 +1407,15 @@ it('refuses entry origins until reserved 0007 is applied, then persists exact pa
           revision: 1,
         },
       },
+    }),
+  ).toThrow('not found in this learning space');
+  expect(() =>
+    store.saveReadingNote({
+      projectId: project.id,
+      expectedRevision: 0,
+      title: 'Missing parent revision',
+      body: 'Missing',
+      origin: { entry: { entryId: parent.id, revision: 99 } },
     }),
   ).toThrow('not found in this learning space');
 

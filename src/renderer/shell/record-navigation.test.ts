@@ -55,7 +55,18 @@ it('finds lessons, originless notes, identical bodies and historical revisions a
     },
   };
   assistant.revisions = [assistant.current];
-  workspace.entries.push(extra, twin, assistant);
+  const originless = {
+    ...first,
+    id: 'canvas-note',
+    current: {
+      ...first.current,
+      origin: null,
+      title: 'Originless canvas note',
+      body: 'Standalone map note',
+    },
+  };
+  originless.revisions = [originless.current];
+  workspace.entries.push(extra, twin, assistant, originless);
 
   expect(searchWorkspace(workspace, 'title-only pending')).toMatchObject([
     {
@@ -89,6 +100,16 @@ it('finds lessons, originless notes, identical bodies and historical revisions a
     {
       kind: 'assistant',
       target: { kind: 'entry', reference: { entryId: 'ai-note', revision: 1 } },
+    },
+  ]);
+  expect(searchWorkspace(workspace, 'standalone map note')).toMatchObject([
+    {
+      kind: 'note',
+      label: 'Originless canvas note',
+      target: {
+        kind: 'entry',
+        reference: { entryId: 'canvas-note', revision: 1 },
+      },
     },
   ]);
   expect(searchWorkspace(workspace, 'whole arm')).toMatchObject([

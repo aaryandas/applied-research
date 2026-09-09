@@ -438,6 +438,15 @@ it('finds an originless note, a sourced note, a pending lesson and distinct same
     name: /Identical saved bodies remain distinct records/,
   });
   expect(twins).toHaveLength(2);
+  fireEvent.click(twins[0]!);
+  await waitFor(() =>
+    expect(document.activeElement).toHaveAttribute(
+      'id',
+      'reader-record-twin-a-r1',
+    ),
+  );
+  expect(screen.getByText('Identical saved bodies remain distinct records')).toBeVisible();
+  expect(screen.getByLabelText('Source text').textContent).toBe(reading);
   expect(bridge.saveReadingNote).not.toHaveBeenCalled();
   expect(bridge.saveQuestion).not.toHaveBeenCalled();
   expect(bridge.saveInsight).not.toHaveBeenCalled();
