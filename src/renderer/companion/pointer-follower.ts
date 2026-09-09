@@ -25,9 +25,12 @@ export function attachPointerFollower({
     decoration.style.removeProperty('transform');
     decoration.removeAttribute('data-following');
   }
+  function reduced(): boolean {
+    return motion.matches;
+  }
   function paint(): void {
     frame = null;
-    if (!point || motion.matches) return;
+    if (!point || reduced()) return;
     const x = Math.max(
       EDGE_INSET,
       Math.min(
@@ -46,21 +49,31 @@ export function attachPointerFollower({
     decoration.setAttribute('data-following', 'true');
   }
   function move(event: PointerEvent): void {
-    if (motion.matches || event.pointerType === 'touch') return;
+    if (event.pointerType === 'touch') return;
+    if (reduced()) {
+      park();
+      return;
+    }
     point = { x: event.clientX, y: event.clientY };
     if (frame === null) frame = viewport.requestAnimationFrame(paint);
+  }
+  function onMotionChange(): void {
+    // Park only after entering reduced motion. Leaving it must not cancel a
+    // follow that already read the live query; the change event can arrive
+    // after the preference and the next pointer event.
+    if (reduced()) park();
   }
   surface.addEventListener('pointermove', move);
   surface.addEventListener('pointerleave', park);
   viewport.addEventListener('blur', park);
   viewport.addEventListener('resize', park);
-  motion.addEventListener('change', park);
+  motion.addEventListener('change', onMotionChange);
   return () => {
     park();
     surface.removeEventListener('pointermove', move);
     surface.removeEventListener('pointerleave', park);
     viewport.removeEventListener('blur', park);
     viewport.removeEventListener('resize', park);
-    motion.removeEventListener('change', park);
+    motion.removeEventListener('change', onMotionChange);
   };
 }

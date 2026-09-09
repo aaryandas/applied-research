@@ -349,6 +349,10 @@ describe('Companion app-owned controls and decoration', () => {
     move(t.surface, 100, 100);
     paint();
     expect(mark).toHaveAttribute('data-following', 'true');
+    act(() => {
+      media.dispatchEvent(new Event('change'));
+    });
+    expect(mark).toHaveAttribute('data-following', 'true');
     reduced = true;
     act(() => {
       media.dispatchEvent(new Event('change'));

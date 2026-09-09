@@ -1,5 +1,7 @@
 # Next-run workflow
 
+> Current execution: [September 9 delivery policy](current-delivery.md) supersedes conflicting Fable, local execution, review, concurrency and Sonar instructions below. The remaining text records the original workflow design; automated activation is not yet proven.
+
 The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. The unit of work is a pull request against the integration branch. Linear status changes trigger machines. One coordinator merges and resolves ambiguity; nothing else is serialized on a person or a laptop.
 
 ## Roles

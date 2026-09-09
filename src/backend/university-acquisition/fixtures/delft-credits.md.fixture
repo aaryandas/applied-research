@@ -1,0 +1,30 @@
+# Credits and license
+
+## About the author
+```{figure} images/portraits/Idema.jpg
+---
+width: 200
+align: right
+alt: Dr. Timon Idema
+---
+Dr. Timon Idema
+```
+Dr. **Timon Idema** is an associate professor at the [Department of Bionanoscience](https://www.tudelft.nl/en/faculty-of-applied-sciences/about-faculty/departments/bionanoscience/) at [Delft University of Technology](http://www.tudelft.nl/) (TU Delft) in The Netherlands. Before starting his research group in Delft in 2012, Idema obtained his PhD in theoretical biophysics at the [Instituut Lorentz](http://www.lorentz.leidenuniv.nl/) of [Leiden University](https://www.leidenuniv.nl) (The Netherlands) and worked at the [Institut Curie](https://institut-curie.org/) (Paris, France) and the [University of Pennsylvania](https://www.upenn.edu/) (Philadelphia, USA).
+
+Idema's group studies collective dynamics in biologically motivated systems, ranging from proteins at the nano scale to tissues and even populations at the micro- and macro scale. A theorist himself, Idema frequently collaborates and co-publishes with experimental groups. He also teaches a number of courses at TU Delft, ranging from introductory physics to courses on soft matter and geometry that take students to the cutting edge of current research. Since the fall of 2020, Idema leads the joint-degree [MSc Nanobiology programme](https://www.tudelft.nl/onderwijs/opleidingen/masters/nanobiology/msc-nanobiology) of TU Delft and the Erasmus MC Rotterdam. For his educational work, Idema received various prizes, including the faculty of applied sciences [Teacher of the Year](https://www.tudelft.nl/en/2019/tnw/timon-idema-always-looking-for-what-we-dont-know/) in 2019, the [J.B. Westerdijkprize](https://www.tudelft.nl/en/2020/tnw/timon-idema-receives-jb-westerdijk-prize/) in 2020, a [TU Delft education fellowship](https://www.tudelft.nl/teachingacademy/faces-stories/education-fellows) (2020-2022), an [open education ambassador award](https://www.tudelft.nl/2023/tnw/open-education-ambassador-award-voor-timon-idema) (2023), the [SURF education award](https://www.surf.nl/winnaars-surf-onderwijsawards-2023) (2023), and a [Comenius Leadership Fellow grant](https://www.nro.nl/onderzoeksprojecten/co-created-interactive-open-textbooks-education-for-the-21st-century) in 2025.
+
+For more details on his group's research and teaching activities, visit their website at [idemalab.tudelft.nl](https://idemalab.tudelft.nl).
+
+### Acknowledgments
+I would like to thank [Verena Zinschitz](https://www.linkedin.com/in/verena-zinschitz-09b086200/) and Gonçalo Borges Rodrigues Toste de Meneses for help with creating python-based figures and plots; [Carola van der Muren](https://www.linkedin.com/in/carola-van-der-muren-742b594/) for organizing the Open Interactive Textbooks teaching assistant support; [Saskia Roselaar](https://www.linkedin.com/in/saskia-roselaar-a827417/) for editing suggestions; and the many students who gave me feedback on the text in the years I used it as a growing collection of lecture notes in the TU Delft's [Nanobiology](https://www.tudelft.nl/en/education/programmes/bachelors/nb/bsc-nanobiology) programme.
+
+
+## Software and license
+This website is a [Jupyter Book](https://jupyterbook.org/intro.html). Markdown source files are available for download using the button on the top right.
+
+The fluorescent jellyfish images on the cover are by [Nikolay Kovalenko](https://unsplash.com/@nikolasveith), from [Unsplash](https://unsplash.com/photos/QhYTCG3CTeI), [Unsplash license](https://unsplash.com/license).
+
+This book is licensed under a [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+
+## How to cite this book
+T. Idema, *Introduction to quantum mechanics*, TU Delft Open, 2025.
