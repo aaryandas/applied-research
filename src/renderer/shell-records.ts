@@ -4,7 +4,6 @@ import type {
   PathOrigin,
 } from '../contracts/learning-records';
 import type { PracticalActivity } from '../contracts/practical-work';
-
 export function practicalActivity(
   workspace: LearningWorkspace,
   origin: PathOrigin | undefined,
@@ -33,6 +32,41 @@ export function practicalActivity(
     instructions: lesson.activity,
     objective: lesson.objective,
   };
+}
+
+export function listPracticalActivities(
+  workspace: LearningWorkspace,
+  selected?: PathOrigin,
+): PracticalActivity[] {
+  const listed: PracticalActivity[] = [];
+  const seen = new Set<string>();
+  function add(origin: PathOrigin | undefined): void {
+    const activity = practicalActivity(workspace, origin);
+    if (!activity) return;
+    const key = JSON.stringify([
+      activity.projectId,
+      activity.origin.path,
+      activity.origin.sourceRevisionId ?? null,
+      activity.origin.highlightId ?? null,
+    ]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    listed.push(activity);
+  }
+  for (const path of workspace.paths) {
+    for (const topic of path.current.topics) {
+      for (const lesson of topic.lessons) {
+        add({
+          pathId: path.id,
+          pathRevision: path.currentRevision,
+          topicId: topic.id,
+          lessonId: lesson.id,
+        });
+      }
+    }
+  }
+  add(selected);
+  return listed;
 }
 
 export interface WorkspaceSearchResult {

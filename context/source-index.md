@@ -2,9 +2,9 @@
 
 ## Implemented boundary
 
-`src/backend/sourcing/index/adapter.ts` exposes `indexBatch`, `deleteRevision`, `search`, and the shared-contract-compatible `retrieveEvidence`. This is a backend adapter checkpoint with synthetic vectors and injected HTTP responses. It is not wired into backend routes, desktop entry flows, acquisition jobs, or a live corpus. AR-30 owns shared sourcing contracts; AR-33 owns acquisition, extraction and chunk production. Their contracts remain unchanged.
+`src/backend/sourcing/index/adapter.ts` exposes `indexBatch`, `deleteRevision`, `search`, and the shared-contract-compatible `retrieveEvidence`. AR-48 optionally composes this adapter behind authenticated discover/acquire/sourced HTTP when `SOURCE_INDEX_LIVE=true`. Desktop entry, workspace saves and onboarding remain other owners. AR-30 owns shared sourcing contracts; AR-33 owns acquisition, extraction and chunk production. Their contracts remain unchanged.
 
-Construction accepts a backend-owned corpus ID, a generation manifest and a `CorpusAuthority`. There is deliberately no production key, region setting, default network transport or native embedding path. Omitting `fixture` returns `live-configuration-required` without network access. The fixture URL uses `gcp-us-central1`; this is an API-shape specimen, not an approved deployment region. The only Authorization value is a synthetic fixture marker. Do not pass a live HTTP client to the fixture seam.
+Construction accepts a backend-owned corpus ID, a generation manifest and a `CorpusAuthority`. Fixture and live transports are mutually exclusive. Omitting both returns `live-configuration-required` without network access. The fixture URL uses `gcp-us-central1` as an API-shape specimen. Live composition uses founder-approved Oregon regions (`aws-us-west-2`, `gcp-us-west1`) and a real API key only when `SOURCE_INDEX_LIVE=true`. Do not pass a live HTTP client to the fixture seam.
 
 The manifest pins external embedding provider, model, model version and dimensions together with schema, corpus and chunking versions. Configuration is copied at construction. Query embeddings return the same manifest; write batches carry it alongside caller-produced passage vectors. Any mismatch rejects. A changed manifest or corpus ID derives a new namespace rather than rewriting a prior generation. Vector validation requires a dense, finite, nonzero f32-representable vector of the exact dimension (at most 4,096). Tests use three-dimensional synthetic vectors; no embedding quality is established.
 
@@ -27,13 +27,23 @@ Revocation must be persisted by the authoritative producer **before** calling `d
 - One operation deadline includes embeddings, HTTP, streaming and retry waits: 10 seconds by default, configurable from 1 ms through 30 seconds. Cancellation starts no further I/O and also settles when an injected operation ignores abort.
 - The resolver is re-read before each upsert, delete and query attempt and for each returned row; those rechecks compare state, corpus version, scope and exact identity only. The AR-30 canonical decode and hash validation run once per distinct source revision per operation: for writes when the batch is prepared, for queries when the requested sources are resolved. Provider rows are then checked hash-free (exact scalar-safe quote against that decoded text, plus row-ID recomputation), and the fused response, at most `maxPassages` items, is decoded once more before it is returned. Duplicate rows within one branch do not inflate fusion scores.
 
-`search` returns a per-operation status alongside the unchanged public retrieval response: `ready` for success and no-evidence, `partial` when valid evidence is returned but some provider rows were suppressed, otherwise the failure reason. `index-lag` maps to a retryable public `unavailable`; cancellation, timeout and rate limiting keep their existing shared outcomes. Transport failures keep their underlying error as `cause` on the internal `IndexOperationError` for backend diagnostics; only the reason reaches results. `indexBatch` and `deleteRevision` return bounded reasons directly. A provider `rows_remaining` acknowledgement never means deletion completed. These statuses are available to future backend/UI composition; no desktop status view is implemented by this ticket.
+`search` returns a per-operation status alongside the unchanged public retrieval response: `ready` for success and no-evidence, `partial` when valid evidence is returned but some provider rows were suppressed, otherwise the failure reason. `index-lag` maps to a retryable public `unavailable`; cancellation, timeout and rate limiting keep their existing shared outcomes. The adapter surfaces only the bounded reason; there is no diagnostics seam for underlying errors in this checkpoint. `indexBatch` and `deleteRevision` return bounded reasons directly. A provider `rows_remaining` acknowledgement never means deletion completed. These statuses are available to future backend/UI composition; no desktop status view is implemented by this ticket.
 
-## Live acceptance remains blocked
+## Live acceptance remains coordinator-gated
 
-Before enabling live calls, the founder must select and verify an external embedding provider/model/version/dimension, backend-aligned turbopuffer region, approved initial corpus and monthly/per-operation embedding/index budgets. The existing provider-development allowance does not authorize a turbopuffer subscription. No account was created, service purchased, provider credential read, corpus uploaded or live query made by this implementation.
+The founder approved turbopuffer Launch ($16/mo minimum) in Oregon `aws-us-west-2` and Qwen
+`qwen/qwen3-embedding-8b` at 1024 dimensions with an initial embedding evaluation
+MAX $0.25 TOTAL. Coordinator probe spend is already reconciled: remaining **249996 µUSD**.
+Coordinator provisions the backend key separately. `SOURCE_INDEX_LIVE` defaults to false.
+This revision does not run paid embed/index calls, deploy, or enable production AI. The
+published Launch minimum is not an unlimited embedding budget or a hard application cap;
+the shared eval ledger fails closed when missing.
 
-Recommendation for the next decision checkpoint: evaluate one explicitly pinned external embedding model against a small founder-approved, publicly indexable educational/scholarly corpus; compare lexical-only, vector-only and fused relevance before increasing scope. Confirm the actual backend location and account plan first. The published Launch plan currently has a $16/month minimum, which needs separate approval; per-operation ceilings and retry reservations must be implemented and verified before enabling a live transport. This recommendation is not a model, region or spending decision. Real write/query failures, cost accounting, latency, retrieval quality, connected entry flows, Cursor recording and independent Fable review remain acceptance work.
+Live eval remains blocked until every physical dispatch, including query embedding,
+admits against that original remaining allowance. There is no `npm run test:source-index-eval`
+ready-eval command on this head. A per-run fresh 250000 µUSD ceiling is not authorized.
+
+See [sourced backend](sourced-backend.md) for route composition, budgets and corpus limits.
 
 ## Official API references
 
@@ -43,4 +53,4 @@ Verified September 9, 2026 UTC: [write/schema and 64-byte document IDs](https://
 
 The founder’s recovery instruction supersedes older local desktop/Sonar guidance: focused unit tests and `npm run check` run locally; Cursor cloud owns targeted Playwright and hands-on video, blocking macOS GitHub CI owns full desktop verification, and Railway/GitHub owns hosted Sonar. Remote checks remain pending until their actual revision-specific results arrive. Implementers must not produce Cursor attestations on its behalf or move Linear statuses.
 
-AR-34 has 49 synthetic public-boundary tests. The preserved local `npm run check` passed 813 tests in 71 files, formatting, lint, all TypeScript checks, coverage thresholds and desktop/backend builds. Its source files are unchanged by infrastructure recovery; the focused suite passed again on recovery under Node 24. Live corpus quality, costs, latency and connected producer/entry-flow acceptance are still unverified. Passing fixtures establish the adapter checkpoint only.
+AR-34 has 52 synthetic public-boundary tests. On the branch tip recorded as HEAD in the PR body `npm run check` under Node 24 passed 817 tests in 72 files, formatting, lint, all TypeScript checks, coverage thresholds (statements 94.69%, branches 90.97%, functions 96.74%, lines 96.19%) and the desktop/backend builds; no Playwright, packaged or Sonar run was made locally. Live corpus quality, costs, latency and connected producer/entry-flow acceptance are still unverified. Passing fixtures establish the adapter checkpoint only.

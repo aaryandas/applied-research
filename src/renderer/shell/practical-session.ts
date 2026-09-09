@@ -2,13 +2,18 @@ import type { PracticalToolAdapter } from '../practical/tool-adapter';
 import type {
   RegisterPracticalFlush,
   PracticalFlushResult,
+  PracticalActivity,
 } from '../../contracts/practical-work';
 import type {
   CompanionRequester,
   CompanionSessionOptions,
   CompanionState,
 } from '../../contracts/companion';
-import type { PracticalWorkspaceBridge } from '../../contracts/practical-records';
+import type {
+  LoadPracticalAttemptResult,
+  LoadPracticalJourneyResult,
+  PracticalWorkspaceBridge,
+} from '../../contracts/practical-records';
 import { createCompanionRequester } from '../companion/requester';
 import { createPracticalActivityGuidance } from '../practical/activity-guidance';
 
@@ -40,7 +45,7 @@ export class PracticalSessionOwner {
       ? this.save()
       : { status: 'blocked', reason: 'unavailable' };
   }
-  setTool(tool: PracticalToolAdapter): void {
+  setTool(tool: PracticalToolAdapter | null): void {
     this.tool = tool;
   }
 
@@ -61,36 +66,16 @@ export class PracticalSessionOwner {
   constructor(private readonly options: PracticalSessionOptions) {
     this.bridge = {
       ...options.bridge,
-      loadPracticalAttempt: async (input) => {
-        const token = ++this.generation;
-        this.revoke();
-        const result = await options.bridge.loadPracticalAttempt(input);
-        if (
-          result.status !== 'loaded' ||
-          !this.active ||
-          token !== this.generation
-        )
-          return result;
-        this.requester?.dispose();
-        this.requester = createCompanionRequester({
-          activity: input.activity,
-          attemptId: result.attempt?.attemptId ?? options.attemptId,
-          requestGuidance:
-            options.requestGuidance ??
-            (async () => ({
-              status: 'unavailable',
-              message: 'Authenticated activity guidance is not connected yet.',
-            })),
-          onStateChange: (state) => {
-            if (this.active) options.onState(state);
-          },
-          now: () => performance.now(),
-          createRequestId: () => crypto.randomUUID(),
-        });
-        options.onRequester(this.requester);
-        options.onState(this.requester.session.getState());
-        return result;
-      },
+      loadPracticalAttempt: (input) =>
+        this.bindLoadedAttempt(
+          options.bridge.loadPracticalAttempt(input),
+          input.activity,
+        ),
+      loadPracticalJourney: (input) =>
+        this.bindLoadedJourney(
+          options.bridge.loadPracticalJourney(input),
+          input.activity,
+        ),
     };
   }
   mount(): void {
@@ -106,5 +91,58 @@ export class PracticalSessionOwner {
     this.generation++;
     this.requester?.dispose();
     this.requester = null;
+  }
+
+  private bindRequester(activity: PracticalActivity, attemptId: string): void {
+    this.requester?.dispose();
+    this.requester = createCompanionRequester({
+      activity,
+      attemptId,
+      requestGuidance:
+        this.options.requestGuidance ??
+        (async () => ({
+          status: 'unavailable',
+          message: 'Authenticated activity guidance is not connected yet.',
+        })),
+      onStateChange: (state) => {
+        if (this.active) this.options.onState(state);
+      },
+      now: () => performance.now(),
+      createRequestId: () => crypto.randomUUID(),
+    });
+    this.options.onRequester(this.requester);
+    this.options.onState(this.requester.session.getState());
+  }
+
+  private async bindLoadedAttempt(
+    pending: Promise<LoadPracticalAttemptResult>,
+    activity: PracticalActivity,
+  ): Promise<LoadPracticalAttemptResult> {
+    const token = ++this.generation;
+    this.revoke();
+    const result = await pending;
+    if (result.status !== 'loaded' || !this.active || token !== this.generation)
+      return result;
+    this.bindRequester(
+      activity,
+      result.attempt?.attemptId ?? this.options.attemptId,
+    );
+    return result;
+  }
+
+  private async bindLoadedJourney(
+    pending: Promise<LoadPracticalJourneyResult>,
+    activity: PracticalActivity,
+  ): Promise<LoadPracticalJourneyResult> {
+    const token = ++this.generation;
+    this.revoke();
+    const result = await pending;
+    if (result.status !== 'loaded' || !this.active || token !== this.generation)
+      return result;
+    this.bindRequester(
+      activity,
+      result.attempt?.attemptId ?? this.options.attemptId,
+    );
+    return result;
   }
 }

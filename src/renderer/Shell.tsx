@@ -35,7 +35,11 @@ import {
 import { ReaderExplanations } from './ReaderExplanations';
 import { SettingsPanel } from './settings/SettingsPanel';
 import type { SettingsAppearanceControl } from './settings/types';
-import { practicalActivity, searchWorkspace } from './shell-records';
+import {
+  practicalActivity,
+  listPracticalActivities,
+  searchWorkspace,
+} from './shell-records';
 import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
 
@@ -65,6 +69,7 @@ export function Shell({
   const [attempt, setAttempt] = useState<{
     id: string;
     activity: PracticalActivity | null;
+    selection: 'latest' | 'exact';
   } | null>(null);
   const [researchVisible, setResearchVisible] = useState(false);
 
@@ -80,6 +85,9 @@ export function Shell({
   const settingsEntry = useRef<HTMLElement | null>(null);
   const returnDestination = useRef<WorkspaceDestination>('reader');
   const search = useRef<HTMLInputElement>(null);
+  const canvasSave = useRef<(() => Promise<boolean>) | null>(null);
+  const viewMoving = useRef(false);
+  const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
   const {
     registerReaderFlush,
     registerReaderViewFlush,
@@ -91,10 +99,20 @@ export function Shell({
     message,
     saving,
   } = useWorkspaceFlush();
+  const registerBoundCanvasFlush = useCallback(
+    (next: (() => Promise<boolean>) | null) => {
+      canvasSave.current = next;
+      registerCanvasFlush(next);
+    },
+    [registerCanvasFlush],
+  );
   useEffect(() => {
-    registerReaderViewFlush(
-      async () => (await reader.current?.flushViewNavigation()) ?? true,
-    );
+    // Same-project view changes keep this Reader mounted; never treat its
+    // incomplete draft as a failed view flush. Home/native close use registerFlush.
+    registerReaderViewFlush(async () => {
+      await reader.current?.flushViewNavigation();
+      return true;
+    });
     return () => registerReaderViewFlush(null);
   }, [registerReaderViewFlush]);
   useEffect(() => {
@@ -103,6 +121,7 @@ export function Shell({
     const revoke = (): void => {
       projectLifetime.stopPractical();
       void bridge.cancelPracticalFileSelection?.();
+      void bridge.cancelPracticalExport?.();
     };
     const unsubscribe = bridge.onAccountState((state) => {
       if (state.session !== 'signed-in') revoke();
@@ -117,21 +136,26 @@ export function Shell({
       void bridge.activateSourceWorkspace?.(null);
     };
   }, [bridge, projectLifetime, workspace.project.id]);
-  const practicalBridge =
-    bridge.recordPracticalResult &&
-    bridge.loadPracticalAttempt &&
-    bridge.selectPracticalFile &&
-    bridge.cancelPracticalFileSelection
-      ? {
-          recordPracticalResult: bridge.recordPracticalResult,
-          loadPracticalAttempt: bridge.loadPracticalAttempt,
-          selectPracticalFile: bridge.selectPracticalFile,
-          cancelPracticalFileSelection: bridge.cancelPracticalFileSelection,
-        }
-      : null;
+  const practicalBridge = isPracticalWorkspaceBridge(bridge)
+    ? {
+        recordPracticalResult: bridge.recordPracticalResult,
+        loadPracticalAttempt: bridge.loadPracticalAttempt,
+        selectPracticalFile: bridge.selectPracticalFile,
+        cancelPracticalFileSelection: bridge.cancelPracticalFileSelection,
+        listPracticalAttempts: bridge.listPracticalAttempts,
+        previewPracticalFile: bridge.previewPracticalFile,
+        exportPracticalFile: bridge.exportPracticalFile,
+        cancelPracticalExport: bridge.cancelPracticalExport,
+        loadPracticalJourney: bridge.loadPracticalJourney,
+        recordPracticalProgress: bridge.recordPracticalProgress,
+        recordPracticalWorkChoice: bridge.recordPracticalWorkChoice,
+        savePracticalHumanPlan: bridge.savePracticalHumanPlan,
+      }
+    : null;
   const flushResearch = useCallback(async () => {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
+    void bridge.cancelPracticalExport?.();
     return flushView();
   }, [bridge, flushView, projectLifetime]);
   const openSavedResearch = useCallback(
@@ -195,37 +219,62 @@ export function Shell({
     [bridge, onWorkspace],
   );
 
-  function go(next: WorkspaceDestination): void {
+  function stopNativePractical(): void {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
-    void navigate(
-      () => {
+    void bridge.cancelPracticalExport?.();
+  }
+
+  function go(next: WorkspaceDestination): void {
+    if (next === 'home') {
+      stopNativePractical();
+      void navigate(() => {
         setResearchVisible(false);
-        if (next === 'home') {
-          onHome();
-          return;
+        onHome();
+      }, 'workspace');
+      return;
+    }
+    if (viewMoving.current) return;
+    viewMoving.current = true;
+    const from = destination;
+    const hasAttempt = Boolean(attempt);
+    void (async () => {
+      try {
+        // Permissive: keep project-keyed Reader and the active Practical attempt
+        // mounted. Incomplete drafts stay in those hosts; typed Reader drafts still
+        // save through flushViewNavigation. Canvas unmounts, so save it separately.
+        await reader.current?.flushViewNavigation();
+        if (from === 'canvas' && next !== 'canvas') {
+          const saveCanvas = canvasSave.current;
+          if (saveCanvas && !(await saveCanvas())) return;
         }
-        if (next === 'settings' && destination !== 'settings') {
+        setResearchVisible(false);
+        if (next === 'settings' && from !== 'settings') {
           settingsEntry.current =
             document.activeElement instanceof HTMLElement
               ? document.activeElement
               : null;
-          returnDestination.current = destination;
+          returnDestination.current = from;
         }
-        if (next === 'practical' && !attempt) {
+        if (next === 'practical' && !hasAttempt) {
+          const activity = practicalActivity(workspace, selectedPath);
           setAttempt({
             id: crypto.randomUUID(),
-            activity: practicalActivity(workspace, selectedPath),
+            activity,
+            selection: activity ? 'latest' : 'exact',
           });
         }
         setDestination(next);
-      },
-      next === 'home' ? 'workspace' : 'view',
-    );
+      } finally {
+        viewMoving.current = false;
+      }
+    })();
   }
+  useEffect(() => {
+    goRef.current = go;
+  });
   function openOrigin(origin: LearningOrigin): void {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
+    stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin(origin);
@@ -238,11 +287,21 @@ export function Shell({
     }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
+    stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
+    }, 'view');
+  }
+  function selectPracticalActivity(activity: PracticalActivity): void {
+    stopNativePractical();
+    void navigate(() => {
+      setAttempt({
+        id: crypto.randomUUID(),
+        activity,
+        selection: 'latest',
+      });
+      setDestination('practical');
     }, 'view');
   }
   function closeSettings(): void {
@@ -256,12 +315,12 @@ export function Shell({
     const findShortcut = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        void navigate(() => setDestination('find'), 'view');
+        goRef.current('find');
       }
     };
     window.addEventListener('keydown', findShortcut);
     return () => window.removeEventListener('keydown', findShortcut);
-  }, [navigate]);
+  }, []);
   const isCanvas = destination === 'canvas';
   const results = searchWorkspace(workspace, query);
   return (
@@ -289,8 +348,7 @@ export function Shell({
               getLearningWorkspace: bridge.getLearningWorkspace,
             }}
             flush={async () => {
-              projectLifetime.stopPractical();
-              void bridge.cancelPracticalFileSelection?.();
+              stopNativePractical();
               return flushView();
             }}
             onSaved={(next, pathId) => {
@@ -320,8 +378,7 @@ export function Shell({
           <>
             <button
               onClick={() => {
-                projectLifetime.stopPractical();
-                void bridge.cancelPracticalFileSelection?.();
+                stopNativePractical();
                 void navigate(
                   () => setResearchVisible((value) => !value),
                   'view',
@@ -396,7 +453,7 @@ export function Shell({
             onOpenOrigin={openOrigin}
             onEditEntry={editEntry}
             onMove={moveRecord}
-            registerFlush={registerCanvasFlush}
+            registerFlush={registerBoundCanvasFlush}
             onShellControls={setCanvasControls}
           />
         )}
@@ -407,11 +464,41 @@ export function Shell({
           >
             {practicalBridge ? (
               <PracticalSession
-                key={`${workspace.project.id}:${attempt.id}`}
+                key={`${workspace.project.id}:${attempt.id}:${attempt.selection}`}
                 bridge={practicalBridge}
                 toolBridge={bridge}
                 activity={attempt.activity}
                 attemptId={attempt.id}
+                attemptSelection={attempt.selection}
+                availableActivities={listPracticalActivities(
+                  workspace,
+                  selectedPath,
+                )}
+                onSelectActivity={selectPracticalActivity}
+                onResumeAttempt={(attemptId) => {
+                  stopNativePractical();
+                  void navigate(() => {
+                    setAttempt((current) =>
+                      current
+                        ? { ...current, id: attemptId, selection: 'exact' }
+                        : current,
+                    );
+                  }, 'view');
+                }}
+                onStartNewAttempt={() => {
+                  stopNativePractical();
+                  void navigate(() => {
+                    setAttempt((current) =>
+                      current
+                        ? {
+                            ...current,
+                            id: crypto.randomUUID(),
+                            selection: 'exact',
+                          }
+                        : current,
+                    );
+                  }, 'view');
+                }}
                 registerFlush={registerPracticalFlush}
                 registerRevocation={registerRevocation}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
@@ -422,6 +509,11 @@ export function Shell({
                 attemptId={attempt.id}
                 expectedRevision={0}
                 returnedEvidence={[]}
+                availableActivities={listPracticalActivities(
+                  workspace,
+                  selectedPath,
+                )}
+                onSelectActivity={selectPracticalActivity}
                 registerFlush={registerPracticalFlush}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
               />
@@ -485,5 +577,26 @@ export function Shell({
         )}
       </div>
     </div>
+  );
+}
+
+function isPracticalWorkspaceBridge(
+  value: Partial<PracticalWorkspaceBridge>,
+): value is PracticalWorkspaceBridge {
+  return [
+    'recordPracticalResult',
+    'loadPracticalAttempt',
+    'selectPracticalFile',
+    'cancelPracticalFileSelection',
+    'listPracticalAttempts',
+    'previewPracticalFile',
+    'exportPracticalFile',
+    'cancelPracticalExport',
+    'loadPracticalJourney',
+    'recordPracticalProgress',
+    'recordPracticalWorkChoice',
+    'savePracticalHumanPlan',
+  ].every(
+    (key) => typeof value[key as keyof PracticalWorkspaceBridge] === 'function',
   );
 }

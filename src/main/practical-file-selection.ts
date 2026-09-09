@@ -18,6 +18,9 @@ interface PracticalSelectionOptions {
   >;
   /** Main-owned native dialog. Its path is never accepted from renderer input. */
   chooseFile: (signal: AbortSignal) => Promise<string | null>;
+  currentGeneration?: () => number;
+  isCurrent?: (value: unknown, generation: number) => boolean;
+  occupied?: () => boolean;
 }
 
 export class PracticalFileSelection {
@@ -25,26 +28,37 @@ export class PracticalFileSelection {
   private dialogPending = false;
   constructor(private readonly options: PracticalSelectionOptions) {}
 
+  get occupied(): boolean {
+    return this.pending !== null || this.dialogPending;
+  }
+
   async select(value: unknown): Promise<ImportPracticalFileResult> {
-    if (this.pending || this.dialogPending) return { status: 'failed' };
+    if (this.pending || this.dialogPending || this.options.occupied?.())
+      return { status: 'failed' };
+    const captured = this.options.currentGeneration?.() ?? 0;
+    const stillCurrent = (): boolean =>
+      !this.options.isCurrent || this.options.isCurrent(value, captured);
     const controller = new AbortController();
     this.pending = controller;
     const timer = setTimeout(() => controller.abort(), SELECTION_TIMEOUT_MS);
     const signal = controller.signal;
     try {
       const scope = decodePracticalScope(value);
+      if (!stillCurrent()) return { status: 'failed' };
       if (this.options.records.loadPracticalAttempt(scope).status !== 'loaded')
         return { status: 'failed' };
       this.dialogPending = true;
       const selection = this.chooseFile(signal);
       const path = await awaitPracticalOperation(selection, signal);
       signal.throwIfAborted();
+      if (!stillCurrent()) return { status: 'cancelled' };
       if (!path) return { status: 'cancelled' };
       const bytes = await awaitPracticalOperation(
         readSelectedFile(path, signal),
         signal,
       );
       signal.throwIfAborted();
+      if (!stillCurrent()) return { status: 'cancelled' };
       return this.options.records.importPracticalFile(scope, {
         displayName: basename(path),
         bytes,

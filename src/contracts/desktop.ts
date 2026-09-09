@@ -48,3 +48,7 @@ declare global {
       SourceDesktopBridge;
   }
 }
+
+// AR-47 registers LearningOnboardingBridge on this same Window.desktop object
+// after main/preload expose the named onboarding channels. This contracts
+// checkpoint does not change the live bridge until that lane lands.

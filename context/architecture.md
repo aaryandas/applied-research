@@ -72,8 +72,8 @@ flowchart LR
   Electron's sandbox. No raw IPC, cookies/tokens, provider credentials, SQL or
   Node primitives cross this seam.
 - **Renderer** owns presentation. ESLint rejects imports from Electron, Node, main, and preload. Transient selection/focus/viewport state belongs here; durable drafts will need validated operations into trusted local storage.
-- **Contracts** contains types that cross the process seam. Add runtime validation when external inputs or commands are introduced; TypeScript alone does not validate messages.
-- **Backend** owns Better Auth GitHub/Electron server routes, authoritative PostgreSQL sessions, account-scoped UTC-month usage and the validated OpenRouter adapter. `src/contracts/learning-api.ts` is its exact serializable public learning contract. Effect owns composition, reservation/settlement interruption boundaries and scoped pool finalization; PostgreSQL work has finite server/client timeouts, and the backend never receives a body-supplied account id. Per-account admission permits at most two active provider requests while terminal uncertainty continues to count against money, not the active slot.
+- **Contracts** contains types that cross the process seam. Add runtime validation when external inputs or commands are introduced; TypeScript alone does not validate messages. The AR-52 onboarding modules in `src/contracts/learning-onboarding*.ts` are the reviewed interview/proposal/selected-lesson seam; main retains trusted backend envelopes and the renderer accepts only opaque identity. See [learning onboarding](learning-onboarding.md).
+- **Backend** owns Better Auth GitHub/Electron server routes, authoritative PostgreSQL sessions, account-scoped UTC-month usage and the validated OpenRouter adapter. `src/contracts/learning-api.ts` is its exact serializable public learning contract for `/v1/learning/requests` and the compatible sourced route. `src/contracts/learning-onboarding-api.ts` is the sibling `POST /v1/learning/onboarding` envelope (AR-48 runtime). Effect owns composition, reservation/settlement interruption boundaries and scoped pool finalization; PostgreSQL work has finite server/client timeouts, and the backend never receives a body-supplied account id. Per-account admission permits at most two active provider requests while terminal uncertainty continues to count against money, not the active slot.
   The fixed same-origin `/auth/electron/callback` page loads a self-hosted bundle
   of Better Auth's Electron proxy client under a restrictive CSP and calls
   `ensureElectronRedirect()`. The backend pins Electron social sign-in to that
@@ -119,18 +119,19 @@ Before domain implementation, design stable source/artifact identities, human-au
 
 ## Source indexing checkpoint
 
-AR-34 adds a backend-only [versioned passage-index adapter](source-index.md), using AR-30's source/evidence contracts and an injected canonical acquisition/access authority. Synthetic HTTP transport exercises the official turbopuffer REST request shapes, external-vector generation matching, scoped ANN/BM25 retrieval, rank fusion and bounded indexing/deletion. Live provider credentials, embedding configuration, budget enforcement and route/producer composition are not enabled. Canonical sources and durable permission/tombstone state remain authoritative outside the index; an indexed chunk is not independently trusted evidence.
+AR-34 adds a backend-only [versioned passage-index adapter](source-index.md), using AR-30's source/evidence contracts and an injected canonical acquisition/access authority. Synthetic HTTP transport exercises the official turbopuffer REST request shapes, external-vector generation matching, scoped ANN/BM25 retrieval, rank fusion and bounded indexing/deletion. AR-48 optionally composes a live Oregon transport behind `SOURCE_INDEX_LIVE` with backend-only credentials, Qwen 8B/1024 embeddings and a shared $0.25 evaluation ledger. Default configuration keeps live indexing off. Canonical sources and durable permission/tombstone state remain authoritative outside the index; an indexed chunk is not independently trusted evidence. See [sourced backend](sourced-backend.md).
 
-## Sourced learning integration seam — AR-36
+## Sourced learning integration seam — AR-36 / AR-48
 
 The additive [sourced learning backend](sourced-learning.md) retrieves and
 validates immutable evidence before using the existing authenticated learning
 service for path generation, lesson generation and separate semantic support
-checks. It returns supported work with explicit coverage gaps, exact source
-origins, generated lesson identity and backend phase timings. It does not register
-new HTTP/IPC operations or save local records. AR-35 producer composition and
-AR-37/AR-26 trusted desktop adoption remain pending; fixture success is not live
-curriculum, persistence or latency acceptance.
+checks. AR-48 registers authenticated `POST /v1/sources/discover`,
+`/v1/sources/acquire` and `/v1/learning/sourced` against the Better Auth session.
+It returns supported work with explicit coverage gaps, exact source origins,
+generated lesson identity and backend phase timings. It does not save local
+records or generate an entire course. Main-owned explicit acceptance remains
+required. Details live in [sourced backend](sourced-backend.md).
 
 ## Trusted source adoption checkpoint
 

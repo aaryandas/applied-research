@@ -59,6 +59,12 @@ export interface EvidenceContext {
     authorship: AcquiredSource['authorship'];
     extraction: AcquiredSource['content']['revision']['extraction'];
   }[];
+  /** Generated titles/objectives are untrusted data, never prompt instructions. */
+  targetStep?: {
+    id: string;
+    title: string;
+    objective: string;
+  };
 }
 export interface ProviderLearningRequest extends LearningRequest {
   evidenceContext?: EvidenceContext;

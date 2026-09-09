@@ -6,6 +6,11 @@ import type {
 } from '../../../contracts/sourcing.js';
 import type { CorpusAuthority } from './types.js';
 import { makeTurbopufferIndex } from './adapter.js';
+import {
+  failureReason,
+  IndexOperationError,
+  typedIndexOperationError,
+} from './results.js';
 
 const generation = {
   provider: 'synthetic',
@@ -142,6 +147,14 @@ describe('turbopuffer index public boundary', () => {
       }),
     ]);
   });
+});
+
+it('preserves typed not-eligible as IndexOperationError.reason', () => {
+  const error = typedIndexOperationError('not-eligible');
+  expect(error).toBeInstanceOf(IndexOperationError);
+  expect(error.reason).toBe('not-eligible');
+  expect(failureReason(error)).toBe('not-eligible');
+  expect(failureReason(new Error('network'))).toBe('unavailable');
 });
 
 it('rejects incompatible embedding/index generations and vectors before upload', async () => {
@@ -899,6 +912,67 @@ it('keeps live operations disabled without a synthetic transport and never logs 
   }
 });
 
+it('addresses Oregon turbopuffer with a live key and rejects mixed fixture/live transports', async () => {
+  const request = vi.fn<typeof fetch>(async () =>
+    Response.json({ rows_affected: 1 }),
+  );
+  const live = makeTurbopufferIndex({
+    corpusId: 'fixture-corpus',
+    generation,
+    authority: {
+      resolve: () => ({
+        source,
+        accessScope: 'public',
+        corpusVersion: 'corpus-v1',
+        state: 'eligible',
+      }),
+    },
+    live: {
+      request,
+      apiKey: 'live-key',
+      region: 'aws-us-west-2',
+      embedQuery: async () => ({ generation, vector: [1, 0, 0] }),
+    },
+  });
+  await live.indexBatch(
+    {
+      generation,
+      passages: [{ sourceVersion: version, locator, vector: [1, 0, 0] }],
+    },
+    invocation,
+  );
+  expect(String(request.mock.calls[0]![0])).toMatch(
+    /^https:\/\/aws-us-west-2\.turbopuffer\.com\/v2\/namespaces\//,
+  );
+  expect(request.mock.calls[0]![1]).toMatchObject({
+    headers: { Authorization: 'Bearer live-key' },
+  });
+  const mixed = makeTurbopufferIndex({
+    corpusId: 'fixture-corpus',
+    generation,
+    authority: { resolve: () => null },
+    fixture: {
+      request,
+      embedQuery: async () => ({ generation, vector: [1, 0, 0] }),
+    },
+    live: {
+      request,
+      apiKey: 'live-key',
+      region: 'aws-us-west-2',
+      embedQuery: async () => ({ generation, vector: [1, 0, 0] }),
+    },
+  });
+  expect(
+    await mixed.indexBatch(
+      {
+        generation,
+        passages: [{ sourceVersion: version, locator, vector: [1, 0, 0] }],
+      },
+      invocation,
+    ),
+  ).toMatchObject({ reason: 'invalid-input' });
+});
+
 it('keeps page and timestamp passage identities stable regardless of property order', async () => {
   const request = vi.fn<typeof fetch>(async () =>
     Response.json({ rows_affected: 1 }),
@@ -1281,4 +1355,27 @@ it('reports partial retrieval as its own search status', async () => {
     status: 'partial',
     response: { outcome: 'partial' },
   });
+});
+
+it('reports a request-level indexing decision that is not permitted as not-eligible', async () => {
+  const request = vi.fn<typeof fetch>();
+  // The adapter request type only admits 'permitted'; this exercises the runtime guard
+  // for a producer that bypasses the type, so the cast is deliberate.
+  const nonPermitted = {
+    status: 'unknown',
+    reason: 'No permission',
+  } as unknown as typeof permission;
+  expect(
+    await fixture(request).search(
+      {
+        ...retrievalRequest,
+        sourceRevisions: [{ ...version, indexing: nonPermitted }],
+      },
+      invocation,
+    ),
+  ).toMatchObject({
+    status: 'not-eligible',
+    response: { outcome: 'unavailable' },
+  });
+  expect(request).not.toHaveBeenCalled();
 });

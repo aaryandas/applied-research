@@ -7,6 +7,10 @@ import type {
 } from '../../contracts/practical-work';
 import type { CompanionSessionOptions } from '../../contracts/companion';
 import { PracticalSession } from './PracticalSession';
+import {
+  loadedJourney,
+  practicalWorkspaceMethods,
+} from '../practical/workspace-bridge.fixture';
 
 it('asks with the reopened attempt and exact owned reflection through the mounted AR-19 resolver', async () => {
   vi.stubGlobal('matchMedia', () => ({
@@ -36,22 +40,24 @@ it('asks with the reopened attempt and exact owned reflection through the mounte
     reflection: { authorKind: 'human', text: ' My exact saved reflection. ' },
   };
   const attemptId = 'e1234567-1234-4234-8234-123456789012';
-  const bridge: PracticalWorkspaceBridge = {
+  const attempt = {
+    attemptId,
+    activity,
+    currentRevision: 3,
+    draft,
+    revisions: [],
+    returnedEvidence: [],
+  };
+  const bridge: PracticalWorkspaceBridge = practicalWorkspaceMethods({
     loadPracticalAttempt: async () => ({
       status: 'loaded',
-      attempt: {
-        attemptId,
-        activity,
-        currentRevision: 3,
-        draft,
-        revisions: [],
-        returnedEvidence: [],
-      },
+      attempt,
     }),
+    loadPracticalJourney: async () => loadedJourney(attempt),
     recordPracticalResult: async () => ({ status: 'failed' }),
     selectPracticalFile: async () => ({ status: 'cancelled' }),
     cancelPracticalFileSelection: async () => {},
-  };
+  });
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
     async () => ({
       status: 'answered',

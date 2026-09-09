@@ -4,13 +4,21 @@ import type { RetrieveEvidenceResponse } from '../../../contracts/sourcing.js';
 import type { IndexFailureReason } from './types.js';
 
 export class IndexOperationError extends Error {
-  /** `cause` stays on the error for backend diagnostics; only `reason` reaches results. */
+  /** Only `reason` reaches results; `cause` is the standard Error option, not a public seam. */
   constructor(
     readonly reason: IndexFailureReason,
     options?: { cause?: unknown },
   ) {
     super('The index operation could not complete.', options);
   }
+}
+
+/** Typed public write/search reason, including `not-eligible`. Do not collapse to a string. */
+export function typedIndexOperationError(
+  reason: IndexFailureReason,
+  options?: { cause?: unknown },
+): IndexOperationError {
+  return new IndexOperationError(reason, options);
 }
 
 export interface IndexSearchResult {

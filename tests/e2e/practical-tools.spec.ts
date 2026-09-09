@@ -2,6 +2,7 @@ import {
   _electron as electron,
   expect,
   test,
+  type ElectronApplication,
   type Page,
 } from '@playwright/test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,71 @@ import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
+
+async function captureIsolatedGuestPng(
+  application: ElectronApplication,
+  url: string,
+): Promise<string> {
+  const diagnostics: string[] = [];
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const result = await application.evaluate(
+      async ({ webContents, BrowserWindow }, destination) => {
+        const guest = webContents
+          .getAllWebContents()
+          .find((contents) => contents.getURL() === destination);
+        if (!guest) return { ok: false as const, error: 'missing-guest' };
+        if (guest.isDestroyed())
+          return { ok: false as const, error: 'destroyed' };
+        if (guest.isLoading()) return { ok: false as const, error: 'loading' };
+        const view = BrowserWindow.getAllWindows()
+          .flatMap((window) => window.contentView.children)
+          .find((child) => {
+            const contents = (child as { webContents?: { id: number } })
+              .webContents;
+            return contents?.id === guest.id;
+          });
+        if (!view || !('getBounds' in view) || !('getVisible' in view))
+          return { ok: false as const, error: 'missing-view' };
+        const bounds = view.getBounds();
+        if (bounds.width < 1 || bounds.height < 1)
+          return {
+            ok: false as const,
+            error: `zero-bounds:${bounds.width}x${bounds.height}`,
+          };
+        if (!view.getVisible())
+          return { ok: false as const, error: 'not-visible' };
+        try {
+          guest.invalidate();
+          const image = await guest.capturePage();
+          const png = image.toPNG();
+          if (image.isEmpty() || png.length < 32)
+            return {
+              ok: false as const,
+              error: image.isEmpty() ? 'empty-image' : `tiny-png:${png.length}`,
+            };
+          return { ok: true as const, png: png.toString('base64') };
+        } catch (error_) {
+          const message =
+            error_ instanceof Error ? error_.message : String(error_);
+          return { ok: false as const, error: message };
+        }
+      },
+      url,
+    );
+    if (result.ok) return result.png;
+    diagnostics.push(result.error);
+    if (
+      !/UnknownVizError|Unable to capture|loading|tiny-png|missing-guest|missing-view|zero-bounds|not-visible|empty-image/i.test(
+        result.error,
+      )
+    )
+      throw new Error(`Guest capture failed: ${result.error}`);
+    await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+  }
+  throw new Error(
+    `Guest capture did not produce a real image. ${diagnostics.join(' | ')}`,
+  );
+}
 
 async function nativeBridge(page: Page) {
   let currentState: ToolState | null = null;
@@ -212,19 +278,14 @@ test('Practical tool adapter uses an isolated real guest and reports blocked, fa
     await expect(
       bridge.openTool('file:///tmp/private-result.txt'),
     ).rejects.toThrow();
-    const image = await application.evaluate(async ({ webContents }) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find(
-          (contents) =>
-            contents.getURL() === 'https://www.desmos.com/calculator',
-        );
-      return (await guest?.capturePage())?.toPNG().toString('base64');
-    });
-    expect(image).toBeTruthy();
+    const image = await captureIsolatedGuestPng(
+      application,
+      'https://www.desmos.com/calculator',
+    );
+    expect(Buffer.from(image, 'base64').length).toBeGreaterThan(32);
     writeFileSync(
       test.info().outputPath('practical-isolated-guest.png'),
-      Buffer.from(image!, 'base64'),
+      Buffer.from(image, 'base64'),
     );
     await adapter.close();
     await application.evaluate(({ session }) => {

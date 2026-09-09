@@ -10,18 +10,28 @@ import type { AuthService } from './auth.js';
 import type { Diagnostics } from './diagnostics.js';
 import { silentDiagnostics } from './diagnostics.js';
 import type { LearningService } from './learning.js';
+import type { SourcedLearningApi } from './learning-api.js';
 import {
   API_ORIGIN,
   ELECTRON_AUTH_CALLBACK_PATH,
   ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
-  MAX_REQUEST_BYTES,
 } from './policy.js';
+import {
+  BodyError,
+  observeDisconnect,
+  readJson,
+  writeJson,
+} from './http-body.js';
+import { handleSourceRoute, learningStatus } from './source-http.js';
+import type { SourcingService } from './sourcing/service.js';
 import { parseLearningRequest, RequestValidationError } from './validation.js';
 
 export interface HttpDependencies {
   readonly auth: AuthService;
   readonly electronAuthCallbackScript: Buffer;
   readonly learning: LearningService;
+  readonly sourcing?: SourcingService;
+  readonly sourcedLearning?: SourcedLearningApi;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -29,8 +39,6 @@ export interface HttpDependencies {
   readonly ready: () => Promise<boolean>;
   readonly diagnostics?: Diagnostics;
 }
-
-class BodyError extends Error {}
 
 const ELECTRON_AUTH_CALLBACK_CSP = [
   "default-src 'none'",
@@ -55,39 +63,7 @@ const ELECTRON_AUTH_CALLBACK_HTML = `<!doctype html>
 </html>`;
 
 function responseStatus(response: LearningResponse | AccountResponse): number {
-  switch (response.outcome) {
-    case 'success':
-      return 200;
-    case 'invalid-request':
-      return 400;
-    case 'unauthenticated':
-      return 401;
-    case 'unsupported':
-      return 422;
-    case 'quota-exceeded':
-      return 429;
-    case 'cancelled':
-      return 409;
-    case 'unavailable':
-      return 503;
-  }
-}
-
-function writeJson(
-  response: ServerResponse,
-  status: number,
-  value: unknown,
-): void {
-  if (response.writableEnded || response.destroyed) return;
-  const body = JSON.stringify(value);
-  response.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer',
-  });
-  response.end(body);
+  return learningStatus(response);
 }
 
 function writeStatic(
@@ -105,39 +81,6 @@ function writeStatic(
     'Referrer-Policy': 'no-referrer',
   });
   response.end(body);
-}
-
-async function readJson(request: IncomingMessage): Promise<unknown> {
-  if (!request.headers['content-type']?.startsWith('application/json')) {
-    throw new BodyError('Content-Type must be application/json.');
-  }
-  const declaredLength = Number(request.headers['content-length'] ?? '0');
-  if (
-    !Number.isFinite(declaredLength) ||
-    declaredLength < 0 ||
-    declaredLength > MAX_REQUEST_BYTES
-  ) {
-    throw new BodyError('The request body is too large.');
-  }
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.byteLength;
-    if (bytes > MAX_REQUEST_BYTES) {
-      throw new BodyError('The request body is too large.');
-    }
-    chunks.push(buffer);
-  }
-  if (bytes === 0) throw new BodyError('The request body is required.');
-  try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(
-      Buffer.concat(chunks),
-    );
-    return JSON.parse(text);
-  } catch {
-    throw new BodyError('The request body is not valid JSON.');
-  }
 }
 
 function unauthenticated(
@@ -255,32 +198,6 @@ async function learningResponse(
   }
 }
 
-interface DisconnectObserver {
-  readonly signal: AbortSignal;
-  readonly dispose: () => void;
-}
-
-function observeDisconnect(
-  request: IncomingMessage,
-  response: ServerResponse,
-): DisconnectObserver {
-  const controller = new AbortController();
-  const abortIfDisconnected = (): void => {
-    const requestEndedBeforeCompletion = request.destroyed && !request.complete;
-    if (response.destroyed || requestEndedBeforeCompletion) controller.abort();
-  };
-  request.on('close', abortIfDisconnected);
-  response.on('close', abortIfDisconnected);
-  abortIfDisconnected();
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      request.off('close', abortIfDisconnected);
-      response.off('close', abortIfDisconnected);
-    },
-  };
-}
-
 export function createHttpHandler(
   dependencies: HttpDependencies,
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
@@ -341,6 +258,19 @@ export function createHttpHandler(
         disconnect.dispose();
       }
       return;
+    }
+    const disconnect = observeDisconnect(request, response);
+    try {
+      const handled = await handleSourceRoute(
+        url.pathname,
+        request,
+        response,
+        dependencies,
+        disconnect.signal,
+      );
+      if (handled) return;
+    } finally {
+      disconnect.dispose();
     }
     writeJson(response, 404, { status: 'not-found' });
   };

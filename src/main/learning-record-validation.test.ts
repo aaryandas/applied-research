@@ -156,6 +156,30 @@ it('decodes explicit source and path origins without inference', () => {
       origin: { path: { pathId, pathRevision: 0, topicId } },
     }),
   ).toThrow('positive integer');
+  const pathOrigin = {
+    path: { pathId, pathRevision: 2, topicId, lessonId },
+  };
+  const entryOrigin = {
+    entry: { entryId: sourceId, revision: 1 },
+  };
+  expect(() =>
+    decodeHumanEntry({
+      ...base,
+      origin: { ...pathOrigin, ...entryOrigin },
+    }),
+  ).toThrow('origin.entry is not persisted yet');
+  expect(() =>
+    decodeHumanEntry({
+      ...base,
+      origin: entryOrigin,
+    }),
+  ).toThrow('origin.entry is not persisted yet');
+  expect(
+    decodeHumanEntry({
+      ...base,
+      origin: pathOrigin,
+    }).origin,
+  ).toEqual(pathOrigin);
 });
 
 it('requires two distinct versioned supports for insights', () => {

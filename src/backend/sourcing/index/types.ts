@@ -3,6 +3,7 @@ import type {
   PassageLocator,
   SourceRevisionIdentity,
 } from '../../../contracts/sourcing.js';
+import type { TurbopufferRegion } from '../../policy.js';
 
 export interface IndexGeneration {
   readonly provider: string;
@@ -62,24 +63,43 @@ export type IndexFailureReason =
   | 'rate-limited'
   | 'index-lag'
   | 'unavailable'
-  | 'limit-exceeded';
+  | 'limit-exceeded'
+  | 'unreconciled-spend';
 
 export type IndexWriteResult =
   | { readonly outcome: 'indexed'; readonly passages: number }
   | { readonly outcome: 'deleted' }
   | { readonly outcome: 'unavailable'; readonly reason: IndexFailureReason };
 
+export interface IndexQueryEmbedding {
+  readonly embedQuery: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<VersionedVector>;
+}
+
+export interface FixtureIndexTransport extends IndexQueryEmbedding {
+  readonly request: typeof fetch;
+}
+
+export interface LiveIndexTransport extends IndexQueryEmbedding {
+  readonly request: typeof fetch;
+  readonly apiKey: string;
+  readonly region: TurbopufferRegion;
+}
+
 export interface TurbopufferIndexOptions {
   readonly corpusId: string;
   readonly generation: IndexGeneration;
   readonly authority: CorpusAuthority;
-  /** Deliberately no production transport or credentials until live decisions. */
-  readonly fixture?: {
-    readonly request: typeof fetch;
-    readonly embedQuery: (
-      query: string,
-      signal: AbortSignal,
-    ) => Promise<VersionedVector>;
-  };
+  /**
+   * Synthetic HTTP only. Do not pass a live client here. Omitting both
+   * `fixture` and `live` returns `live-configuration-required`.
+   */
+  readonly fixture?: FixtureIndexTransport;
+  /** Real Oregon turbopuffer + caller-supplied embeddings. Mutually exclusive with `fixture`. */
+  readonly live?: LiveIndexTransport;
+  /** Override the derived `ar-${digest}` namespace, used by the eval smoke only. */
+  readonly namespace?: string;
   readonly timeoutMilliseconds?: number;
 }

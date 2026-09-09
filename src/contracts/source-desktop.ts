@@ -47,6 +47,13 @@ export type SourceAcquisitionResult =
   | { outcome: 'save-failed'; requestId: string };
 /** Named bounded operations. No renderer-supplied canonical text or provider attribution. */
 export interface SourceDesktopBridge {
+  /**
+   * Compatibility sourced path. Commits immediately and only supports 12 flat
+   * first-useful-step lessons. It is not an onboarding preview and must not
+   * replace an accepted course when a later chapter is generated. Use
+   * `LearningOnboardingBridge` for interview, proposal, acceptance and
+   * selected-lesson generation.
+   */
   generateSourcedLearning(
     input: SourceGenerationInput,
   ): Promise<SourceGenerationResult>;

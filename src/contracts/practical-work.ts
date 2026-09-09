@@ -8,7 +8,9 @@ import type {
 /** Producer checkpoint for AR-19; not a persistence schema or IPC registration. */
 export interface PracticalActivity {
   projectId: LearningWorkspace['project']['id'];
-  origin: LearningOrigin & { path: PathOrigin & { lessonId: string } };
+  origin: Omit<LearningOrigin, 'entry'> & {
+    path: PathOrigin & { lessonId: string };
+  };
   title: string;
   instructions: string;
   objective: string;

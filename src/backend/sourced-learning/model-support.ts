@@ -5,6 +5,8 @@ import type {
   PublicAccount,
 } from '../../contracts/learning-api.js';
 import type { RetrievalEvidence } from '../../contracts/sourcing.js';
+import type { Diagnostics } from '../diagnostics.js';
+import { silentDiagnostics } from '../diagnostics.js';
 import type { LearningService } from '../learning.js';
 import { MAX_SOURCE_CHARACTERS } from '../policy.js';
 import { parseLearningRequest } from '../validation.js';
@@ -26,6 +28,7 @@ export interface SupportReviewContext {
   phase: 'path' | 'lesson';
   generatedAt: string;
   sourceScopes: EvidenceGenerationRequest['evidenceContext']['sourceScopes'];
+  diagnostics?: Diagnostics | undefined;
 }
 
 /** Every model review uses the same authoritative account, reservation and cancellation policy as generation. */
@@ -122,7 +125,13 @@ export function reviewWithLearningService(
       catch: (cause) => new ReviewFailure({ cause }),
     }).pipe(Effect.catchTag('ReviewFailure', () => Effect.succeed(review)));
   }).pipe(
-    Effect.catchTag('ReviewFailure', () => Effect.succeed(notRunReview())),
+    Effect.catchTag('ReviewFailure', (failure) => {
+      (context.diagnostics ?? silentDiagnostics).report(
+        'sourced.support-failed',
+        failure.cause,
+      );
+      return Effect.succeed(notRunReview());
+    }),
   );
 }
 
