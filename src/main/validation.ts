@@ -4,7 +4,19 @@ import type {
   ToolBounds,
   TutorRequest,
 } from '../contracts/workspace';
-import { decodeRecord, decodeText } from './workspace-decoder';
+import { decodeRecord, decodeText, decodeUuid } from './workspace-decoder';
+
+/** Decode `SOURCE_CHANNELS.activate` and decide whether to tear down live ops. */
+export function planWorkspaceActivate(
+  selectedWorkspaceId: string | null,
+  value: unknown,
+): { nextId: string | null; revokeOperations: boolean } {
+  const nextId = value === null ? null : decodeUuid(value, 'project id');
+  return {
+    nextId,
+    revokeOperations: nextId !== selectedWorkspaceId,
+  };
+}
 
 export function record(value: unknown): Record<string, unknown> {
   return decodeRecord(value, 'input');

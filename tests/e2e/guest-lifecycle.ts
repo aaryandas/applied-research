@@ -30,18 +30,20 @@ export interface GuestLifecycleSnapshot {
 }
 
 /**
- * AR56 / src/main/index.ts SOURCE_CHANNELS.activate currently always
- * closeTool() before SourceDesktopOperations.activate, which already no-ops
- * when the project id is unchanged. Same-project Shell mount, StrictMode
- * replay, and onAccountState signed-in replay therefore destroy an in-flight
- * guest. Assembler patch (do not apply on this lane):
+ * Production same-workspace guard (AR-50 guest lifecycle; copy into AR-56).
+ * SourceDesktopOperations.activate already no-ops the same id. Decode before
+ * teardown so invalid payloads cannot closeTool. True project switch and
+ * logout (`null` after a selected id) still replaceWorkspace + closeTool.
+ * Same-id Shell mount / StrictMode / signed-in replay must not.
  *
  *   handle(SOURCE_CHANNELS.activate, (value) => {
- *     practicalOperations.replaceWorkspace();
- *     const nextId = value === null ? null : decodeUuid(value, 'project id');
- *     if (nextId !== selectedWorkspaceId) closeTool();
+ *     const plan = planWorkspaceActivate(selectedWorkspaceId, value);
+ *     if (plan.revokeOperations) {
+ *       practicalOperations.replaceWorkspace();
+ *       closeTool();
+ *     }
  *     sourceOperations.activate(value);
- *     selectedWorkspaceId = nextId;
+ *     selectedWorkspaceId = plan.nextId;
  *   });
  */
 export async function installGuestLifecycleProbe(
