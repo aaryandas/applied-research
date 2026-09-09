@@ -11,6 +11,15 @@ function discard(response: Response): void {
   void response.body?.cancel().catch(() => undefined);
 }
 
+function isRedirectRejection(error: unknown): boolean {
+  let current = error;
+  while (current instanceof Error) {
+    if (current.message.toLowerCase().includes('redirect')) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
 async function readJson(
   response: Response,
   signal: AbortSignal,
@@ -86,9 +95,9 @@ export async function send(
         if (signal.aborted) discard(received);
         return received;
       }, signal);
-    } catch {
+    } catch (error) {
       if (signal.aborted) throw new IndexOperationError('cancelled');
-      if (attempt === MAX_ATTEMPTS - 1)
+      if (isRedirectRejection(error) || attempt === MAX_ATTEMPTS - 1)
         throw new IndexOperationError('unavailable');
       await delay(RETRY_DELAY_MILLISECONDS * (attempt + 1), undefined, {
         signal,
