@@ -34,6 +34,13 @@ function candidate() {
 const checks = () =>
   REQUIRED_CHECKS.map((name) => ({
     name,
+    app: {
+      slug:
+        name === 'Cursor Automation: Bugbot PR Review'
+          ? 'cursor'
+          : 'github-actions',
+      id: name === 'Cursor Automation: Bugbot PR Review' ? 1210556 : 15368,
+    },
     head_sha: sha,
     status: 'completed',
     conclusion: 'success',
@@ -155,27 +162,83 @@ test('mixed Actions checks and latest trusted commit statuses satisfy merge gate
   );
 });
 
-test('source changes require a local Sonar receipt bound to this head', () => {
+test('source changes require an exact-head hosted Sonar status, never a local receipt', () => {
   const pr = { ...candidate(), files: ['src/main/auth-sdk.ts'] };
-  assert.equal(assessMerge(pr, checks()).action, 'needs-sonar');
-  const receipt = {
-    sha,
-    outcome: 'passed',
-    qualityGate: 'OK',
-    scanner: 'sonarqube-native',
-    analysisId: 'actual-analysis-id',
+  assert.equal(assessMerge(pr, checks()).action, 'needs-sonar-cloud');
+  const sonar = {
+    name: 'Sonar gate',
+    head_sha: sha,
+    status: 'completed',
+    conclusion: 'success',
   };
-  assert.equal(assessMerge(pr, checks(), receipt).eligible, true);
+  assert.equal(assessMerge(pr, [...checks(), sonar]).eligible, true);
   assert.equal(
-    assessMerge(pr, checks(), { ...receipt, sha: 'b'.repeat(40) }).action,
-    'needs-sonar',
-  );
-  assert.equal(
-    assessMerge(pr, checks(), { ...receipt, outcome: 'failed' }).eligible,
+    assessMerge(pr, [...checks(), { ...sonar, head_sha: 'b'.repeat(40) }])
+      .eligible,
     false,
   );
   assert.equal(
-    assessMerge({ ...pr, files: undefined }, checks(), receipt).eligible,
+    assessMerge(pr, [...checks(), { ...sonar, conclusion: 'failure' }])
+      .eligible,
+    false,
+  );
+  assert.equal(
+    assessMerge(pr, checks(), {
+      sha,
+      outcome: 'passed',
+      qualityGate: 'OK',
+      scanner: 'sonarqube-native',
+      analysisId: 'fake',
+    }).eligible,
+    false,
+  );
+  assert.equal(
+    assessMerge({ ...pr, files: undefined }, checks()).eligible,
+    false,
+  );
+});
+
+test('human PR Bugbot check is accepted only from the verified Cursor app', () => {
+  const runs = checks().filter(
+    (check) => check.name !== 'Cursor Automation: Bugbot PR Review',
+  );
+  const bugbot = {
+    name: 'Cursor Bugbot',
+    head_sha: sha,
+    status: 'completed',
+    conclusion: 'success',
+    app: { slug: 'cursor', id: 1210556 },
+  };
+  assert.equal(
+    assessMerge(
+      candidate(),
+      normalizeChecks(
+        sha,
+        [...runs, bugbot],
+        ['Fable review', 'Linear gate'].map((context) => ({
+          context,
+          id: 1,
+          state: 'success',
+          creator: { login: 'github-actions[bot]' },
+        })),
+      ),
+    ).eligible,
+    true,
+  );
+  assert.equal(
+    assessMerge(
+      candidate(),
+      normalizeChecks(
+        sha,
+        [...runs, { ...bugbot, app: { slug: 'github-actions', id: 15368 } }],
+        ['Fable review', 'Linear gate'].map((context) => ({
+          context,
+          id: 1,
+          state: 'success',
+          creator: { login: 'github-actions[bot]' },
+        })),
+      ),
+    ).eligible,
     false,
   );
 });

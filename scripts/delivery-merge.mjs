@@ -23,12 +23,22 @@ export const REQUIRED_CHECKS = [
   'Cursor Automation: Bugbot PR Review',
 ];
 const SHA = /^[a-f0-9]{40}$/;
-const STATUS_GATES = ['Fable review', 'Linear gate'];
+const STATUS_GATES = ['Fable review', 'Linear gate', 'Sonar gate'];
+const BUGBOT_NAMES = ['Cursor Bugbot', 'Cursor Automation: Bugbot PR Review'];
 
 export function normalizeChecks(sha, checkRuns, statuses) {
-  const combined = checkRuns.filter(
-    (check) => !STATUS_GATES.includes(check.name),
-  );
+  const combined = checkRuns
+    .filter(
+      (check) =>
+        !STATUS_GATES.includes(check.name) &&
+        (!BUGBOT_NAMES.includes(check.name) ||
+          (check.app?.slug === 'cursor' && check.app.id === 1210556)),
+    )
+    .map((check) =>
+      BUGBOT_NAMES.includes(check.name)
+        ? { ...check, name: 'Cursor Automation: Bugbot PR Review' }
+        : check,
+    );
   const latest = new Map();
   for (const status of statuses) {
     if (
@@ -39,7 +49,7 @@ export function normalizeChecks(sha, checkRuns, statuses) {
   }
   for (const status of latest.values()) {
     if (
-      STATUS_GATES.includes(status.context) &&
+      !STATUS_GATES.includes(status.context) ||
       status.creator?.login !== 'github-actions[bot]'
     )
       continue;
@@ -53,18 +63,7 @@ export function normalizeChecks(sha, checkRuns, statuses) {
   return combined;
 }
 
-export function sonarPassed(receipt, sha) {
-  return (
-    receipt?.sha === sha &&
-    receipt.outcome === 'passed' &&
-    receipt.qualityGate === 'OK' &&
-    receipt.scanner === 'sonarqube-native' &&
-    typeof receipt.analysisId === 'string' &&
-    receipt.analysisId.trim().length > 0
-  );
-}
-
-export function assessMerge(pr, checks, sonarReceipt) {
+export function assessMerge(pr, checks) {
   const refuse = (reason, kind = 'gate') => ({ eligible: false, kind, reason });
   if (
     pr.state !== 'OPEN' ||
@@ -115,16 +114,22 @@ export function assessMerge(pr, checks, sonarReceipt) {
   }
   if (!Array.isArray(pr.files))
     return refuse('Changed-file inventory incomplete', 'infra');
-  if (
-    pr.files.some((file) => file.startsWith('src/')) &&
-    !sonarPassed(sonarReceipt, pr.headRefOid)
-  )
-    return {
-      ...refuse(
-        'A successful trusted local Sonar scan is required for this exact source revision',
-      ),
-      action: 'needs-sonar',
-    };
+  if (pr.files.some((file) => file.startsWith('src/'))) {
+    const sonar = checks.find(
+      (check) =>
+        check.name === 'Sonar gate' && check.head_sha === pr.headRefOid,
+    );
+    if (!sonar || sonar.status !== 'completed')
+      return {
+        ...refuse(
+          'Waiting for hosted Sonar analysis of this exact revision',
+          'infra',
+        ),
+        action: 'needs-sonar-cloud',
+      };
+    if (sonar.conclusion !== 'success')
+      return refuse('Hosted Sonar gate did not pass this exact revision');
+  }
   return {
     eligible: true,
     kind: 'ready',
@@ -212,18 +217,6 @@ function readState(path) {
     return JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
     if (error.code === 'ENOENT') return { receipts: [] };
-    throw error;
-  }
-}
-
-function readSonarReceipt(directory, sha) {
-  if (!SHA.test(sha)) return null;
-  try {
-    return JSON.parse(
-      readFileSync(join(directory, 'sonar', `${sha}.json`), 'utf8'),
-    );
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
     throw error;
   }
 }
@@ -348,21 +341,17 @@ export function runTick(options) {
     const blocked = [];
     for (const candidate of candidates) {
       const pr = pull(candidate.number);
-      const sonarReceipt = readSonarReceipt(directory, pr.headRefOid);
-      const decision = assessMerge(
-        pr,
-        currentChecks(pr.headRefOid),
-        sonarReceipt,
-      );
-      if (decision.action === 'needs-sonar')
-        return {
-          ...decision,
+      const decision = assessMerge(pr, currentChecks(pr.headRefOid));
+      if (decision.action === 'needs-sonar-cloud') {
+        blocked.push({
           number: pr.number,
           sha: pr.headRefOid,
-          receiptPath: join(directory, 'sonar', `${pr.headRefOid}.json`),
+          ...decision,
           instruction:
-            'Luna must serialize a trusted local native scan at this exact SHA. Run PR tests with all credentials removed; only the trusted installed scanner process receives the Sonar token, never PR npm scripts. Verify Sonar task and quality gate before writing {sha,outcome:"passed",qualityGate:"OK",scanner:"sonarqube-native",analysisId}. See context/next-run.md. No receipt from the PR author or repository is accepted.',
-        };
+            'The hosted Sonar workflow reconciles CI-passed source PRs. Inspect Sonar gate/workflow runs; never run a local scanner or accept a local receipt.',
+        });
+        continue;
+      }
       if (!decision.eligible) {
         blocked.push({ number: pr.number, ...decision });
         continue;
@@ -378,11 +367,7 @@ export function runTick(options) {
       const fresh = pull(pr.number);
       if (
         fresh.headRefOid !== pr.headRefOid ||
-        !assessMerge(
-          fresh,
-          currentChecks(fresh.headRefOid),
-          readSonarReceipt(directory, fresh.headRefOid),
-        ).eligible
+        !assessMerge(fresh, currentChecks(fresh.headRefOid)).eligible
       )
         return {
           kind: 'infra',

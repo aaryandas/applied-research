@@ -46,9 +46,9 @@ The API service requires the non-secret Railway variable `RAILPACK_INSTALL_CMD` 
 
 ## SonarQube Community Build
 
-The founder selected [local-only Sonar](sonar-local.md) for current development. It is separate from the optional hosted-runner setup below; do not enable GitHub Sonar with a localhost URL.
+The founder replaced local-only scans with Railway-hosted Sonar on September 8. See [the delivery automation runbook](automation-run.md#hosted-sonar-gate) and [current hosting decision](sonar-local.md). Do not run a local scanner/server or configure GitHub with localhost.
 
-Sonar is optional and supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
+Hosted Sonar supplements required CI and gates source merges. Community Build supports one current main analysis per project, without native PR or multiple-branch analysis. The trusted default-branch Sonar workflow serially selects a CI-passed PR head, downloads that revision’s coverage, scans first-party `src/` data without executing candidate code, checks the remote quality gate and zero findings on changed source lines, and records an immutable exact-SHA `Sonar gate` status plus server analysis artifact. Each subsequent candidate replaces the server’s current view; GitHub retains the revision-specific receipts. Generated output, design references and historical research remain outside the scan.
 
 Enable after creating a project on a reachable SonarQube Community Build instance:
 
@@ -59,9 +59,9 @@ Enable after creating a project on a reachable SonarQube Community Build instanc
 | Variable `SONAR_PROJECT_KEY` | Project key from the Sonar instance        |
 | Secret `SONAR_TOKEN`         | Project-scoped analysis token              |
 
-Never paste the token into a tracked file. A localhost Sonar instance is not reachable from a hosted GitHub runner. Hosting/operating that instance remains an external decision; this repository does not silently deploy a Sonar server. Without configuration the workflow is disabled; an enabled but incomplete setup fails explicitly.
+Never paste the token into a tracked file. A localhost Sonar instance is not reachable from a hosted GitHub runner. Railway hosting is selected; server readiness and credential configuration must be verified before the gate is activated. Without configuration the workflow is disabled; an enabled but incomplete setup fails explicitly.
 
-Do not make this main-only Sonar workflow a required PR status. If native PR analysis is needed, evaluate SonarQube Cloud separately against the repository's visibility and current plan limits.
+Activate the exact-SHA `Sonar gate` requirement only after a real hosted run succeeds. Luna already requires that trusted hosted status for source-changing PRs. Native PR decoration remains unsupported by this Community deployment; no branch plugin is installed.
 
 Official references: [Community Build limitations](https://docs.sonarsource.com/sonarqube-community-build/devops-platform-integration/github-integration/introduction), [GitHub analysis setup](https://docs.sonarsource.com/sonarqube-community-build/devops-platform-integration/github-integration/adding-analysis-to-github-actions-workflow), [electron-builder GitHub Actions](https://www.electron.build/docs/github-actions/).
 
