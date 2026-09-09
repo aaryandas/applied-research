@@ -349,7 +349,7 @@ function decodeStages(
     if (
       typeof decoded.value.seconds !== 'number' ||
       !Number.isFinite(decoded.value.seconds) ||
-      decoded.value.seconds < 0.1 ||
+      decoded.value.seconds < 0 ||
       decoded.value.seconds > 15
     ) {
       return failed('bounds');
