@@ -1,9 +1,8 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { WorkspaceStore } from '../../src/main/workspace-store';
-import { syntheticAcceptedCourseBrief } from '../../src/contracts/practical-brief.fixture';
+import { join, isAbsolute } from 'node:path';
+import { build } from 'vite';
 import {
   closeTestApplication,
   useElectronCloseHandling,
@@ -17,9 +16,29 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
       'The retained brief is a synthetic CoursePracticeActivityBinding snapshot for this e2e. It is not a live or reviewed AR-52 producer result. Native file dialogs are stubbed. No paid AI calls.',
   });
   const directory = mkdtempSync(join(tmpdir(), 'ar50-journey-'));
+  const harnessDirectory = mkdtempSync(
+    join(process.cwd(), 'node_modules/.cache-ar50-'),
+  );
   const evidencePath = join(directory, 'trial.txt');
   const exportPath = join(directory, 'exported-trial.txt');
   writeFileSync(evidencePath, 'trial-output=12\n');
+  await build({
+    configFile: false,
+    logLevel: 'error',
+    define: { 'import.meta.dirname': '__dirname' },
+    build: {
+      outDir: harnessDirectory,
+      emptyOutDir: true,
+      lib: {
+        entry: join(process.cwd(), 'tests/e2e/practical-journey-harness.ts'),
+        formats: ['cjs'],
+        fileName: () => 'harness.cjs',
+      },
+      rollupOptions: {
+        external: (id) => !id.startsWith('.') && !isAbsolute(id),
+      },
+    },
+  });
   const launch = () =>
     electron.launch({
       args: ['.'],
@@ -76,31 +95,37 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
         topicId,
       };
     });
-    const store = new WorkspaceStore(join(directory, 'workspace.sqlite'));
-    try {
-      const activity = {
-        projectId: created.projectId,
-        origin: {
-          path: {
-            pathId: created.pathId,
-            pathRevision: 1,
-            topicId: created.topicId,
-            lessonId: created.lessonId,
+    const retained = await application.evaluate(
+      (_electron, input) => {
+        const { createRequire } = process.getBuiltinModule('module');
+        const load = createRequire(input.harness);
+        const harness: typeof import('./practical-journey-harness') = load(
+          input.harness,
+        );
+        return harness.retainSyntheticBrief(input.databasePath, input.activity);
+      },
+      {
+        harness: join(harnessDirectory, 'harness.cjs'),
+        databasePath: join(directory, 'workspace.sqlite'),
+        activity: {
+          projectId: created.projectId,
+          origin: {
+            path: {
+              pathId: created.pathId,
+              pathRevision: 1,
+              topicId: created.topicId,
+              lessonId: created.lessonId,
+            },
           },
+          title: 'Measure one change',
+          objective: 'Return a comparable result from one changed input.',
+          instructions:
+            'Change one input in your own tool, save the output, and compare it with your prediction.',
         },
-        title: 'Measure one change',
-        objective: 'Return a comparable result from one changed input.',
-        instructions:
-          'Change one input in your own tool, save the output, and compare it with your prediction.',
-      };
-      const retained = store.retainAcceptedBrief(
-        syntheticAcceptedCourseBrief(activity),
-      );
-      if (retained.status !== 'retained')
-        throw new Error('Synthetic brief could not be retained');
-    } finally {
-      store.close();
-    }
+      },
+    );
+    if (retained.status !== 'retained')
+      throw new Error('Synthetic brief could not be retained');
     await page.getByRole('button', { name: 'Applied Research home' }).click();
     await page
       .getByRole('button', { name: /Compare one changed input/ })
@@ -188,5 +213,6 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
   } finally {
     await closeTestApplication(application);
     rmSync(directory, { recursive: true, force: true });
+    rmSync(harnessDirectory, { recursive: true, force: true });
   }
 });
