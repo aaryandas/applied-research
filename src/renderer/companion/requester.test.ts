@@ -5,6 +5,7 @@ import type {
 } from '../../contracts/companion';
 import type { PracticalGuidanceRequest } from '../../contracts/practical-work';
 import { createCompanionRequester } from './requester';
+import { answeredGuidance } from './guidance-test-answer';
 
 const request: PracticalGuidanceRequest = {
   trigger: 'explicit-action',
@@ -32,7 +33,7 @@ const request: PracticalGuidanceRequest = {
 
 function setup() {
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
-    async () => ({ status: 'answered', text: 'Which variable changed?' }),
+    async () => answeredGuidance('Which variable changed?'),
   );
   let id = 0;
   const requester = createCompanionRequester({

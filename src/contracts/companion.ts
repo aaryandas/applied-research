@@ -1,3 +1,5 @@
+import type { AiProvenance } from './learning-api';
+import type { SourceCitation } from './learning-records';
 import type {
   PracticalActivity,
   PracticalEvidenceReference,
@@ -90,13 +92,23 @@ export interface CompanionGuidanceInput {
 }
 
 export type CompanionGuidanceReply =
-  { status: 'answered'; text: string } | CompanionFailure;
+  | {
+      status: 'answered';
+      text: string;
+      nextAction: string;
+      citations: readonly SourceCitation[];
+      provenance: AiProvenance;
+    }
+  | CompanionFailure;
 
 export type CompanionOutcome =
   | (CompanionGuidanceInput & {
       status: 'answered';
       authorKind: 'ai';
       text: string;
+      nextAction: string;
+      citations: readonly SourceCitation[];
+      provenance: AiProvenance;
     })
   | CompanionFailure
   | {

@@ -208,8 +208,10 @@ function readers(
     readWorkspace: async () => workspace(),
     loadOwnedAttempt: async () => attempt(),
     readImportedFile: async () => ({
+      status: 'ready' as const,
       text: 'imported column,1\n2,3',
       displayName: 'notes.csv',
+      completeness: 'complete' as const,
     }),
     boundToolSession: () => ({
       sessionId: 'tool-session',
@@ -1151,8 +1153,10 @@ describe('companion guidance context resolver', () => {
       readWorkspace: async () => workspace(),
       loadOwnedAttempt: async () => attempt(),
       readImportedFile: async () => ({
+        status: 'ready' as const,
         text: 'imported column,1\n2,3',
         displayName: 'notes.csv',
+        completeness: 'complete' as const,
       }),
       boundToolSession: () => ({
         sessionId: 'tool-session',
@@ -1232,8 +1236,10 @@ describe('companion guidance context resolver', () => {
             selectionId: 'file-01',
           }),
         readImportedFile: async () => ({
+          status: 'ready' as const,
           text: huge,
           displayName: 'notes.csv',
+          completeness: 'complete' as const,
         }),
       }),
       new AbortController().signal,
@@ -1322,5 +1328,87 @@ describe('companion guidance context resolver', () => {
       new AbortController().signal,
     );
     expect(historic).toMatchObject({ ok: true });
+  });
+
+  it('labels truncated imports and rejects png/pdf as unsupported, not missing', async () => {
+    const truncated = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: {
+          kind: 'user-selected-file',
+          selectionId: 'file-01',
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
+        readImportedFile: async () => ({
+          status: 'ready',
+          text: 'first lines only',
+          displayName: 'notes.txt',
+          completeness: 'truncated',
+        }),
+      }),
+      new AbortController().signal,
+    );
+    expect(truncated).toMatchObject({
+      ok: true,
+      value: {
+        attribution: 'imported-file',
+        attributionSummary: 'Imported result · notes.txt · truncated',
+      },
+    });
+    if (truncated.ok) {
+      expect(truncated.value.source.canonicalText).toContain(
+        'Imported file preview is truncated.',
+      );
+    }
+
+    const png = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: {
+          kind: 'user-selected-file',
+          selectionId: 'file-01',
+        },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
+        readImportedFile: async () => ({
+          status: 'unsupported',
+          displayName: 'plot.png',
+          mediaType: 'image/png',
+        }),
+      }),
+      new AbortController().signal,
+    );
+    expect(png).toMatchObject({
+      ok: false,
+      reply: { outcome: 'unsupported' },
+    });
+    if (!png.ok) {
+      expect(png.reply.outcome === 'success' ? '' : png.reply.message).toMatch(
+        /not available for this file type/i,
+      );
+    }
   });
 });

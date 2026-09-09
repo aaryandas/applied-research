@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  CompanionGuidanceReply,
   CompanionResolution,
   CompanionSessionOptions,
 } from '../../contracts/companion';
 import type { PracticalGuidanceRequest } from '../../contracts/practical-work';
 import { createCompanionSession } from './session';
+import { answeredGuidance } from './guidance-test-answer';
 
 function setup() {
   const request: PracticalGuidanceRequest = {
@@ -44,7 +46,7 @@ function setup() {
     }),
   );
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
-    async () => ({ status: 'answered', text: 'Try a changed case.' }),
+    async () => answeredGuidance('Try a changed case.'),
   );
   const onStateChange = vi.fn();
   let time = 0;
@@ -176,7 +178,7 @@ describe('Companion session public interface', () => {
     'an empty or unbounded answer cannot arm activity guidance',
     async (text) => {
       const t = setup();
-      t.requestGuidance.mockResolvedValueOnce({ status: 'answered', text });
+      t.requestGuidance.mockResolvedValueOnce(answeredGuidance(text));
       expect((await t.session.startActivity(t.request)).status).toBe('error');
       expect(t.session.getState().observation.status).toBe('inactive');
       t.advance();
@@ -185,11 +187,20 @@ describe('Companion session public interface', () => {
     },
   );
 
+  it('rejects an answered reply that dropped citations or nextAction', async () => {
+    const t = setup();
+    t.requestGuidance.mockResolvedValueOnce({
+      status: 'answered',
+      text: 'Try a changed case.',
+    } as CompanionGuidanceReply);
+    expect((await t.session.startActivity(t.request)).status).toBe('error');
+  });
+
   it('discards a cue overtaken by navigation while retaining only the explicitly started scope', async () => {
     const t = setup();
     await t.session.startActivity(t.request);
     t.advance();
-    const pending = deferred<{ status: 'answered'; text: string }>();
+    const pending = deferred<ReturnType<typeof answeredGuidance>>();
     t.requestGuidance.mockReturnValueOnce(pending.promise);
     const cue = t.navigate('https://tool.test/second');
     await Promise.resolve();
@@ -204,7 +215,7 @@ describe('Companion session public interface', () => {
     expect(t.session.getState().observation.status).toBe('active');
     t.advance();
     await t.navigate('https://tool.test/third');
-    pending.resolve({ status: 'answered', text: 'Outdated cue' });
+    pending.resolve(answeredGuidance('Outdated cue'));
     expect((await cue).status).toBe('cancelled');
     expect(t.session.getState().outcome?.status).toBe('stale');
     await t.navigate('https://tool.test/third');
@@ -349,13 +360,13 @@ describe('Companion session public interface', () => {
 
   it('suppresses late transport output and holds the single physical request slot', async () => {
     const t = setup();
-    const pending = deferred<{ status: 'answered'; text: string }>();
+    const pending = deferred<ReturnType<typeof answeredGuidance>>();
     t.requestGuidance.mockReturnValueOnce(pending.promise);
     const run = t.session.startActivity(t.request);
     await Promise.resolve();
     t.session.stop('user-stop');
     expect((await t.session.askOnce(t.request)).status).toBe('ignored');
-    pending.resolve({ status: 'answered', text: 'Late' });
+    pending.resolve(answeredGuidance('Late'));
     expect((await run).status).toBe('cancelled');
     expect(t.session.getState().outcome?.status).toBe('cancelled');
     expect((await t.session.askOnce(t.request)).status).toBe('answered');

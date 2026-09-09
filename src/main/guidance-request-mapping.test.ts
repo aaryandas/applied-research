@@ -3,6 +3,7 @@ import type { CompanionGuidanceInput } from '../contracts/companion';
 import type { CompanionGuidanceRequest } from '../contracts/companion-guidance';
 import type { PracticalAttemptRecord } from '../contracts/practical-records';
 import { createCompanionGuidanceHost } from '../renderer/companion/guidance-adapter';
+import { ipcSuccessReply } from '../renderer/companion/guidance-test-answer';
 import {
   resolveCompanionGuidanceContext,
   type CompanionGuidanceReaders,
@@ -76,8 +77,10 @@ function readers(
     readWorkspace: async () => null,
     loadOwnedAttempt: async () => attempt(),
     readImportedFile: async () => ({
+      status: 'ready' as const,
       text: 'imported column,1\n2,3',
       displayName: 'notes.csv',
+      completeness: 'complete' as const,
     }),
     boundToolSession: () => null,
     now: () => new Date(createdAt),
@@ -89,22 +92,8 @@ async function adapterRequest(
   input: CompanionGuidanceInput,
 ): Promise<CompanionGuidanceRequest> {
   const requestCompanionGuidance = vi.fn(
-    async (request: CompanionGuidanceRequest) => ({
-      outcome: 'success' as const,
-      requestId: request.requestId,
-      authorKind: 'ai' as const,
-      text: 'ok',
-      provenance: {
-        author: 'ai' as const,
-        provider: 'openrouter' as const,
-        providerRequestId: 'provreq03',
-        model: 'google/gemini-3.8-flash' as const,
-        requestVersion: '2026-09-08' as const,
-        promptVersion: 'learning-v2-2026-09-09',
-        createdAt,
-        sourceRevisions: [],
-      },
-    }),
+    async (request: CompanionGuidanceRequest) =>
+      ipcSuccessReply('ok', { requestId: request.requestId }),
   );
   const host = createCompanionGuidanceHost({
     bridge: {

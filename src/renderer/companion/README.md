@@ -71,7 +71,7 @@ Fixtures exist only in tests. The owned consumer has component/session tests and
 />
 ```
 
-Cmd/Ctrl+J opens the disclosure and focuses the ordinary Ask button; Escape closes it and returns focus. The shortcut is attached only to the supplied app surface. Scope and Stop stay visible when the disclosure is closed. Answers render as plain text labelled AI guidance, with selected-target attribution and reflection saved/draft wording. There is no draft-write or adoption operation.
+Cmd/Ctrl+J opens the disclosure and focuses the ordinary Ask button; Escape closes it and returns focus. The shortcut is attached only to the supplied app surface. Scope and Stop stay visible when the disclosure is closed. Answers render as plain text labelled AI guidance, with selected-target attribution, AI provenance, retained-revision citations (not web links), and next-action **advice**. There is no draft-write, adoption, or automatic command execution. A UUID identifier is not acquisition proof: citations are **Retained source** unless reply provenance is `discovered`. Supplied human/tool/file/measurement context stays a separate **Supplied application context** label.
 
 The decorative existing mark follows app-owned pointer events on one coalesced animation frame, clamped within the viewport. It has pointer-events:none and aria-hidden; no ambient loop, context read, capture or request. Surface exit, blur, resize, entering reduced motion and cleanup park the mark and cancel the frame. Leaving reduced motion keeps the mark parked until the next app-owned pointer event and must not undo a follow that already observed the live preference. Reduced motion keeps the mark stationary while controls remain usable. Host must exclude the isolated native guest from `pointerSurface` or set `parkPointer` whenever it obscures the surface. Native guest pointer tracking is unavailable; do not infer it from missing renderer events. Replace App's existing follower and Cmd/Ctrl+J listener at integration as well as its legacy guidance observer.
 
@@ -160,7 +160,7 @@ const requester = createCompanionRequester({
 - human-reported result / reflection → `selectedEvidence: none` plus human utterance **persistence/savedRevision** markers (not the body as measured/saved fact)
 - `tool-navigation` remains local unavailable
 
-Main then resolves those references from owned attempt/workspace state. Do not treat renderer-authored claims as measured or saved fact.
+Main then resolves those references from owned attempt/workspace state. Do not treat renderer-authored claims as measured or saved fact. Session `answered` outcomes carry `citations`, `nextAction`, and `provenance` from the named IPC success decoder. Next action is advice copy only.
 
 The consumer still rejects answers above **12,000** characters even though the wire allows 24,000.
 

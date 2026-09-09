@@ -62,6 +62,27 @@ const provenance = {
   ],
 };
 
+const scholarlyCitation = {
+  sourceId: 'a0000000-0000-4000-8000-000000000001',
+  revisionId: 'b0000000-0000-4000-8000-000000000001',
+  start: 0,
+  end: 15,
+  quote: 'Shear the basis',
+};
+
+function successReply(overrides: Record<string, unknown> = {}) {
+  return {
+    outcome: 'success',
+    requestId,
+    authorKind: 'ai',
+    text: 'Stay on the selected control.',
+    provenance,
+    nextAction: 'Change one entry and predict the image.',
+    citations: [scholarlyCitation],
+    ...overrides,
+  };
+}
+
 describe('serializable companion guidance boundary', () => {
   it('accepts explicit practical and workspace targets without in-process context bodies', () => {
     expect(decodeCompanionGuidanceRequest(request()).ok).toBe(true);
@@ -227,24 +248,11 @@ describe('serializable companion guidance boundary', () => {
     ).toBe('shape');
   });
 
-  it('requires reply provenance and rejects renderer-created trusted bodies', () => {
+  it('requires reply provenance, citations, nextAction, and rejects renderer-created trusted bodies', () => {
+    expect(decodeCompanionGuidanceReply(successReply()).ok).toBe(true);
     expect(
-      decodeCompanionGuidanceReply({
-        outcome: 'success',
-        requestId,
-        authorKind: 'ai',
-        text: 'Stay on the selected control.',
-        provenance,
-      }).ok,
-    ).toBe(true);
-    expect(
-      decodeCompanionGuidanceReply({
-        outcome: 'success',
-        requestId,
-        authorKind: 'human',
-        text: 'Stay on the selected control.',
-        provenance,
-      }).reason,
+      decodeCompanionGuidanceReply(successReply({ authorKind: 'human' }))
+        .reason,
     ).toBe('provenance');
     expect(
       decodeCompanionGuidanceReply({
@@ -254,14 +262,51 @@ describe('serializable companion guidance boundary', () => {
       }).ok,
     ).toBe(true);
     expect(
+      decodeCompanionGuidanceReply(
+        successReply({
+          provenance: { ...provenance, model: 'anthropic/claude' },
+        }),
+      ).reason,
+    ).toBe('provenance');
+    expect(
       decodeCompanionGuidanceReply({
         outcome: 'success',
         requestId,
         authorKind: 'ai',
         text: 'Stay on the selected control.',
-        provenance: { ...provenance, model: 'anthropic/claude' },
+        provenance,
       }).reason,
-    ).toBe('provenance');
+    ).toBe('shape');
+    expect(
+      decodeCompanionGuidanceReply(successReply({ citations: [] })).reason,
+    ).toBe('shape');
+    expect(
+      decodeCompanionGuidanceReply(
+        successReply({
+          citations: [{ ...scholarlyCitation, quote: 'Shear' }],
+        }),
+      ).reason,
+    ).toBe('origin');
+    expect(
+      decodeCompanionGuidanceReply(
+        successReply({ url: 'https://example.test/paper' }),
+      ).reason,
+    ).toBe('authority');
+    expect(
+      decodeCompanionGuidanceReply(
+        successReply({
+          citations: [
+            {
+              sourceId: 'companion-app-context',
+              revisionId: requestId,
+              start: 0,
+              end: 24,
+              quote: 'Change one matrix entry.',
+            },
+          ],
+        }),
+      ).ok,
+    ).toBe(true);
   });
 
   it('requires a generation envelope and a cancel that names the same request identity', () => {

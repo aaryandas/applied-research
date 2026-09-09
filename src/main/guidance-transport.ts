@@ -31,19 +31,6 @@ export interface CompanionGuidanceTransportOptions {
   sessionCookie(): string;
 }
 
-function ar53ReplyPayload(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const record = value as Record<string, unknown>;
-  if (record.outcome !== 'success') return value;
-  return {
-    outcome: record.outcome,
-    requestId: record.requestId,
-    authorKind: record.authorKind,
-    text: record.text,
-    provenance: record.provenance,
-  };
-}
-
 async function readJson(response: Response): Promise<unknown> {
   const declaredLength = Number(response.headers.get('content-length'));
   if (declaredLength > MAX_RESPONSE_BYTES) {
@@ -198,7 +185,7 @@ export function makeCompanionGuidanceTransport(
         'Companion guidance timed out. Ask again.',
       );
     }
-    const decoded = decodeCompanionGuidanceReply(ar53ReplyPayload(payload));
+    const decoded = decodeCompanionGuidanceReply(payload);
     if (!decoded.ok) {
       throw new CompanionGuidanceTransportError(
         'unavailable',

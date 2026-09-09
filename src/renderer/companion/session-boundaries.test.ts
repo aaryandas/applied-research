@@ -5,6 +5,7 @@ import type {
 } from '../../contracts/companion';
 import type { PracticalGuidanceRequest } from '../../contracts/practical-work';
 import { createCompanionSession } from './session';
+import { answeredGuidance } from './guidance-test-answer';
 
 const activity = {
   projectId: 'project',
@@ -44,7 +45,7 @@ function harness(
     }),
   );
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
-    async () => ({ status: 'answered', text: 'AI guidance' }),
+    async () => answeredGuidance('AI guidance'),
   );
   let time = 0;
   let id = 0;
@@ -142,7 +143,7 @@ describe('Companion selected context and concurrency boundaries', () => {
       if (input.context.target === 'reflection')
         input.context.text = 'AI replacement';
       input.requestedTarget.activity.title = 'Mutated';
-      return { status: 'answered', text: 'AI advice' };
+      return answeredGuidance('AI advice');
     });
     const answer = await t.session.askOnce(t.request);
     expect(answer).toMatchObject({
@@ -195,7 +196,7 @@ describe('Companion selected context and concurrency boundaries', () => {
   it('one physical request admits no trailing navigation after busy or stop', async () => {
     const t = harness(contexts[1]!, { sessionId: 'tool', initialUrl: 'first' });
     await t.session.startActivity(t.request);
-    let finish!: (value: { status: 'answered'; text: string }) => void;
+    let finish!: (value: ReturnType<typeof answeredGuidance>) => void;
     t.requestGuidance.mockReturnValueOnce(
       new Promise((resolve) => {
         finish = resolve;
@@ -208,7 +209,7 @@ describe('Companion selected context and concurrency boundaries', () => {
     await t.navigate('third');
     expect(t.requestGuidance).toHaveBeenCalledTimes(2);
     t.session.stop('tool-closed');
-    finish({ status: 'answered', text: 'Late navigation' });
+    finish(answeredGuidance('Late navigation'));
     expect((await run).status).toBe('cancelled');
     await t.navigate('fourth');
     expect(t.requestGuidance).toHaveBeenCalledTimes(2);
@@ -290,7 +291,7 @@ describe('Companion selected context and concurrency boundaries', () => {
         sessionId: 'tool',
         initialUrl: 'first',
       });
-      let finish!: (value: { status: 'answered'; text: string }) => void;
+      let finish!: (value: ReturnType<typeof answeredGuidance>) => void;
       t.requestGuidance.mockReturnValueOnce(
         new Promise((resolve) => {
           finish = resolve;
@@ -302,7 +303,7 @@ describe('Companion selected context and concurrency boundaries', () => {
       else t.session.stop(reason);
       expect(t.requestGuidance.mock.calls[0]?.[1].aborted).toBe(true);
       const stopped = t.session.getState();
-      finish({ status: 'answered', text: 'Late reply' });
+      finish(answeredGuidance('Late reply'));
       expect((await run).status).toBe('cancelled');
       expect(t.session.getState()).toEqual({ ...stopped, draining: false });
       t.advance();

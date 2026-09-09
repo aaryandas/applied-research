@@ -6,7 +6,7 @@ import type {
 import {
   COMPANION_GUIDANCE_CONTRACT_VERSION,
   type CompanionEvidenceReference,
-  type CompanionGuidanceBridge,
+  type CompanionGuidanceCancelRequest,
   type CompanionGuidanceCause,
   type CompanionGuidanceReply,
   type CompanionGuidanceRequest,
@@ -17,7 +17,12 @@ import type { PracticalEvidenceReference } from '../../contracts/practical-work'
 
 export const CONSUMER_ANSWER_LIMIT = 12_000;
 
-export type { CompanionGuidanceBridge };
+export interface CompanionGuidanceBridge {
+  requestCompanionGuidance(
+    request: CompanionGuidanceRequest,
+  ): Promise<CompanionGuidanceReply>;
+  cancelCompanionGuidance(request: CompanionGuidanceCancelRequest): void;
+}
 
 export interface CompanionGuidanceHostOptions {
   readonly bridge: CompanionGuidanceBridge;
@@ -90,7 +95,13 @@ function boundAnswer(reply: CompanionGuidanceReply): CompanionGuidanceReply {
 
 function toSessionReply(reply: CompanionGuidanceReply): CompanionSessionReply {
   if (reply.outcome === 'success') {
-    return { status: 'answered', text: reply.text };
+    return {
+      status: 'answered',
+      text: reply.text,
+      nextAction: reply.nextAction,
+      citations: reply.citations,
+      provenance: reply.provenance,
+    };
   }
   if (
     reply.outcome === 'unauthenticated' ||
