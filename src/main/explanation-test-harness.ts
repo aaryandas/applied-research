@@ -11,6 +11,10 @@ const MIGRATION = join(
   import.meta.dirname,
   '../../drizzle/0006_contextual_retention.sql',
 );
+const PLACEMENT_MIGRATION = join(
+  import.meta.dirname,
+  '../../context/design-handoff/ar51-integration-patches/0008_explanation_canvas_placements.sql',
+);
 
 export interface ExplanationHarness {
   directory: string;
@@ -25,12 +29,17 @@ export interface ExplanationHarness {
   close(): void;
 }
 
-function applyContextualMigration(database: Database.Database): void {
-  const sql = readFileSync(MIGRATION, 'utf8');
+function applySqlFile(database: Database.Database, path: string): void {
+  const sql = readFileSync(path, 'utf8');
   for (const statement of sql.split('--> statement-breakpoint')) {
     const trimmed = statement.trim();
     if (trimmed.length > 0) database.exec(trimmed);
   }
+}
+
+function applyContextualMigration(database: Database.Database): void {
+  applySqlFile(database, MIGRATION);
+  applySqlFile(database, PLACEMENT_MIGRATION);
 }
 
 export function openExplanationHarness(

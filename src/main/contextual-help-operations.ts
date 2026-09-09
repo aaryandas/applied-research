@@ -46,12 +46,22 @@ import {
   type RetainedClipRequestContext,
 } from './contextual-help-clip';
 import { acceptTrustedSceneCapture } from './explanation-capture';
+import {
+  explanationCanvasPlacement,
+  type RetainedExplanationCanvasPlacement,
+} from './explanation-canvas';
+import {
+  admitClipObjectUrl,
+  missingClipMedia,
+  type OpenRetainedClipResult,
+} from './explanation-clip-media';
 import type { ExplanationRecords } from './explanation-records';
 import {
   ContextualHelpTransportError,
   makeContextualHelpTransport,
 } from './contextual-help-transport';
 import { decodeRecord, decodeUuid } from './workspace-decoder';
+import { WORLD_COORDINATE_LIMIT } from './learning-record-validation';
 import {
   isContractGeneration,
   isContractUuid,
@@ -86,6 +96,7 @@ export interface ContextualHelpOperationsOptions {
   requestClip?: (
     context: RetainedClipRequestContext,
   ) => Promise<ClipPlaybackResult>;
+  openRetainedClip?: (artifactId: string) => Promise<OpenRetainedClipResult>;
 }
 
 function questionText(request: ContextualHelpRequest): string {
@@ -143,7 +154,10 @@ export class ContextualHelpOperations {
     ) {
       return;
     }
-    this.pending.get(input.requestId)?.abort();
+    const controller = this.pending.get(input.requestId);
+    if (!controller) return;
+    controller.abort();
+    this.pending.delete(input.requestId);
   }
 
   async request(value: unknown): Promise<ContextualHelpResponse> {
@@ -303,6 +317,58 @@ export class ContextualHelpOperations {
     const captureId = decodeUuid(input.captureId, 'capture id');
     if (projectId !== this.projectId) return null;
     return this.options.records.loadCapture(projectId, captureId);
+  }
+
+  async openClip(value: unknown): Promise<OpenRetainedClipResult> {
+    const input = decodeRecord(value, 'open retained clip');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    const artifactId = decodeUuid(input.artifactId, 'clip artifact id');
+    if (projectId !== this.projectId) return { status: 'unauthorized' };
+    const opener = this.options.openRetainedClip ?? missingClipMedia;
+    const opened = await opener(artifactId);
+    return admitClipObjectUrl(opened);
+  }
+
+  placeExplanation(value: unknown): RetainedExplanationCanvasPlacement {
+    const input = decodeRecord(value, 'place retained explanation');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    const explanationId = decodeUuid(input.explanationId, 'explanation id');
+    if (projectId !== this.projectId) {
+      throw new Error(
+        'Placement does not belong to the active learning space.',
+      );
+    }
+    if (input.view !== 'distilled' && input.view !== 'expanded') {
+      throw new Error('Canvas view is invalid.');
+    }
+    if (
+      typeof input.x !== 'number' ||
+      typeof input.y !== 'number' ||
+      !Number.isFinite(input.x) ||
+      !Number.isFinite(input.y) ||
+      Math.abs(input.x) > WORLD_COORDINATE_LIMIT ||
+      Math.abs(input.y) > WORLD_COORDINATE_LIMIT
+    ) {
+      throw new Error('Placement is out of bounds.');
+    }
+    return this.options.records.savePlacement(
+      projectId,
+      explanationCanvasPlacement({
+        explanationId,
+        projectId,
+        view: input.view,
+        x: input.x,
+        y: input.y,
+      }),
+      this.clock(),
+    );
+  }
+
+  listPlacements(value: unknown): RetainedExplanationCanvasPlacement[] {
+    const input = decodeRecord(value, 'list explanation placements');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    if (projectId !== this.projectId) return [];
+    return this.options.records.listPlacements(projectId);
   }
 
   private clock(): Date {

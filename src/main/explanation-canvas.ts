@@ -17,8 +17,10 @@ export type RetainedExplanationCanvasAttribution =
 
 /**
  * Sibling Canvas projection. Same explanationId/origin as Reader. Not a human
- * note and not a workspace_records row. AR-49/AR-56 mounts this; only the
- * active surface owns WebGL (`activeRuntime` is always false here).
+ * note and not a workspace_records row. Placement rows use proposed 0008
+ * `explanation_canvas_placements` (patch SQL, journal unregistered). AR-56
+ * mounts Canvas; `activeRuntime` is always false here so inactive Canvas does
+ * not start a second WebGL runtime.
  */
 export interface RetainedExplanationCanvasProjection {
   kind: typeof RETAINED_EXPLANATION_CANVAS_KIND;

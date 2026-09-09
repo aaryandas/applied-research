@@ -8,6 +8,14 @@ import {
   type TrustedSceneCapture,
 } from '../contracts/explanation-artifacts';
 import {
+  explanationCanvasPlacement,
+  type RetainedExplanationCanvasPlacement,
+} from './explanation-canvas';
+import {
+  SOURCE_TEXT_LIMIT,
+  WORLD_COORDINATE_LIMIT,
+} from './learning-record-validation';
+import {
   decodeSourceGroundingState,
   type SourceGroundingState,
 } from '../contracts/contextual-help';
@@ -38,10 +46,10 @@ import {
   decodeUuid,
   WorkspaceValidationError,
 } from './workspace-decoder';
-import { SOURCE_TEXT_LIMIT } from './learning-record-validation';
 import {
   explanationAttemptGrounding,
   explanationAttempts,
+  explanationCanvasPlacements,
   explanationSceneState,
   retainedExplanations,
   trustedSceneCaptures,
@@ -667,6 +675,94 @@ export class ExplanationRecords {
         })
         .run();
     });
+  }
+
+  savePlacement(
+    projectId: string,
+    placement: RetainedExplanationCanvasPlacement,
+    now = new Date(),
+  ): RetainedExplanationCanvasPlacement {
+    if (placement.projectId !== projectId) {
+      throw new WorkspaceValidationError('Placement project mismatch.');
+    }
+    if (
+      !Number.isFinite(placement.x) ||
+      !Number.isFinite(placement.y) ||
+      Math.abs(placement.x) > WORLD_COORDINATE_LIMIT ||
+      Math.abs(placement.y) > WORLD_COORDINATE_LIMIT
+    ) {
+      throw new WorkspaceValidationError('Placement is out of bounds.');
+    }
+    const stored = explanationCanvasPlacement({
+      explanationId: placement.explanationId,
+      projectId,
+      view: placement.view,
+      x: placement.x,
+      y: placement.y,
+    });
+    const updatedAt = now.toISOString();
+    this.database.transaction((transaction) => {
+      const header = transaction
+        .select({ id: retainedExplanations.id })
+        .from(retainedExplanations)
+        .where(
+          and(
+            eq(retainedExplanations.projectId, projectId),
+            eq(retainedExplanations.id, stored.explanationId),
+          ),
+        )
+        .get();
+      if (!header) {
+        throw new WorkspaceValidationError('Explanation not found.');
+      }
+      transaction
+        .insert(explanationCanvasPlacements)
+        .values({
+          explanationId: stored.explanationId,
+          projectId,
+          view: stored.view,
+          x: stored.x,
+          y: stored.y,
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: [
+            explanationCanvasPlacements.explanationId,
+            explanationCanvasPlacements.view,
+          ],
+          set: {
+            projectId,
+            x: stored.x,
+            y: stored.y,
+            updatedAt,
+          },
+        })
+        .run();
+    });
+    return stored;
+  }
+
+  listPlacements(projectId: string): RetainedExplanationCanvasPlacement[] {
+    const rows = this.database
+      .select()
+      .from(explanationCanvasPlacements)
+      .where(eq(explanationCanvasPlacements.projectId, projectId))
+      .orderBy(desc(explanationCanvasPlacements.updatedAt))
+      .all();
+    const placements: RetainedExplanationCanvasPlacement[] = [];
+    for (const row of rows) {
+      if (row.view !== 'distilled' && row.view !== 'expanded') continue;
+      placements.push(
+        explanationCanvasPlacement({
+          explanationId: row.explanationId,
+          projectId: row.projectId,
+          view: row.view,
+          x: row.x,
+          y: row.y,
+        }),
+      );
+    }
+    return placements;
   }
 
   loadCapture(
