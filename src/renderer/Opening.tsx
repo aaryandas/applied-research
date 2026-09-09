@@ -1,12 +1,27 @@
 import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import type { Project } from '../contracts/workspace';
+import type { AcceptCourseValue } from '../contracts/learning-onboarding';
 import { Icon } from './FieldAtlas';
 import openingArtwork from './assets/apple-landscape.webp';
+import { OnboardingFlow } from './onboarding/OnboardingFlow';
+import type {
+  ContinueLearningCard,
+  OpeningOnboardingBridge,
+} from './onboarding/types';
+import './onboarding/opening.css';
 
 interface OpeningProps {
   readonly projects: readonly Project[];
   readonly onCreate: (goal: string) => Promise<void>;
   readonly onReopen: (id: string) => void;
+  readonly continueLearning?: ContinueLearningCard | null;
+  readonly onContinueLearning?: (card: ContinueLearningCard) => void;
+  readonly onboarding?: {
+    createDraftProject: (goal: string) => Promise<{ id: string }>;
+    bridge: OpeningOnboardingBridge;
+    onAccepted: (value: AcceptCourseValue) => void;
+  };
+  readonly resumeDraft?: { projectId: string; goal: string } | null;
 }
 
 const MAX_TOPIC_LENGTH = 1000;
@@ -15,11 +30,20 @@ export function Opening({
   projects,
   onCreate,
   onReopen,
+  continueLearning = null,
+  onContinueLearning,
+  onboarding,
+  resumeDraft = null,
 }: OpeningProps): ReactElement {
-  const [topic, setTopic] = useState('');
-  const [mode, setMode] = useState<'topic' | 'project'>('topic');
+  const [topic, setTopic] = useState(resumeDraft?.goal ?? '');
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [pastedSource, setPastedSource] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(
+    resumeDraft?.projectId ?? null,
+  );
   const input = useRef<HTMLTextAreaElement>(null);
   const submission = useRef(false);
 
@@ -36,7 +60,12 @@ export function Opening({
     setCreating(true);
     setError('');
     try {
-      await onCreate(topic.trim());
+      if (onboarding) {
+        const created = await onboarding.createDraftProject(topic.trim());
+        setDraftProjectId(created.id);
+      } else {
+        await onCreate(topic.trim());
+      }
     } catch (error_) {
       setError(
         error_ instanceof Error
@@ -49,6 +78,29 @@ export function Opening({
       setCreating(false);
     }
   };
+
+  if (onboarding && draftProjectId) {
+    return (
+      <section className="opening-screen" aria-label="Start learning">
+        <img
+          className="world-art"
+          src={openingArtwork}
+          alt="An apple tree overlooks a mountain valley; a red apple falls through the open sky."
+        />
+        <div className="opening-content opening-content-onboarding">
+          <OnboardingFlow
+            projectId={draftProjectId}
+            goal={topic.trim() || resumeDraft?.goal || ''}
+            seedUrl={sourceUrl.trim()}
+            pastedSource={pastedSource}
+            bridge={onboarding.bridge}
+            onAccepted={onboarding.onAccepted}
+            onCancel={() => setDraftProjectId(null)}
+          />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="opening-screen" aria-label="Start learning">
@@ -66,68 +118,36 @@ export function Opening({
             void submit();
           }}
         >
-          <div className={`learning-input ${topic ? 'has-text' : ''}`}>
-            <label className="sr-only" htmlFor="learning-topic">
-              What do you want to learn about?
-            </label>
-            <span className="learning-placeholder" aria-hidden="true">
-              I want to learn about…
-            </span>
-            <textarea
-              id="learning-topic"
-              ref={input}
-              rows={1}
-              required
-              maxLength={MAX_TOPIC_LENGTH}
-              readOnly={creating}
-              value={topic}
-              aria-describedby={error ? 'opening-error' : undefined}
-              onChange={(event) => setTopic(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing
-                ) {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-            />
-          </div>
-          <div className="opening-actions">
-            <button
-              className="opening-option"
-              type="button"
-              aria-pressed={mode === 'topic'}
-              disabled={creating}
-              onClick={() => {
-                setMode('topic');
-                input.current?.focus();
-              }}
-            >
-              Explore a topic
-            </button>
-            <button
-              className="opening-option"
-              type="button"
-              aria-pressed={mode === 'project'}
-              disabled={creating}
-              onClick={() => {
-                setMode('project');
-                input.current?.focus();
-              }}
-            >
-              Build something
-            </button>
-            <button
-              className="opening-option"
-              type="button"
-              disabled
-              aria-describedby="source-unavailable"
-            >
-              Start from a source
-            </button>
+          <div className="opening-topic-row">
+            <div className={`learning-input ${topic ? 'has-text' : ''}`}>
+              <label className="sr-only" htmlFor="learning-topic">
+                What do you want to learn about?
+              </label>
+              <span className="learning-placeholder" aria-hidden="true">
+                I want to learn about…
+              </span>
+              <textarea
+                id="learning-topic"
+                ref={input}
+                rows={1}
+                required
+                maxLength={MAX_TOPIC_LENGTH}
+                readOnly={creating}
+                value={topic}
+                aria-describedby={error ? 'opening-error' : undefined}
+                onChange={(event) => setTopic(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === 'Enter' &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+              />
+            </div>
             <button
               className="opening-submit"
               type="submit"
@@ -137,9 +157,52 @@ export function Opening({
               <Icon name="arrow" />
             </button>
           </div>
-          <p id="source-unavailable" className="opening-help">
-            Source import is not available yet.
-          </p>
+          <button
+            className="opening-source-action"
+            type="button"
+            aria-expanded={sourceOpen}
+            disabled={creating}
+            onClick={() => setSourceOpen((open) => !open)}
+          >
+            Start from a source
+          </button>
+          {sourceOpen && (
+            <div className="opening-source-fields">
+              <label
+                className="opening-source-label"
+                htmlFor="opening-source-url"
+              >
+                Source URL (optional)
+              </label>
+              <input
+                id="opening-source-url"
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                placeholder="https://"
+                disabled={creating}
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+              />
+              <label
+                className="opening-source-label"
+                htmlFor="opening-source-paste"
+              >
+                Pasted material (optional)
+              </label>
+              <textarea
+                id="opening-source-paste"
+                rows={4}
+                disabled={creating}
+                value={pastedSource}
+                onChange={(event) => setPastedSource(event.target.value)}
+              />
+              <p className="opening-source-note">
+                A link or pasted excerpt supplies learning context and source
+                provenance. It is not treated as trusted instructions.
+              </p>
+            </div>
+          )}
           <output className={creating ? 'opening-feedback' : 'sr-only'}>
             {creating ? 'Creating your project…' : ''}
           </output>
@@ -150,20 +213,35 @@ export function Opening({
             </div>
           )}
         </form>
-        <nav
-          className="opening-projects"
-          aria-labelledby="opening-projects-title"
-        >
-          <h2 id="opening-projects-title">Your projects</h2>
-          {projects.length === 0 ? (
-            <p className="opening-empty">
-              Your saved projects will appear here.
-            </p>
-          ) : (
-            projects.map((project) => (
+        {continueLearning && (
+          <button
+            className="opening-continue"
+            type="button"
+            aria-label="Continue learning"
+            disabled={creating}
+            onClick={() =>
+              onContinueLearning
+                ? onContinueLearning(continueLearning)
+                : onReopen(continueLearning.projectId)
+            }
+          >
+            <span>
+              <span className="returning-meta">Continue learning</span>
+              <span className="returning-name">
+                {continueLearning.lessonTitle}
+              </span>
+            </span>
+            <Icon name="arrow" />
+          </button>
+        )}
+        {projects.length > 0 && (
+          <nav className="opening-saved-work" aria-label="All saved work">
+            <h2>All saved work</h2>
+            {projects.map((project) => (
               <button
                 className="returning"
                 key={project.id}
+                type="button"
                 disabled={creating}
                 onClick={() => onReopen(project.id)}
               >
@@ -173,9 +251,9 @@ export function Opening({
                 </span>
                 <Icon name="arrow" />
               </button>
-            ))
-          )}
-        </nav>
+            ))}
+          </nav>
+        )}
       </div>
     </section>
   );

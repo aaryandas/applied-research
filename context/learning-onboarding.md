@@ -103,20 +103,47 @@ pending lesson to ready, and must not emit a replacement syllabus.
 
 ## Implementation handoff
 
-**Main / AR-47:** register `LearningOnboardingBridge` on `Window.desktop`;
-retain validated `LearningOnboardingResponse` success envelopes; project
-`CourseProposal`; persist profile, interview, mapping and acceptance receipt;
-never call `acceptSourcedLearning` / `generateSourcedLearning` for this flow.
+**Main / AR-47 (this checkpoint):** desktop persistence, preview projection,
+opaque accept, selected-lesson generation, Opening interview/plan review, and
+learner profile live in `src/main/learning-onboarding*.ts`,
+`src/renderer/onboarding/**`, `Opening.tsx`, and
+`src/renderer/settings/LearnerProfile*`. Migration
+`drizzle/0005_learning_onboarding.sql` is reserved; coordinator must register
+journal idx 5 `when: 1788937200000`, `EXPECTED_TABLE_COLUMNS`,
+`LATEST_WORKSPACE_MIGRATION = 1_788_937_200_000`, WorkspaceStore/preload/main
+`Window.desktop` intersection, and App/Shell/Reader resume patches. Exact
+ready-to-apply diffs: [AR-47 coordinator patches](ar-47-onboarding-handoff.md).
+Renderer submits opaque identity, human drafts and consent only. Main retains
+validated success envelopes and resolves opaque proposal+revision on accept.
+`generateSourcedLearning` / `acceptSourcedLearning` are never used for this
+flow. Tests apply 0005 onto an already-migrated store connection until the
+journal patch lands.
 
-**Backend / AR-48:** add sibling `POST /v1/learning/onboarding` using
-`parseLearningOnboardingRequestWire` / `parseLearningOnboardingResponseWire` on
-the raw body, then the object parsers. Keep `/v1/learning/sourced` and its
-expected-red route-security tests unchanged. Do not change installed
-foundations, model, spend policy or dependencies. Importing the new API module
-from `src/backend` is enough for `tsconfig.backend.json` (include currently
-lists `learning-api.ts` only; the import graph pulls additional contracts).
-Separately recorded vector-index configuration proof on the candidate is not
-app acceptance.
+**Backend / AR-48:** sibling `POST /v1/learning/onboarding` (`LEARNING_ONBOARDING_PATH`,
+`LEARNING_ONBOARDING_METHOD`, `LEARNING_ONBOARDING_API_VERSION = 2026-09-09`).
+Parse with `parseLearningOnboardingRequestWire` /
+`parseLearningOnboardingResponseWire` on the **raw** body, then object
+parsers. Desktop uses the existing fixed-origin authenticated main transport
+and cookie session. Until the worker finishes, return an explicit
+`unavailable` envelope (`retryable: true` only when `accounting` is `none` or
+`released`). Do not fake production success. Keep `/v1/learning/sourced` and
+its expected-red route-security tests unchanged. Do not change installed
+foundations, model, spend policy or dependencies. Importing the API module
+from `src/backend` is enough for `tsconfig.backend.json`.
+
+Operations this desktop already sends:
+
+| `operation.kind`           | Expected success `scope`             |
+| -------------------------- | ------------------------------------ |
+| `interview-prompt`         | `interview-prompt`                   |
+| `propose-course`           | `complete-syllabus-and-first-lesson` |
+| `revise-course`            | `complete-syllabus-and-first-lesson` |
+| `generate-selected-lesson` | `selected-existing-lesson`           |
+
+Human context is `untrusted-human-context` (goal, focus, depth, profile,
+answers, unacquired seed URLs). Prior syllabus is `untrusted-model-context`.
+A source URL or pasted excerpt is data, never trusted instructions. Accept
+and ensure-lesson do not send canonical lesson/source JSON.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity
