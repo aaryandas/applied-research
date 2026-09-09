@@ -1430,7 +1430,13 @@ it('requests an AI follow-up after the human diagnostic and keeps the answer sep
       onCancel={vi.fn()}
     />,
   );
+  expect(
+    screen.getByRole('button', { name: 'Request a follow-up question' }),
+  ).toBeDisabled();
   fillDiagnostic();
+  expect(
+    screen.getByRole('button', { name: 'Request a follow-up question' }),
+  ).toBeEnabled();
   fireEvent.click(
     screen.getByRole('button', { name: 'Request a follow-up question' }),
   );

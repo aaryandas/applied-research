@@ -168,6 +168,48 @@ it('shows before/after overlay and requires explicit accept without rewriting re
   expect(accept).toHaveBeenCalledTimes(1);
 });
 
+it('shows live intended profile separately from interview answers and AI assessment', async () => {
+  render(
+    <AcceptedCourseAdjustment
+      projectId={proposal.projectId}
+      bridge={
+        {
+          getLearningOnboarding: vi.fn(async () => snapshot()),
+          getLearnerProfileView: vi.fn(async () => ({
+            profile: {
+              background: 'Current background from Settings',
+              learningGoals: 'Ship a tokenizer that handles unknown tokens',
+              priorKnowledge: 'Attention tutorials, not production tokenizers',
+              revision: 4,
+              updatedAt: '2026-09-09T13:00:00.000Z',
+              author: 'human' as const,
+            },
+            assessment: {
+              author: 'ai' as const,
+              summary: 'Unknown-token handling is still unproven.',
+              observedGaps: ['Unknown-token handling is still unproven.'],
+              masteryEstablished: false as const,
+            },
+          })),
+          proposeAcceptedCourseAdjustment: vi.fn(),
+          cancelLearningOnboarding: vi.fn(async () => {}),
+        } as unknown as OpeningOnboardingBridge
+      }
+      onClose={vi.fn()}
+    />,
+  );
+  expect(
+    await screen.findByText('Current background from Settings'),
+  ).toBeVisible();
+  expect(screen.getByText(/Live profile revision 4/)).toBeVisible();
+  expect(screen.getByText(/Interview bind is 2/)).toBeVisible();
+  expect(screen.getByText(/AI assessment \(not your words\)/)).toBeVisible();
+  expect(
+    screen.getByText(/not established from this assessment/),
+  ).toBeVisible();
+  expect(screen.getByText(/I am not sure yet/)).toBeVisible();
+});
+
 it('keeps notes on unavailable review and does not invent a diagnostic outcome', async () => {
   const propose = vi.fn(async () => ({
     outcome: 'unavailable' as const,

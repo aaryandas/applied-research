@@ -159,6 +159,9 @@ export function OnboardingFlow({
   const acceptRequestId = useRef<string | undefined>(undefined);
   const interviewRevision = useRef(0);
   const profileRevision = useRef(0);
+  const diagnosticComplete = questions.every(
+    (item) => (answers[item.id] ?? '').trim() !== '',
+  );
 
   const markDirty = (): void => {
     dirty.current = true;
@@ -426,7 +429,7 @@ export function OnboardingFlow({
   };
 
   const requestFollowUp = async (): Promise<void> => {
-    if (submitting.current || busy || promptBusy) return;
+    if (submitting.current || busy || promptBusy || !diagnosticComplete) return;
     submitting.current = true;
     ignoreRemote.current = false;
     lastInterviewAction.current = 'prompt';
@@ -911,7 +914,7 @@ export function OnboardingFlow({
                 type="button"
                 className="ui-button ui-button--secondary"
                 onClick={() => void requestFollowUp()}
-                disabled={busy}
+                disabled={busy || !diagnosticComplete}
               >
                 Request a follow-up question
               </button>

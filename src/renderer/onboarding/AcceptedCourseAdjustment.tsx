@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   CourseAdjustmentEvidenceItem,
   CourseAdjustmentProposal,
+  LearnerProfile,
   LearningOnboardingSnapshot,
   OnboardingFailureOutcome,
+  OnboardingPersonalization,
   OnboardingResult,
 } from '../../contracts/learning-onboarding';
 import type { OpeningOnboardingBridge } from './types';
@@ -61,6 +63,9 @@ export function AcceptedCourseAdjustment({
   const [error, setError] = useState<string | undefined>();
   const [retryable, setRetryable] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [liveProfile, setLiveProfile] = useState<LearnerProfile | null>(null);
+  const [assessment, setAssessment] =
+    useState<OnboardingPersonalization | null>(null);
   const submitting = useRef(false);
   const ignoreRemote = useRef(false);
   const requestId = useRef(newRequestId());
@@ -71,6 +76,15 @@ export function AcceptedCourseAdjustment({
       const next = await bridge.getLearningOnboarding({ projectId });
       setSnapshot(next);
       if (next.adjustment) setProposal(next.adjustment);
+      if (bridge.getLearnerProfileView) {
+        const view = await bridge.getLearnerProfileView();
+        setLiveProfile(view.profile);
+        setAssessment(view.assessment);
+        return;
+      }
+      if (typeof bridge.getLearnerProfile === 'function') {
+        setLiveProfile(await bridge.getLearnerProfile());
+      }
     })();
   }, [bridge, projectId]);
 
@@ -217,11 +231,44 @@ export function AcceptedCourseAdjustment({
       )}
       <aside className="onboarding-ai" aria-label="Current intended profile">
         <p className="onboarding-label">Current intended profile</p>
-        <p>
-          Bound profile revision {profileRevision ?? 'none'}. Later Settings
-          edits are intended context and do not rewrite the accepted interview.
-        </p>
+        {liveProfile ? (
+          <>
+            <p>
+              <span className="onboarding-label">Background</span>
+              {liveProfile.background}
+            </p>
+            <p>
+              <span className="onboarding-label">Goals</span>
+              {liveProfile.learningGoals}
+            </p>
+            <p>
+              <span className="onboarding-label">Prior knowledge</span>
+              {liveProfile.priorKnowledge}
+            </p>
+            <p>
+              Live profile revision {liveProfile.revision}. Interview bind is{' '}
+              {profileRevision ?? 'none'}. Later Settings edits are intended
+              context and do not rewrite the accepted interview.
+            </p>
+          </>
+        ) : (
+          <p>
+            No live learner profile is stored yet. Review still uses historical
+            interview answers as self-report, not mastery. Interview bind is{' '}
+            {profileRevision ?? 'none'}.
+          </p>
+        )}
       </aside>
+      {assessment ? (
+        <aside className="onboarding-ai" aria-label="AI assessment">
+          <p className="onboarding-label">AI assessment (not your words)</p>
+          <p>{assessment.summary}</p>
+          {assessment.observedGaps.length === 0 ? null : (
+            <p>Gaps: {assessment.observedGaps.join('; ')}</p>
+          )}
+          <p>Mastery is not established from this assessment.</p>
+        </aside>
+      ) : null}
       {diagnosticAnswers.length > 0 ? (
         <section aria-labelledby="diagnostic-heading">
           <h3 id="diagnostic-heading">Diagnostic answers</h3>

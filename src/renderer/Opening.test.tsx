@@ -355,6 +355,14 @@ it('opens the accepted-course review sheet from Opening without a fake course', 
     })),
     proposeAcceptedCourseAdjustment: vi.fn(),
     cancelLearningOnboarding: vi.fn(async () => {}),
+    getLearnerProfile: vi.fn(async () => ({
+      background: 'Robotics internships',
+      learningGoals: 'Ship a perception stack',
+      priorKnowledge: 'Kalman filters',
+      revision: 3,
+      updatedAt: '2026-09-09T13:00:00.000Z',
+      author: 'human' as const,
+    })),
   } as unknown as OpeningOnboardingBridge;
   render(
     <Opening
@@ -396,6 +404,9 @@ it('opens the accepted-course review sheet from Opening without a fake course', 
     await screen.findByRole('heading', { name: 'Robot perception' }),
   ).toBeVisible();
   expect(screen.getByText(/Tokenizer practice/)).toBeVisible();
+  expect(await screen.findByText('Robotics internships')).toBeVisible();
+  expect(screen.getByText(/Live profile revision 3/)).toBeVisible();
+  expect(screen.getByText(/Live profile revision 3/)).toBeVisible();
   expect(
     screen.getByRole('button', { name: 'Request reviewed adjustment' }),
   ).toBeEnabled();
