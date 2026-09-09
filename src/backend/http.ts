@@ -273,12 +273,14 @@ export function createHttpHandler(
       }
       return;
     }
-    if (matchCompanionGuidanceRoute(url.pathname, request.method)) {
+    if (matchCompanionGuidanceRoute(url.pathname, request.method ?? '')) {
       await handleCompanionGuidanceRoute(request, response, {
         auth: dependencies.auth,
         learning: dependencies.learning,
         runEffect: dependencies.runEffect,
-        diagnostics: dependencies.diagnostics,
+        ...(dependencies.diagnostics
+          ? { diagnostics: dependencies.diagnostics }
+          : {}),
       });
       return;
     }
