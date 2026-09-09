@@ -154,7 +154,11 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.close(),
     );
-    await expect(page.getByText(/Your work is still open/)).toBeVisible();
+    await expect(
+      page.getByText(
+        /A draft needs attention. Save or discard it before closing this project/,
+      ),
+    ).toBeVisible();
     await page.getByLabel('In your own words').fill('What should I vary next?');
     await Promise.all([
       page.waitForEvent('close'),

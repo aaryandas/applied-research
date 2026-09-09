@@ -13,9 +13,10 @@ export function ActivityChooser({
       <h1 className="practical-heading">Practical work</h1>
       {activities.length === 0 ? (
         <p className="practical-copy">
-          No saved lesson activities are available in this project yet. Open a
-          lesson that includes an activity, then return here. A generated course
-          brief is not available until an accepted course produces one.
+          No saved lesson activities are available in this project yet. Choose a
+          lesson with an activity to begin. Its instructions and learning
+          context will appear here. A generated course brief is not available
+          until an accepted course produces one.
         </p>
       ) : (
         <>

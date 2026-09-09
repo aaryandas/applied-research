@@ -13,12 +13,8 @@ export function ProjectBriefPanel({
   if (!brief)
     return (
       <section className="practical-section" aria-label="Project brief">
-        <h2 className="practical-subheading">{activity.title}</h2>
         <p className="practical-copy practical-objective">
           {activity.objective}
-        </p>
-        <p className="practical-copy practical-instructions">
-          {activity.instructions}
         </p>
         <p className="practical-copy practical-muted">
           This workspace uses the saved lesson activity. A generated course
@@ -35,7 +31,7 @@ export function ProjectBriefPanel({
   const tool = projectPracticeTool(body.tool);
   return (
     <section className="practical-section" aria-label="Project brief">
-      <h2 className="practical-subheading">{activity.title}</h2>
+      <h2 className="practical-subheading">Project brief</h2>
       <p className="practical-provenance">
         Retained course-practice binding · proposal revision{' '}
         {brief.briefRevision} · not a reviewed AR-52 producer result
