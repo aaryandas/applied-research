@@ -1,123 +1,44 @@
-# AR-53 clip stage timestamp contract (pending)
+# AR-53 clip stage timestamp contract (published)
 
-AR-54 must not edit `src/contracts/**`. This is the precise patch the
-contracts owner applies on `lane:contracts` (`codex/ar-53-clip-stage-contract`)
-**only after root supplies that lease**. Until then the producer keeps actual
-`record.stages` and cannot decode a real Manim `seconds: 0` stage.
+Temporary lease used only `src/contracts/explanation-artifacts.ts` and its
+test. Companion contracts stay AR-55; onboarding contracts stay AR-47;
+AR-51 CEF is frozen.
 
-Do not substitute generated plan timings, invent a second clip identity, or
-weaken the duration bound.
+## Published SHAs
 
-**Status: pending until applied.** Combined player seek (`0/2/5` linear,
-`0/2/5/8` weighted from `src/render-worker/recipe-math.ts`) is blocked on
-this one comparison.
+| Role                    | SHA                                                                     | Branch / PR                                                                                                                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract                | `dc2ad20ebe1064d0febc4623807920aae1c4e0d8`                              | `codex/ar-53-clip-stage-contract` vs `main` `f15880480ef428b5f7016173c4f8dcbcb23f3c61`. Draft `lane:contracts` PR: GitHub token 403; root must open from the branch (body in the worker report). Independent review required before main merge. |
+| Cherry-pick on producer | `95f742bc4748359b191fc76f11518a4568744b9a`                              | Same tree as the contract commit (`cherry-pick -x dc2ad20e…`).                                                                                                                                                                                  |
+| Consumer                | _(set in the following AR-54 commit that flips the 0s projection test)_ | `codex/ar-54-remote-delivery` / PR67. Cleanup/deadlines/`path.lessonId` remain from `f1e8d8aae023bb6792bac3c364b2870153cad23b`.                                                                                                                 |
 
-## Why
-
-`decodeStages` in `src/contracts/explanation-artifacts.ts` rejects
-`seconds < 0.1`. Installed recipe timestamps start at `0`. Duration stays
-positive (`durationSeconds >= 0.1` and `<= 30`).
+`lane:explanations` (PR67) may fail Lane guard until the contracts PR lands on `main`. Do **not** widen `.github/lanes.json`. Root merges the contract first after required main checks, then reconciles PR67.
 
 ## Contract change (only this comparison)
 
-`src/contracts/explanation-artifacts.ts` `decodeStages` (today ~349–354):
+`decodeStages` in `src/contracts/explanation-artifacts.ts`:
 
 ```ts
-if (
-  typeof decoded.value.seconds !== 'number' ||
-  !Number.isFinite(decoded.value.seconds) ||
-  decoded.value.seconds < 0.1 ||
-  decoded.value.seconds > 15
-) {
-  return failed('bounds');
-}
+decoded.value.seconds < 0.1 ||
 ```
 
-Replace with:
+became:
 
 ```ts
-if (
-  typeof decoded.value.seconds !== 'number' ||
-  !Number.isFinite(decoded.value.seconds) ||
-  decoded.value.seconds < 0 ||
-  decoded.value.seconds > 15
-) {
-  return failed('bounds');
-}
+decoded.value.seconds < 0 ||
 ```
 
-Do **not** change `durationSeconds` (`< 0.1` remains a bounds failure).
+`durationSeconds >= 0.1` is unchanged. Negatives, NaN, and timestamps `> 15`
+still fail. This is a timestamp/duration distinction, not a gate weakening.
 
-## Regression to add in `src/contracts/explanation-artifacts.test.ts`
+## After this patch is on the consumer head
 
-Import `decodeVerifiedClipMetadata` and add:
-
-```ts
-it('accepts nonnegative finite stage timestamps and still requires a positive duration', () => {
-  const renderer = {
-    name: 'manim-community' as const,
-    version: '0.21.0' as const,
-    image,
-  };
-  const base = {
-    sha256,
-    mediaType: 'video/mp4',
-    bytes: 4096,
-    width: 1280,
-    height: 720,
-    durationSeconds: 10,
-    renderer,
-  };
-  expect(
-    decodeVerifiedClipMetadata({
-      ...base,
-      stages: [
-        { name: 'Read the inputs', seconds: 0 },
-        { name: 'Transform continuously', seconds: 2 },
-        { name: 'Read the endpoint', seconds: 5 },
-      ],
-    }).ok,
-  ).toBe(true);
-  expect(
-    decodeVerifiedClipMetadata({
-      ...base,
-      stages: [{ name: 'Show weights', seconds: 15 }],
-    }).ok,
-  ).toBe(true);
-  expect(
-    decodeVerifiedClipMetadata({
-      ...base,
-      stages: [{ name: 'Show weights', seconds: -0.1 }],
-    }).ok,
-  ).toBe(false);
-  expect(
-    decodeVerifiedClipMetadata({
-      ...base,
-      stages: [{ name: 'Show weights', seconds: Number.NaN }],
-    }).ok,
-  ).toBe(false);
-  expect(
-    decodeVerifiedClipMetadata({
-      ...base,
-      durationSeconds: 0,
-      stages: [{ name: 'Show weights', seconds: 0 }],
-    }).ok,
-  ).toBe(false);
-});
-```
-
-`sha256` and `image` already exist in that file.
-
-## After this patch is on the integration head
-
-AR-54 `clip-projection.test.ts` currently documents that a `seconds: 0`
-record cannot project (`clipResultFromRetained` returns null). Flip that
-case to expect `verified.stages === record.stages` including `0`. Do not
-start using `plan.stages`.
+AR-54 `clip-projection` keeps `record.stages` (including `0`) as verified
+metadata. Do not substitute generated `plan.stages`.
 
 ## Out of scope
 
 - Public service idempotency still returns the original request completion
-  without a recipe-hash check (`service.ts` ~444–445). That predates remote
-  delivery and is not proven by this producer repair.
+  without a recipe-hash check (`service.ts` ~444–445).
 - Account-bound approved-plan/source/lesson ownership remains AR-48.
+- No App/Shell/index/preload edits.

@@ -201,7 +201,7 @@ describe('clip recipe projection', () => {
     expect(isSupportedClipPlan(plan)).toBe(true);
   });
 
-  it('does not substitute generated plan stages when a 0s verified timestamp is rejected', () => {
+  it('projects actual retained stages including a 0s seek point, not generated plan timings', () => {
     const plan = linearPlan();
     const record: RetainedClipRecord = {
       mediaId: randomUUID(),
@@ -249,8 +249,11 @@ describe('clip recipe projection', () => {
         stages: record.stages,
         renderer: record.renderer,
       }).ok,
-    ).toBe(false);
-    expect(clipResultFromRetained(record, plan)).toBeNull();
+    ).toBe(true);
+    const result = clipResultFromRetained(record, plan);
+    expect(result?.verified.stages).toEqual(record.stages);
+    expect(result?.verified.stages).not.toEqual(plan.stages);
+    expect(result?.verified.stages[0]?.seconds).toBe(0);
   });
 
   it('maps weighted labels, rejects bad identity, and refuses mismatched retained clips', () => {
