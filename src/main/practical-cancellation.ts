@@ -15,5 +15,8 @@ export async function awaitPracticalOperation<T>(
     return await Promise.race([operation, aborted]);
   } finally {
     listener?.[Symbol.dispose]();
+    // The loser keeps running and may reject later (a read that hits
+    // throwIfAborted); that late rejection must not surface as unhandled.
+    void operation.catch(() => undefined);
   }
 }
