@@ -274,7 +274,7 @@ function decodeNoneUtterance(
 function decodeSavedHumanUtterance(
   text: string,
   savedRevision: unknown,
-): ContractDecode<Extract<CompanionHumanUtterance, { persistence: 'saved' }>> {
+): ContractDecode<Extract<CompanionHumanUtterance, { kind: 'human' }>> {
   if (!isPositiveRevision(savedRevision)) return failed('revision');
   return {
     ok: true,
@@ -290,9 +290,7 @@ function decodeSavedHumanUtterance(
 function decodeDraftHumanUtterance(
   text: string,
   savedRevision: unknown,
-): ContractDecode<
-  Extract<CompanionHumanUtterance, { persistence: 'unsaved-draft' }>
-> {
+): ContractDecode<Extract<CompanionHumanUtterance, { kind: 'human' }>> {
   if (savedRevision === null) {
     return {
       ok: true,

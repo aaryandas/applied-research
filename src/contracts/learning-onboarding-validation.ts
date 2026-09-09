@@ -41,6 +41,7 @@ import type {
   LearningOnboardingScope,
   LessonDepth,
   LessonRole,
+  OnboardingCancelled,
   OnboardingCoverageGap,
   OnboardingGeneratedLesson,
   OnboardingPersonalization,
@@ -48,6 +49,7 @@ import type {
   OnboardingSyllabus,
   OnboardingSyllabusLesson,
   OnboardingSyllabusTopic,
+  OnboardingUnavailable,
   OpaqueRevisionRef,
   ProposalSource,
   ProposeCourseOperation,
@@ -2729,14 +2731,15 @@ export function createLearningOnboardingValidation(
 
   function publicOutcomeFailure<
     T extends 'invalid-request' | 'unauthenticated' | 'unsupported',
+    M extends string,
   >(
     outcome: T,
     input: Record<string, unknown>,
-    expectedMessage: string,
+    expectedMessage: M,
   ): {
     outcome: T;
     requestId: string | null;
-    message: string;
+    message: M;
   } {
     return {
       outcome,
@@ -2745,49 +2748,56 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function cancelledFailure(input: Record<string, unknown>) {
+  function cancelledFailure(
+    input: Record<string, unknown>,
+  ): OnboardingCancelled {
     if (input.retryable !== false)
       invalid('Cancelled onboarding cannot authorize a paid retry.');
+    const accounting = input.accounting;
     if (
-      input.accounting !== 'released' &&
-      input.accounting !== 'charged' &&
-      input.accounting !== 'reservation-retained'
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
     ) {
-      invalid('Cancelled accounting is invalid.');
+      return {
+        outcome: 'cancelled',
+        requestId: identifier(input.requestId, 'Request id'),
+        message: publicMessage(input.message, MESSAGES.cancelled),
+        retryable: false,
+        accounting,
+      };
     }
-    return {
-      outcome: 'cancelled' as const,
-      requestId: identifier(input.requestId, 'Request id'),
-      message: publicMessage(input.message, MESSAGES.cancelled),
-      retryable: false as const,
-      accounting: input.accounting,
-    };
+    invalid('Cancelled accounting is invalid.');
   }
 
-  function unavailableFailure(input: Record<string, unknown>) {
+  function unavailableFailure(
+    input: Record<string, unknown>,
+  ): OnboardingUnavailable {
     const retryable = booleanField(input.retryable, 'Retryable');
-    const accounting =
-      input.accounting === 'none' ||
-      input.accounting === 'released' ||
-      input.accounting === 'charged' ||
-      input.accounting === 'reservation-retained'
-        ? input.accounting
-        : invalid('Unavailable accounting is invalid.');
+    const accounting = input.accounting;
     if (
-      (accounting === 'charged' || accounting === 'reservation-retained') &&
-      retryable
+      accounting === 'none' ||
+      accounting === 'released' ||
+      accounting === 'charged' ||
+      accounting === 'reservation-retained'
     ) {
-      invalid(
-        'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
-      );
+      if (
+        (accounting === 'charged' || accounting === 'reservation-retained') &&
+        retryable
+      ) {
+        invalid(
+          'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
+        );
+      }
+      return {
+        outcome: 'unavailable',
+        requestId: optionalResponseRequestId(input.requestId),
+        message: publicMessage(input.message, MESSAGES.unavailable),
+        retryable,
+        accounting,
+      };
     }
-    return {
-      outcome: 'unavailable' as const,
-      requestId: optionalResponseRequestId(input.requestId),
-      message: publicMessage(input.message, MESSAGES.unavailable),
-      retryable,
-      accounting,
-    };
+    invalid('Unavailable accounting is invalid.');
   }
 
   function coveragePendingFailure(input: Record<string, unknown>) {
