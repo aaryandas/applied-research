@@ -75,10 +75,16 @@ it('searches actual source text and authored entries without assigning absent or
   const workspace = createCanvasFixture();
   expect(searchWorkspace(workspace, ' ')).toEqual([]);
   expect(searchWorkspace(workspace, 'DOWNSTREAM')).toMatchObject([
-    { kind: 'Source', origin: { sourceRevisionId: 'source-v1' } },
+    {
+      kind: 'Source',
+      target: { kind: 'source', sourceRevisionId: 'source-v1' },
+    },
   ]);
   expect(searchWorkspace(workspace, 'whole arm')).toMatchObject([
-    { kind: 'insight', origin: null },
+    {
+      kind: 'insight',
+      target: { kind: 'entry', reference: { entryId: 'insight', revision: 1 } },
+    },
   ]);
   expect(searchWorkspace(workspace, 'nonexistent')).toEqual([]);
 });

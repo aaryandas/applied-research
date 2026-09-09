@@ -16,8 +16,8 @@ export default defineConfig({
         transformIndexHtml(html, context) {
           // Vite's development refresh preamble uses an inline script.
           const policy = context.server
-            ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:5173; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
-            : "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'";
+            ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:5173; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; media-src 'self' ar-media:"
+            : "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; media-src 'self' ar-media:";
           return html.replace('__CONTENT_SECURITY_POLICY__', policy);
         },
       },

@@ -42,19 +42,23 @@ interface DesktopAuthProtocolOptions {
   readonly platform: NodeJS.Platform;
 }
 
+export const DESKTOP_AUTH_SCHEME_REGISTRATION = [
+  {
+    scheme: DESKTOP_AUTH_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: false,
+      corsEnabled: false,
+    },
+  },
+] as const;
+
 export function registerDesktopAuthScheme(
   protocolApi: Pick<Protocol, 'registerSchemesAsPrivileged'>,
 ): void {
   protocolApi.registerSchemesAsPrivileged([
-    {
-      scheme: DESKTOP_AUTH_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: false,
-        corsEnabled: false,
-      },
-    },
+    ...DESKTOP_AUTH_SCHEME_REGISTRATION,
   ]);
 }
 

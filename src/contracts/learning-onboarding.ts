@@ -26,6 +26,14 @@ export const LEARNING_ONBOARDING_CHANNELS = {
   cancel: 'onboarding:cancel',
 } as const;
 
+export const LEARNING_ONBOARDING_RESUME_CHANNELS = {
+  getContinueLearning: 'onboarding:get-continue-learning',
+  saveReadingResume: 'onboarding:save-reading-resume',
+  getProfileView: 'onboarding:get-learner-profile-view',
+  getPastedSource: 'onboarding:get-pasted-source',
+  savePastedSource: 'onboarding:save-pasted-source',
+} as const;
+
 export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
 export type LessonDepth = (typeof LESSON_DEPTHS)[number];
 
@@ -199,6 +207,7 @@ export type InterviewDraft = {
   goal: string;
   focus: string;
   depth: LessonDepth;
+  /** 0 = unbound local draft (no saved profile yet). Planning requires a real bind. */
   profileRevision: number;
   sourceRevisionIds: string[];
   seedDrafts: UnacquiredSeedUrl[];
@@ -383,4 +392,30 @@ export interface LearningOnboardingBridge {
     input: EnsureLessonInput,
   ): Promise<OnboardingResult<EnsureLessonValue>>;
   cancelLearningOnboarding(input: OnboardingRequest): Promise<void>;
+}
+
+export type ContinueLearningCard = {
+  projectId: string;
+  path: PathOrigin;
+  sourceRevisionId: string | null;
+  span: { start: number; end: number; quote: string } | null;
+  lessonTitle: string;
+  projectGoal: string;
+};
+
+export type LearnerProfileView = {
+  profile: LearnerProfile | null;
+  assessment: OnboardingPersonalization | null;
+};
+
+export interface LearningOnboardingResumeBridge {
+  getContinueLearning(): Promise<ContinueLearningCard | null>;
+  saveReadingResume(value: ContinueLearningCard): Promise<void>;
+  getLearnerProfileView(): Promise<LearnerProfileView>;
+  getPastedSource(input: { projectId: string }): Promise<string | null>;
+  savePastedSource(input: {
+    projectId: string;
+    expectedRevision: number;
+    pastedSourceText: string | null;
+  }): Promise<RevisionWrite<InterviewRecord>>;
 }

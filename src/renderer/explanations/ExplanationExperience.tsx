@@ -11,10 +11,13 @@ import {
   DEFAULT_ARM,
   PART_IDS,
   isExplanationSpec,
+  type ArmParameters,
+  type AssemblyParameters,
   type ExplanationCapture,
   type ExplanationSpec,
   type RecipeId,
 } from '../../contracts/explanations';
+import type { SceneCaptureRequest } from '../../contracts/explanation-artifacts';
 import {
   createExplanation,
   describeCapture,
@@ -40,6 +43,9 @@ interface ExperienceProps {
   readonly active: boolean;
   readonly onChange: (spec: ExplanationSpec) => void;
   readonly onCapture: (capture: ExplanationCapture) => void;
+  readonly plannedParameters?: AssemblyParameters | ArmParameters;
+  readonly parameterRevision?: number;
+  readonly onRetainedCapture?: (request: SceneCaptureRequest) => void;
 }
 function ArmControls({ inputs }: { readonly inputs: ArmInputs }): ReactElement {
   const fieldId = useId();
@@ -100,6 +106,9 @@ function ValidExperience({
   active,
   onChange,
   onCapture,
+  plannedParameters,
+  parameterRevision = 1,
+  onRetainedCapture,
 }: ExperienceProps): ReactElement {
   const host = useRef<HTMLElement>(null);
   const runtime = useRef<SceneRuntime | null>(null);
@@ -120,11 +129,19 @@ function ValidExperience({
     spec.recipe === 'two-link-arm' && armInputs.hasUnfinishedInputs;
 
   const reset = (): void => {
-    armInputs.reset(DEFAULT_ARM);
+    const armReset =
+      plannedParameters && !('selectedPart' in plannedParameters)
+        ? plannedParameters
+        : DEFAULT_ARM;
+    const assemblyReset =
+      plannedParameters && 'selectedPart' in plannedParameters
+        ? plannedParameters
+        : { separation: 0, selectedPart: 'core' as const };
+    armInputs.reset(armReset);
     onChange(
       spec.recipe === 'spatial-assembly'
-        ? { ...spec, parameters: { separation: 0, selectedPart: 'core' } }
-        : { ...spec, parameters: { ...DEFAULT_ARM } },
+        ? { ...spec, parameters: assemblyReset }
+        : { ...spec, parameters: { ...armReset } },
     );
     runtime.current?.resetView();
   };
@@ -132,6 +149,15 @@ function ValidExperience({
     if (unfinishedInputs) return;
     const measured = runtime.current?.capture();
     if (!measured) return;
+    if (onRetainedCapture) {
+      onRetainedCapture({
+        explanationId: spec.id,
+        parameterRevision,
+        parameters: spec.parameters,
+        camera: measured.camera,
+      });
+      return;
+    }
     const result: ExplanationCapture = {
       id: crypto.randomUUID(),
       explanation: structuredClone(spec),
@@ -310,8 +336,9 @@ function ValidExperience({
         Capture {spec.recipe === 'two-link-arm' ? 'endpoint' : 'assembly'}
       </button>
       <p className="explanation-help">
-        Captures stay in this tool session. Closing the tool discards them;
-        Reader and Canvas attachment is not available yet.
+        {onRetainedCapture
+          ? 'Capture sends parameters and camera to the app. Main recomputes the measurement before Practical can use it.'
+          : 'Captures stay in this tool session. Closing the tool discards them; Reader and Canvas attachment is not available yet.'}
       </p>
       {capture && (
         <output className="explanation-capture">

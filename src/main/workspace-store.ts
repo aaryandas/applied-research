@@ -1,5 +1,7 @@
 import { adoptSourcedLearning } from './source-learning-adoption';
 import { PracticalRecords } from './practical-records';
+import { LearningOnboardingRecords } from './learning-onboarding-records';
+import { ExplanationRecords } from './explanation-records';
 import type {
   PracticalFileContent,
   RetainedPracticalFile,
@@ -82,7 +84,10 @@ import {
   type DecodedEntryContent,
   type EntryAuthorKind,
 } from './workspace-decoder';
-import { migrateWorkspaceDatabase } from './workspace-migration';
+import {
+  applyReservedEntryOriginMigration,
+  migrateWorkspaceDatabase,
+} from './workspace-migration';
 import {
   entries,
   entryPlacements,
@@ -226,6 +231,8 @@ export class WorkspaceStore {
   private readonly database: Database.Database;
   private readonly orm: WorkspaceDatabase;
   private readonly practical: PracticalRecords;
+  private readonly onboarding: LearningOnboardingRecords;
+  readonly explanations: ExplanationRecords;
 
   acceptSourcedLearning(value: unknown): CommitResult<LearningPathRecord> {
     return this.database
@@ -287,6 +294,8 @@ export class WorkspaceStore {
       this.database.pragma('busy_timeout = 5000');
       this.orm = drizzle(this.database, { schema: workspaceSchema });
       this.practical = new PracticalRecords(this.orm);
+      this.onboarding = new LearningOnboardingRecords(this.orm);
+      this.explanations = new ExplanationRecords(this.orm);
     } catch (error_) {
       this.database.close();
       throw error_;
@@ -447,10 +456,14 @@ export class WorkspaceStore {
           })
           .run();
         if (editContext) {
-          copyLegacyLearningEditContext(transaction, {
-            editContext,
-            revision,
-          });
+          copyLegacyLearningEditContext(
+            transaction,
+            {
+              editContext,
+              revision,
+            },
+            this.database,
+          );
         }
         const updated = transaction
           .update(entries)
@@ -564,6 +577,7 @@ export class WorkspaceStore {
     try {
       return readLearningWorkspace({
         orm: this.orm,
+        database: this.database,
         project,
         unreadableProjects: this.learningWorkspaceDiagnostics(),
       });
@@ -787,11 +801,21 @@ export class WorkspaceStore {
     this.database.close();
   }
 
+  onboardingRecords(): LearningOnboardingRecords {
+    return this.onboarding;
+  }
+
+  /** Tests only: apply 0007 SQL on a disposable pre-0007 connection. Not IPC. */
+  applyReservedEntryOriginMigration(): void {
+    applyReservedEntryOriginMigration(this.database);
+  }
+
   private saveHumanLearningEntry(
     write: HumanLearningEntryWrite,
   ): CommitResult<LearningEntryRecord> {
     const outcome = this.orm.transaction(
-      (transaction) => writeHumanLearningEntry(transaction, write),
+      (transaction) =>
+        writeHumanLearningEntry(transaction, write, this.database),
       { behavior: 'immediate' },
     );
     if (outcome.status === 'conflict') return outcome;
@@ -925,6 +949,7 @@ export class WorkspaceStore {
         this.readProject(project);
         readLearningWorkspace({
           orm: this.orm,
+          database: this.database,
           project,
           unreadableProjects: [],
         });

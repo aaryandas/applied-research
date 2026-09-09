@@ -5,17 +5,26 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import type { DesktopBridge } from '../contracts/desktop';
+import {
+  DESKTOP_E2E_TEST_ENVIRONMENT,
+  type DesktopBridge,
+} from '../contracts/desktop';
 import type {
   LearningRecordsBridge,
   LearningWorkspace,
 } from '../contracts/learning-records';
+import type {
+  ContinueLearningCard,
+  LearningOnboardingBridge,
+  LearningOnboardingResumeBridge,
+} from '../contracts/learning-onboarding';
 import type { Project } from '../contracts/workspace';
 import { BrandMark, Icon } from './FieldAtlas';
 import { Opening } from './Opening';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Shell } from './Shell';
 import { useAppearance } from './useAppearance';
+import type { CourseResume } from './shell/course-resume';
 
 function desktopError(failure: unknown): string {
   return (
@@ -25,13 +34,35 @@ function desktopError(failure: unknown): string {
   ).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 }
 
-export function App({
-  bridge,
-}: {
-  bridge: DesktopBridge & LearningRecordsBridge;
-}): ReactElement {
+type AppBridge = DesktopBridge &
+  LearningRecordsBridge &
+  Partial<LearningOnboardingBridge & LearningOnboardingResumeBridge>;
+
+function hasOnboardingBridge(
+  bridge: AppBridge,
+): bridge is AppBridge & LearningOnboardingBridge {
+  return typeof bridge.proposeCourse === 'function';
+}
+
+function openingUsesOnboarding(
+  bridge: AppBridge,
+): bridge is AppBridge & LearningOnboardingBridge {
+  return (
+    hasOnboardingBridge(bridge) &&
+    bridge.info.testEnvironment !== DESKTOP_E2E_TEST_ENVIRONMENT
+  );
+}
+
+export function App({ bridge }: { bridge: AppBridge }): ReactElement {
   const [projects, setProjects] = useState<Project[]>([]);
   const [workspace, setWorkspace] = useState<LearningWorkspace | null>(null);
+  const [courseResume, setCourseResume] = useState<CourseResume | null>(null);
+  const [resumeDraft, setResumeDraft] = useState<{
+    projectId: string;
+    goal: string;
+  } | null>(null);
+  const [continueLearning, setContinueLearning] =
+    useState<ContinueLearningCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
@@ -55,13 +86,24 @@ export function App({
         if (current === request.current) setLoading(false);
       });
   }, [bridge]);
+  const loadContinueLearning = useCallback((): void => {
+    if (typeof bridge.getContinueLearning !== 'function') return;
+    void bridge.getContinueLearning().then(
+      (card) => setContinueLearning(card),
+      () => setContinueLearning(null),
+    );
+  }, [bridge]);
   useEffect(() => {
     void loadProjects();
+    loadContinueLearning();
     return () => {
       request.current += 1;
     };
-  }, [loadProjects]);
-  const openProject = async (id: string): Promise<void> => {
+  }, [loadProjects, loadContinueLearning]);
+  const openProject = async (
+    id: string,
+    resume: CourseResume | null = null,
+  ): Promise<void> => {
     const current = ++request.current;
     setOpening(true);
     setError('');
@@ -69,6 +111,8 @@ export function App({
       const next = await bridge.getLearningWorkspace(id);
       if (current === request.current) {
         setSettings(false);
+        setResumeDraft(null);
+        setCourseResume(resume);
         setWorkspace(next);
       }
     } catch (failure) {
@@ -89,19 +133,46 @@ export function App({
       throw new Error(desktopError(failure), { cause: failure });
     }
   };
+  const createDraftProject = async (goal: string): Promise<{ id: string }> => {
+    const created = await bridge.createProject(goal);
+    setProjects((current) => [
+      created,
+      ...current.filter((item) => item.id !== created.id),
+    ]);
+    return { id: created.id };
+  };
+  const reopenProject = async (id: string): Promise<void> => {
+    if (hasOnboardingBridge(bridge) && bridge.getLearningOnboarding) {
+      try {
+        const snapshot = await bridge.getLearningOnboarding({ projectId: id });
+        if (!snapshot.accepted && (snapshot.interview || snapshot.proposal)) {
+          const listed = projects.find((item) => item.id === id);
+          setResumeDraft({ projectId: id, goal: listed?.goal ?? '' });
+          return;
+        }
+      } catch (failure) {
+        setError(desktopError(failure));
+        return;
+      }
+    }
+    await openProject(id);
+  };
   if (workspace)
     return (
       <Shell
         key={workspace.project.id}
         bridge={bridge}
         workspace={workspace}
+        resume={courseResume}
         onWorkspace={setWorkspace}
         appearance={appearance}
         onHome={() => {
           setWorkspace(null);
+          setCourseResume(null);
           setLoading(true);
           setError('');
           void loadProjects();
+          loadContinueLearning();
         }}
       />
     );
@@ -198,9 +269,38 @@ export function App({
               </p>
             )}
             <Opening
+              key={resumeDraft?.projectId ?? 'opening'}
               projects={projects}
               onCreate={createProject}
-              onReopen={(id) => void openProject(id)}
+              onReopen={(id) => void reopenProject(id)}
+              continueLearning={continueLearning}
+              onContinueLearning={(card) => {
+                void openProject(card.projectId, {
+                  path: card.path,
+                  sourceRevisionId: card.sourceRevisionId,
+                  span: card.span,
+                });
+              }}
+              {...(openingUsesOnboarding(bridge)
+                ? {
+                    onboarding: {
+                      createDraftProject,
+                      bridge,
+                      onAccepted: (value) => {
+                        setCourseResume({
+                          path: value.firstLesson,
+                          sourceRevisionId: null,
+                          span: null,
+                        });
+                        setResumeDraft(null);
+                        setWorkspace(value.workspace);
+                        void loadProjects();
+                        loadContinueLearning();
+                      },
+                    },
+                  }
+                : {})}
+              resumeDraft={resumeDraft}
             />
           </>
         )}

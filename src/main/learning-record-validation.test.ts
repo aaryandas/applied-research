@@ -145,7 +145,7 @@ it('decodes explicit source and path origins without inference', () => {
     path: { pathId, pathRevision: 2, topicId, lessonId },
   });
   expect(() => decodeHumanEntry({ ...base, origin: {} })).toThrow(
-    'choose a source or path',
+    'choose a source, path or entry',
   );
   expect(() => decodeHumanEntry({ ...base, origin: { highlightId } })).toThrow(
     'requires its source revision',
@@ -162,18 +162,24 @@ it('decodes explicit source and path origins without inference', () => {
   const entryOrigin = {
     entry: { entryId: sourceId, revision: 1 },
   };
-  expect(() =>
+  expect(
     decodeHumanEntry({
       ...base,
       origin: { ...pathOrigin, ...entryOrigin },
-    }),
-  ).toThrow('origin.entry is not persisted yet');
-  expect(() =>
+    }).origin,
+  ).toEqual({ ...pathOrigin, ...entryOrigin });
+  expect(
     decodeHumanEntry({
       ...base,
       origin: entryOrigin,
+    }).origin,
+  ).toEqual(entryOrigin);
+  expect(() =>
+    decodeHumanEntry({
+      ...base,
+      origin: { entry: { entryId: sourceId, revision: 0 } },
     }),
-  ).toThrow('origin.entry is not persisted yet');
+  ).toThrow('positive integer');
   expect(
     decodeHumanEntry({
       ...base,

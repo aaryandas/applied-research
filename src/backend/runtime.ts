@@ -7,12 +7,29 @@ import { Authentication, makeAuthLayer } from './auth.js';
 import { makePostgresAccounting } from './accounting.js';
 import type { BackendConfig } from './config.js';
 import { Database, makeDatabaseLayer } from './database.js';
+import { makePostgresGenerationEvalBudget } from './generation-eval.js';
 import { createHttpHandler } from './http.js';
 import type { HttpDependencies } from './http.js';
 import { makeLearningService } from './learning.js';
 import type { LearningService } from './learning.js';
 import { makeSourcedLearningApi } from './learning-api.js';
 import type { SourcedLearningApi } from './learning-api.js';
+import {
+  makeAccountScopedAdmittedSourceLookup,
+  type AccountScopedAdmittedSourceLookup,
+} from './companion/index.js';
+import {
+  adaptGenerationEvalLedger,
+  makeExplanationPlannerProvider,
+  makeExplanationPlannerService,
+  makePostgresPlannerAccounting,
+  type ExplanationPlannerService,
+} from './explanations/index.js';
+import {
+  makeOnboardingService,
+  makePostgresOnboardingStore,
+  type OnboardingService,
+} from './onboarding/index.js';
 import { BACKEND_MIGRATIONS } from './migrate.js';
 import { makeOpenRouterProvider } from './provider.js';
 import type { Diagnostics } from './diagnostics.js';
@@ -34,12 +51,18 @@ import { OPENALEX_KEYWORD_SEARCH_MAXIMUM_MICROUSD } from './sourcing/openalex/bu
 import { makePostgresSourceOperations } from './sourcing/operations.js';
 import { makePostgresSourcePersistence } from './sourcing/persistence.js';
 import type { SourcingService } from './sourcing/service.js';
+import { bindUniversityLane } from './sourcing/university-join.js';
+import { createProductionUniversityLane } from './sourcing/university-runtime.js';
+import { createGuardedUniversityTransport } from './university-acquisition/index.js';
 
 interface BackendServicesValue {
   readonly auth: AuthService;
   readonly learning: LearningService;
   readonly sourcing: SourcingService;
   readonly sourcedLearning: SourcedLearningApi;
+  readonly onboarding: OnboardingService;
+  readonly explanationPlanner: ExplanationPlannerService;
+  readonly lookupAdmittedSource: AccountScopedAdmittedSourceLookup;
   readonly ready: () => Promise<boolean>;
 }
 
@@ -80,12 +103,15 @@ function makeBackendLayer(
     Effect.gen(function* () {
       const database = yield* Database;
       const auth = yield* Authentication;
+      const accounting = makePostgresAccounting(database);
+      const generationEval = makePostgresGenerationEvalBudget(database);
       const learning = yield* makeLearningService({
-        accounting: makePostgresAccounting(database),
+        accounting,
         provider: makeOpenRouterProvider(config.openRouterApiKey, request),
         config,
         now: () => new Date(),
         diagnostics,
+        generationEval,
       });
       const runEffect = <A, E>(
         effect: Effect.Effect<A, E>,
@@ -94,8 +120,13 @@ function makeBackendLayer(
         Effect.runPromise(effect, signal ? { signal } : undefined);
       const persistence = makePostgresSourcePersistence(database);
       const operations = makePostgresSourceOperations(database);
+      const sourceHttp = createGuardedHttpsClient();
+      const universityLane = createProductionUniversityLane({
+        transport: createGuardedUniversityTransport(sourceHttp),
+      });
+      bindUniversityLane(universityLane);
       const acquisition = new SourceAcquisitionAdapter({
-        http: createGuardedHttpsClient(),
+        http: sourceHttp,
         clock: { now: () => new Date() },
       });
       const openAlex =
@@ -146,25 +177,56 @@ function makeBackendLayer(
         liveIndex,
         embedding,
         embeddingBudget,
+        catalogSources: universityLane.catalog,
+        universityAcquisition: universityLane.api,
+        universityTransport: universityLane.transport,
         diagnostics,
         runEffect,
       });
+      const evidenceSelector = makeLearningEvidenceSelector(
+        persistence,
+        sourcing,
+        runEffect,
+      );
       const sourcedLearning = makeSourcedLearningApi({
         learning,
         diagnostics,
         operations,
         clock: () => new Date(),
-        selectEvidence: makeLearningEvidenceSelector(
-          persistence,
-          sourcing,
-          runEffect,
-        ),
+        selectEvidence: evidenceSelector,
       });
+      const onboarding = makeOnboardingService({
+        learning,
+        operations,
+        proposals: makePostgresOnboardingStore(database),
+        selectEvidence: evidenceSelector,
+        sourcing,
+        runEffect,
+        diagnostics,
+      });
+      const explanationPlanner = yield* makeExplanationPlannerService({
+        accounting: makePostgresPlannerAccounting(database),
+        generation: adaptGenerationEvalLedger(generationEval),
+        provider: makeExplanationPlannerProvider({
+          apiKey: config.openRouterApiKey,
+          request,
+        }),
+        config,
+        now: () => new Date(),
+        diagnostics,
+      });
+      const lookupAdmittedSource = makeAccountScopedAdmittedSourceLookup(
+        persistence,
+        runEffect,
+      );
       return {
         auth,
         learning,
         sourcing,
         sourcedLearning,
+        onboarding,
+        explanationPlanner,
+        lookupAdmittedSource,
         ready: async () => {
           try {
             const migration = await database.pool.query(
@@ -260,6 +322,9 @@ export async function startBackend(
         learning: services.learning,
         sourcing: services.sourcing,
         sourcedLearning: services.sourcedLearning,
+        onboarding: services.onboarding,
+        explanationPlanner: services.explanationPlanner,
+        lookupAdmittedSource: services.lookupAdmittedSource,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
         runEffect: (effect, signal) =>

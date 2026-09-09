@@ -29,6 +29,7 @@ beforeEach(() => {
     'ResizeObserver',
     class {
       observe() {}
+      unobserve() {}
       disconnect() {}
     },
   );
@@ -73,7 +74,10 @@ async function setup() {
     closeTool: async () => {},
     openExternal: async () => {},
     onToolState: () => () => {},
-    activateSourceWorkspace: vi.fn(async () => {}),
+    activateSourceWorkspace: vi.fn(async () => ({
+      projectGeneration: 1,
+      requestGeneration: 0,
+    })),
     cancelSourceOperation: vi.fn(async () => {}),
     discoverSources: vi.fn<SourceDesktopBridge['discoverSources']>(
       async (input) => ({

@@ -1,0 +1,35 @@
+.learner-profile {
+  display: grid;
+  gap: 0.85rem;
+  max-width: 40rem;
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+.learner-profile h2,
+.learner-profile h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+.learner-profile label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.learner-profile textarea {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.learner-profile-ai {
+  padding: 0.85rem 0.95rem;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper) 88%, var(--accent-soft));
+}

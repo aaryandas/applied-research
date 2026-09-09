@@ -30,20 +30,24 @@ export interface GuestLifecycleSnapshot {
 }
 
 /**
- * Production same-workspace guard (AR-50 guest lifecycle; copy into AR-56).
- * SourceDesktopOperations.activate already no-ops the same id. Decode before
- * teardown so invalid payloads cannot closeTool. True project switch and
- * logout (`null` after a selected id) still replaceWorkspace + closeTool.
- * Same-id Shell mount / StrictMode / signed-in replay must not.
+ * Production same-workspace guard (AR-50 guest lifecycle; AR-56 owns the
+ * onboarding/contextual mount). SourceDesktopOperations.activate already
+ * no-ops the same id. Decode before teardown so invalid payloads cannot
+ * closeTool. True project switch and logout (`null` after a selected id)
+ * still revoke in-flight onboarding, replaceWorkspace, and closeTool.
+ * Same-id Shell mount / StrictMode / signed-in replay must not kill guest
+ * or reset contextual generation counters.
  *
  *   handle(SOURCE_CHANNELS.activate, (value) => {
  *     const plan = planWorkspaceActivate(selectedWorkspaceId, value);
  *     if (plan.revokeOperations) {
+ *       onboardingOperations.revoke();
  *       practicalOperations.replaceWorkspace();
  *       closeTool();
  *     }
  *     sourceOperations.activate(value);
  *     selectedWorkspaceId = plan.nextId;
+ *     return contextualHelp.activate(value);
  *   });
  */
 export async function installGuestLifecycleProbe(

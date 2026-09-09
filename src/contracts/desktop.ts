@@ -1,5 +1,11 @@
 import type { PracticalWorkspaceBridge } from './practical-records';
 import type { SourceDesktopBridge } from './source-desktop';
+import type { ContextualHelpBridge } from './contextual-help-desktop';
+import type { CompanionGuidanceBridge } from './companion-guidance';
+import type {
+  LearningOnboardingBridge,
+  LearningOnboardingResumeBridge,
+} from './learning-onboarding';
 import type {
   EntryDraft,
   EntryPosition,
@@ -12,9 +18,34 @@ import type {
 import type { LearningRecordsBridge } from './learning-records';
 import type { DesktopAccountState, DesktopSignOutResult } from './desktop-auth';
 
+/** Opt-in Electron launch flag. Production never sets this. */
+export const DESKTOP_E2E_TEST_ENVIRONMENT = 'desktop-e2e' as const;
+export type DesktopTestEnvironment = typeof DESKTOP_E2E_TEST_ENVIRONMENT;
+
+/** Main-owned Chromium additionalArgument. Preload must not trust process env. */
+export const DESKTOP_E2E_WINDOW_ARGUMENT =
+  `--applied-research-test-entry=${DESKTOP_E2E_TEST_ENVIRONMENT}` as const;
+
+export function readDesktopTestEnvironment(
+  value: string | undefined,
+): DesktopTestEnvironment | null {
+  return value === DESKTOP_E2E_TEST_ENVIRONMENT
+    ? DESKTOP_E2E_TEST_ENVIRONMENT
+    : null;
+}
+
+export function desktopTestEnvironmentFromArgv(
+  argv: readonly string[],
+): DesktopTestEnvironment | null {
+  return argv.includes(DESKTOP_E2E_WINDOW_ARGUMENT)
+    ? DESKTOP_E2E_TEST_ENVIRONMENT
+    : null;
+}
+
 export interface DesktopInfo {
   readonly platform: string;
   readonly electronVersion: string;
+  readonly testEnvironment?: DesktopTestEnvironment | null;
 }
 export interface DesktopBridge {
   readonly info: DesktopInfo;
@@ -45,10 +76,10 @@ declare global {
     readonly desktop: DesktopBridge &
       LearningRecordsBridge &
       PracticalWorkspaceBridge &
-      SourceDesktopBridge;
+      SourceDesktopBridge &
+      LearningOnboardingBridge &
+      LearningOnboardingResumeBridge &
+      ContextualHelpBridge &
+      CompanionGuidanceBridge;
   }
 }
-
-// AR-47 registers LearningOnboardingBridge on this same Window.desktop object
-// after main/preload expose the named onboarding channels. This contracts
-// checkpoint does not change the live bridge until that lane lands.

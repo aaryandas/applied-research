@@ -1,0 +1,94 @@
+.opening-content-onboarding {
+  max-width: 52rem;
+}
+.opening-topic-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.opening-topic-row .learning-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+.opening-topic-row .opening-submit {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+.opening-source-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: #0c0f12eb;
+  color: #eceae4;
+  padding: 12px 18px;
+  font-size: 14px;
+}
+.opening-source-action:hover:not(:disabled) {
+  background: #c7edee;
+  color: #172a35;
+}
+.opening-source-fields {
+  margin-top: var(--space-4);
+  text-align: left;
+  padding: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: #0c0f12eb;
+  color: #eceae4;
+}
+.opening-source-label {
+  display: block;
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: #a9a6a0;
+}
+.opening-source-fields input,
+.opening-source-fields textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+  border: 1px solid #22272c;
+  border-radius: var(--radius-control);
+  background: #14181c;
+  color: #eceae4;
+  padding: var(--space-3);
+  font: 14px/1.4 var(--font-ui);
+}
+.opening-source-note {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: #a9a6a0;
+}
+.opening-continue {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 540px;
+  margin-inline: auto;
+  padding: 12px 16px;
+  text-align: left;
+  color: #eceae4;
+  background: #0c0f12eb;
+  border-radius: var(--radius-panel);
+}
+.opening-continue:hover:not(:disabled) {
+  background: #18232b;
+}
+.opening-saved-work {
+  padding: 8px;
+  background: #0c0f12eb;
+  border-radius: var(--radius-panel);
+  color: #eceae4;
+}
+.opening-saved-work h2 {
+  margin: 0;
+  padding: 12px;
+  font: 400 12px/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

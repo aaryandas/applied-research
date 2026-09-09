@@ -21,7 +21,7 @@ import type {
   TurbopufferIndexOptions,
 } from './types.js';
 
-const MAX_BATCH_PASSAGES = 100;
+export const MAX_INDEX_BATCH_PASSAGES = 100;
 
 function prepareRow(
   passage: IndexPassage,
@@ -64,7 +64,7 @@ function prepareRows(
     throw new IndexOperationError('generation-mismatch');
   if (!isDenseArray(batch.passages) || batch.passages.length === 0)
     throw new IndexOperationError('invalid-input');
-  if (batch.passages.length > MAX_BATCH_PASSAGES)
+  if (batch.passages.length > MAX_INDEX_BATCH_PASSAGES)
     throw new IndexOperationError('limit-exceeded');
   const rows = new Map<string, ReturnType<typeof prepareRow>>();
   // One canonical decode per distinct source revision, however many passages share it.

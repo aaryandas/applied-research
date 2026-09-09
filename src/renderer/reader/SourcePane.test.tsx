@@ -93,6 +93,13 @@ describe('native source selection and explicit origin reveal', () => {
     expect(scroll).not.toHaveBeenCalled();
     selection.removeAllRanges();
     fireEvent(document, new Event('selectionchange'));
+    fireEvent.pointerUp(document.body);
+    expect(props.onSelection).toHaveBeenLastCalledWith({
+      start: 8,
+      end: 12,
+      quote: 'same',
+    });
+    fireEvent.pointerUp(prose);
     expect(props.onSelection).toHaveBeenLastCalledWith(null);
     view.unmount();
     props.onSelection.mockClear();
@@ -119,5 +126,103 @@ describe('native source selection and explicit origin reveal', () => {
     view.rerender(<SourcePane {...props} reveal={reveal} busy />);
     fireEvent(document, new Event('selectionchange'));
     expect(scroll).not.toHaveBeenCalled();
+  });
+  it('opens the retained cited revision instead of the current source', async () => {
+    const props = await setup();
+    const original = props.version;
+    const current = {
+      ...original,
+      revisionId: 'source-v2',
+      revision: 2,
+      title: 'Rewritten current source',
+      canonicalText: 'This later edition dropped the cited span.',
+    };
+    const citation = {
+      sourceId: original.sourceId,
+      revisionId: original.revisionId,
+      start: 8,
+      end: 12,
+      quote: 'same',
+    };
+    const generated = {
+      ...original,
+      revisionId: 'generated-v1',
+      sourceId: 'generated',
+      title: 'Generated lesson',
+      canonicalText: 'Teaching prose is not the original.',
+      provenance: {
+        kind: 'generated' as const,
+        locator: null,
+        remoteSourceId: 'remote',
+        remoteRevisionId: 'remote-rev',
+        requestId: 'request-1',
+        generation: {
+          author: 'ai' as const,
+          provider: 'openrouter' as const,
+          providerRequestId: 'prv',
+          model: 'google/gemini-3.8-flash' as const,
+          requestVersion: '2026-09-08' as const,
+          promptVersion: '1',
+          createdAt: '2026-09-08T12:00:00Z',
+          sourceRevisions: [],
+        },
+        citations: [citation],
+      },
+    };
+    const onOpenCitation = vi.fn();
+    render(
+      <SourcePane
+        {...props}
+        version={generated}
+        source={{
+          ...props.source!,
+          id: 'generated',
+          currentVersionId: generated.revisionId,
+          currentVersion: generated,
+          versions: [generated],
+        }}
+        sources={[
+          {
+            ...props.source!,
+            currentRevision: 2,
+            currentVersionId: current.revisionId,
+            currentVersion: current,
+            versions: [original, current],
+          },
+        ]}
+        citations={[citation]}
+        onOpenCitation={onOpenCitation}
+      />,
+    );
+    expect(
+      screen.getByText(/AI-generated lesson\. Open a citation/),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'same · Exact source · retained revision 1',
+      }),
+    );
+    expect(onOpenCitation).toHaveBeenCalledWith(citation);
+  });
+  it('states when a generated citation’s retained revision is unavailable', async () => {
+    const props = await setup();
+    const missing = {
+      sourceId: 'source',
+      revisionId: 'absent-revision',
+      start: 0,
+      end: 4,
+      quote: 'same',
+    };
+    render(
+      <SourcePane
+        {...props}
+        citations={[missing]}
+        sources={[props.source!]}
+        onOpenCitation={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The retained cited revision is unavailable.',
+    );
   });
 });

@@ -1,12 +1,13 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { Project } from '../contracts/workspace';
+import { hasEntryOriginColumns } from './entry-origin-persistence';
 import { decodeLegacyProject, decodeUuid } from './workspace-decoder';
 
-export const LATEST_WORKSPACE_MIGRATION = 1_788_930_000_000;
+export const LATEST_WORKSPACE_MIGRATION = 1_788_955_200_000;
 const LEGACY_BACKUP_SUFFIX = '.pre-migration-v0.bak';
 const OPTIONAL_LEGACY_TABLE = 'legacy_projects_v0';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
@@ -104,6 +105,8 @@ const EXPECTED_TABLE_COLUMNS = {
     'path_revision',
     'topic_id',
     'lesson_id',
+    'origin_entry_id',
+    'origin_entry_revision',
   ],
   path_lesson_citations: [
     'project_id',
@@ -197,6 +200,125 @@ const EXPECTED_TABLE_COLUMNS = {
     'evidence_selection_id',
     'revision',
     'recorded_at',
+  ],
+  learner_profile: [
+    'id',
+    'background',
+    'learning_goals',
+    'prior_knowledge',
+    'revision',
+    'updated_at',
+    'author',
+    'ai_summary',
+    'ai_observed_gaps_json',
+    'ai_updated_at',
+  ],
+  learning_interviews: [
+    'project_id',
+    'revision',
+    'updated_at',
+    'goal',
+    'focus',
+    'depth',
+    'profile_revision',
+    'source_revision_ids_json',
+    'seed_drafts_json',
+    'answers_json',
+    'prompts_json',
+    'pasted_source_text',
+  ],
+  learning_proposals: [
+    'project_id',
+    'proposal_id',
+    'revision',
+    'interview_revision',
+    'envelope_json',
+    'projection_json',
+    'updated_at',
+  ],
+  learning_acceptances: [
+    'project_id',
+    'proposal_id',
+    'proposal_revision',
+    'path_id',
+    'path_revision',
+    'first_lesson_json',
+    'request_id',
+    'accepted_at',
+  ],
+  accepted_step_mappings: [
+    'project_id',
+    'path_id',
+    'accepted_proposal_id',
+    'accepted_proposal_revision',
+    'remote_step_id',
+    'local_topic_id',
+    'local_lesson_id',
+    'practice_digest',
+    'source_ids_json',
+    'practice_brief_json',
+  ],
+  learning_resume: [
+    'id',
+    'project_id',
+    'path_id',
+    'path_revision',
+    'topic_id',
+    'lesson_id',
+    'source_revision_id',
+    'span_start',
+    'span_end',
+    'span_quote',
+    'lesson_title',
+    'project_goal',
+    'updated_at',
+  ],
+  retained_explanations: [
+    'id',
+    'project_id',
+    'contract_version',
+    'intent',
+    'origin_json',
+    'source_revision_id',
+    'highlight_id',
+    'entry_id',
+    'entry_revision',
+    'useful_attempt_id',
+    'created_at',
+    'updated_at',
+  ],
+  explanation_attempts: [
+    'attempt_id',
+    'explanation_id',
+    'project_id',
+    'attempt_json',
+    'status',
+    'intent',
+    'recorded_at',
+  ],
+  explanation_attempt_grounding: ['attempt_id', 'project_id', 'grounding_json'],
+  explanation_scene_state: [
+    'explanation_id',
+    'project_id',
+    'parameter_revision',
+    'state_json',
+    'updated_at',
+  ],
+  trusted_scene_captures: [
+    'capture_id',
+    'explanation_id',
+    'project_id',
+    'parameter_revision',
+    'capture_json',
+    'measured_at',
+  ],
+  explanation_canvas_placements: [
+    'explanation_id',
+    'project_id',
+    'view',
+    'x',
+    'y',
+    'updated_at',
   ],
   __drizzle_migrations: ['id', 'hash', 'created_at'],
 } as const;
@@ -341,16 +463,23 @@ function legacyRows(database: Database.Database): LegacyRow[] {
     }));
 }
 
+function columnsMatch(
+  actual: readonly string[],
+  expected: readonly string[],
+): boolean {
+  return (
+    actual.length === expected.length &&
+    actual.every((column, index) => column === expected[index])
+  );
+}
+
 function assertColumns(
   database: Database.Database,
   table: string,
   expected: readonly string[],
 ): void {
   const actual = tableColumns(database, table);
-  if (
-    actual.length !== expected.length ||
-    actual.some((column, index) => column !== expected[index])
-  ) {
+  if (!columnsMatch(actual, expected)) {
     throw new WorkspaceMigrationError(
       `Workspace database has an unsupported ${table} schema. No data was changed.`,
       {
@@ -358,6 +487,30 @@ function assertColumns(
       },
     );
   }
+}
+
+/** Applies 0007 SQL on a disposable pre-0007 database. Production stores already include it. */
+export function applyReservedEntryOriginMigration(
+  database: Database.Database,
+): void {
+  if (hasEntryOriginColumns(database)) return;
+  const foreignKeys = database.pragma('foreign_keys', { simple: true });
+  database.pragma('foreign_keys = OFF');
+  try {
+    database.exec(
+      readFileSync(join(MIGRATIONS_FOLDER, '0007_entry_origins.sql'), 'utf8'),
+    );
+  } finally {
+    database.pragma(
+      foreignKeys === 1 ? 'foreign_keys = ON' : 'foreign_keys = OFF',
+    );
+  }
+  assertColumns(
+    database,
+    'entry_revision_context',
+    EXPECTED_TABLE_COLUMNS.entry_revision_context,
+  );
+  integrityCheck(database, 'Workspace database');
 }
 
 function readAndValidateLegacyRows(database: Database.Database): {

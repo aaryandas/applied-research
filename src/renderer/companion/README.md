@@ -108,3 +108,90 @@ The consumer rejects foreign/relabelled targets and nonfinite/empty/offscreen bo
 The shell must forward the actual bound tool's navigation metadata even while guidance is off; this updates only the locally known identity and does not resolve context. A context that names a different bound tool session or URL is rejected. Navigation during initial tool resolution cancels the start. Later navigation aborts an in-flight tool cue, retains only an already-authorized activity scope, consumes successful URLs even while busy and never queues a trailing cue. A reflection request does not become a tool read. The physical request slot is retained until an aborted adapter settles; `draining: true` disables further requests and displays cancellation progress. Only cancellation settlement is published afterward, never old content or reactivated observation. Offline/unauthenticated results revoke ongoing guidance and require another explicit start.
 
 `requestGuidance` must settle after abort and enforce a bounded deadline in its trusted adapter; the consumer never releases an uncooperative physical request slot early. Blank/whitespace-only answers or answers above 12,000 characters are errors and cannot activate guidance. Accepted answer text and human context are preserved verbatim. Failure messages must already be safe public copy. UI labels distinguish AI guidance, saved/unsaved human reflection, saved/unsaved human reports, imported results and app-measured results.
+
+## AR-55 authenticated host (assembler-owned)
+
+Preserve `createCompanionRequester` / session, Practical `registerResolver` (in-process only; **never serialize `CompanionGuidanceInput`**), pointer/reduced-motion, and the existing Practical buttons.
+
+### Bridge callbacks
+
+```ts
+requestCompanionGuidance(request: CompanionGuidanceRequest): Promise<CompanionGuidanceReply>
+cancelCompanionGuidance(request: CompanionGuidanceCancelRequest): void
+```
+
+Wire to preload named operations only. AR53 causes are `ask-once` and `activity-start`. In-process `tool-navigation` must **not** be relabelled; `createCompanionGuidanceHost().requestFromSession` returns a local unavailable message and makes zero paid calls. A separately reviewed continuation capability is still required if navigation should buy another answer.
+
+### Host controller
+
+```ts
+import { createCompanionGuidanceHost } from './guidance-adapter';
+import {
+  companionWorkspaceRevealKey,
+  createCompanionRevealRegistry,
+  createCompanionSelectionRevealer,
+} from './reveal-registry';
+
+const host = createCompanionGuidanceHost({
+  bridge: {
+    requestCompanionGuidance: api.requestCompanionGuidance,
+    cancelCompanionGuidance: api.cancelCompanionGuidance,
+  },
+  // Main `guidance.activate(projectId)` is assembler-owned in index.ts, not a
+  // Companion IPC. Return the generations already assigned for this window.
+  activate: (projectId) => windowCompanionGenerations(projectId),
+  createRequestId: () => crypto.randomUUID(),
+});
+// Selection metadata updates do no I/O:
+host.setSelection(workspaceTarget); // or practical opaque ids + evidence
+// Practical paid path (opaque ids + saved/draft markers only; never CompanionGuidanceInput over IPC):
+const requester = createCompanionRequester({
+  ...identity,
+  requestGuidance: (input, signal) => host.requestFromSession(input, signal),
+  onStateChange,
+  now,
+  createRequestId,
+});
+```
+
+`requestFromSession` maps in-process Practical context onto AR53:
+
+- `trusted-selected-evidence` → opaque `user-selected-file` / `app-measured` ids only (no resolved text, no provenanceId)
+- human-reported result / reflection → `selectedEvidence: none` plus human utterance **persistence/savedRevision** markers (not the body as measured/saved fact)
+- `tool-navigation` remains local unavailable
+
+Main then resolves those references from owned attempt/workspace state. Do not treat renderer-authored claims as measured or saved fact.
+
+The consumer still rejects answers above **12,000** characters even though the wire allows 24,000.
+
+### Companion props
+
+```tsx
+<Companion
+  session={requester.session} // optional when Reader/Canvas only
+  state={companionState}
+  selectedRequest={practicalSelection} // null for Reader/Canvas
+  workspaceSelection={readerOrCanvasTarget}
+  guidanceHost={host}
+  selectionRevealer={createCompanionSelectionRevealer(registry)}
+  targetRevealer={practicalRevealer}
+  pointerSurface={appOwnedSurface}
+/>
+```
+
+Reader/Canvas selected-help controls live in `Companion` (`Ask about selected target`, `Explain this passage` on a source highlight, `Show selected target`). **Guide this activity** is Practical-only and requires a valid `selectedRequest`. Do not fabricate a Practical activity or latch `activity-start` from Reader/Canvas.
+
+### Owned reveal registry
+
+Owning surfaces register the semantic key → actual app control ref. No selectors, guest DOM, or AI geometry.
+
+```ts
+const registry = createCompanionRevealRegistry();
+registry.register(companionWorkspaceRevealKey(target), instructionsRef.current);
+// Before sign-out / replacement / tool close / external handoff:
+registry.invalidate(); // abort reveal + clear geometry FIRST
+host.invalidate();
+companion.stop('external-handoff');
+```
+
+Ask and reveal remain distinct explicit commands. Restart/reauth restores no activity consent.

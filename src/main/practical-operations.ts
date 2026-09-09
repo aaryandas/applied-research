@@ -11,6 +11,7 @@ import type {
   ListPracticalAttemptsResult,
   LoadPracticalAttemptResult,
   LoadPracticalJourneyResult,
+  PracticalAttemptRecord,
   PracticalFilePreviewResult,
   PracticalHumanPlanResult,
   PracticalProgressResult,
@@ -30,6 +31,7 @@ interface PracticalDesktopOptions {
 /** Owns selected-workspace lifetime for every Practical named operation. */
 export class PracticalDesktopOperations {
   private generation = 0;
+  private bound: PracticalAttemptRecord | null = null;
   private readonly selection: PracticalFileSelection;
   private readonly fileExport: PracticalFileExport;
 
@@ -51,6 +53,7 @@ export class PracticalDesktopOperations {
 
   replaceWorkspace(): void {
     this.generation += 1;
+    this.bound = null;
     this.cancelAll();
   }
 
@@ -66,9 +69,18 @@ export class PracticalDesktopOperations {
   }
 
   loadPracticalAttempt(value: unknown): LoadPracticalAttemptResult {
-    return this.guard(value)
+    const result = this.guard(value)
       ? this.options.store.loadPracticalAttempt(value)
-      : { status: 'failed' };
+      : { status: 'failed' as const };
+    if (result.status === 'loaded') {
+      this.bound = result.attempt;
+    }
+    return result;
+  }
+
+  /** Last successfully loaded attempt for this window's selected workspace. */
+  boundAttempt(): PracticalAttemptRecord | null {
+    return this.bound;
   }
 
   listPracticalAttempts(value: unknown): ListPracticalAttemptsResult {
@@ -84,9 +96,13 @@ export class PracticalDesktopOperations {
   }
 
   loadPracticalJourney(value: unknown): LoadPracticalJourneyResult {
-    return this.guard(value)
+    const result = this.guard(value)
       ? this.options.store.loadPracticalJourney(value)
-      : { status: 'failed' };
+      : { status: 'failed' as const };
+    if (result.status === 'loaded') {
+      this.bound = result.attempt;
+    }
+    return result;
   }
 
   recordPracticalProgress(value: unknown): PracticalProgressResult {

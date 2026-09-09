@@ -562,3 +562,10 @@ export function decodeCompanionGuidanceReply(
   if (value.outcome === 'success') return decodeCompanionSuccessReply(value);
   return decodeCompanionFailureReply(value);
 }
+
+export interface CompanionGuidanceBridge {
+  requestCompanionGuidance(
+    request: CompanionGuidanceRequest,
+  ): Promise<CompanionGuidanceReply>;
+  cancelCompanionGuidance(request: CompanionGuidanceCancelRequest): void;
+}

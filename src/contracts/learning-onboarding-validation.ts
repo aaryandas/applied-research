@@ -80,6 +80,7 @@ import type {
   SaveLearnerProfileInput,
   SaveLearningInterviewInput,
 } from './learning-onboarding.js';
+import { isRemoteText } from './source-text.js';
 import { createSourceContractValidation } from './source-contract-validation.js';
 import {
   SOURCE_FORMATS,
@@ -686,7 +687,7 @@ export function createLearningOnboardingValidation(
       depth: depth(input.depth),
       profileRevision: boundedInteger(
         input.profileRevision,
-        1,
+        0,
         LIMITS.revision,
         'Profile revision',
       ),
@@ -1717,6 +1718,19 @@ export function createLearningOnboardingValidation(
     });
   }
 
+  function pastedSeedText(value: unknown): string | null {
+    if (value === null) return null;
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      value.length > LIMITS.pastedSeedCharacters ||
+      !isRemoteText(value)
+    ) {
+      invalid('Pasted seed text is invalid.');
+    }
+    return value;
+  }
+
   function humanContext(value: unknown): UntrustedHumanLearnerContext {
     const input = strictRecord(value, [
       'trust',
@@ -1729,6 +1743,7 @@ export function createLearningOnboardingValidation(
       'answers',
       'seedRevisionLocators',
       'unacquiredSeedUrls',
+      'pastedSeedText',
     ]);
     rejectForbiddenAuthority(input);
     if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
@@ -1755,6 +1770,7 @@ export function createLearningOnboardingValidation(
       answers: humanAnswers(input.answers),
       seedRevisionLocators: seedLocators(input.seedRevisionLocators),
       unacquiredSeedUrls: seedDrafts(input.unacquiredSeedUrls),
+      pastedSeedText: pastedSeedText(input.pastedSeedText),
     };
   }
 

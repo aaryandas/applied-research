@@ -32,9 +32,18 @@ export interface CanvasContent {
   editable: boolean;
   diagnostics: string[];
   supports: CanvasContent[];
+  retainedExplanation?: {
+    explanationId: string;
+    intent: 'text' | 'visual';
+    quote: string;
+  };
 }
 export type CanvasNode = Node<
-  { content: CanvasContent; recordId: string | null },
+  {
+    content: CanvasContent;
+    recordId: string | null;
+    placementKind?: 'entry' | 'explanation';
+  },
   'learning'
 >;
 interface AddCanvasNodeInput {

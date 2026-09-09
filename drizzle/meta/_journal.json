@@ -36,6 +36,34 @@
       "when": 1788930000000,
       "tag": "0004_practical_journey",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788937200000,
+      "tag": "0005_learning_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788948000000,
+      "tag": "0006_contextual_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788951600000,
+      "tag": "0007_entry_origins",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788955200000,
+      "tag": "0008_explanation_canvas_placements",
+      "breakpoints": true
     }
   ]
 }

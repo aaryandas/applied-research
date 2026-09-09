@@ -5,7 +5,8 @@ import type { LearningRequest } from '../../contracts/learning-api.js';
 import type { DatabaseService } from '../database.js';
 import { sourceOperation as sourceOperationTable } from '../schema.js';
 
-export type SourceOperationKind = 'discover' | 'acquire' | 'sourced';
+export type SourceOperationKind =
+  'discover' | 'acquire' | 'sourced' | 'onboarding';
 export type SourceOperationState = 'in-progress' | 'completed' | 'uncertain';
 
 export class SourceOperationFailure extends Data.TaggedError(

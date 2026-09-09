@@ -1,3 +1,4 @@
+import { honestChargeMicrousd } from '../money.js';
 import type { Effect } from 'effect';
 import type {
   EmbeddingBudgetDecision,
@@ -45,7 +46,12 @@ export async function accountPaidEmbedding(
     return 'not-dispatched';
   }
   if (paid.reconciliation === 'settled') {
-    await runEffect(decision.reservation.settle(paid.actualMicrousd));
+    const charge = honestChargeMicrousd(paid.actualMicrousd);
+    if (charge === undefined) {
+      await runEffect(decision.reservation.retain());
+      return 'uncertain';
+    }
+    await runEffect(decision.reservation.settle(charge));
     return 'settled';
   }
   await runEffect(decision.reservation.retain());

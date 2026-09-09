@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { usdToMicrousd } from './money.js';
+import { usdToMicrousd, honestChargeMicrousd } from './money.js';
 
 describe('decimal-safe provider cost conversion', () => {
   it.each([
@@ -20,5 +20,14 @@ describe('decimal-safe provider cost conversion', () => {
 
   it('reports a nonnumeric provider cost as a type error', () => {
     expect(() => usdToMicrousd(null)).toThrow(TypeError);
+  });
+
+  it('records only safe nonnegative integer µUSD charges', () => {
+    expect(honestChargeMicrousd(0)).toBe(0);
+    expect(honestChargeMicrousd(249_997)).toBe(249_997);
+    expect(honestChargeMicrousd(1.5)).toBeUndefined();
+    expect(honestChargeMicrousd(-1)).toBeUndefined();
+    expect(honestChargeMicrousd(Number.NaN)).toBeUndefined();
+    expect(honestChargeMicrousd(Number.POSITIVE_INFINITY)).toBeUndefined();
   });
 });

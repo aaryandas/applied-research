@@ -1,6 +1,21 @@
-import { SourceLearningEntry } from './shell/SourceLearningEntry';
-import type { SourceDesktopBridge } from '../contracts/source-desktop';
+import type {
+  SourceDesktopBridge,
+  SourceWorkspaceActivationState,
+} from '../contracts/source-desktop';
 import type { PracticalWorkspaceBridge } from '../contracts/practical-records';
+import type {
+  ContinueLearningCard,
+  LearningOnboardingBridge,
+} from '../contracts/learning-onboarding';
+import type { ContextualHelpBridge } from '../contracts/contextual-help-desktop';
+import type { CompanionGuidanceBridge } from '../contracts/companion-guidance';
+import type { CompanionSessionOptions } from '../contracts/companion';
+import { createCompanionGuidanceHost } from './companion/guidance-adapter';
+import { projectRetainedExplanationToCanvas } from '../contracts/explanation-canvas';
+import type {
+  RetainedExplanationCanvasPlacement,
+  RetainedExplanationCanvasProjection,
+} from '../contracts/explanation-canvas';
 import { ResearchEntry } from './research/ResearchEntry';
 import {
   createResearchCallbacks,
@@ -32,7 +47,9 @@ import {
   ReaderSidebar,
   type WorkspaceDestination,
 } from './reader/ReaderSidebar';
-import { ReaderExplanations } from './ReaderExplanations';
+import { ContextualHelpPanel } from './explanations/ContextualHelpPanel';
+import { useContextualSelection } from './explanations/contextual-help-controller';
+import type { CourseResume } from './shell/course-resume';
 import { SettingsPanel } from './settings/SettingsPanel';
 import type { SettingsAppearanceControl } from './settings/types';
 import {
@@ -40,17 +57,30 @@ import {
   listPracticalActivities,
   searchWorkspace,
 } from './shell-records';
+import type { WorkspaceSearchResult } from './shell/record-navigation';
 import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
+
+const EMPTY_CANVAS_EXPLANATIONS: RetainedExplanationCanvasProjection[] = [];
+const EMPTY_CANVAS_PLACEMENTS: RetainedExplanationCanvasPlacement[] = [];
 
 interface ShellProps {
   bridge: DesktopBridge &
     LearningRecordsBridge &
-    Partial<SourceDesktopBridge & PracticalWorkspaceBridge>;
+    Partial<
+      SourceDesktopBridge &
+        PracticalWorkspaceBridge &
+        LearningOnboardingBridge &
+        ContextualHelpBridge &
+        CompanionGuidanceBridge & {
+          saveReadingResume(value: ContinueLearningCard): Promise<void>;
+        }
+    >;
   workspace: LearningWorkspace;
   onWorkspace: (workspace: LearningWorkspace) => void;
   onHome: () => void;
   appearance: SettingsAppearanceControl;
+  resume?: CourseResume | null;
 }
 
 export function Shell({
@@ -59,6 +89,7 @@ export function Shell({
   onWorkspace,
   onHome,
   appearance,
+  resume = null,
 }: ShellProps): ReactElement {
   const [destination, setDestination] =
     useState<WorkspaceDestination>('reader');
@@ -72,6 +103,117 @@ export function Shell({
     selection: 'latest' | 'exact';
   } | null>(null);
   const [researchVisible, setResearchVisible] = useState(false);
+  const [activation, setActivation] = useState<{
+    projectId: string;
+    state: SourceWorkspaceActivationState;
+  } | null>(null);
+  const activationEpoch = useRef(0);
+  const activationRef = useRef(activation);
+  useEffect(() => {
+    activationRef.current = activation;
+  }, [activation]);
+  const requestCompanionGuidance = bridge.requestCompanionGuidance;
+  const cancelCompanionGuidance = bridge.cancelCompanionGuidance;
+  const canRequestGuidance =
+    typeof requestCompanionGuidance === 'function' &&
+    typeof cancelCompanionGuidance === 'function';
+  const guidanceHostRef = useRef<ReturnType<
+    typeof createCompanionGuidanceHost
+  > | null>(null);
+  useEffect(() => {
+    if (
+      typeof requestCompanionGuidance !== 'function' ||
+      typeof cancelCompanionGuidance !== 'function'
+    ) {
+      guidanceHostRef.current = null;
+      return;
+    }
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance,
+        cancelCompanionGuidance,
+      },
+      activate: (projectId) => {
+        const current = activationRef.current;
+        if (current?.projectId === projectId) return current.state;
+        return { projectGeneration: 0, requestGeneration: 0 };
+      },
+      createRequestId: () => crypto.randomUUID(),
+    });
+    guidanceHostRef.current = host;
+    return () => {
+      host.dispose();
+      if (guidanceHostRef.current === host) guidanceHostRef.current = null;
+    };
+  }, [cancelCompanionGuidance, requestCompanionGuidance]);
+  const requestGuidanceFromHost = useCallback(
+    (
+      input: Parameters<CompanionSessionOptions['requestGuidance']>[0],
+      signal: AbortSignal,
+    ) => {
+      const host = guidanceHostRef.current;
+      if (!host) {
+        return Promise.resolve({
+          status: 'unavailable' as const,
+          message: 'Guidance is not available for this session.',
+        });
+      }
+      return host.requestFromSession(input, signal);
+    },
+    [],
+  );
+  const {
+    selection,
+    openExplanationId,
+    explainSelection,
+    openRetainedExplanation,
+  } = useContextualSelection();
+  const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
+  const [canvasOverlay, setCanvasOverlay] = useState<{
+    projectId: string;
+    explanations: RetainedExplanationCanvasProjection[];
+    placements: RetainedExplanationCanvasPlacement[];
+  } | null>(null);
+  useEffect(() => {
+    if (!contextualBridge) return;
+    const projectId = workspace.project.id;
+    let cancelled = false;
+    void Promise.all([
+      contextualBridge.listRetainedExplanations({
+        projectId,
+      }),
+      contextualBridge.listExplanationPlacements({
+        projectId,
+      }),
+    ])
+      .then(([explanations, placements]) => {
+        if (cancelled) return;
+        setCanvasOverlay({
+          projectId,
+          explanations: explanations.map(projectRetainedExplanationToCanvas),
+          placements: [...placements],
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCanvasOverlay({
+          projectId,
+          explanations: [],
+          placements: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contextualBridge, workspace.project.id, destination]);
+  const canvasExplanations =
+    contextualBridge && canvasOverlay?.projectId === workspace.project.id
+      ? canvasOverlay.explanations
+      : EMPTY_CANVAS_EXPLANATIONS;
+  const canvasExplanationPlacements =
+    contextualBridge && canvasOverlay?.projectId === workspace.project.id
+      ? canvasOverlay.placements
+      : EMPTY_CANVAS_PLACEMENTS;
 
   const [projectLifetime] = useState(() => new WorkspaceOperationLifetime());
   const registerRevocation = useCallback(
@@ -81,13 +223,29 @@ export function Shell({
     [projectLifetime],
   );
   const [query, setQuery] = useState('');
+  const restoredResume = useRef(false);
   const reader = useRef<ReaderNavigationControls>(null);
   const settingsEntry = useRef<HTMLElement | null>(null);
   const returnDestination = useRef<WorkspaceDestination>('reader');
   const search = useRef<HTMLInputElement>(null);
   const canvasSave = useRef<(() => Promise<boolean>) | null>(null);
+  const persistReadingResumeRef = useRef<() => Promise<void>>(
+    async () => undefined,
+  );
   const viewMoving = useRef(false);
   const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
+  const workspaceRef = useRef(workspace);
+  const lessonRequestEpoch = useRef(0);
+  const selectedLessonRef = useRef<PathOrigin | null>(null);
+  const pendingGeneratedOpen = useRef<
+    (PathOrigin & { lessonId: string }) | null
+  >(null);
+  const [seenProjectId, setSeenProjectId] = useState(workspace.project.id);
+  const [lessonEnsureFailure, setLessonEnsureFailure] = useState<{
+    path: PathOrigin & { lessonId: string };
+    message: string;
+    retryable: boolean;
+  } | null>(null);
   const {
     registerReaderFlush,
     registerReaderViewFlush,
@@ -111,31 +269,131 @@ export function Shell({
     void bridge.cancelPracticalFileSelection?.();
     void bridge.cancelPracticalExport?.();
   }, [bridge, projectLifetime]);
+  const registerReaderFlushWithResume = useCallback(
+    (flush: (() => Promise<boolean>) | null) => {
+      if (!flush) {
+        registerReaderFlush(null);
+        return;
+      }
+      registerReaderFlush(async () => {
+        if (!(await flush())) return false;
+        await persistReadingResumeRef.current();
+        return true;
+      });
+    },
+    [registerReaderFlush],
+  );
   useEffect(() => {
     // Same-project view changes keep this Reader mounted; never treat its
     // incomplete draft as a failed view flush. Home/native close use registerFlush.
     registerReaderViewFlush(async () => {
       await reader.current?.flushViewNavigation();
+      await persistReadingResumeRef.current();
       return true;
     });
     return () => registerReaderViewFlush(null);
   }, [registerReaderViewFlush]);
+  const nextReaderLease = useCallback(
+    (selection: PathOrigin | null): number => {
+      const epoch = ++lessonRequestEpoch.current;
+      pendingGeneratedOpen.current = null;
+      selectedLessonRef.current = selection;
+      setLessonEnsureFailure(null);
+      return epoch;
+    },
+    [],
+  );
+  useEffect(() => {
+    return () => {
+      lessonRequestEpoch.current += 1;
+      pendingGeneratedOpen.current = null;
+      selectedLessonRef.current = null;
+    };
+  }, []);
+  /* eslint-disable react-hooks/refs --
+   * ensurePendingLesson compares epoch, project, and selection after await.
+   * A genuine workspace change must invalidate in this render so a deferred
+   * completion cannot resurrect the previous project or steal focus.
+   */
+  workspaceRef.current = workspace;
+  if (workspace.project.id !== seenProjectId) {
+    setSeenProjectId(workspace.project.id);
+    nextReaderLease(null);
+  }
+  /* eslint-enable react-hooks/refs */
+  useEffect(() => {
+    const pending = pendingGeneratedOpen.current;
+    if (!pending) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, pending)) {
+      pendingGeneratedOpen.current = null;
+      return;
+    }
+    const epoch = lessonRequestEpoch.current;
+    const lesson = lessonRecord(workspace, pending);
+    const source = lesson?.sourceRevisionId
+      ? workspace.sources
+          .flatMap((item) => item.versions)
+          .find((item) => item.revisionId === lesson.sourceRevisionId)
+      : undefined;
+    if (lesson?.sourceState !== 'ready' || !source) return;
+    if (epoch !== lessonRequestEpoch.current) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, pending)) {
+      pendingGeneratedOpen.current = null;
+      return;
+    }
+    pendingGeneratedOpen.current = null;
+    reader.current?.openOrigin({ path: pending });
+  }, [workspace]);
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
-    void bridge.activateSourceWorkspace?.(workspace.project.id);
-    const unsubscribe = bridge.onAccountState((state) => {
-      if (state.session !== 'signed-in') stopNativePractical();
-      else void bridge.activateSourceWorkspace?.(workspace.project.id);
-    });
-    window.addEventListener('beforeunload', stopNativePractical);
-    return () => {
-      projectLifetime.revoke();
+    const applyActivation = (projectId: string | null): void => {
+      if (typeof projectId !== 'string') return;
+      const requestEpoch = ++activationEpoch.current;
+      const pending = bridge.activateSourceWorkspace?.(projectId);
+      if (!pending) return;
+      void Promise.resolve(pending).then((state) => {
+        if (requestEpoch !== activationEpoch.current) return;
+        if (
+          state &&
+          typeof state === 'object' &&
+          typeof state.projectGeneration === 'number' &&
+          typeof state.requestGeneration === 'number'
+        ) {
+          setActivation({ projectId, state });
+        }
+      });
+    };
+    applyActivation(workspace.project.id);
+    const revoke = (): void => {
+      guidanceHostRef.current?.invalidate();
+      guidanceHostRef.current?.stop();
       stopNativePractical();
+    };
+    const unsubscribe = bridge.onAccountState((state) => {
+      if (state.session !== 'signed-in') revoke();
+      else applyActivation(workspace.project.id);
+    });
+    window.addEventListener('beforeunload', revoke);
+    return () => {
+      activationEpoch.current += 1;
+      projectLifetime.revoke();
+      revoke();
       unsubscribe();
-      window.removeEventListener('beforeunload', stopNativePractical);
+      window.removeEventListener('beforeunload', revoke);
       void bridge.activateSourceWorkspace?.(null);
     };
   }, [bridge, projectLifetime, stopNativePractical, workspace.project.id]);
+  const liveActivation =
+    activation?.projectId === workspace.project.id ? activation.state : null;
+  useEffect(() => {
+    if (!liveActivation) return;
+    void guidanceHostRef.current?.bindProject(workspace.project.id);
+  }, [
+    cancelCompanionGuidance,
+    liveActivation,
+    requestCompanionGuidance,
+    workspace.project.id,
+  ]);
   const practicalBridge = isPracticalWorkspaceBridge(bridge)
     ? {
         recordPracticalResult: bridge.recordPracticalResult,
@@ -161,6 +419,7 @@ export function Shell({
       next: LearningWorkspace,
       target: { revisionId: string; origin: LearningOrigin | null },
     ) => {
+      nextReaderLease(null);
       projectLifetime.queueOrigin({
         ...(target.origin?.path ? { path: target.origin.path } : {}),
         sourceRevisionId: target.revisionId,
@@ -169,8 +428,11 @@ export function Shell({
       setResearchVisible(false);
       setDestination('reader');
     },
-    [onWorkspace, projectLifetime],
+    [nextReaderLease, onWorkspace, projectLifetime],
   );
+  /* eslint-disable react-hooks/refs --
+   * openSaved invalidates the Reader lease only when the research callback runs.
+   */
   const research = useMemo(() => {
     if (
       !bridge.activateSourceWorkspace ||
@@ -201,14 +463,51 @@ export function Shell({
     flushResearch,
     openSavedResearch,
   ]);
+  /* eslint-enable react-hooks/refs */
   useEffect(() => {
     const origin = projectLifetime.takeOrigin(workspace);
-    if (origin) reader.current?.openOrigin(origin);
-  }, [workspace, projectLifetime]);
+    if (origin) {
+      reader.current?.openOrigin(origin);
+      return;
+    }
+    if (!resume || restoredResume.current) return;
+    restoredResume.current = true;
+    const restored = {
+      path: resume.path,
+      ...(resume.sourceRevisionId
+        ? { sourceRevisionId: resume.sourceRevisionId }
+        : {}),
+    };
+    const span = resume.span;
+    queueMicrotask(() => {
+      reader.current?.restoreReading(restored, span);
+    });
+  }, [workspace, projectLifetime, resume]);
   const onPathChange = useCallback((path: PathOrigin | undefined): void => {
     setSelectedPath(path);
     setAttempt(null);
   }, []);
+  const persistReadingResume = useCallback(async (): Promise<void> => {
+    if (typeof bridge.saveReadingResume !== 'function') return;
+    const location = reader.current?.readingLocation();
+    if (!location?.path?.lessonId) return;
+    await bridge.saveReadingResume({
+      projectId: workspace.project.id,
+      path: {
+        pathId: location.path.pathId,
+        pathRevision: location.path.pathRevision,
+        topicId: location.path.topicId,
+        lessonId: location.path.lessonId,
+      },
+      sourceRevisionId: location.sourceRevisionId,
+      span: location.span,
+      lessonTitle: lessonTitleFor(workspace, location.path),
+      projectGoal: workspace.project.goal,
+    });
+  }, [bridge, workspace]);
+  useEffect(() => {
+    persistReadingResumeRef.current = persistReadingResume;
+  }, [persistReadingResume]);
   const moveRecord: LearningRecordsBridge['moveLearningRecord'] = useCallback(
     async (input) => {
       await bridge.moveLearningRecord(input);
@@ -219,6 +518,7 @@ export function Shell({
 
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {
+      nextReaderLease(null);
       stopNativePractical();
       void navigate(() => {
         setResearchVisible(false);
@@ -236,6 +536,12 @@ export function Shell({
         // mounted. Incomplete drafts stay in those hosts; typed Reader drafts still
         // save through flushViewNavigation. Canvas unmounts, so save it separately.
         await reader.current?.flushViewNavigation();
+        try {
+          await persistReadingResume();
+        } catch {
+          void flush();
+          return;
+        }
         if (from === 'canvas' && next !== 'canvas') {
           const saveCanvas = canvasSave.current;
           if (saveCanvas && !(await saveCanvas())) return;
@@ -266,6 +572,7 @@ export function Shell({
     goRef.current = go;
   });
   function openOrigin(origin: LearningOrigin): void {
+    nextReaderLease(null);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
@@ -273,17 +580,104 @@ export function Shell({
     }, 'view');
   }
   function editEntry(entry: EntryRevisionReference): void {
+    nextReaderLease(null);
     void navigate(() => {
       setDestination('reader');
       reader.current?.editEntry(entry);
     }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
+    const requestEpoch = nextReaderLease(path);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
+      void ensurePendingLesson(path, requestEpoch);
     }, 'view');
+  }
+  async function ensurePendingLesson(
+    path: PathOrigin,
+    requestEpoch: number,
+  ): Promise<void> {
+    if (!path.lessonId || typeof bridge.ensureLesson !== 'function') return;
+    const current = workspaceRef.current;
+    const lesson = lessonRecord(current, path);
+    if (lesson?.sourceState !== 'pending') return;
+    const projectId = current.project.id;
+    let result: Awaited<ReturnType<LearningOnboardingBridge['ensureLesson']>>;
+    try {
+      result = await bridge.ensureLesson({
+        projectId,
+        requestId: crypto.randomUUID(),
+        target: { ...path, lessonId: path.lessonId },
+        consent: 'acquire-learning-evidence',
+      });
+    } catch (failure: unknown) {
+      if (requestEpoch !== lessonRequestEpoch.current) return;
+      if (workspaceRef.current.project.id !== projectId) return;
+      if (!lessonSelectionMatches(selectedLessonRef.current, path)) return;
+      pendingGeneratedOpen.current = null;
+      setLessonEnsureFailure({
+        path: { ...path, lessonId: path.lessonId },
+        message: guardedEnsureLessonFailure(failure),
+        retryable: true,
+      });
+      return;
+    }
+    if (requestEpoch !== lessonRequestEpoch.current) return;
+    if (workspaceRef.current.project.id !== projectId) return;
+    if (!lessonSelectionMatches(selectedLessonRef.current, path)) return;
+    if (result.outcome !== 'success') {
+      setLessonEnsureFailure({
+        path: { ...path, lessonId: path.lessonId },
+        message: result.message,
+        retryable: result.retryable,
+      });
+      return;
+    }
+    selectedLessonRef.current = result.value.lesson;
+    pendingGeneratedOpen.current = result.value.lesson;
+    onWorkspace(result.value.workspace);
+  }
+  function revealEntry(reference: EntryRevisionReference): void {
+    nextReaderLease(null);
+    stopNativePractical();
+    void navigate(() => {
+      setDestination('reader');
+      reader.current?.revealEntry(reference);
+    }, 'view');
+  }
+  function openSearchResult(result: WorkspaceSearchResult): void {
+    const { target } = result;
+    if (target.kind === 'source') {
+      openOrigin({ sourceRevisionId: target.sourceRevisionId });
+      return;
+    }
+    if (target.kind === 'lesson') {
+      selectLesson(target.path);
+      return;
+    }
+    if (target.kind === 'topic') {
+      const pathRecord = workspace.paths.find(
+        (item) => item.id === target.path.pathId,
+      );
+      const revision =
+        pathRecord?.currentRevision === target.path.pathRevision
+          ? pathRecord.current
+          : pathRecord?.revisions.find(
+              (item) => item.revision === target.path.pathRevision,
+            );
+      const firstLesson = revision?.topics.find(
+        (topic) => topic.id === target.path.topicId,
+      )?.lessons[0];
+      if (firstLesson) {
+        selectLesson({ ...target.path, lessonId: firstLesson.id });
+        return;
+      }
+      openOrigin({ path: target.path });
+      return;
+    }
+    revealEntry(target.reference);
   }
   function selectPracticalActivity(activity: PracticalActivity): void {
     stopNativePractical();
@@ -330,42 +724,6 @@ export function Shell({
         onLesson={selectLesson}
       />
       <div className="shell-content">
-        {bridge.generateSourcedLearning && bridge.cancelSourceOperation && (
-          <SourceLearningEntry
-            key={workspace.project.id}
-            projectId={workspace.project.id}
-            bridge={{
-              generateSourcedLearning: bridge.generateSourcedLearning,
-              cancelSourceOperation: bridge.cancelSourceOperation,
-              getLearningWorkspace: bridge.getLearningWorkspace,
-            }}
-            flush={async () => {
-              stopNativePractical();
-              return flushView();
-            }}
-            onSaved={(next, pathId) => {
-              const path = next.paths.find((path) => path.id === pathId);
-              const topic = path?.current.topics[0],
-                lesson = topic?.lessons[0];
-              if (path && topic && lesson)
-                projectLifetime.queueOrigin({
-                  path: {
-                    pathId,
-                    pathRevision: path.currentRevision,
-                    topicId: topic.id,
-                    lessonId: lesson.id,
-                  },
-                  ...(lesson.sourceRevisionId
-                    ? { sourceRevisionId: lesson.sourceRevisionId }
-                    : {}),
-                });
-              onWorkspace(next);
-              setResearchVisible(false);
-              setDestination('reader');
-            }}
-          />
-        )}
-
         {research && (
           <>
             <button
@@ -411,12 +769,24 @@ export function Shell({
                 </button>
               ))}
             </div>
-            <button onClick={() => go('reader')}>Return to reading</button>
           </header>
         )}
         {message && (
           <div className="shell-save-status" role="status">
             {message}
+          </div>
+        )}
+        {lessonEnsureFailure && (
+          <div className="shell-save-status" role="alert">
+            <p>{lessonEnsureFailure.message}</p>
+            {lessonEnsureFailure.retryable ? (
+              <button
+                type="button"
+                onClick={() => selectLesson(lessonEnsureFailure.path)}
+              >
+                Retry
+              </button>
+            ) : null}
           </div>
         )}
         <div
@@ -428,12 +798,26 @@ export function Shell({
             workspace={workspace}
             onNavigate={go}
             onWorkspace={onWorkspace}
-            registerFlush={registerReaderFlush}
+            registerFlush={registerReaderFlushWithResume}
             navigationRef={reader}
             sidebar={null}
             onPathChange={onPathChange}
+            {...(contextualBridge && liveActivation
+              ? { onExplainSelection: explainSelection }
+              : {})}
             explanation={
-              <ReaderExplanations active={destination === 'reader'} />
+              contextualBridge && liveActivation ? (
+                <ContextualHelpPanel
+                  projectId={workspace.project.id}
+                  projectGeneration={liveActivation.projectGeneration}
+                  requestGeneration={liveActivation.requestGeneration}
+                  bridge={contextualBridge}
+                  selection={selection}
+                  openExplanationId={openExplanationId}
+                  active={destination === 'reader'}
+                  onReturnToOrigin={(origin) => openOrigin(origin)}
+                />
+              ) : null
             }
           />
         </div>
@@ -443,8 +827,41 @@ export function Shell({
             view={canvasView}
             onViewChange={setCanvasView}
             onOpenOrigin={openOrigin}
+            onOpenRetainedExplanation={(input) => {
+              openRetainedExplanation(input);
+              openOrigin(input.origin);
+            }}
             onEditEntry={editEntry}
             onMove={moveRecord}
+            {...(contextualBridge
+              ? {
+                  onPlaceExplanation: async (input: {
+                    projectId: string;
+                    explanationId: string;
+                    view: typeof canvasView;
+                    x: number;
+                    y: number;
+                  }) => {
+                    await contextualBridge.placeRetainedExplanation(input);
+                    const placements =
+                      await contextualBridge.listExplanationPlacements({
+                        projectId: input.projectId,
+                      });
+                    setCanvasOverlay((current) => ({
+                      projectId: input.projectId,
+                      explanations:
+                        current?.projectId === input.projectId
+                          ? current.explanations
+                          : [],
+                      placements: [...placements],
+                    }));
+                  },
+                }
+              : {})}
+            retainedExplanations={canvasExplanations}
+            explanationPlacements={canvasExplanationPlacements}
+            records={bridge}
+            onWorkspace={onWorkspace}
             registerFlush={registerBoundCanvasFlush}
             onShellControls={setCanvasControls}
           />
@@ -494,6 +911,9 @@ export function Shell({
                 registerFlush={registerPracticalFlush}
                 registerRevocation={registerRevocation}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
+                {...(canRequestGuidance
+                  ? { requestGuidance: requestGuidanceFromHost }
+                  : {})}
               />
             ) : (
               <PracticalWork
@@ -528,7 +948,7 @@ export function Shell({
               <button onClick={() => go('reader')}>Back to reading</button>
             </header>
             <label>
-              Search your sources and saved writing
+              Search lessons, sources and saved writing
               <input
                 ref={search}
                 type="search"
@@ -542,17 +962,13 @@ export function Shell({
             <ul>
               {results.map((result) => (
                 <li key={result.id}>
-                  {result.origin ? (
-                    <button onClick={() => openOrigin(result.origin!)}>
-                      <small>{result.kind}</small>
-                      <span>{result.label}</span>
-                    </button>
-                  ) : (
-                    <div>
-                      <small>{result.kind} · no source origin</small>
-                      <p className="reader-human">{result.label}</p>
-                    </div>
-                  )}
+                  <button onClick={() => openSearchResult(result)}>
+                    <small>{result.kind}</small>
+                    <span>{result.label}</span>
+                    {result.excerpt ? (
+                      <p className="reader-muted">{result.excerpt}</p>
+                    ) : null}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -570,6 +986,31 @@ export function Shell({
       </div>
     </div>
   );
+}
+
+function lessonSelectionMatches(
+  selected: PathOrigin | null,
+  path: PathOrigin,
+): boolean {
+  return (
+    selected?.pathId === path.pathId &&
+    selected?.pathRevision === path.pathRevision &&
+    selected?.topicId === path.topicId &&
+    selected?.lessonId === path.lessonId
+  );
+}
+
+function guardedEnsureLessonFailure(failure: unknown): string {
+  if (!(failure instanceof Error)) {
+    return 'This lesson could not be opened. Please try again.';
+  }
+  const message = failure.message
+    .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+    .trim();
+  if (!message) {
+    return 'This lesson could not be opened. Please try again.';
+  }
+  return message;
 }
 
 function isPracticalWorkspaceBridge(
@@ -591,4 +1032,61 @@ function isPracticalWorkspaceBridge(
   ].every(
     (key) => typeof value[key as keyof PracticalWorkspaceBridge] === 'function',
   );
+}
+
+function contextualHelpFrom(
+  bridge: Partial<ContextualHelpBridge>,
+): ContextualHelpBridge | null {
+  if (
+    typeof bridge.requestContextualHelp !== 'function' ||
+    typeof bridge.cancelContextualHelp !== 'function' ||
+    typeof bridge.loadRetainedExplanation !== 'function' ||
+    typeof bridge.listRetainedExplanations !== 'function' ||
+    typeof bridge.saveExplanationSceneState !== 'function' ||
+    typeof bridge.loadExplanationSceneState !== 'function' ||
+    typeof bridge.acceptSceneCapture !== 'function' ||
+    typeof bridge.loadTrustedSceneCapture !== 'function' ||
+    typeof bridge.openRetainedClipMedia !== 'function' ||
+    typeof bridge.placeRetainedExplanation !== 'function' ||
+    typeof bridge.listExplanationPlacements !== 'function'
+  ) {
+    return null;
+  }
+  return {
+    requestContextualHelp: bridge.requestContextualHelp,
+    cancelContextualHelp: bridge.cancelContextualHelp,
+    loadRetainedExplanation: bridge.loadRetainedExplanation,
+    listRetainedExplanations: bridge.listRetainedExplanations,
+    saveExplanationSceneState: bridge.saveExplanationSceneState,
+    loadExplanationSceneState: bridge.loadExplanationSceneState,
+    acceptSceneCapture: bridge.acceptSceneCapture,
+    loadTrustedSceneCapture: bridge.loadTrustedSceneCapture,
+    openRetainedClipMedia: bridge.openRetainedClipMedia,
+    placeRetainedExplanation: bridge.placeRetainedExplanation,
+    listExplanationPlacements: bridge.listExplanationPlacements,
+  };
+}
+
+function lessonRecord(
+  workspace: LearningWorkspace,
+  path: PathOrigin,
+):
+  | LearningWorkspace['paths'][number]['current']['topics'][number]['lessons'][number]
+  | undefined {
+  if (!path.lessonId) return undefined;
+  const record = workspace.paths.find((item) => item.id === path.pathId);
+  const revision =
+    record?.currentRevision === path.pathRevision
+      ? record.current
+      : record?.revisions.find((item) => item.revision === path.pathRevision);
+  return revision?.topics
+    .find((item) => item.id === path.topicId)
+    ?.lessons.find((item) => item.id === path.lessonId);
+}
+
+function lessonTitleFor(
+  workspace: LearningWorkspace,
+  path: PathOrigin,
+): string {
+  return lessonRecord(workspace, path)?.title ?? '';
 }

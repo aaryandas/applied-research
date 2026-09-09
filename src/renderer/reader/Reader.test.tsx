@@ -125,6 +125,52 @@ describe('Reader human learning flow', () => {
     );
     await screen.findByText(/referenced lesson revision is unavailable/);
   });
+  it('restores the exact source span and reports the live reading location', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Retained lesson source',
+      text: 'Exact retained lesson',
+      acquiredAt: '',
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const locations: Array<{
+      sourceRevisionId: string | null;
+      span: { quote: string } | null;
+    }> = [];
+    const navigationRef = createRef<ReaderNavigationControls>();
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+        navigationRef={navigationRef}
+        onReadingLocation={(location) => locations.push(location)}
+      />,
+    );
+    act(() =>
+      navigationRef.current!.restoreReading(
+        { sourceRevisionId: workspace.sources[0]!.currentVersionId },
+        { start: 0, end: 5, quote: 'Exact' },
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Source text')).toHaveTextContent(
+        'Exact retained lesson',
+      ),
+    );
+    await waitFor(() =>
+      expect(navigationRef.current!.readingLocation().span).toEqual({
+        start: 0,
+        end: 5,
+        quote: 'Exact',
+      }),
+    );
+    expect(locations.some((item) => item.span?.quote === 'Exact')).toBe(true);
+  });
   it('retains a dirty import through view navigation and supports exact highlight retry', async () => {
     const { bridge } = fixture();
     await bridge.importTextSource({
@@ -187,7 +233,7 @@ describe('Reader human learning flow', () => {
     await screen.findByLabelText('In your own words');
     fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Synthetic source' }));
+    fireEvent.click(screen.getByRole('button', { name: /Synthetic source/ }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Note' })).toBeDisabled(),
     );
@@ -613,5 +659,222 @@ describe('Reader human learning flow', () => {
     await act(async () => {
       expect(await flush!()).toBe(true);
     });
+  });
+  it('reveals an originless note and a historical revision without editing or changing reading text', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Retained source',
+      text: 'Unrelated reading passage',
+      acquiredAt: '',
+    });
+    const note = await bridge.saveReadingNote({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Originless canvas note',
+      body: 'Exact originless wording',
+      origin: null,
+    });
+    if (note.status !== 'committed') throw new Error('expected commit');
+    await bridge.saveReadingNote({
+      projectId: 'project',
+      entryId: note.record.id,
+      expectedRevision: 1,
+      title: 'Originless canvas note',
+      body: 'Current wording replaced later',
+      origin: null,
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const navigationRef = createRef<ReaderNavigationControls>();
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+        navigationRef={navigationRef}
+      />,
+    );
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+    act(() =>
+      navigationRef.current!.revealEntry({
+        entryId: note.record.id,
+        revision: 1,
+      }),
+    );
+    const historical = await screen.findByRole('heading', {
+      name: 'Originless canvas note · revision 1',
+    });
+    expect(historical).toHaveFocus();
+    expect(screen.getByText('Exact originless wording')).toBeVisible();
+    expect(screen.getByText(/This is the retained revision/)).toBeVisible();
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+    expect(bridge.saveReadingNote).toHaveBeenCalledTimes(2);
+    act(() =>
+      navigationRef.current!.revealEntry({
+        entryId: 'missing',
+        revision: 1,
+      }),
+    );
+    expect(
+      screen.getByText('The referenced entry is unavailable.'),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+  });
+  it('opens a generated-lesson citation on the retained original revision and span', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Original evidence',
+      text: 'Exact cited passage stays here.',
+      acquiredAt: '',
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const original = workspace.sources[0]!.currentVersion;
+    const current = {
+      ...original,
+      revisionId: 'source-v2',
+      revision: 2,
+      title: 'Later current source',
+      canonicalText: 'Rewritten current edition without the citation.',
+    };
+    const citation = {
+      sourceId: original.sourceId,
+      revisionId: original.revisionId,
+      start: 0,
+      end: 19,
+      quote: 'Exact cited passage',
+    };
+    const generated = {
+      ...original,
+      revisionId: 'generated-v1',
+      sourceId: 'generated',
+      title: 'Generated teaching text',
+      canonicalText: 'Teaching prose is not the cited original.',
+      provenance: {
+        kind: 'generated' as const,
+        locator: null,
+        remoteSourceId: 'remote',
+        remoteRevisionId: 'remote-rev',
+        requestId: 'request-1',
+        generation: {
+          author: 'ai' as const,
+          provider: 'openrouter' as const,
+          providerRequestId: 'prv',
+          model: 'google/gemini-3.8-flash' as const,
+          requestVersion: '2026-09-08' as const,
+          promptVersion: '1',
+          createdAt: '2026-09-08T12:00:00Z',
+          sourceRevisions: [],
+        },
+        citations: [citation],
+      },
+    };
+    workspace.sources = [
+      {
+        id: 'generated',
+        projectId: 'project',
+        currentRevision: 1,
+        currentVersionId: generated.revisionId,
+        currentVersion: generated,
+        createdAt: generated.acquiredAt,
+        versions: [generated],
+      },
+      {
+        ...workspace.sources[0]!,
+        currentRevision: 2,
+        currentVersionId: current.revisionId,
+        currentVersion: current,
+        versions: [original, current],
+      },
+    ];
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Teaching prose is not the cited original.',
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Exact cited passage · Original evidence · retained revision 1',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Source text')).toHaveTextContent(
+        'Exact cited passage stays here.',
+      ),
+    );
+    expect(
+      screen.getByLabelText('Source text').querySelector('mark')?.textContent,
+    ).toBe('Exact cited passage');
+    expect(screen.getByLabelText('Source text')).not.toHaveTextContent(
+      'Rewritten current edition',
+    );
+  });
+  it('focuses the contextual response after Ask and keeps the human draft', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Long source',
+      text: `${'Exact passage. '.repeat(40)}end`,
+      acquiredAt: '',
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const scrollIntoView = vi.fn();
+    const onExplainSelection = vi.fn(async () => undefined);
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+        onExplainSelection={onExplainSelection}
+        explanation={
+          <div>
+            <h2>Ask about this passage</h2>
+            <textarea
+              aria-label="Your question"
+              defaultValue="Keep this human draft"
+            />
+          </div>
+        }
+      />,
+    );
+    const region = screen.getByRole('region', {
+      name: 'Contextual explanation response',
+    });
+    region.scrollIntoView = scrollIntoView;
+    const prose = screen.getByLabelText('Source text');
+    const range = document.createRange();
+    range.setStart(prose.firstChild!, 0);
+    range.setEnd(prose.firstChild!, 14);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    fireEvent(document, new Event('selectionchange'));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask about this' }));
+    await waitFor(() => expect(onExplainSelection).toHaveBeenCalledOnce());
+    await waitFor(() => expect(region).toHaveFocus());
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(screen.getByLabelText('Your question')).toHaveValue(
+      'Keep this human draft',
+    );
   });
 });

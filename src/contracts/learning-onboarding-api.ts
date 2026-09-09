@@ -101,6 +101,7 @@ export const LEARNING_ONBOARDING_LIMITS = {
   diagnosticAnswerCharacters: 4_000,
   interviewPrompts: 6,
   promptCharacters: 2_000,
+  pastedSeedCharacters: 24_000,
   seedRevisionLocators: 8,
   unacquiredSeedUrls: 4,
   urlCharacters: 2_048,
@@ -179,6 +180,11 @@ export type UntrustedHumanLearnerContext = {
   goal: string;
   focus: string;
   depth: LessonDepth;
+  /**
+   * Intended profile revision for this request. Propose/revise bind it to the
+   * interview row. Selected-lesson generation may send the live profile after
+   * later edits; that must not rewrite accepted interview or syllabus history.
+   */
   profileRevision: number;
   interviewRevision: number;
   profile: {
@@ -189,6 +195,12 @@ export type UntrustedHumanLearnerContext = {
   answers: HumanDiagnosticAnswer[];
   seedRevisionLocators: SeedRevisionLocator[];
   unacquiredSeedUrls: UnacquiredSeedUrl[];
+  /**
+   * Exact private human paste, or null when none/cleared. Untrusted planning
+   * context only — not evidence, not an acquired public source, and not trusted
+   * question instructions. Never place this text on `seedRevisionLocators`.
+   */
+  pastedSeedText: string | null;
 };
 
 export type CompactSyllabusLesson = {
