@@ -31,16 +31,15 @@
   color: var(--accent);
   background: var(--surface-subtle);
 }
-/* Blanket ring: React Flow's nodes, edges and tabIndex=0 pane are not rendered by this
-   surface, so they cannot carry .ui-focusable. Values are base.css's shared ring. */
-.workspace-canvas :focus-visible,
-.workspace-canvas .react-flow__node:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
-}
-.workspace-canvas ::selection {
-  background: var(--human-soft);
-  color: var(--ink);
+/* React Flow's stylesheet sets outline: none on selectable nodes, edges and the
+   selection rect, so the app-wide :focus-visible ring in styles.css cannot reach them.
+   Restore it there only, with the same tokens; everything else in the surface already
+   gets the shared ring. */
+.workspace-canvas .react-flow__node.selectable:focus-visible,
+.workspace-canvas .react-flow__edge:focus-visible,
+.workspace-canvas .react-flow__nodesselection-rect:focus-visible {
+  outline: var(--focus-ring) solid var(--focus);
+  outline-offset: var(--focus-offset);
 }
 .workspace-canvas-node {
   padding: 24px;
@@ -156,6 +155,9 @@
   max-width: 36ch;
   text-align: center;
 }
+.workspace-canvas > output.workspace-canvas-state {
+  pointer-events: none;
+}
 .workspace-canvas-notices {
   position: absolute;
   z-index: 5;
@@ -219,4 +221,87 @@
   display: block;
   width: 100%;
   color: inherit;
+}
+
+.workspace-canvas-authoring-panel {
+  pointer-events: auto;
+}
+.workspace-canvas-authoring {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.workspace-canvas-menu {
+  position: fixed;
+  z-index: 8;
+  display: grid;
+  min-width: 16rem;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.workspace-canvas-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: 400 var(--text-sm) / 1.4 var(--font-ui);
+  cursor: pointer;
+}
+.workspace-canvas-menu-item:hover,
+.workspace-canvas-menu-item:focus-visible {
+  background: var(--surface-subtle);
+  color: var(--accent);
+}
+.workspace-canvas-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.workspace-canvas-composer {
+  position: absolute;
+  z-index: 6;
+  left: var(--space-4);
+  bottom: 4.5rem;
+  width: min(26rem, calc(100% - 2rem));
+  max-height: calc(100% - 7rem);
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.workspace-canvas-composer h2 {
+  margin: 0 0 var(--space-3);
+  font: 500 var(--text-heading) / 1.3 var(--font-reading);
+}
+.workspace-canvas-composer-origin,
+.workspace-canvas-composer blockquote {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font: 400 var(--text-xs) / 1.4 var(--font-ui);
+}
+.workspace-canvas-composer blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line);
+  color: var(--ink);
+}
+.workspace-canvas-authoring-notice {
+  position: absolute;
+  z-index: 6;
+  left: var(--space-4);
+  top: 4.5rem;
+  max-width: 24rem;
+  color: var(--muted);
+  font: 400 var(--text-xs) / 1.4 var(--font-ui);
 }

@@ -3,4 +3,5 @@ export type {
   WorkspaceCanvasProps,
   CanvasShellControls,
   CanvasMovementError,
+  CanvasRecordsWriter,
 } from './types';

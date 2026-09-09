@@ -177,6 +177,23 @@ describe('PlacementSession navigation guard', () => {
     expect(session.discard('expanded', 'missing')).toBeNull();
     expect(session.retry('expanded', 'missing')).toBe(false);
   });
+
+  it('abandons a failed initial placement without restoring a previous write', async () => {
+    const onMove = vi.fn().mockRejectedValue(new Error('offline'));
+    const session = new PlacementSession({ projectId: 'project', onMove });
+    session.move(movement(400));
+    expect(await session.flush()).toBe(false);
+    expect(session.abandon('expanded', 'missing')).toBe(false);
+    const pending = deferred();
+    onMove.mockReturnValue(pending.promise);
+    expect(session.retry('expanded', 'note')).toBe(true);
+    expect(session.abandon('expanded', 'note')).toBe(false);
+    pending.reject(new Error('still offline'));
+    expect(await session.flush()).toBe(false);
+    expect(session.abandon('expanded', 'note')).toBe(true);
+    expect(session.get('expanded', 'note')).toBeUndefined();
+    expect(await session.flush()).toBe(true);
+  });
 });
 
 it('retires matching acknowledged overlays but preserves unmatched, failed and in-flight drafts', async () => {

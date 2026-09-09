@@ -124,6 +124,22 @@ export class PlacementSession {
     return true;
   }
 
+  /**
+   * Drop a failed overlay that never had an acknowledged position (initial
+   * placement after a successful create). Does not write and cannot cancel an
+   * in-flight producer commit.
+   */
+  abandon(view: CanvasView, nodeId: string): boolean {
+    const key = `${view}:${nodeId}`;
+    const draft = this.snapshot.get(key);
+    if (draft?.phase !== 'failed' || this.queues.has(key)) return false;
+    const next = new Map(this.snapshot);
+    next.delete(key);
+    this.snapshot = next;
+    this.listeners.forEach((listener) => listener());
+    return true;
+  }
+
   /** Refuse discard while a write/gesture is active; it cannot cancel a producer commit. */
   discard(view: CanvasView, nodeId: string): Position | null {
     const key = `${view}:${nodeId}`;

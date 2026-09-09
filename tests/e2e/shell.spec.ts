@@ -65,6 +65,14 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
     await expect(page.locator('.reader-sidebar')).toHaveClass(
       /shell-icon-rail/,
     );
+    await page.getByRole('button', { name: 'Expand sidebar' }).click();
+    await expect(page.locator('.reader-sidebar')).not.toHaveClass(
+      /shell-icon-rail/,
+    );
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+    await expect(page.locator('.reader-sidebar')).toHaveClass(
+      /shell-icon-rail/,
+    );
     await expect(
       page
         .getByRole('region', { name: 'Learning canvas', exact: true })

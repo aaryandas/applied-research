@@ -1,10 +1,12 @@
 import type { ReactElement } from 'react';
+import { useState } from 'react';
 import type {
   LearningWorkspace,
   PathOrigin,
   PathSourceState,
 } from '../../contracts/learning-records';
 import { BrandMark, Icon } from '../FieldAtlas';
+import './sidebar-collapse.css';
 
 export type WorkspaceDestination =
   'home' | 'reader' | 'canvas' | 'practical' | 'find' | 'settings';
@@ -25,11 +27,29 @@ export function ReaderSidebar({
   destination = 'reader',
   collapsed = false,
 }: Readonly<ReaderSidebarProps>): ReactElement {
+  const [manualCollapsed, setManualCollapsed] = useState<boolean | null>(null);
+  const [collapseSource, setCollapseSource] = useState(collapsed);
+  if (collapseSource !== collapsed) {
+    setCollapseSource(collapsed);
+    setManualCollapsed(null);
+  }
+  const isCollapsed = manualCollapsed ?? collapsed;
+  const toggleLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
   return (
     <nav
-      className={`reader-sidebar${collapsed ? ' shell-icon-rail' : ''}`}
+      className={`reader-sidebar${isCollapsed ? ' shell-icon-rail' : ''}`}
       aria-label="Project navigation"
     >
+      <button
+        type="button"
+        className="reader-sidebar-collapse ui-button ui-button--icon"
+        aria-expanded={!isCollapsed}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+        onClick={() => setManualCollapsed(!isCollapsed)}
+      >
+        <span aria-hidden="true">{isCollapsed ? '»' : '«'}</span>
+      </button>
       <button
         className="reader-brand ui-list-row"
         aria-label="Applied Research home"
