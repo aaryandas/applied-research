@@ -1,0 +1,131 @@
+name: Independent review
+
+# Trusted default-branch evaluator. GitHub always uses this file from the
+# default branch for workflow_run. workflow_dispatch is skipped unless the
+# ref is the default branch. Executable checkout is the default branch only;
+# PR number and SHA are data. CURSOR_API_KEY must not be referenced from
+# pull_request workflows. Launch stays off until this orchestration is
+# independently reviewed, then a human observes the first explicit
+# default-branch workflow_dispatch launch (CURSOR_REVIEW_LAUNCH).
+# workflow_run may evaluate receipts but must not mint an agent.
+# workflow_dispatch input launch_receipt_json is ignored; coordinator JSON
+# is not model proof. Fresh launch requires one PR number + expected SHA,
+# a live open same-repo non-draft PR, and both github.actor and
+# github.triggering_actor with write/maintain/admin (reruns included).
+# Documented API mode is agent; prompt policy is not a read-only sandbox.
+# Queue proof is an Actions artifact receipt from this job (custom check id,
+# PR, SHA) plus GET of this run/job — not details_url or check summary text.
+# Fresh authorized POST persists independent-review-launch-{pr}-{sha} with the
+# exact trusted launch receipt (agent/run/model/params/workflow SHA+path+run+
+# attempt+job). Later trusted evaluate authenticates that original attempt and
+# job via GET /actions/runs/{id}/attempts/{n} and GET /actions/jobs/{job_id},
+# not GET /runs/{id}/jobs (latest attempt). A same-named job from a rerun is
+# not the launch. After a confirmed POST the launching invocation persists
+# and returns PENDING; it must not fail the job on a later catalog/GitHub/Cursor
+# read. Later trusted evaluate and workflow_run load that artifact, GET the
+# original run, and must not POST again. HTTP 409 on an existing agent is fail-closed.
+#
+# Existing GitHub Environment trusted-main already holds the authorized
+# Cursor key. Deployment branch policy: type=branch, name=main. The
+# repository-level CURSOR_API_KEY was removed after that protected copy
+# was verified. Do not create a new secret or environment.
+#
+# Legacy Fable workflow .github/workflows/claude-review.yml (Actions name
+# Independent review (Claude), workflow id 353522718) is disabled_manually
+# at repository level to stop Fable. Keep activation off until this trusted
+# replacement is independently reviewed, merged to the default branch, and a
+# human explicitly re-enables the appropriate workflow. Do not re-enable
+# 353522718 while main still contains Fable. workflow_run therefore also
+# listens to CI pull_request completions so evaluation is not dormant.
+
+on:
+  workflow_run:
+    workflows:
+      - Independent review (untrusted pending)
+      - CI
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+      expected_sha:
+        description: Exact 40-character PR head SHA
+        required: true
+        type: string
+      launch_receipt_json:
+        description: Ignored. Coordinator JSON is not model proof; the trusted launch job owns the receipt.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: independent-review-trusted-${{ github.event.workflow_run.head_branch || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: Cursor Cloud Grok 4.6 Extra High
+    if: >-
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: trusted-main
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Evaluate from trusted default-branch code
+        id: evaluate
+        env:
+          TRUSTED_DEFAULT_BRANCH: 'true'
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_REVIEW_LAUNCH: ${{ vars.CURSOR_REVIEW_LAUNCH }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ inputs.expected_sha || github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REF: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
+          VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
+          RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}
+        run: node scripts/delivery-review.mjs evaluate
+      - name: Upload independent-review receipt
+        if: ${{ always() && steps.evaluate.outputs.review_receipt_file != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: independent-review-${{ steps.evaluate.outputs.review_pr_number }}-${{ steps.evaluate.outputs.review_head_sha }}
+          path: independent-review-receipt.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload independent-review launch receipt
+        if: ${{ always() && steps.evaluate.outputs.launch_receipt_file != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: independent-review-launch-${{ steps.evaluate.outputs.launch_pr_number }}-${{ steps.evaluate.outputs.launch_head_sha }}
+          path: independent-review-launch-receipt.json
+          if-no-files-found: ignore
+          retention-days: 7

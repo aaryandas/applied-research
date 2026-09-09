@@ -1,8 +1,8 @@
 name: Linear gate
 
-# A PR may merge only when its ticket is In Review, i.e. the cloud verifier walked the
-# frozen revision and passed it. Runs on every PR event so the check re-evaluates as
-# the ticket moves; re-run it from the Checks tab after a status change.
+# Ticket lookup and lifecycle classification. Expected In Development on a
+# draft PR is not a code defect; merge eligibility still requires In Review
+# in the trusted queue. This job does not move Linear status.
 
 on:
   pull_request:
@@ -22,12 +22,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-      - name: Ticket must be In Review
+      - name: Ticket lookup and lifecycle classification
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: node scripts/linear-gate.mjs

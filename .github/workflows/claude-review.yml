@@ -1,58 +1,48 @@
-name: Independent review (Claude)
+name: Independent review (untrusted pending)
 
-# Standards and spec review on every PR by the pinned independent model. Replaces
-# reviewer terminals whose logins expire and whose prompts can sit unsubmitted.
-# Runs on the founder's Claude subscription via a long-lived OAuth token from `claude setup-token`,
-# stored as the CLAUDE_CODE_OAUTH_TOKEN repository secret. No Anthropic API key is used.
+# Untrusted pull_request path. Checks out PR code only for helper tests.
+# Must never pass the Cursor Admin credential into this job. Independent
+# review evaluation runs in independent-review-trusted.yml from the default
+# branch only.
+#
+# Repository settings currently mark this file's workflow id 353522718
+# (Actions name Independent review (Claude)) disabled_manually to stop
+# Fable. Keep that setting off until the reviewed trusted replacement is
+# merged to the default branch and a human explicitly re-enables the
+# appropriate workflow. This PR does not re-enable it.
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
-  issue_comment:
-    types: [created]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  id-token: write
+  pull-requests: read
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: independent-review-untrusted-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  review:
-    if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+  pending:
+    name: Notice only
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          fetch-depth: 0
-      - name: Install Claude Code from npm (pinned)
-        # The action's native installer produced a broken launcher on ubuntu-24.04 images on 2026-09-08.
-        id: claude
-        run: |
-          npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.265
-          echo "path=$(npm prefix -g)/bin/claude" >> "$GITHUB_OUTPUT"
-          "$(npm prefix -g)/bin/claude" --version
-      - uses: anthropics/claude-code-action@0d0e0876d3eaa933f45dc692f7a4312c83caf36f # v1 main 2026-09-08
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The workflow token posts the review comment; no Claude GitHub App install is needed.
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          path_to_claude_code_executable: ${{ steps.claude.outputs.path }}
-          # The allowlist lets Claude read the PR and post its verdict with gh.
-          claude_args: >-
-            --model claude-fable-5-1 --max-turns 80 --setting-sources user
-            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
-          prompt: |
-            You are the independent critic for this repository. Review this pull request on two axes and post one comment.
-            Standards: context/design-handoff/GAUNTLET-PROMPT.md "TypeScript and Effect standards", context/conventions.md, context/architecture.md (process boundaries, bridge exposure, credential handling).
-            Spec: the Linear ticket named in the PR body, context/design-handoff/DESIGN-CONTRACT.md for visual criteria, and the lane's contract page under context/.
-            Read the changed modules and their callers, not just the diff. Cite file:line for every finding and name the rule it breaks.
-            Report material findings only, each with severity and the required fix. Then a verdict per axis: PASS, PASS with required fixes, or FAIL.
-            Do not approve on coverage numbers or the author's summary alone. Do not edit files.
+          node-version-file: .node-version
+      - name: Delivery helper tests
+        run: npm run test:delivery
+      - name: Refuse untrusted Cursor evaluation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: node scripts/delivery-review.mjs untrusted

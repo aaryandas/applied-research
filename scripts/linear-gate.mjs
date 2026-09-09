@@ -1,9 +1,12 @@
-// Required PR check: the PR's Linear ticket must be In Review before the PR can merge.
-// Ticket id comes from the head branch (…/ar-17-…) or a `Linear: AR-17` line in the PR body.
-// Also links the PR on the ticket.
-// Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE.
+// Required PR check: look up the Linear ticket and classify lifecycle.
+// Merge eligibility still requires In Review inside delivery-queue assessCandidate.
+// Expected In Development / automation-gap is not a code defect: this job stays
+// green so coding agents do not autofix stale heads. Does not move Linear status.
+// Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE,
+// PR_STATE, PR_DRAFT.
+import { classifyLinearGate } from './delivery-constants.mjs';
+
 const key = process.env.LINEAR_API_KEY;
-const ALLOWED = new Set(['In Review']);
 const EXEMPT_LANES = new Set(['integration']); // coordinator merges of the branch itself
 
 const branch = process.env.HEAD_REF ?? '';
@@ -60,10 +63,23 @@ if (prUrl && !issue.attachments.nodes.some((a) => a.url === prUrl)) {
   console.log(`linked ${prUrl} on ${identifier}`);
 }
 console.log(`${identifier} is "${issue.state.name}"`);
-if (!ALLOWED.has(issue.state.name)) {
-  console.error(
-    `Merge blocked: ${identifier} must be In Review (cloud verification passed). Current: ${issue.state.name}.`,
-  );
-  process.exit(1);
+const pr = {
+  state:
+    String(process.env.PR_STATE ?? 'open').toLowerCase() === 'closed'
+      ? 'CLOSED'
+      : 'OPEN',
+  isDraft: process.env.PR_DRAFT === 'true',
+};
+const classification = classifyLinearGate({
+  pr,
+  linear: { identifier, state: issue.state.name },
+  ticket: identifier,
+});
+console.log(
+  JSON.stringify({ classification: classification.kind, autofix: false }),
+);
+console.log(classification.message);
+if (classification.kind === 'merge-eligible-linear') {
+  console.log('Linear gate ok');
 }
-console.log('Linear gate ok');
+process.exit(classification.exitCode);

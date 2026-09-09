@@ -1,5 +1,7 @@
 # Superset coordination and cross-model review
 
+**Superseded for independent review (9 September 2026):** Fable credits are exhausted and the founder forbade further Fable calls and local/headless Cursor inference. The required independent critic is Cursor Cloud Grok 4.6 Extra High, documented in [ORCHESTRATION.md](ORCHESTRATION.md). Keep this page as historical Superset/Fable setup evidence; do not dispatch Fable from it.
+
 Latest reviewer-access update (September 8): the prior Fable login failure is historical. The founder can refresh it and expects it to work now. The next implementation session must verify one bounded real reviewer launch/model/effort/tool check before recording recovery or a current blocker. The current maximum is seven concurrent workers, including reviewers; do not waive independent review or silently substitute its required model.
 
 Founder decision: use Superset to coordinate Fable agents and other model-backed implementers/reviewers for the full-app gauntlet. Superset transports agent sessions; the coordinator owns dependencies, evidence, integration and Linear transitions. This replaces generic same-runtime subagent fan-out as the primary build workflow. It does not start the build or authorize new paid plans.
