@@ -1,5 +1,6 @@
 {
   "_comment": "Each PR carries exactly one lane:<name> label. The lane guard fails the PR if it touches a path outside its lane plus the shared allowlist. Contract changes go through lane:contracts first.",
+  "_backend_ar48": "AR-48 freeze joins disposable PG proofs plus the learning-api/onboarding contract files onboarding compiles and the learning-records/source-provenance files backend NodeNext imports. Not a blanket src/contracts grant.",
   "shared": [
     "context/**",
     "*.md",
@@ -80,7 +81,16 @@
       "src/backend/**",
       "railway.json",
       "tsconfig.backend.json",
-      "scripts/copy-backend-assets.mjs"
+      "scripts/copy-backend-assets.mjs",
+      "tests/backend-postgres/**",
+      "vitest.backend-postgres.config.ts",
+      "src/contracts/learning-api.ts",
+      "src/contracts/learning-onboarding.ts",
+      "src/contracts/learning-onboarding-api.ts",
+      "src/contracts/learning-onboarding-validation.ts",
+      "src/contracts/learning-onboarding.test.ts",
+      "src/contracts/learning-records.ts",
+      "src/contracts/source-provenance.ts"
     ],
     "sourcing": ["src/backend/sourcing/*.ts", "src/contracts/sourcing.ts"],
     "openalex": ["src/backend/sourcing/openalex/**"],
