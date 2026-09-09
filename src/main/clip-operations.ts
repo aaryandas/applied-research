@@ -17,56 +17,56 @@ export type ClipPlaybackResult =
       result: Extract<RetainedExplanationResult, { kind: 'clip' }>;
     };
 
-export interface ClipRequestIdentities {
-  readonly requestId: string;
-  readonly projectId: string;
+/** Matches AR-51 `RetainedClipRequestContext`. Identity is reserved before this call. */
+export interface RetainedClipRequestContext {
   readonly explanationId: string;
-  readonly explanationAttemptId: string;
+  readonly attemptId: string;
   readonly origin: LearningOrigin;
-  readonly projectGeneration: number;
-  readonly requestGeneration: number;
-}
-
-export interface ClipRequestInput {
   readonly plan: SupportedExplanationPlan;
-  readonly identities: ClipRequestIdentities;
+  readonly signal: AbortSignal;
 }
 
 export interface ClipOperationsDependencies {
   readonly accountId: () => string | null;
+  readonly projectId: () => string | null;
   readonly transport: ClipApiTransport;
   readonly now?: () => number;
   readonly lifetimeMs?: number;
-  readonly isCurrent: (input: ClipRequestInput) => boolean;
+  readonly isCurrent?: (context: RetainedClipRequestContext) => boolean;
 }
 
 const DEFAULT_LIFETIME_MS = 120_000;
+const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 
 export function createClipOperations(
   dependencies: ClipOperationsDependencies,
 ): {
-  request(
-    input: ClipRequestInput,
-    signal: AbortSignal,
-  ): Promise<ClipPlaybackResult>;
+  request(context: RetainedClipRequestContext): Promise<ClipPlaybackResult>;
   revoke(): void;
 } {
   const now = dependencies.now ?? Date.now;
   const lifetimeMs = dependencies.lifetimeMs ?? DEFAULT_LIFETIME_MS;
+  const isCurrent = dependencies.isCurrent ?? (() => true);
   const controllers = new Set<AbortController>();
   let revoked = 0;
 
   return {
-    async request(input, signal) {
+    async request(context) {
       const startedAt = now();
       const epoch = revoked;
-      if (signal.aborted) {
+      if (context.signal.aborted) {
         return {
           kind: 'unavailable',
           message: 'The clip request was cancelled.',
         };
       }
-      if (!isSupportedClipPlan(input.plan)) {
+      if (!UUID.test(context.explanationId) || !UUID.test(context.attemptId)) {
+        return {
+          kind: 'unavailable',
+          message: 'Clip identity must be a UUID.',
+        };
+      }
+      if (!isSupportedClipPlan(context.plan)) {
         return {
           kind: 'unavailable',
           message: 'Only installed clip recipes can be rendered.',
@@ -79,27 +79,34 @@ export function createClipOperations(
           message: 'Sign in to request a rendered clip.',
         };
       }
+      const projectId = dependencies.projectId();
+      if (!projectId) {
+        return {
+          kind: 'unavailable',
+          message: 'The clip request has no active learning space.',
+        };
+      }
       const mapped = recipeJsonFromClipPlan({
-        plan: input.plan,
-        requestId: input.identities.requestId,
-        projectId: input.identities.projectId,
-        origin: input.identities.origin,
+        plan: context.plan,
+        requestId: context.attemptId,
+        projectId,
+        origin: context.origin,
       });
       if (!mapped.ok) {
         return { kind: 'unavailable', message: mapped.message };
       }
       const local = new AbortController();
       const abort = (): void => local.abort();
-      signal.addEventListener('abort', abort, { once: true });
+      context.signal.addEventListener('abort', abort, { once: true });
       controllers.add(local);
       try {
         const outcome = await dependencies.transport.submitAndRetain({
-          requestId: input.identities.requestId,
+          requestId: context.attemptId,
           accountId,
           recipeJson: mapped.json,
           signal: local.signal,
         });
-        if (epoch !== revoked || !dependencies.isCurrent(input)) {
+        if (epoch !== revoked || !isCurrent(context)) {
           return {
             kind: 'unavailable',
             message: 'A newer clip request replaced this result.',
@@ -126,7 +133,7 @@ export function createClipOperations(
                 : outcome.message,
           };
         }
-        const result = clipResultFromRetained(outcome.record, input.plan);
+        const result = clipResultFromRetained(outcome.record, context.plan);
         if (!result) {
           return {
             kind: 'unavailable',
@@ -135,7 +142,7 @@ export function createClipOperations(
         }
         return { kind: 'ready', result };
       } catch (error) {
-        if (local.signal.aborted || signal.aborted) {
+        if (local.signal.aborted || context.signal.aborted) {
           return {
             kind: 'unavailable',
             message: 'The clip request was cancelled.',
@@ -149,7 +156,7 @@ export function createClipOperations(
               : 'The clip could not be requested.',
         };
       } finally {
-        signal.removeEventListener('abort', abort);
+        context.signal.removeEventListener('abort', abort);
         controllers.delete(local);
       }
     },

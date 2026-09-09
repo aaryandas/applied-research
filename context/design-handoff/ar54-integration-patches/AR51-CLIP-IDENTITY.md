@@ -1,52 +1,71 @@
 # AR-51 clip identity patch
 
-AR-54 exposes `createClipOperations(dependencies)` from
-`src/main/clip-operations.ts`. It does **not** edit contextual/planner modules.
-`requestClip(plan)` on the inspected AR-51 base still defaults to unavailable
-and creates explanation identity at final `commit`. Apply this there.
+AR-51 `ef94badf53d5ee509cda09ea01240e3d1ec1871c` already reserves
+`explanationId` + `attemptId` (status `rendering`) **before** calling:
 
-## Producer contract (internal, not IPC)
+```ts
+requestClip({ explanationId, attemptId, origin, plan, signal });
+```
+
+Do **not** edit `contextual-help-*.ts` / planner modules in this lane. AR-51
+already injects `options.requestClip` (`ContextualHelpOperationsOptions`). Keep
+that call shape. The previous useful ready attempt stays via `usefulAttemptId`
+when the clip result is unavailable.
+
+## Producer (AR-54, already on this branch)
 
 ```ts
 import { createClipOperations } from './clip-operations';
 import { makeClipApiTransport } from './clip-transport';
+import type { RetainedClipRequestContext } from './clip-operations';
 
-const operations = createClipOperations({
+const clipOps = createClipOperations({
   accountId: () => authenticatedAccountId, // never renderer input
+  projectId: () => activeProjectId, // never renderer input
   transport: makeClipApiTransport({
     request: sessionFetch,
     sessionCookie: () => authenticatedCookie, // never renderer input
     store: retainedMedia,
   }),
-  isCurrent: (input) =>
-    input.identities.projectGeneration === currentProjectGeneration &&
-    input.identities.requestGeneration === currentRequestGeneration,
+  isCurrent: (context) =>
+    !context.signal.aborted && context.explanationId === reservedExplanationId,
 });
 ```
 
-`operations.request(input, signal): Promise<ClipPlaybackResult>`
+`clipOps.request(context)` is the `requestClip` implementation:
 
-`input.plan` is a validated supported clip plan. `input.identities` is
-main-owned:
+- `context.plan` — validated supported clip plan (linear-transform /
+  weighted-combination only)
+- `context.explanationId` / `context.attemptId` — already reserved; this
+  adapter uses `attemptId` as the authenticated render `requestId`
+- `context.origin` — complete revision-bearing `LearningOrigin`
+- `context.signal` — caller cancellation
 
-- `requestId`, `projectId`, `explanationId`, `explanationAttemptId`
-- `origin: LearningOrigin` (complete revision-bearing origin)
-- `projectGeneration`, `requestGeneration`
+`.revoke()` aborts in-flight adapter calls so a late A cannot publish after B.
 
-`.revoke()` aborts in-flight adapter calls so a late result cannot publish.
+Account cookie and session identity stay on the injected transport, not on the
+AR-51 context object.
 
-## Required identity change
+## Exact constructor join (AR-56 / main owner of `src/main/index.ts`)
 
-1. Reserve or reuse the exact `explanationId` and `explanationAttemptId`
-   **before** `operations.request`.
-2. Call the adapter with those same IDs.
-3. `commit` that same identity. Do not mint a new ID at final commit.
-4. On `{ kind: 'unavailable' }` or cancellation, keep the previous useful
-   retained result. Do not replace it with a failed/cancelled attempt's empty
-   result.
-5. Persist `LearningOrigin` as supplied. The recipe JSON origin is a UUID
-   projection (`projectId` / `sourceVersionId` / `questionId: null` /
-   `lessonId`) and **must not** replace `path` / `entry` revisions.
+```ts
+new ContextualHelpOperations({
+  records,
+  authenticated: () => Boolean(accountId),
+  transport: learningTransport,
+  requestClip: (context: RetainedClipRequestContext) =>
+    clipOps.request(context),
+});
+```
+
+Leave the default `requestClip` stub in `contextual-help-clip.ts` as the
+unavailable fallback. Do not mint a new explanation or attempt ID inside the
+adapter. `commit` the same `explanationId` / `attemptId` AR-51 reserved.
+
+On `{ kind: 'unavailable' }` keep the previous useful retained result (AR-51
+already does this when `ready` is false). Persist `LearningOrigin` as supplied.
+The recipe JSON origin is a UUID projection (`projectId` / `sourceVersionId` /
+`questionId: null` / `lessonId`) and **must not** replace `path` / `entry`.
 
 ## Result
 
@@ -70,8 +89,10 @@ ASCII app strings (`Linear transform`, `Weighted combination`, `v1`/`v2`)
 when planner copy cannot enter `decodeAnimationRecipe`. Out-of-bounds math is
 rejected, not clamped.
 
-## Tests AR-51 should add
+## Tests AR-51 already owns
 
 - Reserved IDs on the adapter call equal committed IDs
 - Previous useful clip remains after a cancelled or failed newer request
 - Signal abort does not submit, or cancels an in-flight request
+
+No AR-51 module edit is required for this join once main injects `requestClip`.

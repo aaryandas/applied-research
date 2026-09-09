@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupportedExplanationPlan } from '../contracts/explanation-artifacts';
-import { createClipOperations } from './clip-operations';
+import {
+  createClipOperations,
+  type RetainedClipRequestContext,
+} from './clip-operations';
 import { makeClipApiTransport } from './clip-transport';
 import {
   RetainedMediaStore,
@@ -24,10 +27,11 @@ function mp4Bytes(): Buffer {
   return bytes;
 }
 
-function linearPlan(): Extract<
-  SupportedExplanationPlan,
-  { family: 'linear-transform' }
-> {
+function linearPlan(
+  overrides: Partial<
+    Extract<SupportedExplanationPlan, { family: 'linear-transform' }>
+  > = {},
+): Extract<SupportedExplanationPlan, { family: 'linear-transform' }> {
   return {
     status: 'supported',
     family: 'linear-transform',
@@ -53,6 +57,7 @@ function linearPlan(): Extract<
       role: 'untrusted-display-copy',
       text: 'The installed linear-transform recipe can illustrate this.',
     },
+    ...overrides,
   };
 }
 
@@ -90,12 +95,12 @@ function clipRecord(requestId: string, bytes: Buffer): RetainedClipRecord {
   };
 }
 
-function identities(requestId: string, generation = 1) {
+function clipContext(
+  overrides: Partial<RetainedClipRequestContext> = {},
+): RetainedClipRequestContext {
   return {
-    requestId,
-    projectId: PROJECT,
     explanationId: randomUUID(),
-    explanationAttemptId: randomUUID(),
+    attemptId: randomUUID(),
     origin: {
       sourceRevisionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       path: {
@@ -104,8 +109,9 @@ function identities(requestId: string, generation = 1) {
         topicId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
       },
     },
-    projectGeneration: 1,
-    requestGeneration: generation,
+    plan: linearPlan(),
+    signal: new AbortController().signal,
+    ...overrides,
   };
 }
 
@@ -118,19 +124,22 @@ afterEach(async () => {
 describe('clip operations', () => {
   it('publishes only verified clip fields after an authenticated retain', async () => {
     const bytes = mp4Bytes();
-    const requestId = randomUUID();
-    const record = clipRecord(requestId, bytes);
+    const attemptId = randomUUID();
+    const record = clipRecord(attemptId, bytes);
+    let submittedRequestId = '';
     const operations = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: {
-        submitAndRetain: async () => ({ status: 'ready', record }),
+        submitAndRetain: async (input) => {
+          submittedRequestId = input.requestId;
+          return { status: 'ready', record };
+        },
       },
-      isCurrent: () => true,
     });
-    const result = await operations.request(
-      { plan: linearPlan(), identities: identities(requestId) },
-      new AbortController().signal,
-    );
+    const context = clipContext({ attemptId });
+    const result = await operations.request(context);
+    expect(submittedRequestId).toBe(attemptId);
     expect(result.kind).toBe('ready');
     if (result.kind !== 'ready') throw new Error('ready');
     expect(result.result.media).toEqual({
@@ -139,44 +148,36 @@ describe('clip operations', () => {
     });
     expect(JSON.stringify(result)).not.toContain(ACCOUNT);
     expect(JSON.stringify(result)).not.toContain('artifactPath');
+    expect(JSON.stringify(result)).not.toContain(context.explanationId);
   });
 
   it('does not submit when cancelled before request, and keeps a later generation from publishing A', async () => {
     const submit = vi.fn();
     const operations = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: { submitAndRetain: submit },
-      isCurrent: () => true,
     });
     const cancelled = new AbortController();
     cancelled.abort();
     expect(
-      (
-        await operations.request(
-          { plan: linearPlan(), identities: identities(randomUUID()) },
-          cancelled.signal,
-        )
-      ).kind,
+      (await operations.request(clipContext({ signal: cancelled.signal })))
+        .kind,
     ).toBe('unavailable');
     expect(submit).not.toHaveBeenCalled();
 
-    let current = 1;
     const late = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: {
         submitAndRetain: async () => ({
           status: 'ready',
           record: clipRecord(randomUUID(), mp4Bytes()),
         }),
       },
-      isCurrent: (input) => input.identities.requestGeneration === current,
+      isCurrent: () => false,
     });
-    const first = identities(randomUUID(), 1);
-    current = 2;
-    const lateResult = await late.request(
-      { plan: linearPlan(), identities: first },
-      new AbortController().signal,
-    );
+    const lateResult = await late.request(clipContext());
     expect(lateResult).toMatchObject({
       kind: 'unavailable',
       message: 'A newer clip request replaced this result.',
@@ -186,6 +187,7 @@ describe('clip operations', () => {
   it('revokes in-flight work instead of publishing a false ready clip', async () => {
     const operations = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: {
         submitAndRetain: async ({ signal }) => {
           await new Promise<void>((_, reject) => {
@@ -203,12 +205,8 @@ describe('clip operations', () => {
           };
         },
       },
-      isCurrent: () => true,
     });
-    const pending = operations.request(
-      { plan: linearPlan(), identities: identities(randomUUID()) },
-      new AbortController().signal,
-    );
+    const pending = operations.request(clipContext());
     operations.revoke();
     await expect(pending).resolves.toMatchObject({ kind: 'unavailable' });
   });
@@ -217,18 +215,20 @@ describe('clip operations', () => {
     const submit = vi.fn();
     const unsigned = createClipOperations({
       accountId: () => null,
+      projectId: () => PROJECT,
       transport: { submitAndRetain: submit },
-      isCurrent: () => true,
     });
-    expect(
-      (
-        await unsigned.request(
-          { plan: linearPlan(), identities: identities(randomUUID()) },
-          new AbortController().signal,
-        )
-      ).kind,
-    ).toBe('unavailable');
+    expect((await unsigned.request(clipContext())).kind).toBe('unavailable');
     expect(submit).not.toHaveBeenCalled();
+    const noProject = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => null,
+      transport: { submitAndRetain: submit },
+    });
+    expect(await noProject.request(clipContext())).toMatchObject({
+      kind: 'unavailable',
+      message: 'The clip request has no active learning space.',
+    });
     const scene: SupportedExplanationPlan = {
       ...linearPlan(),
       family: 'two-link-arm',
@@ -241,12 +241,11 @@ describe('clip operations', () => {
     };
     const unsupported = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: { submitAndRetain: submit },
-      isCurrent: () => true,
     });
     const unsupportedResult = await unsupported.request(
-      { plan: scene, identities: identities(randomUUID()) },
-      new AbortController().signal,
+      clipContext({ plan: scene }),
     );
     expect(unsupportedResult.kind).toBe('unavailable');
     if (unsupportedResult.kind === 'unavailable') {
@@ -254,6 +253,7 @@ describe('clip operations', () => {
     }
     const expired = createClipOperations({
       accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
       transport: {
         submitAndRetain: async () => ({
           status: 'ready',
@@ -268,16 +268,122 @@ describe('clip operations', () => {
         };
       })(),
       lifetimeMs: 1_000,
-      isCurrent: () => true,
     });
-    const expiredResult = await expired.request(
-      { plan: linearPlan(), identities: identities(randomUUID()) },
-      new AbortController().signal,
-    );
+    const expiredResult = await expired.request(clipContext());
     expect(expiredResult.kind).toBe('unavailable');
     if (expiredResult.kind === 'unavailable') {
       expect(expiredResult.message).toMatch(/expired/);
     }
+    const corrupt = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => ({ status: 'corrupt' }),
+      },
+    });
+    expect((await corrupt.request(clipContext())).kind).toBe('unavailable');
+    const throwing = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => {
+          throw new Error('network');
+        },
+      },
+    });
+    expect(await throwing.request(clipContext())).toMatchObject({
+      kind: 'unavailable',
+      message: 'network',
+    });
+    const notError = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => {
+          throw 'nope';
+        },
+      },
+    });
+    expect(await notError.request(clipContext())).toMatchObject({
+      kind: 'unavailable',
+      message: 'The clip could not be requested.',
+    });
+    const badId = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: { submitAndRetain: async () => ({ status: 'cancelled' }) },
+    });
+    expect(
+      (
+        await badId.request(
+          clipContext({
+            explanationId: 'not-a-uuid',
+            attemptId: randomUUID(),
+          }),
+        )
+      ).kind,
+    ).toBe('unavailable');
+    const cancelledTransport = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => ({ status: 'cancelled' }),
+      },
+    });
+    expect((await cancelledTransport.request(clipContext())).kind).toBe(
+      'unavailable',
+    );
+    const unavailable = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => ({
+          status: 'unavailable',
+          message: 'The referenced origin is not owned by this account.',
+        }),
+      },
+    });
+    expect(await unavailable.request(clipContext())).toMatchObject({
+      kind: 'unavailable',
+      message: 'The referenced origin is not owned by this account.',
+    });
+    const rejectedMath = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: { submitAndRetain: submit },
+    });
+    const math = await rejectedMath.request(
+      clipContext({
+        plan: linearPlan({
+          parameters: {
+            matrix: [
+              [99, 0],
+              [0, 1],
+            ],
+            vector: [1, 1],
+          },
+        }),
+      }),
+    );
+    expect(math.kind).toBe('unavailable');
+    expect(submit).not.toHaveBeenCalled();
+    const mismatch = createClipOperations({
+      accountId: () => ACCOUNT,
+      projectId: () => PROJECT,
+      transport: {
+        submitAndRetain: async () => ({
+          status: 'ready',
+          record: {
+            ...clipRecord(randomUUID(), mp4Bytes()),
+            recipe: 'weighted-combination',
+          },
+        }),
+      },
+    });
+    expect(await mismatch.request(clipContext())).toMatchObject({
+      kind: 'unavailable',
+      message: 'The retained clip failed verification.',
+    });
   });
 });
 
@@ -366,6 +472,120 @@ describe('clip API transport', () => {
       }),
     ).resolves.toEqual({ status: 'cancelled' });
     expect(cancelled).toBe(1);
+  });
+
+  it('rejects unsigned cookies, redirects, failed jobs, and corrupt artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ar-clip-store-'));
+    roots.push(root);
+    const store = new RetainedMediaStore(root);
+    const requestId = randomUUID();
+    await expect(
+      makeClipApiTransport({
+        sessionCookie: () => '',
+        store,
+        request: async () => jsonResponse({}),
+      }).submitAndRetain({
+        requestId,
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('Sign in');
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      makeClipApiTransport({
+        sessionCookie: () => 'ar_session=signed',
+        store,
+        request: async () => jsonResponse({}),
+      }).submitAndRetain({
+        requestId,
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: aborted.signal,
+      }),
+    ).resolves.toEqual({ status: 'cancelled' });
+    const redirected = makeClipApiTransport({
+      sessionCookie: () => 'ar_session=signed',
+      store,
+      request: async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://evil.example' },
+        }),
+    });
+    await expect(
+      redirected.submitAndRetain({
+        requestId,
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ status: 'unavailable' });
+    const failed = makeClipApiTransport({
+      sessionCookie: () => 'ar_session=signed',
+      store,
+      wait: async () => undefined,
+      request: async () =>
+        jsonResponse({
+          requestId,
+          status: 'failed',
+          failure: {
+            message: 'The referenced origin is not owned by this account.',
+          },
+        }),
+    });
+    await expect(
+      failed.submitAndRetain({
+        requestId,
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      message: 'The referenced origin is not owned by this account.',
+    });
+    const record = clipRecord(requestId, mp4Bytes());
+    const corrupt = makeClipApiTransport({
+      sessionCookie: () => 'ar_session=signed',
+      store,
+      wait: async () => undefined,
+      request: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.includes('/artifacts/')) {
+          return new Response('nope', {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+          });
+        }
+        return jsonResponse({
+          requestId,
+          status: 'ready',
+          clip: record,
+        });
+      },
+    });
+    await expect(
+      corrupt.submitAndRetain({
+        requestId,
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ status: 'corrupt' });
+    await expect(
+      makeClipApiTransport({
+        sessionCookie: () => 'ar_session=signed',
+        store,
+        request: async () => jsonResponse({}),
+      }).submitAndRetain({
+        requestId: 'nope',
+        accountId: ACCOUNT,
+        recipeJson: '{}',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ status: 'corrupt' });
   });
 });
 
