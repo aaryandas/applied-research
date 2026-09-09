@@ -45,7 +45,8 @@ one of them.
    `--duration-arrive`, `--ease-out`, `--reading-measure`, `--text-xs|sm|base|reading`,
    `--text-heading`, `--text-title`, `--icon-lg`, `--dot`, `--focus-ring`, `--focus-offset`, the
    font stacks, and the palette roles (`--paper`, `--surface`, `--surface-subtle`, `--ink`,
-   `--muted`, `--line`, `--line-strong`, `--accent`, `--accent-soft`, `--human`, `--human-soft`,
+   `--muted`, `--line`, `--line-strong`, `--accent`, `--accent-soft`, `--human`, `--human-ink`,
+   `--human-soft`,
    `--success`, `--danger`, `--focus`, `--shadow`). If a value you need has no token, add the
    token to `tokens.css` — palette roles in **both** blocks, sizes in `:root` — do not inline
    the literal.
@@ -93,11 +94,13 @@ The complete public surface. One place for a surface to look before writing its 
 
 ### `base.css` — primitives
 
-| Class           | Purpose                                                                                   |
-| --------------- | ----------------------------------------------------------------------------------------- |
-| `.ui-sr-only`   | Visually hidden, still announced by screen readers.                                       |
-| `.ui-focusable` | With `:focus-visible`, the single shared focus ring. One ring, one offset.                |
-| `.ui-scroll`    | Scrolls its own content; `overscroll-behavior: contain` stops the page scrolling with it. |
+| Class         | Purpose                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `.ui-sr-only` | Visually hidden, still announced by screen readers.                                       |
+| `.ui-scroll`  | Scrolls its own content; `overscroll-behavior: contain` stops the page scrolling with it. |
+
+There is no focus-ring class. `styles.css` declares one unlayered `:focus-visible` rule that
+already reaches every element in the app, so a class here would only be a second copy of it.
 
 ### `type.css` — type roles
 
@@ -118,7 +121,6 @@ The complete public surface. One place for a surface to look before writing its 
 | `.ui-button--primary`   | Filled, one per view.                                                 |
 | `.ui-button--secondary` | Outlined.                                                             |
 | `.ui-button--text`      | Low-emphasis inline action.                                           |
-| `.ui-button--quiet`     | Alias of `--text` until one of the two names is retired.              |
 | `.ui-button--icon`      | Square icon-only target; needs a `.ui-sr-only` label or `aria-label`. |
 | `.ui-button--small`     | Compact height for dense bars.                                        |
 
@@ -126,14 +128,16 @@ States: `:disabled`, `[aria-disabled='true']`, `[aria-pressed='true']`, `:focus-
 
 ### `field.css`
 
-| Class              | Purpose                                                 |
-| ------------------ | ------------------------------------------------------- |
-| `.ui-field`        | Label + control + message wrapper.                      |
-| `.ui-field__label` | The label.                                              |
-| `.ui-input`        | Single-line text control.                               |
-| `.ui-textarea`     | Multi-line control.                                     |
-| `.ui-field__hint`  | Muted helper text.                                      |
-| `.ui-field__error` | Error message; pair with `aria-invalid` on the control. |
+| Class                   | Purpose                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `.ui-field`             | Label + control + message wrapper.                                                                               |
+| `.ui-field__label`      | The label.                                                                                                       |
+| `.ui-input`             | Single-line text control.                                                                                        |
+| `.ui-textarea`          | Multi-line control.                                                                                              |
+| `.ui-field__hint`       | Muted helper text.                                                                                               |
+| `.ui-field__error`      | Error message; pair with `aria-invalid` on the control.                                                          |
+| `.ui-field--invalid`    | On the wrapper: marks label and control as failed, for a field whose control cannot carry `aria-invalid` itself. |
+| `.ui-textarea--reading` | Human writing: reading face at `--reading-measure`, `--human-ink`, human caret.                                  |
 
 ### `panel.css`
 
@@ -196,7 +200,6 @@ Selection: `[data-selected]` or `[aria-current='page']`.
 | `.ui-alert__body`    | Message text.                                                              |
 | `.ui-alert__dismiss` | Placement for the dismiss control; style it `.ui-button .ui-button--icon`. |
 | `.ui-alert--error`   | `--danger`.                                                                |
-| `.ui-alert--danger`  | Alias of `--error`.                                                        |
 | `.ui-alert--warning` | Caution, carried by weight rather than hue.                                |
 | `.ui-alert--offline` | Degraded and expected to come back.                                        |
 | `.ui-alert--notice`  | Neutral.                                                                   |
@@ -214,10 +217,10 @@ Selection: `[data-selected]` or `[aria-current='page']`.
 
 ### React primitives (`index.ts`)
 
-| Export         | Purpose                                                                   |
-| -------------- | ------------------------------------------------------------------------- |
-| `EmptyState`   | The nothing-here block, named by its own title. Not a live region.        |
-| `StatusRegion` | The always-mounted live region for async results; `busy` adds `.ui-busy`. |
+| Export         | Purpose                                                                                                                                                                                         |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmptyState`   | The nothing-here block, named by its own title; optional `icon` fills `.ui-empty-state__icon`. Not a live region.                                                                               |
+| `StatusRegion` | The always-mounted live region for async results. `tone="alert"` adds `.ui-status--error`, `busy` adds `.ui-status--busy` and `.ui-busy`; `.ui-status` itself stays opt-in through `className`. |
 
 ## Adding a component
 

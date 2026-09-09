@@ -53,9 +53,6 @@
   border-color: var(--ink);
 }
 
-/* Focus: add .ui-focusable. The ring is defined once, in base.css — repeating
-   its outline here would be a second copy to keep in sync. */
-
 .ui-input:disabled,
 .ui-textarea:disabled,
 .ui-input[aria-disabled='true'],

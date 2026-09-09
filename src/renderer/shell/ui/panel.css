@@ -12,9 +12,9 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  /* clip, not hidden: the shared focus ring sits --focus-offset outside its control
-     (base.css), so a .ui-focusable row in a --flush body would have its ring cut off by
-     the panel edge. overflow-clip-margin covers offset + ring. */
+  /* clip, not hidden: the shared focus ring sits --focus-offset outside its control, so a
+     focused row in a --flush body would have its ring cut off by the panel edge.
+     overflow-clip-margin covers offset + ring. */
   overflow: clip;
   overflow-clip-margin: calc(var(--focus-offset) + var(--focus-ring));
 }
@@ -59,7 +59,11 @@
 }
 
 /* Edge-to-edge body: media, tables, embedded views. Direct child only, so a
-   nested panel keeps its own padding. */
+   nested panel keeps its own padding. The panel's own clip is held off by
+   overflow-clip-margin so focus rings survive, which would let edge-to-edge content spill
+   past the rounded corner — so the body does the corner clipping instead. */
 .ui-panel--flush > .ui-panel__body {
   padding: 0;
+  overflow: clip;
+  border-radius: inherit;
 }

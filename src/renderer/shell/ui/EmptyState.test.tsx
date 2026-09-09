@@ -34,6 +34,16 @@ it('renders the body and the caller-supplied action', () => {
   ).toBeInTheDocument();
 });
 
+it('renders the optional icon as decoration, and omits the slot without one', () => {
+  const { container, rerender } = render(<EmptyState title="No sources" />);
+  expect(container.querySelector('.ui-empty-state__icon')).toBeNull();
+
+  rerender(<EmptyState title="No sources" icon={<svg />} />);
+  const slot = container.querySelector('.ui-empty-state__icon');
+  expect(slot).toHaveAttribute('aria-hidden', 'true');
+  expect(slot?.querySelector('svg')).not.toBeNull();
+});
+
 it('marks the unsupported variant', () => {
   const { rerender } = render(<EmptyState title="Not available here" />);
   expect(screen.getByRole('group')).not.toHaveClass(

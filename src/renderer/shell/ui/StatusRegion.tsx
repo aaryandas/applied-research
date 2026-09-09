@@ -10,10 +10,18 @@ import type { ReactElement, ReactNode } from 'react';
  * region's own existence.
  *
  * `tone` doubles as the ARIA role because the two tones are the two roles:
- * 'status' announces at the next pause, 'alert' interrupts.
+ * 'status' announces at the next pause, 'alert' interrupts. Each prop also
+ * applies its tone class — `alert` is `.ui-status--error`, `busy` is
+ * `.ui-status--busy` beside `.ui-busy` — so the announced state and the visible
+ * one cannot drift apart.
  *
  * This is only the live-region mount. The dot+label indicator is `.ui-status`
  * and is opt-in via `className`, so a nested `EmptyState` keeps its own layout.
+ *
+ * While `aria-busy="true"` assistive technology may withhold the region's
+ * content, so text rendered mid-flight is not necessarily announced. That is
+ * what you want for a result that is still settling, but a caller who needs an
+ * in-progress message spoken should put it in a region that is not busy.
  */
 export function StatusRegion({
   children,
@@ -31,7 +39,13 @@ export function StatusRegion({
       role={tone}
       aria-live={tone === 'alert' ? 'assertive' : 'polite'}
       aria-busy={busy}
-      className={[busy ? 'ui-busy' : null, className].filter(Boolean).join(' ')}
+      className={[
+        tone === 'alert' ? 'ui-status--error' : null,
+        busy ? 'ui-status--busy ui-busy' : null,
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       {children}
     </div>
