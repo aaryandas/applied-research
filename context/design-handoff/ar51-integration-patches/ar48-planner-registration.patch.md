@@ -37,12 +37,9 @@ Use the same disconnect observer. Do not parse planner bodies with `parseLearnin
 
 ## 2. `src/backend/runtime.ts`
 
-```ts
-import {
-  makeExplanationPlannerProvider,
-  makeExplanationPlannerService,
-} from './explanations/index.js';
+In the existing Effect composition, construct the planner with the same admitted key/fetch/accounting as the tutor:
 
+```text
 const explanationPlanner = yield* makeExplanationPlannerService({
   accounting: makePostgresAccounting(database),
   provider: makeExplanationPlannerProvider({
@@ -55,7 +52,7 @@ const explanationPlanner = yield* makeExplanationPlannerService({
 });
 ```
 
-Pass `explanationPlanner` into `HttpDependencies`. Same admitted model/key/fetch as tutor. No provider/model swap.
+Import `makeExplanationPlannerProvider` / `makeExplanationPlannerService` from `./explanations/index.js`. Pass `explanationPlanner` into `HttpDependencies`. Same admitted model. No provider/model swap.
 
 ## 3. Accounting operation kind (optional but recommended)
 
