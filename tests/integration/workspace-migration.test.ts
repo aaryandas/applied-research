@@ -184,6 +184,10 @@ function interruptingMigrationFolder(): string {
     join(process.cwd(), 'drizzle/0007_entry_origins.sql'),
     join(directory, '0007_entry_origins.sql'),
   );
+  copyFileSync(
+    join(process.cwd(), 'drizzle/0008_explanation_canvas_placements.sql'),
+    join(directory, '0008_explanation_canvas_placements.sql'),
+  );
   return directory;
 }
 

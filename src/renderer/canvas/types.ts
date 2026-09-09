@@ -5,6 +5,11 @@ import type {
   LearningRecordsBridge,
   LearningWorkspace,
 } from '../../contracts/learning-records';
+import type { ContextualHelpIntent } from '../../contracts/contextual-help';
+import type {
+  RetainedExplanationCanvasPlacement,
+  RetainedExplanationCanvasProjection,
+} from '../../contracts/explanation-canvas';
 
 export interface CanvasShellControls {
   view: CanvasView;
@@ -23,8 +28,23 @@ export interface WorkspaceCanvasProps {
   view: CanvasView;
   onViewChange: (view: CanvasView) => void;
   onOpenOrigin: (origin: LearningOrigin) => void;
+  onOpenRetainedExplanation?: (input: {
+    explanationId: string;
+    intent: ContextualHelpIntent;
+    origin: LearningOrigin;
+    quote: string;
+  }) => void;
   onEditEntry: (entry: EntryRevisionReference) => void;
   onMove: LearningRecordsBridge['moveLearningRecord'];
+  onPlaceExplanation?: (input: {
+    projectId: string;
+    explanationId: string;
+    view: CanvasView;
+    x: number;
+    y: number;
+  }) => Promise<unknown>;
+  retainedExplanations?: readonly RetainedExplanationCanvasProjection[];
+  explanationPlacements?: readonly RetainedExplanationCanvasPlacement[];
   /** Shell awaits true before navigation/project replacement; false keeps Canvas mounted. */
   registerFlush: (flush: (() => Promise<boolean>) | null) => void;
   /** Shell owns the rail and single top bar; null restores its reading layout. */

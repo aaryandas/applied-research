@@ -18,6 +18,10 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import type { CanvasView } from '../../contracts/learning-records';
+import type {
+  RetainedExplanationCanvasPlacement,
+  RetainedExplanationCanvasProjection,
+} from '../../contracts/explanation-canvas';
 import { isNestedInteraction } from './interaction';
 import { LearningNode } from './CanvasNode';
 import { CanvasActions } from './actions';
@@ -26,6 +30,7 @@ import { deriveCanvasGraph, type CanvasNode } from './graph';
 import { canvasEditKind, initialPlacementMessage } from './authoring';
 import type { WorkspaceCanvasProps } from './types';
 import { PlacementSession } from './placement-session';
+import { overlayRetainedExplanationNodes } from './overlay-retained-explanations';
 import { useCanvasAuthoring } from './use-canvas-authoring';
 import '@xyflow/react/dist/style.css';
 import './canvas.css';
@@ -34,6 +39,10 @@ const nodeTypes = { learning: LearningNode };
 const READABLE_FIT_ZOOM = 0.85;
 const PAN_STEP = 80;
 const DEFAULT_VIEWPORT: Viewport = { x: 16, y: 16, zoom: 1 };
+const EMPTY_RETAINED_EXPLANATIONS: readonly RetainedExplanationCanvasProjection[] =
+  [];
+const EMPTY_EXPLANATION_PLACEMENTS: readonly RetainedExplanationCanvasPlacement[] =
+  [];
 const NODE_DESCRIPTION =
   'Press Enter or Space to select. Arrow keys move a selected movable node. Press F2 to edit current human writing, or Escape to deselect.';
 const PAN_DELTAS: Record<string, [number, number]> = {
@@ -58,8 +67,12 @@ function CanvasSession({
   view,
   onViewChange,
   onOpenOrigin,
+  onOpenRetainedExplanation,
   onEditEntry,
   onMove,
+  onPlaceExplanation,
+  retainedExplanations = EMPTY_RETAINED_EXPLANATIONS,
+  explanationPlacements = EMPTY_EXPLANATION_PLACEMENTS,
   registerFlush,
   onShellControls,
   status = 'ready',
@@ -68,19 +81,46 @@ function CanvasSession({
   onWorkspace,
 }: Readonly<WorkspaceCanvasProps>): React.JSX.Element {
   const graph = useMemo(
-    () => deriveCanvasGraph(workspace, view),
-    [workspace, view],
+    () =>
+      overlayRetainedExplanationNodes(deriveCanvasGraph(workspace, view), {
+        view,
+        projections: retainedExplanations,
+        placements: explanationPlacements,
+      }),
+    [workspace, view, retainedExplanations, explanationPlacements],
   );
   const [nodes, setNodes] = useState(graph.nodes);
   const [receivedGraph, setReceivedGraph] = useState(graph);
   const [session] = useState(
     () => new PlacementSession({ projectId: workspace.project.id, onMove }),
   );
+  const [explanationSession] = useState(
+    () =>
+      new PlacementSession({
+        projectId: workspace.project.id,
+        onMove: async (input) => {
+          if (!onPlaceExplanation) {
+            throw new Error('Retained explanation placement is unavailable.');
+          }
+          await onPlaceExplanation({
+            projectId: input.projectId,
+            explanationId: input.recordId,
+            view: input.view,
+            x: input.x,
+            y: input.y,
+          });
+        },
+      }),
+  );
   const placements = useSyncExternalStore(
     session.subscribe,
     session.getSnapshot,
   );
-  const failures = [...placements.values()].filter(
+  const explanationDrafts = useSyncExternalStore(
+    explanationSession.subscribe,
+    explanationSession.getSnapshot,
+  );
+  const failures = [...placements.values(), ...explanationDrafts.values()].filter(
     (draft) => draft.phase === 'failed',
   );
   const [viewports, setViewports] = useState<Record<CanvasView, Viewport>>({
@@ -115,16 +155,44 @@ function CanvasSession({
     selectedIds,
   });
   const feedback = navigationBlocked
-    ? authoring.blockedNotice || session.blockedNavigationNotice()
+    ? authoring.blockedNotice ||
+      session.blockedNavigationNotice() ||
+      explanationSession.blockedNavigationNotice()
     : notice;
   useEffect(() => {
     session.reconcile(workspace.placements);
   }, [session, workspace.placements, placements]);
+  useEffect(() => {
+    explanationSession.reconcile(
+      explanationPlacements.map((placement) => ({
+        projectId: placement.projectId,
+        recordId: placement.explanationId,
+        view: placement.view,
+        x: placement.x,
+        y: placement.y,
+        updatedAt: '',
+      })),
+    );
+  }, [explanationSession, explanationPlacements, explanationDrafts]);
   const active = useRef(true);
   const navigationRequest = useRef(0);
   useEffect(() => {
     session.setWriter(onMove);
   }, [session, onMove]);
+  useEffect(() => {
+    explanationSession.setWriter(async (input) => {
+      if (!onPlaceExplanation) {
+        throw new Error('Retained explanation placement is unavailable.');
+      }
+      await onPlaceExplanation({
+        projectId: input.projectId,
+        explanationId: input.recordId,
+        view: input.view,
+        x: input.x,
+        y: input.y,
+      });
+    });
+  }, [explanationSession, onPlaceExplanation]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -135,7 +203,9 @@ function CanvasSession({
     setReceivedGraph(graph);
     setNodes((previous) =>
       graph.nodes.map((node) => {
-        const draft = placements.get(`${view}:${node.id}`)?.input;
+        const draft =
+          placements.get(`${view}:${node.id}`)?.input ??
+          explanationDrafts.get(`${view}:${node.id}`)?.input;
         const existing = previous.find((item) => item.id === node.id);
         return {
           ...node,
@@ -158,12 +228,13 @@ function CanvasSession({
   }, [flow]);
   const flushAuthoring = authoring.flush;
   const flush = useCallback(async (): Promise<boolean> => {
-    const saved = await flushAuthoring();
+    const saved =
+      (await flushAuthoring()) && (await explanationSession.flush());
     if (!active.current) return false;
     setNavigationBlocked(!saved);
     if (saved) setNotice('');
     return saved;
-  }, [flushAuthoring]);
+  }, [flushAuthoring, explanationSession]);
   useEffect(() => {
     flushRef.current = flush;
     registerFlush(flush);
@@ -206,8 +277,10 @@ function CanvasSession({
             )
             .map((placement) => placement.recordId),
         );
-        for (const node of updated)
-          if (session.get(view, node.id)) fixedIds.add(node.id);
+        for (const node of updated) {
+          if (session.get(view, node.id) || explanationSession.get(view, node.id))
+            fixedIds.add(node.id);
+        }
         return arrangeMeasuredNodes(updated, fixedIds);
       });
       for (const change of changes) {
@@ -226,20 +299,46 @@ function CanvasSession({
             nodes.find((candidate) => candidate.id === change.id)?.position ??
             node.position,
         };
-        if (change.dragging) session.stage(movement);
-        else session.move(movement);
+        const owner =
+          node.data.placementKind === 'explanation'
+            ? explanationSession
+            : session;
+        if (change.dragging) owner.stage(movement);
+        else owner.move(movement);
       }
     },
-    [flow, nodes, session, workspace.project.id, workspace.placements, view],
+    [
+      flow,
+      nodes,
+      session,
+      explanationSession,
+      workspace.project.id,
+      workspace.placements,
+      view,
+    ],
   );
   const actions = useMemo(
     () => ({
       onOpenOrigin: (origin: Parameters<typeof onOpenOrigin>[0]) => {
         void beforeNavigation(() => onOpenOrigin(origin));
       },
+      onOpenRetainedExplanation: onOpenRetainedExplanation
+        ? (
+            input: Parameters<
+              NonNullable<WorkspaceCanvasProps['onOpenRetainedExplanation']>
+            >[0],
+          ) => {
+            void beforeNavigation(() => onOpenRetainedExplanation(input));
+          }
+        : undefined,
       onEditEntry: authoring.editReference,
     }),
-    [authoring.editReference, beforeNavigation, onOpenOrigin],
+    [
+      authoring.editReference,
+      beforeNavigation,
+      onOpenOrigin,
+      onOpenRetainedExplanation,
+    ],
   );
   const resetPosition = (failedView: CanvasView, nodeId: string): void => {
     if (authoring.initialPlacement.has(nodeId)) {
@@ -247,7 +346,9 @@ function CanvasSession({
         setNotice('Automatic placement kept. The note is saved.');
       return;
     }
-    const position = session.discard(failedView, nodeId);
+    const position =
+      session.discard(failedView, nodeId) ??
+      explanationSession.discard(failedView, nodeId);
     if (position) setNotice('Previous position restored.');
     if (position && failedView === view)
       setNodes((current) =>
@@ -463,9 +564,19 @@ function CanvasSession({
                       <div className="ui-action-row">
                         <button
                           className="ui-button ui-button--secondary"
-                          onClick={() =>
-                            session.retry(failure.input.view, failure.nodeId)
-                          }
+                          onClick={() => {
+                            if (
+                              !session.retry(
+                                failure.input.view,
+                                failure.nodeId,
+                              )
+                            ) {
+                              explanationSession.retry(
+                                failure.input.view,
+                                failure.nodeId,
+                              );
+                            }
+                          }}
                         >
                           Retry position
                         </button>

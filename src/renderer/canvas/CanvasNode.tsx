@@ -79,7 +79,17 @@ function Content({ content, nested = false }: ContentProps): React.JSX.Element {
           aria-label={`${originAction(content)}${originDescription}`}
           aria-description={content.originDetail}
           title={content.originDetail}
-          onClick={() => content.origin && actions.onOpenOrigin(content.origin)}
+          onClick={() => {
+            if (!content.origin) return;
+            if (content.retainedExplanation && actions.onOpenRetainedExplanation) {
+              actions.onOpenRetainedExplanation({
+                ...content.retainedExplanation,
+                origin: content.origin,
+              });
+              return;
+            }
+            actions.onOpenOrigin(content.origin);
+          }}
         >
           {content.originLabel || originAction(content)}
         </button>

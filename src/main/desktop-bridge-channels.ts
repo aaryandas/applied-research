@@ -31,6 +31,9 @@ export const CONTEXTUAL_HELP_BRIDGE_CHANNELS = {
   loadExplanationSceneState: CONTEXTUAL_HELP_CHANNELS.loadScene,
   acceptSceneCapture: CONTEXTUAL_HELP_CHANNELS.capture,
   loadTrustedSceneCapture: CONTEXTUAL_HELP_CHANNELS.loadCapture,
+  openRetainedClipMedia: CONTEXTUAL_HELP_CHANNELS.openClip,
+  placeRetainedExplanation: CONTEXTUAL_HELP_CHANNELS.place,
+  listExplanationPlacements: CONTEXTUAL_HELP_CHANNELS.listPlacements,
 } as const;
 
 export const SHARED_DESKTOP_OPERATION_CHANNELS = [

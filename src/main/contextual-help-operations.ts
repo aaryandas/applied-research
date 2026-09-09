@@ -44,9 +44,20 @@ import {
   decodeTutorLearningResponse,
 } from './contextual-help-learning';
 import {
-  unavailableClipPlayback,
+  isSupportedClipPlan,
+  requestClip,
   type ClipPlaybackResult,
+  type RetainedClipRequestContext,
 } from './contextual-help-clip';
+import {
+  admitClipObjectUrl,
+  missingClipMedia,
+  type OpenRetainedClipResult,
+} from './explanation-clip-media';
+import {
+  explanationCanvasPlacement,
+  type RetainedExplanationCanvasPlacement,
+} from './explanation-canvas';
 import { acceptTrustedSceneCapture } from './explanation-capture';
 import type { ExplanationRecords } from './explanation-records';
 import {
@@ -58,6 +69,7 @@ import {
   isContractGeneration,
   isContractUuid,
 } from '../contracts/contextual-contract-guards';
+import { WORLD_COORDINATE_LIMIT } from './learning-record-validation';
 
 const APP_AUTHORED_TEXT = 'Explain this passage.';
 const APP_AUTHORED_VISUAL = 'Explain this passage visually.';
@@ -85,7 +97,10 @@ export interface ContextualHelpOperationsOptions {
   transport: ReturnType<typeof makeContextualHelpTransport> | null;
   now?: () => Date;
   randomUUID?: () => string;
-  requestClip?: (plan: ExplanationPlan) => Promise<ClipPlaybackResult>;
+  requestClip?: (
+    context: RetainedClipRequestContext,
+  ) => Promise<ClipPlaybackResult>;
+  openRetainedClip?: (artifactId: string) => Promise<OpenRetainedClipResult>;
   testEnvironment?: typeof DESKTOP_E2E_TEST_ENVIRONMENT | null;
 }
 
@@ -149,7 +164,10 @@ export class ContextualHelpOperations {
     ) {
       return;
     }
-    this.pending.get(input.requestId)?.abort();
+    const controller = this.pending.get(input.requestId);
+    if (!controller) return;
+    controller.abort();
+    this.pending.delete(input.requestId);
   }
 
   async request(value: unknown): Promise<ContextualHelpResponse> {
@@ -324,8 +342,71 @@ export class ContextualHelpOperations {
     return this.options.records.loadCapture(projectId, captureId);
   }
 
+  async openClip(value: unknown): Promise<OpenRetainedClipResult> {
+    const input = decodeRecord(value, 'open retained clip');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    const artifactId = decodeUuid(input.artifactId, 'clip artifact id');
+    if (projectId !== this.projectId) return { status: 'unauthorized' };
+    const opener = this.options.openRetainedClip ?? missingClipMedia;
+    const opened = await opener(artifactId);
+    return admitClipObjectUrl(opened);
+  }
+
+  placeExplanation(value: unknown): RetainedExplanationCanvasPlacement {
+    const input = decodeRecord(value, 'place retained explanation');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    const explanationId = decodeUuid(input.explanationId, 'explanation id');
+    if (projectId !== this.projectId) {
+      throw new Error(
+        'Placement does not belong to the active learning space.',
+      );
+    }
+    if (input.view !== 'distilled' && input.view !== 'expanded') {
+      throw new Error('Canvas view is invalid.');
+    }
+    if (
+      typeof input.x !== 'number' ||
+      typeof input.y !== 'number' ||
+      !Number.isFinite(input.x) ||
+      !Number.isFinite(input.y) ||
+      Math.abs(input.x) > WORLD_COORDINATE_LIMIT ||
+      Math.abs(input.y) > WORLD_COORDINATE_LIMIT
+    ) {
+      throw new Error('Placement is out of bounds.');
+    }
+    return this.options.records.savePlacement(
+      projectId,
+      explanationCanvasPlacement({
+        explanationId,
+        projectId,
+        view: input.view,
+        x: input.x,
+        y: input.y,
+      }),
+      this.clock(),
+    );
+  }
+
+  listPlacements(value: unknown): RetainedExplanationCanvasPlacement[] {
+    const input = decodeRecord(value, 'list explanation placements');
+    const projectId = decodeUuid(input.projectId, 'project id');
+    if (projectId !== this.projectId) return [];
+    return this.options.records.listPlacements(projectId);
+  }
+
   private clock(): Date {
     return this.options.now?.() ?? new Date();
+  }
+
+  private stillOwnsRequest(
+    request: ContextualHelpRequest,
+    signal: AbortSignal,
+  ): boolean {
+    return (
+      !signal.aborted &&
+      request.projectId === this.projectId &&
+      request.expectedProjectGeneration === this.projectGeneration
+    );
   }
 
   private createId(): string {
@@ -609,30 +690,99 @@ export class ContextualHelpOperations {
         authority,
         plan,
         decoded.value.provenance,
+        attemptId,
       );
     }
-    const clip = await (
-      this.options.requestClip ?? (async () => unavailableClipPlayback())
-    )(plan);
-    if (clip.kind === 'ready') {
-      return this.commit(
+    if (isSupportedClipPlan(plan)) {
+      this.commit(
         request,
         authority,
         {
           attemptId,
           explanationId: '',
           intent: 'visual',
-          status: 'ready',
+          status: 'rendering',
           requestedAt: now,
-          completedAt: now,
+          completedAt: null,
           humanQuestion: request.question,
           aiResponse: null,
           provenance: decoded.value.provenance,
           citations: [],
           plan,
-          result: clip.result,
+          result: null,
         },
-        true,
+        false,
+      );
+      const explanationId = this.options.records.findByOrigin(
+        request.projectId,
+        authority.origin,
+        'visual',
+      )?.explanationId;
+      if (!explanationId) {
+        return this.rememberFailure(
+          request,
+          authority,
+          'unavailable',
+          'The explanation identity could not be reserved before clip join.',
+        );
+      }
+      const clip = await (this.options.requestClip ?? requestClip)({
+        explanationId,
+        attemptId,
+        origin: authority.origin,
+        plan,
+        signal,
+      });
+      if (!this.stillOwnsRequest(request, signal)) {
+        return {
+          outcome: 'cancelled',
+          requestId: request.requestId,
+          message: 'The explanation request was cancelled.',
+        };
+      }
+      if (clip.kind === 'ready') {
+        return this.commit(
+          request,
+          authority,
+          {
+            attemptId,
+            explanationId,
+            intent: 'visual',
+            status: 'ready',
+            requestedAt: now,
+            completedAt: this.clock().toISOString(),
+            humanQuestion: request.question,
+            aiResponse: null,
+            provenance: decoded.value.provenance,
+            citations: [],
+            plan,
+            result: clip.result,
+          },
+          true,
+        );
+      }
+      return this.commit(
+        request,
+        authority,
+        {
+          attemptId,
+          explanationId,
+          intent: 'visual',
+          status: 'unsupported',
+          requestedAt: now,
+          completedAt: this.clock().toISOString(),
+          humanQuestion: request.question,
+          aiResponse: {
+            kind: 'ai',
+            body: `${plan.caption} ${clip.message}`,
+            nextAction: 'Continue with the textual explanation of this passage.',
+          },
+          provenance: decoded.value.provenance,
+          citations: [],
+          plan,
+          result: null,
+        },
+        false,
       );
     }
     return this.commit(
@@ -648,7 +798,7 @@ export class ContextualHelpOperations {
         humanQuestion: request.question,
         aiResponse: {
           kind: 'ai',
-          body: `${plan.caption} ${clip.message}`,
+          body: plan.caption,
           nextAction: 'Continue with the textual explanation of this passage.',
         },
         provenance: decoded.value.provenance,
@@ -715,9 +865,9 @@ export class ContextualHelpOperations {
     authority: ResolvedAuthority,
     plan: DesktopE2EScenePlan,
     provenance: AiProvenance | null,
+    attemptId = this.createId(),
   ): ContextualHelpResponse {
     const now = this.clock().toISOString();
-    const attemptId = this.createId();
     const result: RetainedExplanationResult = {
       kind: 'scene',
       family: plan.family,
@@ -889,7 +1039,12 @@ export class ContextualHelpOperations {
     const explanationId = existing?.explanationId ?? this.createId();
     const now = this.clock().toISOString();
     const completed: ExplanationAttempt = { ...attempt, explanationId };
-    const attempts = [...(existing?.attempts ?? []), completed];
+    const attempts = [
+      ...(existing?.attempts ?? []).filter(
+        (item) => item.attemptId !== completed.attemptId,
+      ),
+      completed,
+    ];
     const previousUseful = existing?.attempts.find(
       (item) =>
         item.attemptId === existing.usefulAttemptId && item.status === 'ready',

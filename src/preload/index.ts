@@ -197,5 +197,11 @@ const desktop: DesktopBridge &
     ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.capture, input),
   loadTrustedSceneCapture: (input) =>
     ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.loadCapture, input),
+  openRetainedClipMedia: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.openClip, input),
+  placeRetainedExplanation: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.place, input),
+  listExplanationPlacements: (input) =>
+    ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.listPlacements, input),
 };
 contextBridge.exposeInMainWorld('desktop', desktop);

@@ -8,6 +8,11 @@ import type {
   LearningOnboardingBridge,
 } from '../contracts/learning-onboarding';
 import type { ContextualHelpBridge } from '../contracts/contextual-help-desktop';
+import { projectRetainedExplanationToCanvas } from '../contracts/explanation-canvas';
+import type {
+  RetainedExplanationCanvasPlacement,
+  RetainedExplanationCanvasProjection,
+} from '../contracts/explanation-canvas';
 import { ResearchEntry } from './research/ResearchEntry';
 import {
   createResearchCallbacks,
@@ -96,8 +101,45 @@ export function Shell({
     state: SourceWorkspaceActivationState;
   } | null>(null);
   const activationEpoch = useRef(0);
-  const { selection, explainSelection } = useContextualSelection();
+  const { selection, openExplanationId, explainSelection, openRetainedExplanation } =
+    useContextualSelection();
   const contextualBridge = useMemo(() => contextualHelpFrom(bridge), [bridge]);
+  const [canvasExplanations, setCanvasExplanations] = useState<
+    RetainedExplanationCanvasProjection[]
+  >([]);
+  const [canvasExplanationPlacements, setCanvasExplanationPlacements] =
+    useState<RetainedExplanationCanvasPlacement[]>([]);
+  useEffect(() => {
+    if (!contextualBridge) {
+      setCanvasExplanations([]);
+      setCanvasExplanationPlacements([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      contextualBridge.listRetainedExplanations({
+        projectId: workspace.project.id,
+      }),
+      contextualBridge.listExplanationPlacements({
+        projectId: workspace.project.id,
+      }),
+    ])
+      .then(([explanations, placements]) => {
+        if (cancelled) return;
+        setCanvasExplanations(
+          explanations.map(projectRetainedExplanationToCanvas),
+        );
+        setCanvasExplanationPlacements([...placements]);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCanvasExplanations([]);
+        setCanvasExplanationPlacements([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contextualBridge, workspace.project.id, destination]);
 
   const [projectLifetime] = useState(() => new WorkspaceOperationLifetime());
   const registerRevocation = useCallback(
@@ -691,6 +733,7 @@ export function Shell({
                   requestGeneration={liveActivation.requestGeneration}
                   bridge={contextualBridge}
                   selection={selection}
+                  openExplanationId={openExplanationId}
                   active={destination === 'reader'}
                   onReturnToOrigin={(origin) => openOrigin(origin)}
                 />
@@ -704,8 +747,26 @@ export function Shell({
             view={canvasView}
             onViewChange={setCanvasView}
             onOpenOrigin={openOrigin}
+            onOpenRetainedExplanation={(input) => {
+              openRetainedExplanation(input);
+              openOrigin(input.origin);
+            }}
             onEditEntry={editEntry}
             onMove={moveRecord}
+            onPlaceExplanation={
+              contextualBridge
+                ? async (input) => {
+                    await contextualBridge.placeRetainedExplanation(input);
+                    setCanvasExplanationPlacements(
+                      await contextualBridge.listExplanationPlacements({
+                        projectId: input.projectId,
+                      }),
+                    );
+                  }
+                : undefined
+            }
+            retainedExplanations={canvasExplanations}
+            explanationPlacements={canvasExplanationPlacements}
             records={bridge}
             onWorkspace={onWorkspace}
             registerFlush={registerBoundCanvasFlush}
@@ -888,7 +949,10 @@ function contextualHelpFrom(
     typeof bridge.saveExplanationSceneState !== 'function' ||
     typeof bridge.loadExplanationSceneState !== 'function' ||
     typeof bridge.acceptSceneCapture !== 'function' ||
-    typeof bridge.loadTrustedSceneCapture !== 'function'
+    typeof bridge.loadTrustedSceneCapture !== 'function' ||
+    typeof bridge.openRetainedClipMedia !== 'function' ||
+    typeof bridge.placeRetainedExplanation !== 'function' ||
+    typeof bridge.listExplanationPlacements !== 'function'
   ) {
     return null;
   }
@@ -901,6 +965,9 @@ function contextualHelpFrom(
     loadExplanationSceneState: bridge.loadExplanationSceneState,
     acceptSceneCapture: bridge.acceptSceneCapture,
     loadTrustedSceneCapture: bridge.loadTrustedSceneCapture,
+    openRetainedClipMedia: bridge.openRetainedClipMedia,
+    placeRetainedExplanation: bridge.placeRetainedExplanation,
+    listExplanationPlacements: bridge.listExplanationPlacements,
   };
 }
 

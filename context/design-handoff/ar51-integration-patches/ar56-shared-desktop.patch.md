@@ -64,6 +64,14 @@ Add to `EXPECTED_TABLE_COLUMNS` (generated columns are omitted from sqlite `prag
     'capture_json',
     'measured_at',
   ],
+  explanation_canvas_placements: [
+    'explanation_id',
+    'project_id',
+    'view',
+    'x',
+    'y',
+    'updated_at',
+  ],
 ```
 
 Do **not** merge explanation Drizzle tables into `workspaceSchema`. Follow PracticalRecords: extra query mappings against the store-owned connection.
@@ -98,6 +106,9 @@ Additional names owned in `src/main/contextual-help-channels.ts`:
 - `learning:load-explanation-scene-state`
 - `learning:accept-scene-capture`
 - `learning:load-trusted-scene-capture`
+- `learning:open-retained-clip-media`
+- `learning:place-retained-explanation`
+- `learning:list-explanation-placements`
 
 Register them in `src/contracts/desktop.ts` (or a thin renderer-facing type) + preload + main. Renderer already types `ContextualHelpBridge` in `src/renderer/explanations/contextual-help-bridge.ts`.
 
@@ -126,6 +137,8 @@ On `revokeWorkspaceOperations` / sign-out / window close, `contextualHelp.revoke
 Register `CONTEXTUAL_HELP_CHANNELS.*` with the existing trusted `handle()` wrapper, including `loadScene` → `contextualHelp.loadScene`.
 Remove handlers on window closed.
 
+`cancel` must abort **and remove** the pending request. Main still permits only one in-flight explanation; if cancel only signals abort, a later selection can get a false `Another explanation request is already in progress.` The panel awaits that cancel before submitting the next origin.
+
 Pass a stable `ContextualHelpBridge` into `ContextualHelpPanel` (preload `window.appliedResearch` is fine). Do not allocate a new bridge object on every Shell render.
 
 Cookie stays in main. Do not expose `askTutor` for this path. Do not accept renderer-provided source/AI bodies.
@@ -151,6 +164,12 @@ acceptSceneCapture: (input) =>
   ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.capture, input),
 loadTrustedSceneCapture: (input) =>
   ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.loadCapture, input),
+openRetainedClipMedia: (input) =>
+  ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.openClip, input),
+placeRetainedExplanation: (input) =>
+  ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.place, input),
+listExplanationPlacements: (input) =>
+  ipcRenderer.invoke(CONTEXTUAL_HELP_CHANNELS.listPlacements, input),
 ```
 
 ## 7. `src/renderer/Shell.tsx`
@@ -163,7 +182,8 @@ Mount one controller/panel. Pass the existing Reader callback through. Quote is 
 import { ContextualHelpPanel } from './explanations/ContextualHelpPanel';
 import { useContextualSelection } from './explanations/contextual-help-controller';
 
-const { selection, explainSelection } = useContextualSelection();
+const { selection, openExplanationId, explainSelection } =
+  useContextualSelection();
 // generations: start at 1 / 0 after activate; main.activate returns them — thread if you expose that from SOURCE_CHANNELS.activate.
 
 <Reader
@@ -175,6 +195,7 @@ const { selection, explainSelection } = useContextualSelection();
       requestGeneration={requestGeneration}
       bridge={bridge}
       selection={selection}
+      openExplanationId={openExplanationId}
       active={destination === 'reader'}
       onReturnToOrigin={(origin) => reader.current?.openOrigin(origin)}
     />
@@ -192,4 +213,52 @@ Delete the production assertion that Reader always shows **Explore a two-link ar
 
 ## 9. Canvas artifact mapping (AR-49/AR-56)
 
-When Canvas opens a retained explanation origin, resolve `explanationId` / highlight / entry revision from SQLite via `load`/`list`. Do not invent a similarly worded current passage. Shared identity ≠ two WebGL runtimes.
+Producer: `projectRetainedExplanationToCanvas` / `explanationCanvasPlacement` plus SQLite `explanation_canvas_placements` (proposed **0008**). **Not Canvas-done until this patch is applied.** No `workspace_records` row. `authorKind: 'assistant'`. `activeRuntime: false`.
+
+Journal (after 0005/0006/0007). Root coordinates numbering if 0008 is taken:
+
+```json
+{
+  "idx": 8,
+  "version": "6",
+  "when": 1788952000000,
+  "tag": "0008_explanation_canvas_placements",
+  "breakpoints": true
+}
+```
+
+Copy `context/design-handoff/ar51-integration-patches/0008_explanation_canvas_placements.sql` to `drizzle/0008_explanation_canvas_placements.sql`. Add to `EXPECTED_TABLE_COLUMNS`:
+
+```ts
+explanation_canvas_placements: [
+  'explanation_id',
+  'project_id',
+  'view',
+  'x',
+  'y',
+  'updated_at',
+],
+```
+
+Main operations (already on ContextualHelpOperations):
+
+- `placeExplanation({ projectId, explanationId, view, x, y })`
+- `listPlacements({ projectId })`
+- `load({ projectId, explanationId })` — reopen without a new highlight or paid request
+
+Register:
+
+- `learning:place-retained-explanation`
+- `learning:list-explanation-placements`
+
+Read-model: union `listPlacements` with `projectRetainedExplanationToCanvas(load(explanationId))`. `moveLearningRecord` must not relabel an explanation as a note. Open Canvas card → `openRetainedExplanation({ explanationId, intent, origin, quote })` on the existing panel.
+
+Only the active surface (`destination === 'reader'` today) passes `active` into `RetainedScene`. Canvas cards stay `activeRuntime: false`.
+
+## 10. AR-54 clip player (opaque media only)
+
+Panel mounts `RetainedClipPlayer` when the useful result is `{ kind: 'clip' }`. Main `openClip` returns `{ status: 'ready', objectUrl: 'ar-media://clip/<uuid>' }` or missing/corrupt/unauthorized. Renderer never receives paths, `file:` URLs, https CDNs, or account ids.
+
+Register `learning:open-retained-clip-media`. Wire `openRetainedClip` to AR-54 `RetainedMediaStore.objectUrl` after `registerRetainedMediaScheme` / `installRetainedMediaProtocol` (AR-54 patch). Default without that store is `{ status: 'missing' }` — do **not** invent `{ kind: 'ready' }` from `requestClip`.
+
+Shell `access.open(mediaId)` → `bridge.openRetainedClipMedia({ projectId, artifactId: mediaId })`. Pass `openExplanationId` from `useContextualSelection()`.

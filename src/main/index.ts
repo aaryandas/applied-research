@@ -100,6 +100,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let store: WorkspaceStore;
+let retainedMedia: RetainedMediaStore | null = null;
 let mainWindow: BrowserWindow | null = null;
 const developmentTutorEnabled =
   !app.isPackaged &&
@@ -317,6 +318,13 @@ async function createWindow(): Promise<void> {
           : '',
     }),
     testEnvironment: desktopTestEnvironment,
+    openRetainedClip: async (artifactId) => {
+      const media = retainedMedia;
+      if (!media) return { status: 'missing' };
+      const record = await media.readRecord(artifactId);
+      if (record.status !== 'ready') return { status: record.status };
+      return { status: 'ready', objectUrl: media.objectUrl(artifactId) };
+    },
   });
   const revokeWorkspaceOperations = (): void => {
     sourceOperations.revoke();
@@ -451,6 +459,15 @@ async function createWindow(): Promise<void> {
   );
   handle(CONTEXTUAL_HELP_CHANNELS.loadCapture, (value) =>
     contextualHelp.loadCapture(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.openClip, (value) =>
+    contextualHelp.openClip(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.place, (value) =>
+    contextualHelp.placeExplanation(value),
+  );
+  handle(CONTEXTUAL_HELP_CHANNELS.listPlacements, (value) =>
+    contextualHelp.listPlacements(value),
   );
   handle(RECORD_PRACTICAL_RESULT_CHANNEL, (value) =>
     practicalOperations.recordPracticalResult(value),
@@ -718,10 +735,10 @@ async function startApplication(): Promise<void> {
     }
     await app.whenReady();
     mkdirSync(app.getPath('userData'), { recursive: true });
-    installRetainedMediaProtocol(
-      protocol,
-      new RetainedMediaStore(join(app.getPath('userData'), 'retained-media')),
+    retainedMedia = new RetainedMediaStore(
+      join(app.getPath('userData'), 'retained-media'),
     );
+    installRetainedMediaProtocol(protocol, retainedMedia);
     try {
       store = new WorkspaceStore(
         join(app.getPath('userData'), 'workspace.sqlite'),

@@ -650,5 +650,14 @@ describe('contextual help named channels', () => {
     expect(CONTEXTUAL_HELP_CHANNELS.loadScene).toBe(
       'learning:load-explanation-scene-state',
     );
+    expect(CONTEXTUAL_HELP_CHANNELS.openClip).toBe(
+      'learning:open-retained-clip-media',
+    );
+    expect(CONTEXTUAL_HELP_CHANNELS.place).toBe(
+      'learning:place-retained-explanation',
+    );
+    expect(CONTEXTUAL_HELP_CHANNELS.listPlacements).toBe(
+      'learning:list-explanation-placements',
+    );
   });
 });

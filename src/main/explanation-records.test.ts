@@ -208,6 +208,32 @@ describe('explanation records', () => {
     ).toBe('visual');
   });
 
+  it('stores a durable explanation placement without a workspace_records row', () => {
+    const harness = openExplanationHarness();
+    cleanups.push(() => harness.close());
+    const stored = explanation(harness);
+    harness.records.saveExplanation(stored, new Map());
+    const placed = harness.records.savePlacement(harness.projectId, {
+      kind: 'retained-explanation-placement',
+      explanationId: stored.explanationId,
+      projectId: harness.projectId,
+      view: 'expanded',
+      x: 120,
+      y: 80,
+    });
+    expect(placed).toMatchObject({
+      kind: 'retained-explanation-placement',
+      explanationId: stored.explanationId,
+      view: 'expanded',
+      x: 120,
+      y: 80,
+    });
+    expect(harness.records.listPlacements(harness.projectId)).toEqual([placed]);
+    expect(
+      harness.records.listPlacements(harness.projectId)[0],
+    ).not.toMatchObject({ kind: 'note' });
+  });
+
   it('reopens the production store on the same path without re-running 0006', () => {
     const harness = openExplanationHarness();
     cleanups.push(() => harness.close());

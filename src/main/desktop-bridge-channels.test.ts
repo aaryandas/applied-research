@@ -32,7 +32,7 @@ describe('named desktop bridge mapping', () => {
     });
   });
 
-  it('binds the eight contextual help operations including trusted capture load', () => {
+  it('binds the eleven contextual help operations including clip media and placements', () => {
     expect(CONTEXTUAL_HELP_BRIDGE_CHANNELS).toEqual({
       requestContextualHelp: CONTEXTUAL_HELP_CHANNELS.request,
       cancelContextualHelp: CONTEXTUAL_HELP_CHANNELS.cancel,
@@ -42,7 +42,10 @@ describe('named desktop bridge mapping', () => {
       loadExplanationSceneState: CONTEXTUAL_HELP_CHANNELS.loadScene,
       acceptSceneCapture: CONTEXTUAL_HELP_CHANNELS.capture,
       loadTrustedSceneCapture: CONTEXTUAL_HELP_CHANNELS.loadCapture,
+      openRetainedClipMedia: CONTEXTUAL_HELP_CHANNELS.openClip,
+      placeRetainedExplanation: CONTEXTUAL_HELP_CHANNELS.place,
+      listExplanationPlacements: CONTEXTUAL_HELP_CHANNELS.listPlacements,
     });
-    expect(SHARED_DESKTOP_OPERATION_CHANNELS).toHaveLength(23);
+    expect(SHARED_DESKTOP_OPERATION_CHANNELS).toHaveLength(26);
   });
 });

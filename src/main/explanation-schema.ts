@@ -1,5 +1,7 @@
 import {
   integer,
+  primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -78,4 +80,18 @@ export const trustedSceneCaptures = sqliteTable(
       table.captureId,
     ),
   ],
+);
+
+/** Query mapping; drizzle/0008_explanation_canvas_placements.sql is authoritative. */
+export const explanationCanvasPlacements = sqliteTable(
+  'explanation_canvas_placements',
+  {
+    explanationId: text('explanation_id').notNull(),
+    projectId: text('project_id').notNull(),
+    view: text('view').notNull(),
+    x: real('x').notNull(),
+    y: real('y').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.explanationId, table.view] })],
 );

@@ -18,7 +18,22 @@ export const CONTEXTUAL_HELP_CHANNELS = {
   loadScene: 'learning:load-explanation-scene-state',
   capture: 'learning:accept-scene-capture',
   loadCapture: 'learning:load-trusted-scene-capture',
+  openClip: 'learning:open-retained-clip-media',
+  place: 'learning:place-retained-explanation',
+  listPlacements: 'learning:list-explanation-placements',
 } as const;
+
+export type OpenRetainedClipResult =
+  | { readonly status: 'ready'; readonly objectUrl: string }
+  | { readonly status: 'missing' | 'corrupt' | 'unauthorized' };
+
+export interface RetainedExplanationPlacementInput {
+  projectId: string;
+  explanationId: string;
+  view: 'distilled' | 'expanded';
+  x: number;
+  y: number;
+}
 
 export interface ContextualHelpBridge {
   requestContextualHelp(input: ContextualHelpRequest): Promise<unknown>;
@@ -50,4 +65,28 @@ export interface ContextualHelpBridge {
     projectId: string;
     captureId: string;
   }): Promise<TrustedSceneCapture | null>;
+  openRetainedClipMedia(input: {
+    projectId: string;
+    artifactId: string;
+  }): Promise<OpenRetainedClipResult>;
+  placeRetainedExplanation(
+    input: RetainedExplanationPlacementInput,
+  ): Promise<{
+    kind: 'retained-explanation-placement';
+    explanationId: string;
+    projectId: string;
+    view: 'distilled' | 'expanded';
+    x: number;
+    y: number;
+  }>;
+  listExplanationPlacements(input: { projectId: string }): Promise<
+    ReadonlyArray<{
+      kind: 'retained-explanation-placement';
+      explanationId: string;
+      projectId: string;
+      view: 'distilled' | 'expanded';
+      x: number;
+      y: number;
+    }>
+  >;
 }

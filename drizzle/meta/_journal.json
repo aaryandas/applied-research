@@ -57,6 +57,13 @@
       "when": 1788951600000,
       "tag": "0007_entry_origins",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788955200000,
+      "tag": "0008_explanation_canvas_placements",
+      "breakpoints": true
     }
   ]
 }

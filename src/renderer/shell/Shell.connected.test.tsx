@@ -152,6 +152,12 @@ async function shellBridge(
     loadExplanationSceneState: vi.fn(async () => null),
     acceptSceneCapture: vi.fn(),
     loadTrustedSceneCapture: vi.fn(async () => null),
+    openRetainedClipMedia: vi.fn(async () => ({ status: 'missing' as const })),
+    placeRetainedExplanation: vi.fn(async (input) => ({
+      kind: 'retained-explanation-placement' as const,
+      ...input,
+    })),
+    listExplanationPlacements: vi.fn(async () => []),
   };
   return {
     bridge,
