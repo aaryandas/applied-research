@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { Event } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { DESKTOP_AUTH_CALLBACK } from '../contracts/desktop-auth';
@@ -66,7 +67,7 @@ describe('desktop auth protocol', () => {
     expect(fake.setAsDefaultProtocolClient).toHaveBeenCalledWith(
       'com.aaryandas.appliedresearch',
       '/Electron',
-      [expect.stringContaining('out/main/index.js')],
+      [resolve('./out/main/index.js')],
     );
 
     const openUrl = fake.listeners.get('open-url') as
