@@ -8,6 +8,10 @@ import type {
 } from '../../contracts/learning-api.js';
 import { LEARNING_API_VERSION } from '../../contracts/learning-api.js';
 import type { ExplanationPlan } from './plan-decode.js';
+import type {
+  PlannerRenderContext,
+  PlannerRenderReceipt,
+} from './render-context.js';
 
 export const EXPLANATION_PLANNER_KIND = 'explanation-planner' as const;
 export const EXPLANATION_PLANNER_PROMPT_VERSION =
@@ -26,6 +30,7 @@ export interface ExplanationPlannerRequest {
   requestId: string;
   model: LearningModel;
   operation: ExplanationPlannerOperation;
+  renderContext?: PlannerRenderContext;
 }
 
 export interface ExplanationPlanSuccess {
@@ -34,6 +39,7 @@ export interface ExplanationPlanSuccess {
   plan: ExplanationPlan;
   provenance: AiProvenance;
   quota: MonthlyQuota;
+  renderReceipt?: PlannerRenderReceipt;
 }
 
 export type ExplanationPlanHttpResponse =

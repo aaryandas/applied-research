@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LEARNING_API_VERSION } from '../../contracts/learning-api.js';
 import { decodePlannerHttpResponse } from './response-decode.js';
+import { RENDER_RECEIPT_VERSION } from './render-context.js';
 
 const requestId = '11000000-0000-4000-8000-000000000001';
 const createdAt = '2026-09-09T08:00:00.000Z';
@@ -66,6 +67,113 @@ describe('decodePlannerHttpResponse', () => {
         requestId,
       ).ok,
     ).toBe(false);
+  });
+
+  it('accepts legacy success without a receipt and a versioned clip receipt together', () => {
+    const origin = {
+      sourceRevisionId: '20000000-0000-4000-8000-000000000001',
+      path: {
+        pathId: '30000000-0000-4000-8000-000000000001',
+        pathRevision: 1,
+        topicId: '40000000-0000-4000-8000-000000000001',
+        lessonId: '50000000-0000-4000-8000-000000000001',
+      },
+    };
+    const clipPlan = {
+      status: 'supported',
+      family: 'weighted-combination',
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ],
+        weights: [3, 1],
+        labels: ['First vector', 'Second vector'],
+      },
+      stages: [{ name: 'Combine', seconds: 2 }],
+      caption: 'Weighted sum of two vectors',
+      copy: {
+        role: 'untrusted-display-copy',
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption',
+        note: 'Shown for the cited passage.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy',
+        text: 'Shows a weighted combination.',
+      },
+    };
+    expect(
+      decodePlannerHttpResponse(
+        {
+          outcome: 'success',
+          requestId,
+          plan: clipPlan,
+          provenance,
+          quota,
+        },
+        requestId,
+      ).ok,
+    ).toBe(true);
+    const withReceipt = decodePlannerHttpResponse(
+      {
+        outcome: 'success',
+        requestId,
+        plan: clipPlan,
+        provenance,
+        quota,
+        renderReceipt: {
+          version: RENDER_RECEIPT_VERSION,
+          plannerRequestId: requestId,
+          projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          origin,
+          sourceLocators: provenance.sourceRevisions,
+          family: 'weighted-combination',
+        },
+      },
+      requestId,
+    );
+    expect(withReceipt.ok).toBe(true);
+    if (!withReceipt.ok) return;
+    expect(withReceipt.value).toMatchObject({
+      outcome: 'success',
+      renderReceipt: { plannerRequestId: requestId },
+    });
+    const highlightReceipt = decodePlannerHttpResponse(
+      {
+        outcome: 'success',
+        requestId,
+        plan: clipPlan,
+        provenance,
+        quota,
+        renderReceipt: {
+          version: RENDER_RECEIPT_VERSION,
+          plannerRequestId: requestId,
+          projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          origin: {
+            sourceRevisionId: origin.sourceRevisionId,
+            highlightId: '99999999-9999-4999-8999-999999999999',
+          },
+          sourceLocators: provenance.sourceRevisions,
+          family: 'weighted-combination',
+        },
+      },
+      requestId,
+    );
+    expect(highlightReceipt.ok).toBe(true);
+    if (!highlightReceipt.ok) return;
+    expect(highlightReceipt.value).toMatchObject({
+      outcome: 'success',
+      renderReceipt: {
+        origin: {
+          sourceRevisionId: origin.sourceRevisionId,
+          highlightId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    });
   });
 
   it('classifies non-success planner outcomes', () => {

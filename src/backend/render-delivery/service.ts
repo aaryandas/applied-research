@@ -1,15 +1,13 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AuthenticatedAccount } from '../auth.js';
 import { exactKeys, isRecord, isSha256, isUuid } from './identity.js';
 import type { ArtifactStore } from './artifact-store.js';
 import { newMediaId } from './artifact-store.js';
 import {
-  MAX_RECIPE_JSON_CHARACTERS,
-  MAX_RENDER_REQUEST_BYTES,
   MAX_RETAINED_CLIP_BYTES,
+  type ApprovedRecipeReader,
   type ClipOrigin,
   type EngineArtifact,
-  type OriginOwnership,
   type PublicRenderJob,
   type PublicRetainedClip,
   type RenderEngine,
@@ -44,6 +42,7 @@ interface JobRecord {
   readonly requestId: string;
   readonly attemptId: string;
   readonly previousMediaId: string | null;
+  readonly grantFingerprint: string;
   status: RenderJobStatus;
   mediaId: string | null;
   clip: PublicRetainedClip | null;
@@ -78,20 +77,20 @@ function failed(
 }
 
 function parseSubmit(body: unknown):
-  | { ok: true; requestId: string; recipeJson: string }
+  | { ok: true; requestId: string }
   | {
       ok: false;
       requestId: string | null;
       reason: RenderFailureReason;
       message: string;
     } {
-  if (!isRecord(body) || !exactKeys(body, ['requestId', 'recipeJson'])) {
+  if (!isRecord(body) || !exactKeys(body, ['requestId'])) {
     return {
       ok: false,
       requestId:
         isRecord(body) && isUuid(body.requestId) ? body.requestId : null,
       reason: 'invalid-request',
-      message: 'Render requests must include requestId and recipeJson only.',
+      message: 'Render requests must include requestId only.',
     };
   }
   if (!isUuid(body.requestId)) {
@@ -102,20 +101,13 @@ function parseSubmit(body: unknown):
       message: 'requestId must be a UUID.',
     };
   }
-  if (
-    typeof body.recipeJson !== 'string' ||
-    body.recipeJson.length === 0 ||
-    body.recipeJson.length > MAX_RECIPE_JSON_CHARACTERS ||
-    Buffer.byteLength(body.recipeJson) > MAX_RENDER_REQUEST_BYTES
-  ) {
-    return {
-      ok: false,
-      requestId: body.requestId,
-      reason: 'invalid-request',
-      message: 'recipeJson must be a bounded JSON string.',
-    };
-  }
-  return { ok: true, requestId: body.requestId, recipeJson: body.recipeJson };
+  return { ok: true, requestId: body.requestId };
+}
+
+function grantFingerprint(recipeJson: string, origin: ClipOrigin): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ recipeJson, origin }))
+    .digest('hex');
 }
 
 function publicClip(
@@ -150,50 +142,6 @@ function publicClip(
       verifyMs: artifact.timings.verifyMs,
       transferMs,
     },
-  };
-}
-
-function nullableUuid(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  return isUuid(value) ? value : undefined;
-}
-
-function originFromRecipeJson(json: string): ClipOrigin | null | undefined {
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return undefined;
-  }
-  if (!isRecord(value) || !('origin' in value)) return undefined;
-  if (value.origin === null) return null;
-  if (
-    !isRecord(value.origin) ||
-    !exactKeys(value.origin, [
-      'projectId',
-      'sourceVersionId',
-      'questionId',
-      'lessonId',
-    ]) ||
-    !isUuid(value.origin.projectId)
-  ) {
-    return undefined;
-  }
-  const sourceVersionId = nullableUuid(value.origin.sourceVersionId);
-  const questionId = nullableUuid(value.origin.questionId);
-  const lessonId = nullableUuid(value.origin.lessonId);
-  if (
-    sourceVersionId === undefined ||
-    questionId === undefined ||
-    lessonId === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    projectId: value.origin.projectId,
-    sourceVersionId,
-    questionId,
-    lessonId,
   };
 }
 
@@ -344,14 +292,49 @@ async function retainVerifiedSuccess(
   return snapshot(job);
 }
 
+export function createUnconfiguredRenderDelivery(): RenderDeliveryService {
+  return {
+    async submit(_account, body) {
+      return {
+        requestId:
+          isRecord(body) && isUuid(body.requestId)
+            ? body.requestId
+            : randomUUID(),
+        attemptId: randomUUID(),
+        status: 'failed',
+        mediaId: null,
+        clip: null,
+        previousMediaId: null,
+        failure: {
+          reason: 'unavailable',
+          retryable: false,
+          message: 'Remote render host configuration is not present.',
+        },
+      };
+    },
+    async status() {
+      return null;
+    },
+    async cancel() {
+      return null;
+    },
+    async openArtifact() {
+      return null;
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
+
 export function createRenderDeliveryService(options: {
   engine: RenderEngine;
   store: ArtifactStore;
-  originOwnership: OriginOwnership;
-  allowUnboundOrigin?: boolean;
+  resolveApprovedRecipe: ApprovedRecipeReader;
 }): RenderDeliveryService {
   const jobs = new Map<string, JobRecord>();
   const inFlight = new Set<string>();
+  const pendingSubmits = new Map<string, Promise<PublicRenderJob>>();
   let closed = false;
 
   function latestReady(accountId: string): string | null {
@@ -383,6 +366,11 @@ export function createRenderDeliveryService(options: {
       const outcome = await options.engine.render(
         recipeJson,
         job.controller.signal,
+        {
+          accountId: job.accountId,
+          requestId: job.requestId,
+          attemptId: job.attemptId,
+        },
       );
       if (job.controller.signal.aborted || closed) {
         if (outcome.status === 'succeeded') {
@@ -421,6 +409,98 @@ export function createRenderDeliveryService(options: {
     }
   }
 
+  async function admitSubmit(
+    account: AuthenticatedAccount,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<PublicRenderJob> {
+    const existing = jobs.get(jobKey(account.id, requestId));
+    if (
+      existing &&
+      (existing.status === 'queued' ||
+        existing.status === 'rendering' ||
+        existing.status === 'verifying')
+    ) {
+      return existing.completion;
+    }
+    const grant = await options.resolveApprovedRecipe(account.id, requestId);
+    if (!grant.ok) {
+      return {
+        requestId,
+        attemptId: randomUUID(),
+        status: grant.reason === 'cancelled' ? 'cancelled' : 'failed',
+        mediaId: null,
+        clip: null,
+        previousMediaId: latestReady(account.id),
+        failure: {
+          reason: grant.reason,
+          retryable: false,
+          message: grant.message,
+        },
+      };
+    }
+    const fingerprint = grantFingerprint(grant.recipeJson, grant.origin);
+    const retained = jobs.get(jobKey(account.id, requestId));
+    if (retained) {
+      if (retained.grantFingerprint !== fingerprint) {
+        return {
+          requestId,
+          attemptId: randomUUID(),
+          status: 'failed',
+          mediaId: null,
+          clip: null,
+          previousMediaId: retained.mediaId,
+          failure: {
+            reason: 'conflict',
+            retryable: false,
+            message: 'The retained render does not match the approved origin.',
+          },
+        };
+      }
+      return retained.completion;
+    }
+    if (inFlight.has(account.id)) {
+      return {
+        requestId,
+        attemptId: randomUUID(),
+        status: 'failed',
+        mediaId: null,
+        clip: null,
+        previousMediaId: latestReady(account.id),
+        failure: {
+          reason: 'capacity',
+          retryable: true,
+          message: 'This account already has an active render.',
+        },
+      };
+    }
+    const job: JobRecord = {
+      accountId: account.id,
+      requestId,
+      attemptId: randomUUID(),
+      previousMediaId: latestReady(account.id),
+      grantFingerprint: fingerprint,
+      status: 'queued',
+      mediaId: null,
+      clip: null,
+      failure: null,
+      controller: new AbortController(),
+      completion: Promise.resolve({
+        requestId,
+        attemptId: '',
+        status: 'queued',
+        mediaId: null,
+        clip: null,
+        previousMediaId: null,
+        failure: null,
+      }),
+    };
+    inFlight.add(account.id);
+    jobs.set(jobKey(account.id, requestId), job);
+    job.completion = runJob(job, grant.recipeJson, grant.origin, signal);
+    return job.completion;
+  }
+
   return {
     async submit(account, body, signal) {
       if (closed) {
@@ -457,92 +537,17 @@ export function createRenderDeliveryService(options: {
           },
         };
       }
-      const existing = jobs.get(jobKey(account.id, parsed.requestId));
-      if (existing) return existing.completion;
-      if (inFlight.has(account.id)) {
-        return {
-          requestId: parsed.requestId,
-          attemptId: randomUUID(),
-          status: 'failed',
-          mediaId: null,
-          clip: null,
-          previousMediaId: latestReady(account.id),
-          failure: {
-            reason: 'capacity',
-            retryable: true,
-            message: 'This account already has an active render.',
-          },
-        };
-      }
-      const origin = originFromRecipeJson(parsed.recipeJson);
-      if (origin === undefined) {
-        return {
-          requestId: parsed.requestId,
-          attemptId: randomUUID(),
-          status: 'failed',
-          mediaId: null,
-          clip: null,
-          previousMediaId: latestReady(account.id),
-          failure: {
-            reason: 'invalid-request',
-            message: 'The recipe origin is not a valid project reference.',
-            retryable: false,
-          },
-        };
-      }
-      if (origin === null && options.allowUnboundOrigin !== true) {
-        return {
-          requestId: parsed.requestId,
-          attemptId: randomUUID(),
-          status: 'failed',
-          mediaId: null,
-          clip: null,
-          previousMediaId: latestReady(account.id),
-          failure: {
-            reason: 'invalid-request',
-            message: 'Production renders require an owned project origin.',
-            retryable: false,
-          },
-        };
-      }
-      const job: JobRecord = {
-        accountId: account.id,
-        requestId: parsed.requestId,
-        attemptId: randomUUID(),
-        previousMediaId: latestReady(account.id),
-        status: 'queued',
-        mediaId: null,
-        clip: null,
-        failure: null,
-        controller: new AbortController(),
-        completion: Promise.resolve({
-          requestId: parsed.requestId,
-          attemptId: '',
-          status: 'queued',
-          mediaId: null,
-          clip: null,
-          previousMediaId: null,
-          failure: null,
-        }),
-      };
-      inFlight.add(account.id);
-      jobs.set(jobKey(account.id, parsed.requestId), job);
-      job.completion = (async () => {
-        if (
-          origin !== null &&
-          !(await options.originOwnership.assertOwned(account.id, origin))
-        ) {
-          inFlight.delete(account.id);
-          return failed(
-            job,
-            'not-found',
-            'The referenced origin is not owned by this account.',
-            false,
-          );
+      const submitKey = jobKey(account.id, parsed.requestId);
+      const pending = pendingSubmits.get(submitKey);
+      if (pending) return pending;
+      const work = admitSubmit(account, parsed.requestId, signal);
+      const tracked = work.finally(() => {
+        if (pendingSubmits.get(submitKey) === tracked) {
+          pendingSubmits.delete(submitKey);
         }
-        return runJob(job, parsed.recipeJson, origin, signal);
-      })();
-      return job.completion;
+      });
+      pendingSubmits.set(submitKey, tracked);
+      return tracked;
     },
     async status(account, requestId) {
       if (!isUuid(requestId)) return null;

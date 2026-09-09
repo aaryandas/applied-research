@@ -33,6 +33,7 @@ import {
   type ExplanationPlanHttpResponse,
   type ExplanationPlannerRequest,
 } from './types.js';
+import { constructRenderReceipt } from './render-context.js';
 
 const PRICING_FRESHNESS_DAYS = 30;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
@@ -105,6 +106,13 @@ function successResponse(
   quota: MonthlyQuota,
   now: Date,
 ): ExplanationPlanHttpResponse {
+  const locators = sourceLocators(request);
+  const renderReceipt = constructRenderReceipt({
+    requestId: request.requestId,
+    renderContext: request.renderContext,
+    plan: completion.plan,
+    sourceLocators: locators,
+  });
   return {
     outcome: 'success',
     requestId: request.requestId,
@@ -116,10 +124,11 @@ function successResponse(
       promptVersion: EXPLANATION_PLANNER_PROMPT_VERSION,
       requestVersion: request.apiVersion,
       createdAt: now.toISOString(),
-      sourceRevisions: sourceLocators(request),
+      sourceRevisions: locators,
       author: 'ai',
     },
     quota,
+    ...(renderReceipt === undefined ? {} : { renderReceipt }),
   };
 }
 

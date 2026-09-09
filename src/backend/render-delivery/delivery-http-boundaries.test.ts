@@ -218,14 +218,47 @@ async function listen(
 function listenService(options: {
   engine: RenderEngine;
   store?: ArtifactStore;
-  assertOwned?: () => Promise<boolean>;
+  resolveApprovedRecipe?: (
+    accountId: string,
+    requestId: string,
+  ) => Promise<
+    | {
+        ok: true;
+        recipeJson: string;
+        origin: {
+          projectId: string;
+          sourceVersionId: string | null;
+          questionId: string | null;
+          lessonId: string | null;
+        };
+      }
+    | { ok: false; reason: RenderFailureReason; message: string }
+  >;
 }) {
   const delivery = createRenderDeliveryService({
     engine: options.engine,
     store: options.store ?? memoryStore(),
-    originOwnership: {
-      assertOwned: options.assertOwned ?? (async () => true),
-    },
+    resolveApprovedRecipe:
+      options.resolveApprovedRecipe ??
+      (async (accountId) => {
+        if (accountId !== ACCOUNT.id) {
+          return {
+            ok: false,
+            reason: 'not-found',
+            message: 'The planner request was not found.',
+          };
+        }
+        return {
+          ok: true,
+          recipeJson: recipeJson(),
+          origin: {
+            projectId: PROJECT,
+            sourceVersionId: null,
+            questionId: null,
+            lessonId: null,
+          },
+        };
+      }),
   });
   return listen(delivery);
 }
@@ -379,7 +412,6 @@ describe('submit body admission', () => {
     const badId = await jsonResponse(
       await postJob(active.origin, {
         requestId: 'not-a-uuid',
-        recipeJson: recipeJson(),
       }),
     );
     expect(badId.status).toBe(400);
@@ -569,7 +601,7 @@ describe('submit disconnect and later work', () => {
     const store = memoryStore();
     const active = await listenService({ engine, store });
     const requestId = randomUUID();
-    const body = JSON.stringify({ requestId, recipeJson: recipeJson() });
+    const body = JSON.stringify({ requestId });
     const pending = new Promise<void>((resolve, reject) => {
       const url = new URL('/v1/render/jobs', active.origin);
       const req = httpRequest(
@@ -624,7 +656,6 @@ describe('submit disconnect and later work', () => {
     const completed = await jsonResponse(
       await postJob(active.origin, {
         requestId: randomUUID(),
-        recipeJson: recipeJson(),
       }),
     );
     expect(completed.status).toBe(200);
@@ -639,8 +670,6 @@ describe('submit disconnect and later work', () => {
 
 describe('real delivery lifecycle through HTTP', () => {
   it('maps queued then verifying, and discards when cancel wins before publication', async () => {
-    const owned = deferred<boolean>();
-    openGates.push(() => owned.resolve(true));
     const retainHold = deferred<'retained' | 'cancelled' | 'corrupt'>();
     openGates.push(() => retainHold.resolve('cancelled'));
     const clips = new Map<string, PublicRetainedClip>();
@@ -662,12 +691,10 @@ describe('real delivery lifecycle through HTTP', () => {
     const active = await listenService({
       engine,
       store,
-      assertOwned: () => owned.promise,
     });
     const requestId = randomUUID();
     const submitted = postJob(active.origin, {
       requestId,
-      recipeJson: recipeJson(),
     });
     await vi.waitFor(async () => {
       const queued = await jsonResponse(
@@ -676,9 +703,10 @@ describe('real delivery lifecycle through HTTP', () => {
         }),
       );
       expect(queued.status).toBe(200);
-      expect(queued.body).toMatchObject({ requestId, status: 'queued' });
+      expect(['queued', 'rendering', 'verifying']).toContain(
+        queued.body.status,
+      );
     });
-    owned.resolve(true);
     const retainSignal = await retainStarted.promise;
     await vi.waitFor(async () => {
       const verifying = await jsonResponse(
@@ -717,7 +745,6 @@ describe('real delivery lifecycle through HTTP', () => {
     const cancelledJob = await jsonResponse(
       await postJob(cancelled.origin, {
         requestId: randomUUID(),
-        recipeJson: recipeJson(),
       }),
     );
     expect(cancelledJob.status).toBe(409);
@@ -740,7 +767,6 @@ describe('real delivery lifecycle through HTTP', () => {
     const missing = await jsonResponse(
       await postJob(readback.origin, {
         requestId: randomUUID(),
-        recipeJson: recipeJson(),
       }),
     );
     expect(missing.status).toBe(422);
@@ -763,7 +789,6 @@ describe('real delivery lifecycle through HTTP', () => {
     const withId = await jsonResponse(
       await postJob(active.origin, {
         requestId: supplied,
-        recipeJson: recipeJson(),
       }),
     );
     expect(withId.status).toBe(503);

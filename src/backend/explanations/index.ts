@@ -28,3 +28,23 @@ export {
 export type { PlannerAccountingStore } from './planner-accounting.js';
 export type { GenerationEvalLedger } from './generation-eval.js';
 export { decodePlannerHttpResponse } from './response-decode.js';
+export {
+  CLIP_RENDER_FAMILIES,
+  RENDER_RECEIPT_VERSION,
+  citedSourcesAreAdmitted,
+  constructRenderReceipt,
+  decodePlannerRenderContext,
+  decodePlannerRenderReceipt,
+  originRevisionIsAdmitted,
+} from './render-context.js';
+export {
+  interpretStoredPlannerGrant,
+  makePostgresApprovedRecipeReader,
+} from './approved-recipe.js';
+export { installedRecipeJsonFromPlan } from './installed-recipe.js';
+export type {
+  ClipRenderFamily,
+  PlannerRenderContext,
+  PlannerRenderOrigin,
+  PlannerRenderReceipt,
+} from './render-context.js';

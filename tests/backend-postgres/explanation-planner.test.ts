@@ -177,6 +177,7 @@ describe('PostgreSQL explanation planner join', () => {
     expect(first.outcome).toBe('success');
     expect(physicalCalls).toBe(1);
     if (first.outcome === 'success') {
+      expect(first.renderReceipt).toBeUndefined();
       expect(first.plan).toMatchObject({
         status: 'supported',
         family: 'weighted-combination',

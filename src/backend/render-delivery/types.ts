@@ -24,7 +24,8 @@ export type RenderFailureReason =
   | 'output-limit'
   | 'artifact'
   | 'cleanup'
-  | 'unavailable';
+  | 'unavailable'
+  | 'conflict';
 
 export interface ClipRendererIdentity {
   readonly name: 'manim-community';
@@ -129,8 +130,18 @@ export type RenderEngineOutcome =
       >;
     };
 
+export interface RenderExecutionContext {
+  readonly accountId: string;
+  readonly requestId: string;
+  readonly attemptId: string;
+}
+
 export interface RenderEngine {
-  render(json: string, signal?: AbortSignal): Promise<RenderEngineOutcome>;
+  render(
+    json: string,
+    signal?: AbortSignal,
+    context?: RenderExecutionContext,
+  ): Promise<RenderEngineOutcome>;
   release(jobId: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -138,3 +149,20 @@ export interface RenderEngine {
 export interface OriginOwnership {
   assertOwned(accountId: string, origin: ClipOrigin): Promise<boolean>;
 }
+
+export type ApprovedRenderLookup =
+  | {
+      readonly ok: true;
+      readonly recipeJson: string;
+      readonly origin: ClipOrigin;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: RenderFailureReason;
+      readonly message: string;
+    };
+
+export type ApprovedRecipeReader = (
+  accountId: string,
+  requestId: string,
+) => Promise<ApprovedRenderLookup>;

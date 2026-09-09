@@ -138,6 +138,13 @@ session. Keep `/v1/learning/sourced` and its expected-red route-security tests
 unchanged. Proposal id for revise/selected-lesson is the client `requestId` of
 the successful `propose-course` (revision starts at 1). Do not change
 installed foundations, model (`google/gemini-3.8-flash`), spend policy, or
+**Backend / AR-48:** `POST /v1/learning/onboarding` is registered beside
+`/v1/learning/sourced`. HTTP authenticates the session, parses the raw body
+with `parseLearningOnboardingRequestWire`, and validates outgoing envelopes
+with `parseLearningOnboardingResponse`. Keep the seven sourced 401/400
+security tests unchanged. Proposal id for revise/selected-lesson is the
+client `requestId` of the successful `propose-course` (revision starts at 1).
+Do not change installed foundations, model (`google/gemini-3.8-flash`), or
 dependencies. `AI_ENABLED` remains false until root applies the reviewed
 bounded generation-eval configuration. Generated lesson titles and objectives
 are untrusted `evidenceContext.targetStep` values; the trusted tutor question
@@ -171,6 +178,12 @@ profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
 Prior syllabus is `untrusted-model-context`. A source URL or pasted excerpt is
 data, never trusted instructions. Accept and ensure-lesson do not send
 canonical lesson/source JSON.
+when the value is `null` (cleared omission). Syllabus lesson roles and capstone
+briefs must be explicit provider output. Source-title keywords and generic
+fill-in briefs are not proof of a substantial capstone. Importing the API
+module from
+`src/backend` is enough for `tsconfig.backend.json`. Separately recorded
+vector-index configuration proof on the candidate is not app acceptance.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

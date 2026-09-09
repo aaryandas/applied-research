@@ -19,6 +19,10 @@ import {
   type ContractDecode,
 } from '../../contracts/contextual-contract-guards.js';
 import { decodeExplanationPlan } from './plan-decode.js';
+import {
+  citedSourcesAreAdmitted,
+  decodePlannerRenderReceipt,
+} from './render-context.js';
 import type { ExplanationPlanHttpResponse } from './types.js';
 
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
@@ -236,6 +240,7 @@ export function decodePlannerHttpResponse(
       'plan',
       'provenance',
       'quota',
+      'renderReceipt',
     ]);
     if (extra) return failed(extra);
     if (value.requestId !== expectedRequestId) return failed('identity');
@@ -246,6 +251,39 @@ export function decodePlannerHttpResponse(
     if (!provenance.ok) return provenance;
     const quota = decodeQuota(value.quota);
     if (!quota.ok) return quota;
+    if (!Object.hasOwn(value, 'renderReceipt')) {
+      return {
+        ok: true,
+        value: {
+          outcome: 'success',
+          requestId: expectedRequestId,
+          plan: plan.value,
+          provenance: provenance.value,
+          quota: quota.value,
+        },
+      };
+    }
+    const receipt = decodePlannerRenderReceipt(
+      value.renderReceipt,
+      expectedRequestId,
+      decodeLocator,
+    );
+    if (!receipt.ok) return receipt;
+    if (
+      plan.value.status === 'supported' &&
+      receipt.value.family !== plan.value.family
+    ) {
+      return failed('shape');
+    }
+    if (
+      !provenance.value.sourceRevisions.some(
+        (locator) =>
+          locator.revisionId === receipt.value.origin.sourceRevisionId,
+      ) ||
+      !citedSourcesAreAdmitted(plan.value, provenance.value.sourceRevisions)
+    ) {
+      return failed('origin');
+    }
     return {
       ok: true,
       value: {
@@ -254,6 +292,7 @@ export function decodePlannerHttpResponse(
         plan: plan.value,
         provenance: provenance.value,
         quota: quota.value,
+        renderReceipt: receipt.value,
       },
     };
   }

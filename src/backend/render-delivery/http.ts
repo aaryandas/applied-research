@@ -71,6 +71,8 @@ function jsonStatus(job: PublicRenderJob): number {
     case 'unsupported':
     case 'artifact':
       return 422;
+    case 'conflict':
+      return 409;
     case 'capacity':
       return 429;
     default:

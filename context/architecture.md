@@ -140,6 +140,14 @@ reuses the production `LearningService` session and accounting; AR-48 binds
 account-scoped admitted-source lookup to existing `SourcePersistence.getRevision`
 when composing the route. AR-56 owns main/UI mounting. Neither route adds a
 second provider client or spend ledger.
+shared generation-eval ledger. Optional `renderContext` is MAIN-resolved
+metadata (not prompt); a versioned render receipt is minted only for supported
+clip families. Authenticated `POST /v1/learning/companion`
+reuses the production `LearningService` session and accounting; AR-48 binds
+account-scoped admitted-source lookup to existing `SourcePersistence.getRevision`
+when composing the route. AR-56 owns main/UI mounting. Neither route adds a
+second provider client or spend ledger. Clip submit is reference-only against
+that planner receipt; see [render grant](render-grant.md).
 
 ## Trusted source adoption checkpoint
 
