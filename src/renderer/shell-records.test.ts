@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest';
 import { createCanvasFixture } from './canvas/canvas-fixture';
-import { practicalActivity, searchWorkspace } from './shell-records';
+import {
+  practicalActivity,
+  listPracticalActivities,
+  searchWorkspace,
+} from './shell-records';
 
 it('resolves only the requested retained lesson activity and never invents an origin', () => {
   const workspace = createCanvasFixture();
@@ -40,6 +44,31 @@ it('resolves only the requested retained lesson activity and never invents an or
   ).toBeUndefined();
   path.revisions[0]!.topics[0]!.lessons[0]!.activity = ' ';
   expect(practicalActivity(workspace, origin)).toBeNull();
+});
+
+it('lists saved lesson activities with their exact origins and includes a selected historical revision', () => {
+  const workspace = createCanvasFixture();
+  const listed = listPracticalActivities(workspace);
+  expect(listed).toEqual([
+    expect.objectContaining({
+      title: 'Joint angles and hand position',
+      origin: expect.objectContaining({
+        path: expect.objectContaining({
+          pathId: 'path',
+          pathRevision: 1,
+          lessonId: 'lesson',
+        }),
+      }),
+    }),
+  ]);
+  expect(
+    listPracticalActivities(workspace, {
+      pathId: 'path',
+      pathRevision: 1,
+      topicId: 'topic',
+      lessonId: 'lesson',
+    }),
+  ).toHaveLength(1);
 });
 
 it('searches actual source text and authored entries without assigning absent origins', () => {

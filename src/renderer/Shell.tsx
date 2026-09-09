@@ -35,7 +35,11 @@ import {
 import { ReaderExplanations } from './ReaderExplanations';
 import { SettingsPanel } from './settings/SettingsPanel';
 import type { SettingsAppearanceControl } from './settings/types';
-import { practicalActivity, searchWorkspace } from './shell-records';
+import {
+  practicalActivity,
+  listPracticalActivities,
+  searchWorkspace,
+} from './shell-records';
 import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
 
@@ -65,6 +69,7 @@ export function Shell({
   const [attempt, setAttempt] = useState<{
     id: string;
     activity: PracticalActivity | null;
+    selection: 'latest' | 'exact';
   } | null>(null);
   const [researchVisible, setResearchVisible] = useState(false);
 
@@ -103,6 +108,7 @@ export function Shell({
     const revoke = (): void => {
       projectLifetime.stopPractical();
       void bridge.cancelPracticalFileSelection?.();
+      void bridge.cancelPracticalExport?.();
     };
     const unsubscribe = bridge.onAccountState((state) => {
       if (state.session !== 'signed-in') revoke();
@@ -117,21 +123,26 @@ export function Shell({
       void bridge.activateSourceWorkspace?.(null);
     };
   }, [bridge, projectLifetime, workspace.project.id]);
-  const practicalBridge =
-    bridge.recordPracticalResult &&
-    bridge.loadPracticalAttempt &&
-    bridge.selectPracticalFile &&
-    bridge.cancelPracticalFileSelection
-      ? {
-          recordPracticalResult: bridge.recordPracticalResult,
-          loadPracticalAttempt: bridge.loadPracticalAttempt,
-          selectPracticalFile: bridge.selectPracticalFile,
-          cancelPracticalFileSelection: bridge.cancelPracticalFileSelection,
-        }
-      : null;
+  const practicalBridge = isPracticalWorkspaceBridge(bridge)
+    ? {
+        recordPracticalResult: bridge.recordPracticalResult,
+        loadPracticalAttempt: bridge.loadPracticalAttempt,
+        selectPracticalFile: bridge.selectPracticalFile,
+        cancelPracticalFileSelection: bridge.cancelPracticalFileSelection,
+        listPracticalAttempts: bridge.listPracticalAttempts,
+        previewPracticalFile: bridge.previewPracticalFile,
+        exportPracticalFile: bridge.exportPracticalFile,
+        cancelPracticalExport: bridge.cancelPracticalExport,
+        loadPracticalJourney: bridge.loadPracticalJourney,
+        recordPracticalProgress: bridge.recordPracticalProgress,
+        recordPracticalWorkChoice: bridge.recordPracticalWorkChoice,
+        savePracticalHumanPlan: bridge.savePracticalHumanPlan,
+      }
+    : null;
   const flushResearch = useCallback(async () => {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
+    void bridge.cancelPracticalExport?.();
     return flushView();
   }, [bridge, flushView, projectLifetime]);
   const openSavedResearch = useCallback(
@@ -195,9 +206,14 @@ export function Shell({
     [bridge, onWorkspace],
   );
 
-  function go(next: WorkspaceDestination): void {
+  function stopNativePractical(): void {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
+    void bridge.cancelPracticalExport?.();
+  }
+
+  function go(next: WorkspaceDestination): void {
+    stopNativePractical();
     void navigate(
       () => {
         setResearchVisible(false);
@@ -213,9 +229,11 @@ export function Shell({
           returnDestination.current = destination;
         }
         if (next === 'practical' && !attempt) {
+          const activity = practicalActivity(workspace, selectedPath);
           setAttempt({
             id: crypto.randomUUID(),
-            activity: practicalActivity(workspace, selectedPath),
+            activity,
+            selection: activity ? 'latest' : 'exact',
           });
         }
         setDestination(next);
@@ -224,8 +242,7 @@ export function Shell({
     );
   }
   function openOrigin(origin: LearningOrigin): void {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
+    stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin(origin);
@@ -238,11 +255,21 @@ export function Shell({
     }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
-    projectLifetime.stopPractical();
-    void bridge.cancelPracticalFileSelection?.();
+    stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
+    }, 'view');
+  }
+  function selectPracticalActivity(activity: PracticalActivity): void {
+    stopNativePractical();
+    void navigate(() => {
+      setAttempt({
+        id: crypto.randomUUID(),
+        activity,
+        selection: 'latest',
+      });
+      setDestination('practical');
     }, 'view');
   }
   function closeSettings(): void {
@@ -289,8 +316,7 @@ export function Shell({
               getLearningWorkspace: bridge.getLearningWorkspace,
             }}
             flush={async () => {
-              projectLifetime.stopPractical();
-              void bridge.cancelPracticalFileSelection?.();
+              stopNativePractical();
               return flushView();
             }}
             onSaved={(next, pathId) => {
@@ -320,8 +346,7 @@ export function Shell({
           <>
             <button
               onClick={() => {
-                projectLifetime.stopPractical();
-                void bridge.cancelPracticalFileSelection?.();
+                stopNativePractical();
                 void navigate(
                   () => setResearchVisible((value) => !value),
                   'view',
@@ -407,11 +432,41 @@ export function Shell({
           >
             {practicalBridge ? (
               <PracticalSession
-                key={`${workspace.project.id}:${attempt.id}`}
+                key={`${workspace.project.id}:${attempt.id}:${attempt.selection}`}
                 bridge={practicalBridge}
                 toolBridge={bridge}
                 activity={attempt.activity}
                 attemptId={attempt.id}
+                attemptSelection={attempt.selection}
+                availableActivities={listPracticalActivities(
+                  workspace,
+                  selectedPath,
+                )}
+                onSelectActivity={selectPracticalActivity}
+                onResumeAttempt={(attemptId) => {
+                  stopNativePractical();
+                  void navigate(() => {
+                    setAttempt((current) =>
+                      current
+                        ? { ...current, id: attemptId, selection: 'exact' }
+                        : current,
+                    );
+                  }, 'view');
+                }}
+                onStartNewAttempt={() => {
+                  stopNativePractical();
+                  void navigate(() => {
+                    setAttempt((current) =>
+                      current
+                        ? {
+                            ...current,
+                            id: crypto.randomUUID(),
+                            selection: 'exact',
+                          }
+                        : current,
+                    );
+                  }, 'view');
+                }}
                 registerFlush={registerPracticalFlush}
                 registerRevocation={registerRevocation}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
@@ -422,6 +477,11 @@ export function Shell({
                 attemptId={attempt.id}
                 expectedRevision={0}
                 returnedEvidence={[]}
+                availableActivities={listPracticalActivities(
+                  workspace,
+                  selectedPath,
+                )}
+                onSelectActivity={selectPracticalActivity}
                 registerFlush={registerPracticalFlush}
                 onReturnToLearning={(activity) => openOrigin(activity.origin)}
               />
@@ -485,5 +545,26 @@ export function Shell({
         )}
       </div>
     </div>
+  );
+}
+
+function isPracticalWorkspaceBridge(
+  value: Partial<PracticalWorkspaceBridge>,
+): value is PracticalWorkspaceBridge {
+  return [
+    'recordPracticalResult',
+    'loadPracticalAttempt',
+    'selectPracticalFile',
+    'cancelPracticalFileSelection',
+    'listPracticalAttempts',
+    'previewPracticalFile',
+    'exportPracticalFile',
+    'cancelPracticalExport',
+    'loadPracticalJourney',
+    'recordPracticalProgress',
+    'recordPracticalWorkChoice',
+    'savePracticalHumanPlan',
+  ].every(
+    (key) => typeof value[key as keyof PracticalWorkspaceBridge] === 'function',
   );
 }
