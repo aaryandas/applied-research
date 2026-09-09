@@ -115,7 +115,7 @@ jobs:
         run: node scripts/delivery-review.mjs evaluate
       - name: Upload independent-review receipt
         if: ${{ always() && steps.evaluate.outputs.review_receipt_file != '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: independent-review-${{ steps.evaluate.outputs.review_pr_number }}-${{ steps.evaluate.outputs.review_head_sha }}
           path: independent-review-receipt.json
@@ -123,7 +123,7 @@ jobs:
           retention-days: 7
       - name: Upload independent-review launch receipt
         if: ${{ always() && steps.evaluate.outputs.launch_receipt_file != '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: independent-review-launch-${{ steps.evaluate.outputs.launch_pr_number }}-${{ steps.evaluate.outputs.launch_head_sha }}
           path: independent-review-launch-receipt.json
