@@ -16,13 +16,13 @@ The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. T
 
 ## Roles
 
-| Role               | Who                                                                                      | Owns                                                                                                                                                                                                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Implementer        | Codex (Sol for logic, Astra for visual) or Claude, in a Superset worktree or Codex cloud | One lane label, one branch, one PR. Runs focused TDD/unit tests and `npm run check` locally; opens a ready PR with cloud Playwright and CI results pending.                                                                                                                              |
-| Cloud verifier     | Cursor cloud agent, triggered by Linear                                                  | Runs targeted Playwright on the frozen revision in its cloud sandbox, launches the app on its cloud desktop, walks the ticket's acceptance journey by hand, attaches its built-in screen recording, moves In Testing → In Review. Bugbot review. Autofix limited to formatting and lint. |
-| Independent critic | `claude-review.yml` on the PR (pinned `claude-fable-5-1`), plus `@claude` on demand      | Standards and spec verdict as a PR comment. Never edits.                                                                                                                                                                                                                                 |
-| Coordinator        | One Claude CLI session with visible transcripts                                          | Merge queue, conflict resolution, In Review → Done, decisions put in front of the founder within minutes.                                                                                                                                                                                |
-| Founder            | Aaryan                                                                                   | Decisions in the pinned decisions issue, fifteen-minute SLA during a run.                                                                                                                                                                                                                |
+| Role                          | Who                                      | Owns                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Implementer                   | Astra High in an isolated Codex worktree | One claimed ticket, lane, branch and PR. Runs focused TDD/unit tests and `npm run check` locally; marks remote checks pending.                                                 |
+| Cloud verifier                | Cursor cloud agent, triggered by Linear  | Targeted Playwright and a recorded hands-on acceptance journey on the frozen SHA, then In Testing → In Review only with passing evidence. Bugbot independently reviews the PR. |
+| Independent critic            | `claude-review.yml`, pinned Fable 5.1    | Structured standards/spec verdict. Never edits the candidate.                                                                                                                  |
+| Merge and deployment operator | Luna with deterministic merge helper     | One gated direct merge at a time, current-main CI, deployment/smoke evidence, then Done. No native merge queue.                                                                |
+| Founder                       | Aaryan                                   | Material product or access decisions and reprioritization.                                                                                                                     |
 
 No terminal-screen coordination. Nothing is dispatched by typing into another agent's input box; nothing is read from a screen to learn status. `SUPERSET_WORKER_DONE` envelopes are replaced by the PR.
 
@@ -30,15 +30,16 @@ No terminal-screen coordination. Nothing is dispatched by typing into another ag
 
 Every transition has a trigger. Nobody moves a ticket by hand except the founder, and only to cancel or reprioritize.
 
-| From → To                   | Trigger                                              | Fired by                                                                                  |
-| --------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Todo → In Development       | Draft PR opened on a branch named `…/ar-NN-…`        | Linear GitHub integration (team setting "PR opened")                                      |
-| In Development → In Testing | PR marked ready for review                           | Linear GitHub integration (team setting "PR ready for review")                            |
-| In Testing → In Review      | Cloud verifier's walk-through passes                 | Cursor automation on In Testing (moves back to In Development with the failing criterion) |
-| In Review → Done            | PR merged                                            | Linear GitHub integration (team setting "PR merged")                                      |
-| Merge                       | Ticket In Review + CI gate + Lane guard + Fable PASS | `Linear gate` required check reads the ticket state; the merge queue does the rest        |
+| From → To                                | Trigger                                                                                                | Fired by                                                                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Todo → In Development                    | Dispatcher reserves a ready ticket within the ten-claim limit                                          | Linear connector applies the script-emitted transition, then refreshes the snapshot before launch                |
+| In Development → In Testing              | Worker completes permitted local checks and has a ready PR at the recorded SHA                         | Linear connector applies the dispatcher result and records PR/revision evidence                                  |
+| In Testing → In Review                   | Targeted cloud tests and the recorded hands-on journey pass at that exact SHA                          | Cursor verifier records evidence and updates Linear                                                              |
+| In Testing or In Review → In Development | A material defect requires repair                                                                      | Verifier/reviewer findings are recorded with a stable repair identity; the dispatcher resumes the existing owner |
+| In Review → Done                         | Gated PR merged and applicable deployment/smoke evidence passes                                        | Luna records delivery evidence before changing the ticket to Done                                                |
+| Direct merge                             | Current main ancestry, required CI, lane, Bugbot, Fable, Linear and applicable hosted Sonar gates pass | Luna's deterministic helper merges exactly one eligible PR                                                       |
 
-Branch names come from Linear's "Copy git branch name" so the ticket id is in the branch (`aaryanmakesstuff/ar-17-reader-…`). The `Linear gate` check also links the PR on the ticket, so evidence never has to be attached by hand. After the verifier moves a ticket to In Review, re-run `Linear gate` from the PR's Checks tab (or push an empty commit); it re-evaluates on every PR event.
+The persisted dispatcher claim owns the ticket branch and worker identity; repairs reuse both and the existing PR. Linear's GitHub integration may link PRs, but disable its PR-opened/ready/merged status automations for this run so they cannot race the controller or declare Done at merge time. The trusted Linear gate reconciles automatically after evidence changes; do not push empty commits or rerun checks manually just to refresh ticket status. A merged ticket remains In Review while required delivery evidence is pending.
 
 Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in the decisions issue if the founder must answer.
 
@@ -70,13 +71,11 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 
 Run these before any lane starts. Tickets are in `.github/next-run-tickets.json`; seed them with `LINEAR_API_KEY=... node scripts/linear-seed.mjs`.
 
-1. Merge the workflow branch. Store two repository secrets: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (the review action runs on the Claude subscription, not the API) and `LINEAR_API_KEY` (a Linear personal key) for the Linear gate. Create the `lane:<name>` labels. Set required checks on the integration branch to `checks / CI gate`, `Lane guard` and `Linear gate`. Enable the merge queue.
-2. Linear, team AR settings: enable the GitHub integration and set its status automation to PR opened → In Development, PR ready for review → In Testing, PR merged → Done. Add the Cursor automation `status = In Testing → run Cursor cloud agent` with the verification prompt below. Configure that automation as: repository `aaryandas/applied-research`, **starting branch = `main`** (the integration branch since the consolidation), Linear MCP connected, computer use left on. Paste the prompt verbatim — Cursor will not fill `{{…}}` tokens. One In Testing transition at a time.
-3. Cursor: enable Bugbot on the repository; restrict autofix to formatting and lint (no test, threshold, or Sonar config edits).
-4. SonarQube: settle the quality-profile decisions listed in the day-zero Sonar ticket.
-5. Build the walking skeleton on the integration branch and merge it. Only then dispatch lanes.
-
-Local concurrency: at most three implementers on the laptop. Close a Superset terminal the moment its PR is open. Stop SonarQube (`npm run sonar:stop`) when no scan is queued.
+1. Merge the reviewed workflow branch. Configure the existing Claude and Linear credentials securely, create the lane labels, and keep GitHub's native merge queue disabled. Required checks are `checks / CI gate`, `Workflow gate rules`, `Lane guard`, the verified Cursor Bugbot check, `Fable review` and `Linear gate`; Luna additionally requires `Sonar gate` for source changes. Confirm live hosted gate results before changing required-status repository policy.
+2. Keep Linear's GitHub links enabled, but disable PR-opened/ready/merged status automation. The dispatcher/connector owns development/testing transitions, Cursor owns the recorded verification verdict, and Luna owns Done only after delivery evidence. Configure Cursor for repository `aaryandas/applied-research`, starting branch `main`, Linear connected and computer use enabled. The triggering issue and linked PR identify the frozen candidate; no mustache placeholders are interpolated.
+3. Enable Bugbot on the repository. Keep repairs with the existing Astra owner; Bugbot/Cursor verification must not rewrite source, tests, thresholds or Sonar configuration.
+4. Configure Railway-hosted Sonar and its GitHub scanner queue; local servers/scans and local receipts are prohibited.
+5. Run the controller from the stable workflow checkout `/private/tmp/capstone-workflow-recovery`, retaining the existing state directory and claims. Verify source-ticket dependencies or reviewed prerequisite checkpoints before launch. Up to ten claimed tickets may occupy the pipeline; serialize merges and preserve local disk reservations.
 
 ## Cloud verification
 
@@ -102,7 +101,7 @@ Do not edit source, tests, or configuration. Do not push to any branch. Do not u
 
 ## Worker prompt shape
 
-Every implementer prompt states: ticket, lane label, base branch and revision, the files it may touch (from `lanes.json`), the acceptance list from the ticket, the design references (`context/design-handoff/DESIGN-CONTRACT.md`, `context/design-handoff/prototype/`), and the hard time box. It ends with: open a PR against the integration branch using the template, with the frozen revision, focused local TDD/unit and npm check results, and cloud Playwright/recording plus macOS CI checks explicitly pending until remote evidence arrives. For Codex CLI, pass the effort explicitly (`-c model_reasoning_effort="high"`); the default is low.
+Every implementer prompt states: ticket, lane label, base branch and revision, the files it may touch (from `lanes.json`), the acceptance list from the ticket, the design references (`context/design-handoff/DESIGN-CONTRACT.md`, `context/design-handoff/prototype/`), and the delivery target with the instruction to continue completing scope afterward. It ends with: open a PR against the integration branch using the template, with the frozen revision, focused local TDD/unit and npm check results, and cloud Playwright/recording plus macOS CI checks explicitly pending until remote evidence arrives. For Codex CLI, pass the effort explicitly (`-c model_reasoning_effort="high"`); the default is low.
 
 ## What the coordinator does all day
 

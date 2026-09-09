@@ -2,27 +2,18 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { minimatch } from 'minimatch';
+import { allowedLanePaths } from './lane-guard-rules.mjs';
 
 const config = JSON.parse(readFileSync('.github/lanes.json', 'utf8'));
 const labels = (process.env.LABELS ?? '').split(',').filter(Boolean);
-const lanes = labels
-  .filter((l) => l.startsWith('lane:'))
-  .map((l) => l.slice(5));
-if (lanes.length !== 1) {
-  console.error(
-    `Expected exactly one lane:<name> label, found: ${lanes.join(', ') || 'none'}`,
-  );
+let selection;
+try {
+  selection = allowedLanePaths(config, labels);
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
-const [lane] = lanes;
-if (lane === 'integration') process.exit(0); // coordinator merges may touch anything
-const allowed = [...(config.lanes[lane] ?? []), ...config.shared];
-if (!config.lanes[lane]) {
-  console.error(
-    `Unknown lane "${lane}". Known: ${Object.keys(config.lanes).join(', ')}`,
-  );
-  process.exit(1);
-}
+const { lane, allowed } = selection;
 const changed = execFileSync(
   'git',
   ['diff', '--name-only', `${process.env.BASE}...${process.env.HEAD}`],
@@ -38,7 +29,7 @@ const outside = changed.filter(
 );
 if (outside.length) {
   console.error(
-    `lane:${lane} may not change:\n  ${outside.join('\n  ')}\nEither move the change to its owning lane's PR or relabel with lane:contracts / lane:integration and get coordinator review.`,
+    `lane:${lane} may not change:\n  ${outside.join('\n  ')}\nMove the change to its owning lane's PR. Only lane:delivery may change workflow files; no coordinator label bypasses the guard.`,
   );
   process.exit(1);
 }

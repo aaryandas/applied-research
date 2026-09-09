@@ -320,3 +320,74 @@ test('reattaches an existing claim branch without resetting saved commits', asyn
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a job receipt written before its claim pointer is recovered without relaunch', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync } =
+    await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const directory = mkdtempSync(join(tmpdir(), 'dispatch-orphan-job-'));
+  const snapshotPath = join(directory, 'snapshot.json');
+  const jobPath = join(directory, 'AR-1-round-0.json');
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      issues: [issue(1, { status: 'In Development' })],
+    }),
+  );
+  writeFileSync(
+    join(directory, 'claims.json'),
+    JSON.stringify({
+      version: 1,
+      claims: {
+        'AR-1': {
+          identifier: 'AR-1',
+          phase: 'claimed',
+          round: 0,
+          worktree: join(directory, 'missing-worktree'),
+        },
+      },
+    }),
+  );
+  writeFileSync(jobPath, JSON.stringify({ status: 'launching' }));
+  try {
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./dispatch.mjs', import.meta.url)),
+          'tick',
+          '--state-dir',
+          directory,
+          '--snapshot',
+          snapshotPath,
+        ],
+        { encoding: 'utf8', cwd: tmpdir() },
+      ),
+    );
+    const claim = JSON.parse(
+      readFileSync(join(directory, 'claims.json'), 'utf8'),
+    ).claims['AR-1'];
+    assert.equal(claim.jobPath, jobPath);
+    assert.equal(claim.phase, 'launching');
+    assert.equal(
+      result.events.some((event) => event.type === 'launched'),
+      false,
+    );
+    assert.ok(
+      result.events.some((event) =>
+        event.reason?.includes('Recovered existing launch receipt'),
+      ),
+    );
+    assert.ok(
+      result.events.some((event) =>
+        event.reason?.includes('Launch receipt pending'),
+      ),
+    );
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});

@@ -23,7 +23,7 @@ Read `context/product.md`, `context/domain.md`, and `context/architecture.md` be
 
 ## Verification
 
-Run `npm run check` for code/config changes, then `npm run test:e2e` for Electron or renderer changes. For packaging changes, run `npm run package` and `npm run test:packaged`. Linux smoke tests use `xvfb-run --auto-servernum` when no display is available.
+Run focused TDD/unit tests and `npm run check` locally for code/config changes. The founder prohibits local Playwright, `npm run test:e2e`, Playwright-backed `npm run test:packaged`, and local test traces/videos to preserve disk space. Continue authoring relevant desktop specs; Cursor cloud executes targeted Playwright scenarios and records the hands-on acceptance journey at the exact PR revision. GitHub CI on macOS retains the blocking full suite, including Electron and packaged smoke tests. Cloud Linux smoke tests use `xvfb-run --auto-servernum` when no display is available. A PR can be ready after permitted local checks pass; report unrun remote checks as pending, never failed or waived merely because they run remotely. This execution-placement policy supersedes older local e2e guidance and does not disable tests or alter package commands.
 
 Keep tests focused on observable behavior and real risk. Domain tests belong next to source; process-level behavior is exercised in `tests/e2e/`. Do not make empty tests pass silently or weaken gates to get green CI.
 

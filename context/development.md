@@ -4,6 +4,8 @@ Use Node 24 LTS and npm. `.node-version` works with version managers such as fnm
 
 `better-sqlite3` has different native ABIs under Node and Electron. Use the documented npm commands rather than invoking `vitest`, Electron or the packaged binary directly: Node-facing test commands run `native:node`, while `dev` and `test:e2e` run `native:electron`. `test:watch` always restores the Node ABI, including after an Electron run. Packaging uses electron-builder's supported rebuild and keeps its npm rebuild gate enabled.
 
+The current execution-placement policy keeps focused TDD/unit tests and `npm run check` on the laptop. Do not run local Playwright, `npm run test:e2e`, or Playwright-backed `npm run test:packaged`, and do not create local test traces/videos. Cursor cloud runs targeted desktop tests and records a hands-on walkthrough at the frozen PR revision; the full macOS GitHub CI suite remains blocking. Keep writing the required desktop tests. Mark ready after permitted local checks pass and label remote checks pending until evidence arrives; none are waived. This supersedes earlier instructions to run desktop smoke tests locally.
+
 ## Commands
 
 | Command                 | Purpose                                                                             |
@@ -12,9 +14,9 @@ Use Node 24 LTS and npm. `.node-version` works with version managers such as fnm
 | `npm run format`        | Format maintained code/config/current docs; excludes archives and visual references |
 | `npm run check`         | Formatting, ESLint, both process type checks, unit tests/coverage, production build |
 | `npm run test:watch`    | Unit-test feedback while editing                                                    |
-| `npm run test:e2e`      | Real Electron smoke test against `out/`; run `build` first                          |
+| `npm run test:e2e`      | Cursor cloud / GitHub CI only: Electron smoke test against `out/`; build first      |
 | `npm run package`       | Build and create an unpacked current-platform application                           |
-| `npm run test:packaged` | Smoke test the unpacked application; run `package` first                            |
+| `npm run test:packaged` | Cursor cloud / GitHub CI only: unpacked-app smoke test; package first               |
 | `npm run dist`          | Build unsigned installers for the host platform; publishing disabled                |
 
 Do not use `--passWithNoTests`. Combined coverage thresholds are explicit in `vitest.config.ts`. Startup wiring is verified through Electron rather than mocked unit tests. See [testing and CI](testing.md) for separate unit, renderer and integration commands, the Electron layers, Effect compatibility and remote activation status.
@@ -27,9 +29,9 @@ Before changing migration SQL, preserve legacy refusal-before-change behavior, t
 
 Workspace migration failures retain their original message and cause on the in-process `WorkspaceMigrationError`, but main-process diagnostics deliberately do not print arbitrary error messages, SQL, full paths, user content or cause stacks. Logs expose the migration code, a validated project UUID when available, allow-listed cause names and codes, and sanitized source filename/line identities. The native dialog uses only code-selected recovery text. This privacy boundary intentionally gives support less raw detail than logging the original error would; a debugger or explicit user-provided database reproduction is required when the safe diagnostic is insufficient.
 
-## Linux
+## Cloud Linux and GitHub CI
 
-Use a graphical session or Xvfb. GitHub's Ubuntu runner supplies the system libraries used by Electron; minimal Linux images may additionally need GTK 3, NSS, GBM, ALSA, and X11 libraries. Run as a normal user with a functional Chromium sandbox, not with `--no-sandbox`.
+The following desktop commands run only in Cursor cloud or GitHub CI, never on the local laptop. Use a graphical session or Xvfb. GitHub's Ubuntu runner supplies the system libraries used by Electron; minimal Linux images may additionally need GTK 3, NSS, GBM, ALSA, and X11 libraries. Run as a normal user with a functional Chromium sandbox, not with `--no-sandbox`.
 
 ```sh
 npm run build
@@ -38,7 +40,7 @@ npm run package
 xvfb-run --auto-servernum npm run test:packaged
 ```
 
-Playwright drives Electron's bundled Chromium; no separate Playwright browser download is needed. HTML test reports go to `playwright-report/`, screenshots and failure output to `test-results/`.
+Playwright drives Electron's bundled Chromium; no separate Playwright browser download is needed. Cloud/CI HTML test reports go to `playwright-report/`, screenshots and failure output to `test-results/`. Keep those artifacts in the cloud; do not generate local copies during this run.
 
 ## Local configuration
 

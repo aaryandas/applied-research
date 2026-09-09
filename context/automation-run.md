@@ -8,12 +8,16 @@ The founder’s current disk-saving instruction places all Playwright execution 
 
 Run with Node 24. The bundled runtime is `/Users/aaryan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`; its directory is prepended to worker PATH. `codex exec --json` uses the existing ChatGPT login and emits the actual task identifier as `thread.started`. Workers use `gpt-6-astra` with `model_reasoning_effort="high"` and automatic approval review. The shared daemon's experimental control proxy did not answer the JSONL initialization probe; this runner uses the verified CLI interface instead. It neither enables remote control nor requires an API key.
 
+Operate from the stable workflow checkout `/private/tmp/capstone-workflow-recovery` on `codex/ar-41-delivery-workflow`. The shared source checkout may be on a separate CI repair branch and must not be used as the controller script location. The dispatcher resolves its worker executable and lane catalog relative to its own module, not the shell's working directory. Use the absolute script path below and preserve the same state/snapshot arguments when updating automations. `health` reports `workflowRoot` for verification. Existing worker jobs continue using their recorded worktrees; do not recreate claims when changing controller location.
+
 ```sh
-node scripts/dispatch.mjs health
-node scripts/dispatch.mjs plan --snapshot /private/tmp/capstone-dispatch-20260908/linear-snapshot.json
-node scripts/dispatch.mjs tick --snapshot /private/tmp/capstone-dispatch-20260908/linear-snapshot.json
-node --test scripts/dispatch-plan.test.mjs
+node /private/tmp/capstone-workflow-recovery/scripts/dispatch.mjs health
+node /private/tmp/capstone-workflow-recovery/scripts/dispatch.mjs plan --state-dir /private/tmp/capstone-dispatch-20260908 --snapshot /private/tmp/capstone-dispatch-20260908/linear-snapshot.json
+node /private/tmp/capstone-workflow-recovery/scripts/dispatch.mjs tick --state-dir /private/tmp/capstone-dispatch-20260908 --snapshot /private/tmp/capstone-dispatch-20260908/linear-snapshot.json
+node --test /private/tmp/capstone-workflow-recovery/scripts/dispatch-plan.test.mjs
 ```
+
+Use the Node 24 executable named above or put its directory first on PATH. The recovery checkout need not install its own dependencies: dispatcher modules use Node built-ins. If a new worker cannot be seeded from a complete matching local installation, the normal per-worker installation reservation applies; do not run `npm ci` just to bootstrap the controller.
 
 The state directory defaults to `/private/tmp/capstone-dispatch-20260908`, outside Git. It holds mode-600 claims, private worker events, and isolated Git worktrees. Keep it until delivery and review complete. Nothing automatically deletes branches or worktrees. Do not commit private snapshots or logs. Temporary storage survives agent turns, but is not a long-term backup.
 
@@ -66,6 +70,7 @@ Unfinished prerequisite tickets ordinarily block dispatch. A specific reviewed p
 - Seed each fresh worktree from the complete root `node_modules` only when lockfiles match, both directories are on the same filesystem, and the filesystem is APFS. macOS `cp -cR` requests `clonefile`; subsequent writes are private to each copy, including native rebuilds. Record the lock SHA-256 and seeding receipt. This is not a symlink or mutable shared installation. Workers reuse the copy unless manifests/locks changed or dependencies are missing. A failed clone removes only its newly created partial destination. Unseeded concurrent workers each reserve 1 GB above a 2 GB free-space floor; delay launches when reservations cannot fit. APFS copies still need free space for subsequent writes.
 - Capture the worker task ID, exit state, linked PR and current GitHub head SHA. Emit In Development → In Testing only after the worker exits successfully and its ticket's non-draft PR exists. Required CI, hosted Sonar, Cursor evidence and Fable review independently decide merge eligibility. Workers must not run local Sonar scans or start a local server; local scan receipts do not authorize a merge.
 - A returned defect sets `repairRequest: {"id":"stable-unique-finding-id","text":"specific required fix and evidence"}` on a fresh snapshot. The dispatcher resumes the same Codex task, branch and PR, at most three repair rounds. Repeated delivery of the same finding does not launch another repair. Preserve the request until the corresponding completed repair has moved to testing, then clear it.
+- A crash after writing a worker job but before saving its claim pointer is recovered from that round’s existing job receipt before disk/seeding checks. The dispatcher saves the recovered pointer and inspects the existing job; it does not launch a duplicate worker. An ambiguous pending launch emits attention.
 - Infrastructure failures, missing PRs, interrupted launches and vanished workers emit `attention`; they do not duplicate work or declare completion. Inspect the job receipt and private log before retrying an ambiguous launch. The automation must notify on these actionable failures.
 - A tick lock prevents simultaneous claim allocation. If a tick dies, inspect `tick.lock/owner.json` and verify that process is gone before removing the stale lock. Never delete claims as a retry mechanism.
 
