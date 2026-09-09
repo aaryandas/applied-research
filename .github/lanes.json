@@ -3,7 +3,6 @@
   "shared": [
     "context/**",
     "*.md",
-    ".github/**",
     "package.json",
     "package-lock.json",
     "tests/e2e/**"
@@ -94,6 +93,7 @@
     ],
     "contracts": ["src/contracts/**"],
     "delivery": [
+      ".github/**",
       ".gitignore",
       "scripts/**",
       "electron-builder.yml",

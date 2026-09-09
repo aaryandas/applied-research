@@ -6,7 +6,9 @@ The founder now selects Astra High for implementation, Cursor cloud verification
 
 Code owns dispatch claims, capacity, prerequisite checkpoints, retry identity and merge eligibility. Linear connectors refresh snapshots and apply script-emitted transitions. Exact-commit verification evidence is mandatory: `VERIFICATION_SHA`, `VERIFICATION_RESULT: PASS`, and `VERIFICATION_VIDEO` in the issue comment. The trusted Linear gate reconciles automatically. Fable returns a structured verdict; required fixes prevent approval. Cursor's saved prompt resolves the actual triggering issue and linked PR instead of using unsupported placeholders. A merge is not deployment completion; retain release/backend evidence before Done.
 
-The initial implementation queue is AR-32, AR-33, AR-34, AR-35, AR-36, AR-37, AR-38, AR-40, AR-19 and AR-25. Reuse preserved acquisition and companion commits. Shared shell/bridge integration belongs to AR-37; authors hand off bounded public modules. AR-34 may implement against synthetic vectors, but its existing embedding/region/budget decisions still block live writes. Playbook remains deferred. The existing lower sections retain historical setup details only where consistent with this update.
+The initial implementation queue is AR-32, AR-33, AR-34, AR-35, AR-36, AR-37, AR-38, AR-40, AR-19 and AR-25. Reuse preserved acquisition and companion commits. Shared shell/bridge integration belongs to AR-37; authors hand off bounded public modules. During this run, overlapping general shell, main, storage, contracts and backend lanes must not dispatch against AR-37's or AR-36's reserved files. AR-36 alone owns provider.ts and learning-api.ts. The lane catalog describes allowed paths across runs; the dispatch assignments establish exclusive ownership within this run. AR-34 may implement against synthetic vectors, but its existing embedding/region/budget decisions still block live writes. Playbook remains deferred. The existing lower sections retain historical setup details only where consistent with this update.
+
+Only `lane:delivery` may change `.github/**`. Integration work also requires a real Linear ticket, exact-revision verification and review; there is no coordinator exemption. Luna serializes direct merges, with GitHub's native merge queue disabled. Sonar runs on Railway with scanners on GitHub runners; never start a local server or scanner. Done requires applicable deployment and smoke evidence, so a PR-merged integration must not automatically mark Done.
 
 The shape for the second gauntlet run, derived from the 2026-09-08 postmortem. The unit of work is a pull request against the integration branch. Linear status changes trigger machines. One coordinator merges and resolves ambiguity; nothing else is serialized on a person or a laptop.
 
@@ -40,7 +42,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 
 ## Lanes
 
-`.github/lanes.json` maps every lane label to the paths it may change. The `Lane guard` check fails a PR that reaches outside its lane plus the shared allowlist (`context/`, markdown, `.github/`, `package.json`, `tests/e2e/`). Shared contract changes are their own `lane:contracts` PR, reviewed before consumers start. `lane:integration` is reserved for the coordinator.
+`.github/lanes.json` maps every lane label to the paths it may change. The `Lane guard` check fails a PR that reaches outside its lane plus the shared allowlist (`context/`, markdown, package manifests and lockfile, `tests/e2e/`). Workflow changes belong only to `lane:delivery`. Shared contract changes follow the active ownership assignments above and require reviewed public seams before consumers integrate them.
 
 ## Gates on every PR
 
@@ -48,7 +50,7 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - `Lane guard`.
 - `Linear gate`: the ticket is In Review. Needs the `LINEAR_API_KEY` repository secret (read plus attachment write).
 - Independent review comment with PASS.
-- Sonar: zero new violations on the diff. Run `npm run sonar:scan:native` from the PR worktree with `SONAR_HOST_URL=http://127.0.0.1:9000` and `SONAR_TOKEN` in the environment; the Docker scanner cannot reach the server from a second worktree. False positives are listed by issue key in the PR for the founder, never suppressed.
+- Sonar: zero new violations on the diff, verified by the hosted workflow against the exact PR revision. Railway hosts the server; GitHub runners execute scans. False positives are listed by issue key in the PR for the founder, never suppressed. Local scanning is prohibited by the founder's current direction.
 - Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket. CI keeps Playwright traces for failures in `test-results/`.
 
 ## Traps fixed in tooling
