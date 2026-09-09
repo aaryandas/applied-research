@@ -1,5 +1,9 @@
-.opening-content-onboarding {
+.opening-content.opening-content-onboarding {
   max-width: 52rem;
+}
+.opening-content-onboarding .onboarding-sheet {
+  width: 100%;
+  margin: 0;
 }
 .opening-topic-row {
   display: flex;

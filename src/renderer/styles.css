@@ -219,6 +219,9 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 /* The Opening uses a fixed palette over the approved landscape in both themes. */
 .is-opening {
@@ -262,6 +265,7 @@
   flex-direction: column;
   padding: 34px 32px 40px;
   min-height: 100%;
+  min-width: 0;
 }
 .world-art {
   position: fixed;
