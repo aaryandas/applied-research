@@ -15,7 +15,7 @@ concurrency:
   group: >-
     claude-review-${{
       (
-        (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false && github.event.pull_request.user.type == 'User' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.sender.type == 'User')) ||
+        (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false && github.event.pull_request.user.type == 'User' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.sender.type == 'User')) ||
         (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
       ) && (github.event.pull_request.number || github.event.issue.number) || github.run_id
     }}
@@ -32,7 +32,7 @@ jobs:
       sha: ${{ steps.revision.outputs.sha }}
       number: ${{ steps.revision.outputs.number }}
     if: >-
-      (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false && github.event.pull_request.user.type == 'User' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.sender.type == 'User')) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false && github.event.pull_request.user.type == 'User' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.sender.type == 'User')) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-24.04
     timeout-minutes: 3
@@ -51,6 +51,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/fable-review.mjs begin
   review:
+    # Environment secrets must exist only here, with a main-only branch policy.
+    environment: trusted-main
     needs: begin
     permissions:
       contents: read

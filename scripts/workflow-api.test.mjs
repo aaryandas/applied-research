@@ -251,3 +251,20 @@ test('secondary exhaustion without retry-after stops subsequent GitHub requests'
   await assert.rejects(github('pulls'), /GitHub rate limit exhausted/);
   assert.equal(requests.length, 1);
 });
+
+for (const [base, expectedPosts] of [
+  ['main', 0],
+  ['codex/attacker-base', 1],
+]) {
+  test(`PR-target status reuse requires server-attested base ${base}`, async (t) => {
+    const { publishStatus, posts } = await fixture(t, {
+      run: {
+        event: 'pull_request_target',
+        head_branch: 'codex/feature',
+        pull_requests: [{ base: { ref: base }, head: { sha } }],
+      },
+    });
+    await publishStatus(sha, result);
+    assert.equal(posts.length, expectedPosts);
+  });
+}

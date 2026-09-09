@@ -10,6 +10,8 @@ if (!Number.isSafeInteger(number) || number < 1)
   throw new Error('Missing pull request number');
 const pr = await github(`pulls/${number}`);
 const context = 'Fable review';
+if (pr.base?.ref !== 'main')
+  throw new Error('Review requires a PR targeting main');
 if (pr.user?.type !== 'User' || pr.head.repo?.full_name !== repository)
   throw new Error('Review requires a human-authored same-repository PR');
 if (process.argv[2] === 'begin') {

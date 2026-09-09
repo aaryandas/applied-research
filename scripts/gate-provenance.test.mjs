@@ -14,6 +14,7 @@ const run = {
   path: '.github/workflows/claude-review.yml',
   head_branch: 'main',
   event: 'pull_request_target',
+  pull_requests: [{ base: { ref: 'main' }, head: { sha } }],
   status: 'completed',
   conclusion: 'success',
   repository: { full_name: 'aaryandas/applied-research' },
@@ -163,6 +164,35 @@ test('Sonar workflow_run accepts triggering-branch metadata only with bound defa
       status,
       run: { ...run, event: 'workflow_run', head_branch: 'codex/feature' },
       receipt,
+    }),
+    false,
+  );
+});
+
+test('PR-target execution requires a server-recorded main base and exact gated head, even with a forged main receipt', () => {
+  for (const pull_requests of [
+    undefined,
+    [],
+    [{ base: { ref: 'codex/attacker-base' }, head: { sha } }],
+    [{ base: { ref: 'main' }, head: { sha: 'c'.repeat(40) } }],
+    [{ base: { ref: 'main' } }],
+  ]) {
+    for (const head_branch of ['main', 'codex/feature'])
+      assert.equal(
+        trustedGateStatus({
+          sha,
+          status,
+          run: { ...run, head_branch, pull_requests },
+          receipt,
+        }),
+        false,
+      );
+  }
+  assert.equal(
+    trustedGateStatus({
+      sha,
+      status: { ...status, state: 'pending' },
+      run: { ...run, status: 'in_progress', pull_requests: [] },
     }),
     false,
   );

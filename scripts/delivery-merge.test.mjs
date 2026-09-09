@@ -86,6 +86,7 @@ function normalized(sha, runs, statuses) {
             path,
             head_branch: 'main',
             event: 'pull_request_target',
+            pull_requests: [{ base: { ref: 'main' }, head: { sha } }],
             status: status.state === 'pending' ? 'in_progress' : 'completed',
             conclusion: status.state === 'pending' ? null : 'success',
           },

@@ -127,7 +127,7 @@ async function reusableStatus(sha, result, current) {
     const run = await cached(runs, runId, () =>
       github(`actions/runs/${runId}`),
     );
-    if (!trustedGateRun(current, run) || run.status !== 'completed')
+    if (!trustedGateRun(current, run, sha) || run.status !== 'completed')
       return false;
     const archive = await cached(archives, runId, () => receiptArchive(runId));
     if (!archive || archive.expiresAt <= Date.now()) return false;

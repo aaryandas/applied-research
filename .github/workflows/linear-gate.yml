@@ -27,7 +27,11 @@ concurrency:
 jobs:
   gate:
     name: Reconcile Linear verification
-    if: github.actor != 'dependabot[bot]' && github.event_name != 'merge_group'
+    # LINEAR_API_KEY belongs only to this main-restricted environment.
+    environment: trusted-main
+    if: >-
+      github.actor != 'dependabot[bot]' && github.event_name != 'merge_group' &&
+      (github.event_name != 'pull_request_target' || github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

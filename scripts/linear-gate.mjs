@@ -27,6 +27,11 @@ async function linear(query, variables) {
 }
 
 async function checkPull(pr) {
+  if (pr.base?.ref !== 'main')
+    return {
+      state: 'failure',
+      description: 'Linear verification requires a PR targeting main',
+    };
   if (pr.user?.type !== 'User' || pr.head.repo?.full_name !== repository)
     return {
       state: 'failure',
@@ -89,6 +94,7 @@ const pulls = event.pull_request
   ? [await github(`pulls/${event.pull_request.number}`)]
   : (await paginate('pulls?state=open&base=main')).filter(
       (pr) =>
+        pr.base?.ref === 'main' &&
         pr.user?.type === 'User' &&
         pr.head.repo?.full_name === repository &&
         ticketIdentifier(pr),

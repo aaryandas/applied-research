@@ -12,6 +12,7 @@ const pr = {
   state: 'open',
   draft: false,
   user: { type: 'User' },
+  base: { ref: 'main' },
   head: { sha, ref: 'codex/ar-41-delivery', repo: { full_name: repository } },
 };
 
@@ -29,7 +30,7 @@ function execute(script, pull, env = {}) {
         if (url.endsWith('/status')) return Response.json({ statuses: [] });
         throw new Error('Unexpected GitHub request: ' + url);
       };
-      process.argv[2] = 'finish';
+      process.argv[2] = process.env.REVIEW_COMMAND ?? 'finish';
       try { await import(${JSON.stringify(new URL(script, import.meta.url).href)}); }
       finally { console.log(JSON.stringify(requests)); }
     `;
@@ -144,4 +145,41 @@ test('Claude and gate publisher are isolated jobs with separate token capabiliti
   assert.match(publisher, /REVIEW_SHA: \$\{\{ needs.begin.outputs.sha \}\}/);
   assert.match(publisher, /REVIEW_JOB_RESULT: \$\{\{ needs.review.result \}\}/);
   assert.match(publisher, /!cancelled\(\)/);
+});
+
+test('non-main bases never contact Linear or begin/publish Fable reviews', () => {
+  const pull = { ...pr, base: { ref: 'codex/attacker-base' } };
+  const linear = execute('./linear-gate.mjs', pull);
+  assert.equal(linear.requests.length, 1);
+  assert.equal(linear.requests[0].body.state, 'failure');
+  assert.match(linear.requests[0].body.description, /main/);
+  for (const REVIEW_COMMAND of ['begin', 'finish']) {
+    const review = execute('./fable-review.mjs', pull, { REVIEW_COMMAND });
+    assert.equal(review.status, 1);
+    assert.deepEqual(review.requests, []);
+  }
+});
+
+test('secret-consuming jobs require the main-restricted environment and base guards', () => {
+  const review = readFileSync(
+    new URL('../.github/workflows/claude-review.yml', import.meta.url),
+    'utf8',
+  );
+  const linear = readFileSync(
+    new URL('../.github/workflows/linear-gate.yml', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    review.split('\n  review:\n')[1].split('\n  publish:\n')[0],
+    /environment: trusted-main/,
+  );
+  assert.match(
+    review.split('\n  begin:\n')[1].split('\n  review:\n')[0],
+    /github.event.pull_request.base.ref == 'main'/,
+  );
+  assert.match(
+    linear.split('\n  gate:\n')[1].split('\n  queue:\n')[0],
+    /environment: trusted-main/,
+  );
+  assert.match(linear, /github.event.pull_request.base.ref == 'main'/);
 });
