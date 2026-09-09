@@ -5,6 +5,7 @@ import type {
   PathSourceState,
 } from './learning-records.js';
 import type { PracticalToolId } from './practical-tools.js';
+import type { PracticalActivity } from './practical-work.js';
 import type {
   ProviderIdentity,
   ScholarlyIdentity,
@@ -264,7 +265,10 @@ export type LearningOnboardingSnapshot = {
   interview: InterviewRecord | null;
   proposal: CourseProposal | null;
   accepted: AcceptedOnboarding | null;
+  /** Latest unaccepted overlay. Accepted overlays stay in `acceptedAdjustment`. */
   adjustment: CourseAdjustmentProposal | null;
+  /** Latest accepted overlay revision. Original course acceptance stays in `accepted`. */
+  acceptedAdjustment: OpaqueRevisionRef | null;
 };
 
 export type RevisionWrite<T> =
@@ -330,6 +334,7 @@ export type CourseAdjustmentEvidenceItem = {
   recordedRevision: number;
   remoteStepId: string;
   lessonTitle: string;
+  activity: PracticalActivity;
 };
 
 export type CourseAdjustmentPatchView = {
@@ -339,6 +344,8 @@ export type CourseAdjustmentPatchView = {
   field: 'objective' | 'activity' | 'practice';
   before: string;
   after: string;
+  practiceBefore: CoursePracticeBrief | null;
+  practiceAfter: CoursePracticeBrief | null;
 };
 
 export type CourseAdjustmentProposal = {
@@ -354,6 +361,11 @@ export type CourseAdjustmentProposal = {
   sources: ProposalSource[];
   gaps: OnboardingCoverageGap[];
   acceptance: 'ready' | 'coverage-pending';
+  reviewedBase: {
+    pathRevision: number;
+    acceptedAdjustment: OpaqueRevisionRef | null;
+    digest: string;
+  };
 };
 
 export type AdjustAcceptedCourseInput = OnboardingRequest & {
@@ -365,6 +377,7 @@ export type AdjustAcceptedCourseInput = OnboardingRequest & {
       attemptId: string;
       recordedRevision: number;
       remoteStepId: string;
+      activity: PracticalActivity;
     }[];
   };
   consent: 'acquire-learning-evidence';

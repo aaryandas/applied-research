@@ -475,6 +475,39 @@ function compactFromSyllabus() {
   };
 }
 
+function emptyReviewedCourse() {
+  return {
+    acceptedAdjustment: null,
+    pathRevision: 1,
+    focus: null,
+    depth: null,
+    pendingFieldChanges: [] as const,
+  };
+}
+
+const reviewedDigest = validation.reviewedBaseDigest({
+  pathRevision: 1,
+  acceptedAdjustment: null,
+  focus: null,
+  depth: null,
+  pending: [],
+});
+
+const practicalActivity = {
+  projectId,
+  origin: {
+    path: {
+      pathId: '11111111-1111-4111-8111-111111111111',
+      pathRevision: 1,
+      topicId: '22222222-2222-4222-8222-222222222222',
+      lessonId: '33333333-3333-4333-8333-333333333333',
+    },
+  },
+  title: 'Tokenizer practice',
+  instructions: 'Tokenize a short corpus outside the app.',
+  objective: 'Produce a working tokenizer on a short corpus.',
+};
+
 function completeMappings() {
   return syllabus.topics.flatMap((topic) =>
     topic.lessons.map((lesson, index) => ({
@@ -501,6 +534,7 @@ const selectedLessonRequest: LearningOnboardingRequest = {
       priorProposal: { id: 'proposal-01', revision: 1 },
       syllabus: compactFromSyllabus(),
       personalization: null,
+      reviewedCourse: null,
     },
     target: {
       remoteStepId: 'step-002',
@@ -521,22 +555,14 @@ const adjustmentRequest: LearningOnboardingRequest = {
   model: 'google/gemini-3.8-flash',
   operation: {
     kind: 'adjust-accepted-course',
-    human: {
-      ...human,
-      answers: [
-        ...human.answers,
-        {
-          trust: ONBOARDING_CONTEXT_TRUST.human,
-          promptId: desktopOnboarding.ADJUSTMENT_NOTES_PROMPT_ID,
-          answer: 'Tokenizer practice still failed on unknown tokens.',
-        },
-      ],
-    },
+    human,
+    notes: 'Tokenizer practice still failed on unknown tokens.',
     model: {
       trust: ONBOARDING_CONTEXT_TRUST.model,
       priorProposal: { id: 'proposal-01', revision: 1 },
       syllabus: compactFromSyllabus(),
       personalization: null,
+      reviewedCourse: emptyReviewedCourse(),
     },
     progress: {
       trust: ONBOARDING_CONTEXT_TRUST.human,
@@ -547,6 +573,24 @@ const adjustmentRequest: LearningOnboardingRequest = {
           attemptId: 'e1234567-1234-4234-8234-123456789012',
           recordedRevision: 1,
           remoteStepId: 'step-002',
+          work: {
+            activityOrigin: {
+              pathId: practicalActivity.origin.path.pathId,
+              pathRevision: 1,
+              topicId: practicalActivity.origin.path.topicId,
+              lessonId: practicalActivity.origin.path.lessonId,
+            },
+            reflection: {
+              authorKind: 'human',
+              text: 'Unknown tokens still failed.',
+            },
+            reportedResult: {
+              kind: 'user-reported-text',
+              text: 'Tokenizer emitted UNK for rare tokens.',
+            },
+            recordedAt: at,
+            masteryEstablished: false,
+          },
         },
       ],
     },
@@ -578,6 +622,7 @@ const adjustmentSuccess: AcceptedCourseAdjustmentSuccess = {
         field: 'practice',
         before: tokenizerBrief.intendedOutcome,
         after: adjustedBrief.intendedOutcome,
+        practiceBefore: tokenizerBrief,
         practice: adjustedBrief,
       },
     ],
@@ -590,6 +635,11 @@ const adjustmentSuccess: AcceptedCourseAdjustmentSuccess = {
         quote: HELLO,
       },
     ],
+    reviewedBase: {
+      pathRevision: 1,
+      acceptedAdjustment: null,
+      digest: reviewedDigest,
+    },
   },
   sources: [acquiredSource],
   bibliography: [bibliographySource],
@@ -773,6 +823,7 @@ describe('learning onboarding contracts', () => {
               attemptId: 'e1234567-1234-4234-8234-123456789012',
               recordedRevision: 1,
               remoteStepId: 'step-002',
+              activity: practicalActivity,
             },
           ],
         },
@@ -798,6 +849,7 @@ describe('learning onboarding contracts', () => {
               field: 'objective',
               before: 'Explain scaled dot-product attention.',
               after: 'Skip the first lesson.',
+              practiceBefore: null,
               practice: null,
             },
           ],
@@ -828,6 +880,57 @@ describe('learning onboarding contracts', () => {
         evidence: [{ attemptId: 'forged' }],
       },
       validation.parseAdjustAcceptedCourseInput,
+    );
+    expectRejected(
+      {
+        ...adjustmentRequest,
+        operation: {
+          ...adjustmentRequest.operation,
+          notes: null,
+          human: {
+            ...human,
+            answers: [
+              ...human.answers,
+              {
+                trust: ONBOARDING_CONTEXT_TRUST.human,
+                promptId: desktopOnboarding.ADJUSTMENT_NOTES_PROMPT_ID,
+                answer: 'Tokenizer practice still failed on unknown tokens.',
+              },
+            ],
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expect(
+      validation.parseLearningOnboardingSnapshot({
+        interview: null,
+        proposal: null,
+        accepted: null,
+        adjustment: null,
+        acceptedAdjustment: null,
+      }),
+    ).toEqual({
+      interview: null,
+      proposal: null,
+      accepted: null,
+      adjustment: null,
+      acceptedAdjustment: null,
+    });
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          ...selectedLessonRequest.operation,
+          model: {
+            trust: ONBOARDING_CONTEXT_TRUST.model,
+            priorProposal: { id: 'proposal-01', revision: 1 },
+            syllabus: compactFromSyllabus(),
+            personalization: null,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
     );
   });
 
@@ -1420,6 +1523,7 @@ describe('learning onboarding contracts', () => {
             priorProposal: { id: 'proposal-01', revision: 1 },
             syllabus: { title: compact.title, topics: extraSourceTopics },
             personalization: null,
+            reviewedCourse: null,
           },
           target: {
             remoteStepId: 'step-002',

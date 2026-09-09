@@ -245,6 +245,26 @@ export type CompactSyllabus = {
   topics: CompactSyllabusTopic[];
 };
 
+/**
+ * Main-owned effective accepted-course projection. Compact lessons still omit
+ * objective/activity, so those pending AI changes live here. Focus/depth are
+ * the latest accepted overlay values (`null` when none). Practice digests stay
+ * on `syllabus`. This is untrusted model context, never a human diagnostic.
+ */
+export type ReviewedPendingFieldChange = {
+  remoteStepId: string;
+  field: 'objective' | 'activity';
+  value: string;
+};
+
+export type ReviewedCourseProjection = {
+  acceptedAdjustment: OpaqueRevisionRef | null;
+  pathRevision: number;
+  focus: string | null;
+  depth: LessonDepth | null;
+  pendingFieldChanges: ReviewedPendingFieldChange[];
+};
+
 export type UntrustedModelSyllabusContext = {
   trust: typeof ONBOARDING_CONTEXT_TRUST.model;
   priorProposal: OpaqueRevisionRef;
@@ -254,6 +274,7 @@ export type UntrustedModelSyllabusContext = {
     observedGaps: string[];
     masteryEstablished: false;
   } | null;
+  reviewedCourse: ReviewedCourseProjection | null;
 };
 
 export type OnboardingGeneratedLesson = {
@@ -303,9 +324,29 @@ export type GenerateSelectedLessonOperation = {
   };
 };
 
+export type PracticalAttemptActivityOrigin = {
+  pathId: string;
+  pathRevision: number;
+  topicId: string;
+  lessonId: string;
+};
+
 /**
- * Opaque Practical attempt locator. Not an attempt body, file, mastery flag,
- * or canonical source. Main must resolve ownership; backend must not treat
+ * Main-resolved Practical work for an adjustment. Opaque ids alone are not
+ * work content. Selected file metadata is not included and is not source
+ * evidence or mastery. Reflection/result stay human-attributed.
+ */
+export type PracticalAttemptWorkContext = {
+  activityOrigin: PracticalAttemptActivityOrigin;
+  reflection: { authorKind: 'human'; text: string };
+  reportedResult: { kind: 'user-reported-text'; text: string };
+  recordedAt: string;
+  masteryEstablished: false;
+};
+
+/**
+ * Practical attempt locator plus resolved work. Main must resolve ownership
+ * against stored Practical records before posting. Backend must not treat
  * these as evidence authority.
  */
 export type PracticalAttemptLocator = {
@@ -314,6 +355,7 @@ export type PracticalAttemptLocator = {
   attemptId: string;
   recordedRevision: number;
   remoteStepId: string;
+  work: PracticalAttemptWorkContext;
 };
 
 export type CourseAdjustmentProgress = {
@@ -332,14 +374,23 @@ export type CourseAdjustmentPatchField =
 /**
  * Proposed overlay on a still-pending accepted step. Ready completed lessons
  * cannot appear here. `practice` is the replacement brief when `field` is
- * `practice`; otherwise it is null. Before/after text is display only.
+ * `practice`; `practiceBefore` is the current retained brief. Objective and
+ * activity patches keep `practice`/`practiceBefore` null. Before/after strings
+ * are the named field bytes, not an unrelated summary.
  */
 export type CourseAdjustmentPatch = {
   remoteStepId: string;
   field: CourseAdjustmentPatchField;
   before: string;
   after: string;
+  practiceBefore: CoursePracticeBrief | null;
   practice: CoursePracticeBrief | null;
+};
+
+export type CourseAdjustmentReviewedBase = {
+  pathRevision: number;
+  acceptedAdjustment: OpaqueRevisionRef | null;
+  digest: string;
 };
 
 export type CourseAdjustmentProposalBody = {
@@ -349,16 +400,19 @@ export type CourseAdjustmentProposalBody = {
   depth: { before: LessonDepth; after: LessonDepth } | null;
   patches: CourseAdjustmentPatch[];
   citations: SourceCitation[];
+  reviewedBase: CourseAdjustmentReviewedBase;
 };
 
 /**
  * Bounded review of an already-accepted course. Reuses the existing
  * onboarding planner/allowlist/quota. Must not emit a replacement syllabus
- * or new lesson identities.
+ * or new lesson identities. `notes` is a separate human field and must not
+ * appear on `human.answers`.
  */
 export type AdjustAcceptedCourseOperation = {
   kind: 'adjust-accepted-course';
   human: UntrustedHumanLearnerContext;
+  notes: string | null;
   model: UntrustedModelSyllabusContext;
   progress: CourseAdjustmentProgress;
   acceptedProposal: OpaqueRevisionRef;
