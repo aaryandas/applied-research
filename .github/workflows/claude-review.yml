@@ -51,8 +51,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/fable-review.mjs begin
   review:
-    # Environment secrets must exist only here, with a main-only branch policy.
-    environment: trusted-main
     needs: begin
     permissions:
       contents: read

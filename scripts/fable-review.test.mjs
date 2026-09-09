@@ -160,7 +160,7 @@ test('non-main bases never contact Linear or begin/publish Fable reviews', () =>
   }
 });
 
-test('secret-consuming jobs require the main-restricted environment and base guards', () => {
+test('verification jobs retain main-target guards without creating deployment records', () => {
   const review = readFileSync(
     new URL('../.github/workflows/claude-review.yml', import.meta.url),
     'utf8',
@@ -169,17 +169,11 @@ test('secret-consuming jobs require the main-restricted environment and base gua
     new URL('../.github/workflows/linear-gate.yml', import.meta.url),
     'utf8',
   );
-  assert.match(
-    review.split('\n  review:\n')[1].split('\n  publish:\n')[0],
-    /environment: trusted-main/,
-  );
+  assert.doesNotMatch(review, /\n {4}environment:/);
   assert.match(
     review.split('\n  begin:\n')[1].split('\n  review:\n')[0],
     /github.event.pull_request.base.ref == 'main'/,
   );
-  assert.match(
-    linear.split('\n  gate:\n')[1].split('\n  queue:\n')[0],
-    /environment: trusted-main/,
-  );
+  assert.doesNotMatch(linear, /\n {4}environment:/);
   assert.match(linear, /github.event.pull_request.base.ref == 'main'/);
 });
