@@ -319,11 +319,7 @@ describe('HTTPS worker transport', () => {
       origin: 'https://worker.example:9443',
       certificates,
       request: ((
-        ...params: [
-          URL,
-          https.RequestOptions,
-          (response: EventEmitter) => void,
-        ]
+        ...params: [URL, https.RequestOptions, (response: EventEmitter) => void]
       ) => {
         const callback = params[2];
         const response = new EventEmitter() as EventEmitter & {
@@ -353,11 +349,7 @@ describe('HTTPS worker transport', () => {
       origin: 'https://worker.example:9443',
       certificates,
       request: ((
-        ...params: [
-          URL,
-          https.RequestOptions,
-          (response: EventEmitter) => void,
-        ]
+        ...params: [URL, https.RequestOptions, (response: EventEmitter) => void]
       ) => {
         const callback = params[2];
         const response = new EventEmitter() as EventEmitter & {
