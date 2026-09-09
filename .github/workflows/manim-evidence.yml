@@ -1,0 +1,320 @@
+name: Manim evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character commit SHA to check out
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'src/render-worker/**'
+      - 'src/backend/render-delivery/**'
+      - '.github/workflows/manim-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manim-evidence
+  cancel-in-progress: false
+
+jobs:
+  render-evidence:
+    name: Fixed-recipe Manim evidence
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    env:
+      MANIM_IMAGE: manimcommunity/manim:v0.21.0@sha256:89ab433ce59134a4dcf351deb2511e067ab354393c0bb7d1859f3e8f0b2406a3
+      APPROVED_DIGEST: sha256:89ab433ce59134a4dcf351deb2511e067ab354393c0bb7d1859f3e8f0b2406a3
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.event.inputs.source_sha }}
+      WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Require an exact commit SHA
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "SOURCE_SHA must be an exact 40-character hex commit." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.inputs.source_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install committed lockfile
+        run: npm ci
+
+      - name: Install FFmpeg from the runner apt archive
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg
+
+      - name: Record and verify the local GitHub Docker runtime
+        run: |
+          set -euo pipefail
+          uid="$(id -u)"
+          gid="$(id -g)"
+          arch="$(uname -m)"
+          if test "$uid" -eq 0; then
+            echo "Render evidence requires a non-root GitHub runner user." >&2
+            exit 1
+          fi
+          if test "$arch" != aarch64; then
+            echo "Expected aarch64 GitHub-hosted runner, found $arch." >&2
+            exit 1
+          fi
+          avail_kb="$(df -Pk / | awk 'NR==2 { print $4 }')"
+          if test "$avail_kb" -lt 8388608; then
+            echo "Insufficient disk: ${avail_kb} KiB available." >&2
+            exit 1
+          fi
+          command -v docker >/dev/null
+          command -v ffmpeg >/dev/null
+          command -v ffprobe >/dev/null
+          docker_cli="$(command -v docker)"
+          ffmpeg_cli="$(command -v ffmpeg)"
+          ffprobe_cli="$(command -v ffprobe)"
+          docker_path="$(realpath "$docker_cli")"
+          ffmpeg_path="$(realpath "$ffmpeg_cli")"
+          ffprobe_path="$(realpath "$ffprobe_cli")"
+          python3 - "$docker_path" "$ffmpeg_path" "$ffprobe_path" <<'PY'
+          import os, stat, sys
+          for path in sys.argv[1:]:
+              mode = os.stat(path).st_mode
+              if not stat.S_ISREG(mode):
+                  raise SystemExit(f'{path} is not a regular file')
+              if mode & 0o022:
+                  raise SystemExit(f'{path} is group or world writable')
+              if not os.access(path, os.X_OK):
+                  raise SystemExit(f'{path} is not executable')
+          PY
+          docker version --format 'client={{.Client.Version}} server={{.Server.Version}} os={{.Server.Os}} arch={{.Server.Arch}}'
+          server_arch="$(docker version --format '{{.Server.Arch}}')"
+          if test "$server_arch" != arm64; then
+            echo "Docker server architecture must be arm64, found ${server_arch}." >&2
+            exit 1
+          fi
+          context_name="$(docker context show)"
+          python3 - "$context_name" <<'PY'
+          import json, re, subprocess, sys
+          name = sys.argv[1]
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', name):
+              raise SystemExit(f'Docker context name is not a trusted identifier: {name!r}')
+          if name == 'orbstack':
+              raise SystemExit('OrbStack is not a GitHub-hosted evidence context.')
+          inspect = json.loads(
+              subprocess.check_output(['docker', 'context', 'inspect', name], text=True)
+          )
+          host = inspect[0]['Endpoints']['docker']['Host']
+          if not host.startswith('unix://'):
+              raise SystemExit(f'Docker context is not the local daemon: {host}')
+          print(name)
+          PY
+          evidence="$(mktemp -d "${RUNNER_TEMP}/ar-manim-evidence.XXXXXX")"
+          chmod 0700 "$evidence"
+          {
+            echo "EVIDENCE_DIR=${evidence}"
+            echo "DOCKER=${docker_path}"
+            echo "FFMPEG=${ffmpeg_path}"
+            echo "FFPROBE=${ffprobe_path}"
+            echo "DOCKER_CONTEXT=${context_name}"
+            echo "HOST_UID=${uid}"
+            echo "HOST_GID=${gid}"
+          } >> "$GITHUB_ENV"
+          python3 - "$evidence" "$docker_path" "$ffmpeg_path" "$ffprobe_path" "$context_name" "$uid" "$arch" "$avail_kb" "$SOURCE_SHA" "$WORKFLOW_RUN_URL" "$MANIM_IMAGE" "$APPROVED_DIGEST" <<'PY'
+          import json, os, stat, subprocess, sys
+          from pathlib import Path
+          (
+              evidence,
+              docker,
+              ffmpeg,
+              ffprobe,
+              context,
+              uid,
+              arch,
+              avail,
+              sha,
+              run_url,
+              image,
+              digest,
+          ) = sys.argv[1:]
+          def mode(path):
+              return stat.S_IMODE(os.stat(path).st_mode)
+          identity = {
+              'status': 'runtime-identity',
+              'sourceSha': sha,
+              'workflowRunUrl': run_url,
+              'uid': int(uid),
+              'gid': os.getgid(),
+              'arch': arch,
+              'docker': {'path': docker, 'mode': oct(mode(docker))},
+              'ffmpeg': {'path': ffmpeg, 'mode': oct(mode(ffmpeg))},
+              'ffprobe': {'path': ffprobe, 'mode': oct(mode(ffprobe))},
+              'dockerContext': context,
+              'dockerVersion': subprocess.check_output(['docker', 'version'], text=True),
+              'diskAvailableKiB': int(avail),
+              'image': image,
+              'approvedDigest': digest,
+              'recipeIds': [
+                  'linear-shear',
+                  'weighted-shares',
+                  'linear-right-angle',
+                  'linear-collapse',
+                  'weighted-zero-share',
+                  'weighted-zero-result',
+              ],
+          }
+          Path(evidence, 'runtime-identity.json').write_text(
+              json.dumps(identity, indent=2) + '\n'
+          )
+          PY
+
+      - name: Pre-pull the pinned ARM Manim image
+        run: |
+          set -euo pipefail
+          docker pull "$MANIM_IMAGE"
+          docker image inspect "$MANIM_IMAGE" > "$EVIDENCE_DIR/image-inspect.json"
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          approved = os.environ['APPROVED_DIGEST']
+          requested = os.environ['MANIM_IMAGE']
+          data = json.loads(Path(os.environ['EVIDENCE_DIR'], 'image-inspect.json').read_text())[0]
+          arch = data.get('Architecture')
+          os_name = data.get('Os')
+          digests = data.get('RepoDigests') or []
+          matched = [
+              digest
+              for digest in digests
+              if digest.endswith('@' + approved) or digest.endswith(approved)
+          ]
+          record = {
+              'requested': requested,
+              'architecture': arch,
+              'os': os_name,
+              'repoDigests': digests,
+              'approvedDigest': approved,
+          }
+          Path(os.environ['EVIDENCE_DIR'], 'image-metadata.json').write_text(
+              json.dumps(record, indent=2) + '\n'
+          )
+          if os_name != 'linux' or arch != 'arm64' or not matched:
+              record['status'] = 'FAIL'
+              record['reason'] = 'image-metadata-mismatch'
+              Path(os.environ['EVIDENCE_DIR'], 'FAIL-receipt.json').write_text(
+                  json.dumps(record, indent=2) + '\n'
+              )
+              print('IMAGE_MISMATCH', record, file=sys.stderr)
+              sys.exit(1)
+          print('image_ok', arch, os_name, matched[0])
+          PY
+
+      - name: Compile the isolated worker and render the six fixed recipes
+        run: |
+          set -euo pipefail
+          node src/render-worker/build.mjs "$EVIDENCE_DIR/compiled"
+          node src/render-worker/render-evidence.mjs "$EVIDENCE_DIR" \
+            --docker "$DOCKER" \
+            --docker-context "$DOCKER_CONTEXT" \
+            --ffmpeg "$FFMPEG" \
+            --ffprobe "$FFPROBE"
+          node src/render-worker/runtime-probes.mjs "$EVIDENCE_DIR" \
+            --docker "$DOCKER" \
+            --docker-context "$DOCKER_CONTEXT" \
+            --ffmpeg "$FFMPEG" \
+            --ffprobe "$FFPROBE"
+          node src/render-worker/capture-evidence.mjs "$EVIDENCE_DIR" \
+            --docker "$DOCKER" \
+            --docker-context "$DOCKER_CONTEXT" \
+            --ffmpeg "$FFMPEG" \
+            --ffprobe "$FFPROBE"
+          node src/render-worker/color-evidence.mjs "$EVIDENCE_DIR" \
+            --docker "$DOCKER" \
+            --docker-context "$DOCKER_CONTEXT" \
+            --ffmpeg "$FFMPEG" \
+            --ffprobe "$FFPROBE"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          evidence = Path(os.environ['EVIDENCE_DIR'])
+          identity = json.loads((evidence / 'runtime-identity.json').read_text())
+          identity.update(
+              {
+                  'status': 'PASS',
+                  'dockerContext': os.environ['DOCKER_CONTEXT'],
+                  'workflowRunUrl': os.environ['WORKFLOW_RUN_URL'],
+                  'sourceSha': os.environ['SOURCE_SHA'],
+                  'image': os.environ['MANIM_IMAGE'],
+                  'approvedDigest': os.environ['APPROVED_DIGEST'],
+              }
+          )
+          (evidence / 'ci-identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          PY
+
+      - name: Upload verified evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manim-evidence-${{ github.event.pull_request.head.sha || github.event.inputs.source_sha }}
+          if-no-files-found: error
+          retention-days: 5
+          path: |
+            ${{ env.EVIDENCE_DIR }}/renders/*.mp4
+            ${{ env.EVIDENCE_DIR }}/renders/*.json
+            ${{ env.EVIDENCE_DIR }}/captures/*-contact.png
+            ${{ env.EVIDENCE_DIR }}/render-receipt.json
+            ${{ env.EVIDENCE_DIR }}/runtime-probes.json
+            ${{ env.EVIDENCE_DIR }}/color-probe.json
+            ${{ env.EVIDENCE_DIR }}/runtime-identity.json
+            ${{ env.EVIDENCE_DIR }}/image-metadata.json
+            ${{ env.EVIDENCE_DIR }}/ci-identity.json
+
+      - name: Write FAIL receipt
+        if: failure()
+        run: |
+          set -euo pipefail
+          if test -z "${EVIDENCE_DIR:-}"; then
+            echo "No evidence directory was created." >&2
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          evidence = Path(os.environ['EVIDENCE_DIR'])
+          payload = {
+              'status': 'FAIL',
+              'sourceSha': os.environ.get('SOURCE_SHA'),
+              'workflowRunUrl': os.environ.get('WORKFLOW_RUN_URL'),
+              'image': os.environ.get('MANIM_IMAGE'),
+              'approvedDigest': os.environ.get('APPROVED_DIGEST'),
+              'dockerContext': os.environ.get('DOCKER_CONTEXT'),
+              'note': 'Failed partial media was not uploaded as successful evidence.',
+          }
+          existing = evidence / 'FAIL-receipt.json'
+          if not existing.exists():
+              existing.write_text(json.dumps(payload, indent=2) + '\n')
+          PY
+
+      - name: Upload FAIL diagnostic receipts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manim-evidence-FAIL-${{ github.event.pull_request.head.sha || github.event.inputs.source_sha }}
+          if-no-files-found: warn
+          retention-days: 5
+          path: |
+            ${{ env.EVIDENCE_DIR }}/FAIL-receipt.json
+            ${{ env.EVIDENCE_DIR }}/runtime-identity.json
+            ${{ env.EVIDENCE_DIR }}/image-metadata.json
+            ${{ env.EVIDENCE_DIR }}/ci-identity.json
+            ${{ env.EVIDENCE_DIR }}/render-receipt.json
+            ${{ env.EVIDENCE_DIR }}/runtime-probes.json

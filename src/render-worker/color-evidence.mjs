@@ -2,11 +2,17 @@ import { evidenceDirectory, ffmpegExecutable } from './evidence-paths.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // Independent pixel evidence, based on Fable's plane-box probe. No Manim/recipe math import.
 const evidence = await evidenceDirectory(process.argv[2]);
-const executable = await ffmpegExecutable();
+const { resolveTrustedWorkerRuntime } = await import(
+  pathToFileURL(join(evidence, 'compiled/render-worker/trusted-runtime.js'))
+    .href
+);
+const runtime = await resolveTrustedWorkerRuntime(process.argv.slice(3));
+const executable = await ffmpegExecutable(runtime.ffmpeg);
 const colors = { green: [167, 206, 154], warm: [251, 208, 148] };
 function pixels(name, time, color) {
   const frame = spawnSync(
@@ -79,7 +85,7 @@ const endpoints = expectedEndpoints.map(([name, extent, expected]) => {
   };
 });
 await writeFile(
-  resolve(process.argv[3] ?? join(evidence, 'color-probe.json')),
+  join(evidence, 'color-probe.json'),
   JSON.stringify({ continuity, endpoints }, null, 2),
 );
 for (const sample of continuity)
