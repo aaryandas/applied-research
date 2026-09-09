@@ -8,6 +8,7 @@ import {
   decodeRetainedExplanation,
   decodeSceneCaptureRequest,
   decodeTrustedSceneCapture,
+  decodeVerifiedClipMetadata,
   EXPLANATION_ARTIFACT_CONTRACT_VERSION,
   RETAINED_CLIP_MAX_BYTES,
 } from './explanation-artifacts';
@@ -513,5 +514,63 @@ describe('retained artifacts and measurement authority', () => {
         measuredAt: createdAt,
       }).reason,
     ).toBe('shape');
+  });
+
+  it('accepts nonnegative finite stage timestamps and still requires a positive duration', () => {
+    const renderer = {
+      name: 'manim-community' as const,
+      version: '0.21.0' as const,
+      image,
+    };
+    const base = {
+      sha256,
+      mediaType: 'video/mp4',
+      bytes: 4096,
+      width: 1280,
+      height: 720,
+      durationSeconds: 10,
+      renderer,
+    };
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [
+          { name: 'Read the inputs', seconds: 0 },
+          { name: 'Transform continuously', seconds: 2 },
+          { name: 'Read the endpoint', seconds: 5 },
+        ],
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: 15 }],
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: -0.1 }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: Number.NaN }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        stages: [{ name: 'Show weights', seconds: 15.1 }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      decodeVerifiedClipMetadata({
+        ...base,
+        durationSeconds: 0,
+        stages: [{ name: 'Show weights', seconds: 0 }],
+      }).ok,
+    ).toBe(false);
   });
 });
