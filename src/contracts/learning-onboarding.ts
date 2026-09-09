@@ -224,8 +224,8 @@ export type SaveLearningInterviewInput = {
   draft: InterviewDraft;
 };
 
-export type ProposalLesson = OnboardingSyllabusLesson;
-export type ProposalTopic = OnboardingSyllabusTopic;
+export type { OnboardingSyllabusLesson as ProposalLesson };
+export type { OnboardingSyllabusTopic as ProposalTopic };
 
 /**
  * Renderer display projection. Never accepted back as authority.
@@ -237,7 +237,7 @@ export type CourseProposal = {
   projectId: string;
   interviewRevision: number;
   title: string;
-  topics: ProposalTopic[];
+  topics: OnboardingSyllabusTopic[];
   capstone: CourseCapstoneDesignation | null;
   firstLesson: { stepId: string; title: string; text: string } | null;
   sources: ProposalSource[];

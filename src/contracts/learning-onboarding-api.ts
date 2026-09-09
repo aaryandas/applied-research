@@ -5,34 +5,17 @@ import type {
   SourceCitation,
   SourceRevisionInput,
 } from './learning-api.js';
-import {
-  LEARNING_API_VERSION,
-  LEARNING_MODEL_ALLOWLIST,
-} from './learning-api.js';
 import type { PathSourceState } from './learning-records.js';
-import {
-  COURSE_PRACTICE_BRIEF_KIND,
-  COURSE_PRACTICE_TOOL_KINDS,
-  EXTRACTION_COVERAGE,
-  LESSON_DEPTHS,
-  LESSON_ROLES,
-} from './learning-onboarding.js';
 import type {
-  CourseCapstoneDesignation,
   CoursePracticeBrief,
-  CoursePracticeToolChoice,
-  CoursePracticeToolKind,
   LessonDepth,
   LessonRole,
   OnboardingCoverageGap,
   OnboardingPersonalization,
   OnboardingSourceCoverage,
   OnboardingSyllabus,
-  OnboardingSyllabusLesson,
-  OnboardingSyllabusTopic,
   OpaqueRevisionRef,
   ProposalSource,
-  ProposalSourceCoverage,
   UnacquiredSeedUrl,
 } from './learning-onboarding.js';
 import type { AcquiredSource, RetrievalEvidence } from './sourcing.js';
@@ -44,7 +27,7 @@ export {
   EXTRACTION_COVERAGE,
   LESSON_DEPTHS,
   LESSON_ROLES,
-};
+} from './learning-onboarding.js';
 export type {
   CourseCapstoneDesignation,
   CoursePracticeBrief,
@@ -62,7 +45,11 @@ export type {
   ProposalSource,
   ProposalSourceCoverage,
   UnacquiredSeedUrl,
-};
+} from './learning-onboarding.js';
+export {
+  LEARNING_API_VERSION as LEARNING_ONBOARDING_LEARNING_API_VERSION,
+  LEARNING_MODEL_ALLOWLIST as LEARNING_ONBOARDING_MODEL_ALLOWLIST,
+} from './learning-api.js';
 
 /** Sibling of `/v1/learning/sourced`. Do not register this path on the old route. */
 export const LEARNING_ONBOARDING_PATH = '/v1/learning/onboarding' as const;
@@ -149,9 +136,6 @@ export const LEARNING_ONBOARDING_LIMITS = {
   mappingEntries: 160,
   revision: 1_000_000,
 } as const;
-
-export const LEARNING_ONBOARDING_MODEL_ALLOWLIST = LEARNING_MODEL_ALLOWLIST;
-export const LEARNING_ONBOARDING_LEARNING_API_VERSION = LEARNING_API_VERSION;
 
 export const LEARNING_ONBOARDING_PUBLIC_MESSAGES = {
   invalidRequest: 'The onboarding request is invalid.',
