@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   AGENT_ID,
+  COORDINATOR_DISPATCH_RECEIPT_SOURCE,
   LAUNCH_RECEIPT_KIND,
   LAUNCH_RECEIPT_SCHEMA_VERSION,
   MISSING_ISOLATION_VARS,
@@ -9,6 +10,7 @@ import {
   RUN_ID,
   TRUSTED_DEFAULT_BRANCH_ENV,
   TRUSTED_GITHUB_EVENTS,
+  TRUSTED_LAUNCH_RECEIPT_SOURCE,
   TRUSTED_WORKFLOW_FILE,
   UNTRUSTED_CURSOR_CREDENTIAL,
   UNTRUSTED_GITHUB_EVENTS,
@@ -103,9 +105,17 @@ export function parseLaunchReceipt(raw) {
   return parsed;
 }
 
+export function untrustedEnvLaunchReceipt(raw) {
+  const parsed = parseLaunchReceipt(raw);
+  return {
+    ...parsed,
+    source: COORDINATOR_DISPATCH_RECEIPT_SOURCE,
+  };
+}
+
 export function launchReceiptFailures(
   receipt,
-  { expectedHeadSha, agent, run } = {},
+  { expectedHeadSha, agent, run, actionsRun } = {},
 ) {
   const failures = [];
   const fail = (reason) => failures.push(reason);
@@ -145,6 +155,29 @@ export function launchReceiptFailures(
       `Launch receipt modelParams must be effort=xhigh and fast=false (${JSON.stringify(REQUIRED_MODEL_PARAMS)})`,
     );
   }
+  if (receipt.source !== TRUSTED_LAUNCH_RECEIPT_SOURCE) {
+    fail(
+      'Launch receipt source must be trusted-launch-job; coordinator or self-authored JSON cannot relabel an arbitrary authenticated agent as model proof',
+    );
+  }
+  if (!/^\d+$/.test(String(receipt.githubRunId ?? ''))) {
+    fail(
+      'Launch receipt githubRunId must be the GitHub Actions run that owned the trusted launch',
+    );
+  }
+  if (!isFullSha(receipt.githubWorkflowSha)) {
+    fail(
+      'Launch receipt githubWorkflowSha must be the trusted default-branch workflow SHA',
+    );
+  }
+  if (receipt.workflowPath !== TRUSTED_WORKFLOW_FILE) {
+    fail(`Launch receipt workflowPath must be ${TRUSTED_WORKFLOW_FILE}`);
+  }
+  if (!TRUSTED_GITHUB_EVENTS.includes(receipt.githubEvent)) {
+    fail(
+      'Launch receipt githubEvent must be workflow_run or default-branch workflow_dispatch',
+    );
+  }
   if (expectedHeadSha && receipt.headSha !== expectedHeadSha) {
     fail(
       `Launch receipt headSha ${receipt.headSha} does not match live PR head ${expectedHeadSha}`,
@@ -155,6 +188,27 @@ export function launchReceiptFailures(
   }
   if (run?.id && receipt.runId !== run.id) {
     fail('Launch receipt runId is not bound to the authenticated GET run');
+  }
+  if (!actionsRun) {
+    fail(
+      'Launch receipt must be bound to GET /repos/.../actions/runs/{githubRunId}; missing GET is not permission to trust self-authored githubRunId',
+    );
+  } else {
+    if (String(actionsRun.id) !== String(receipt.githubRunId)) {
+      fail(
+        'Launch receipt githubRunId is not the authenticated GitHub Actions run',
+      );
+    }
+    if (actionsRun.path !== TRUSTED_WORKFLOW_FILE) {
+      fail(
+        'Launch receipt is not from the trusted independent-review workflow path',
+      );
+    }
+    if (!TRUSTED_GITHUB_EVENTS.includes(actionsRun.event)) {
+      fail(
+        'Launch receipt Actions run event is not workflow_run or workflow_dispatch',
+      );
+    }
   }
   return failures;
 }

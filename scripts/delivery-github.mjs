@@ -1,4 +1,7 @@
-import { redactSecrets } from './delivery-constants.mjs';
+import {
+  redactSecrets,
+  TRUSTED_REVIEW_JOB_NAME,
+} from './delivery-constants.mjs';
 
 export async function githubJson(
   path,
@@ -73,12 +76,100 @@ export async function fetchCommitCheckRuns(repository, sha, options) {
     if (page > 10) break;
   }
   return checks.map((check) => ({
+    id: check.id,
     name: check.name,
     head_sha: check.head_sha,
     status: check.status,
     conclusion: check.conclusion,
-    app: check.app ? { slug: check.app.slug } : undefined,
+    html_url: check.html_url,
+    details_url: check.details_url,
+    external_id: check.external_id,
+    check_suite_id: check.check_suite?.id,
+    app: check.app ? { slug: check.app.slug, id: check.app.id } : undefined,
+    output: check.output
+      ? { title: check.output.title, summary: check.output.summary }
+      : undefined,
   }));
+}
+
+export function parseActionsRunJob(url) {
+  const raw = String(url ?? '');
+  const withJob = raw.match(/\/actions\/runs\/(\d+)\/(?:jobs?\/)?(\d+)/);
+  if (withJob) return { runId: withJob[1], jobId: withJob[2] };
+  const runOnly = raw.match(/\/actions\/runs\/(\d+)(?:\/|$)/);
+  return runOnly ? { runId: runOnly[1], jobId: null } : null;
+}
+
+export async function fetchWorkflowRun(repository, runId, options) {
+  return githubJson(`repos/${repository}/actions/runs/${runId}`, options);
+}
+
+export async function fetchActionsJob(repository, jobId, options) {
+  return githubJson(`repos/${repository}/actions/jobs/${jobId}`, options);
+}
+
+export async function fetchWorkflowRunJobs(repository, runId, options) {
+  const payload = await githubJson(
+    `repos/${repository}/actions/runs/${runId}/jobs?per_page=100`,
+    options,
+  );
+  return payload?.jobs ?? [];
+}
+
+export async function fetchWorkflowRunsForCheckSuite(
+  repository,
+  checkSuiteId,
+  options,
+) {
+  const payload = await githubJson(
+    `repos/${repository}/actions/runs?check_suite_id=${checkSuiteId}&per_page=1`,
+    options,
+  );
+  return payload?.workflow_runs?.[0] ?? null;
+}
+
+export async function enrichCheckPublisher(check, repository, options) {
+  const ids =
+    parseActionsRunJob(check?.html_url) ??
+    parseActionsRunJob(check?.details_url);
+  let run = null;
+  let job = null;
+  if (ids?.runId) {
+    run = await fetchWorkflowRun(repository, ids.runId, options);
+  } else if (check?.check_suite_id) {
+    run = await fetchWorkflowRunsForCheckSuite(
+      repository,
+      check.check_suite_id,
+      options,
+    );
+  }
+  if (ids?.jobId) {
+    job = await fetchActionsJob(repository, ids.jobId, options);
+  } else if (run?.id) {
+    const jobs = await fetchWorkflowRunJobs(repository, run.id, options);
+    job =
+      jobs.find((entry) => entry.name === TRUSTED_REVIEW_JOB_NAME) ??
+      jobs.find((entry) => entry.name === check?.name) ??
+      null;
+  }
+  if (!run) {
+    return { ...check, publisher: null };
+  }
+  return {
+    ...check,
+    publisher: {
+      appId: check.app?.id,
+      appSlug: check.app?.slug,
+      runId: String(run.id),
+      workflowPath: run.path,
+      workflowName: run.name,
+      event: run.event,
+      jobName: job?.name ?? null,
+      jobId: job?.id != null ? String(job.id) : (ids?.jobId ?? null),
+      headBranch: run.head_branch,
+      runHeadSha: run.head_sha,
+    },
+  };
 }
 
 export async function fetchReviewThreads(repository, prNumber, options) {

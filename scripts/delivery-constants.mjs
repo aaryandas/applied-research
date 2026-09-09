@@ -57,6 +57,18 @@ export const TRUSTED_WORKFLOW_FILE =
   '.github/workflows/independent-review-trusted.yml';
 export const UNTRUSTED_REVIEW_WORKFLOW_NAME =
   'Independent review (untrusted pending)';
+export const TRUSTED_REVIEW_JOB_NAME = 'Cursor Cloud Grok 4.6 Extra High';
+export const TRUSTED_LAUNCH_RECEIPT_SOURCE = 'trusted-launch-job';
+export const COORDINATOR_DISPATCH_RECEIPT_SOURCE = 'coordinator-dispatch-input';
+export const GITHUB_ACTIONS_APP_SLUG = 'github-actions';
+export const GITHUB_ACTIONS_APP_ID = 15368;
+export const HOSTED_SONAR_WORKFLOW_FILE = '.github/workflows/sonar.yml';
+export const WALKTHROUGH_INTEGRATION_ROOT =
+  '8d0a8154ade3ede7302f6595789aea1e31663707';
+export const NONBLOCKING_VERIFY_CHECK_NAMES = Object.freeze([
+  'checks / Verify (windows-latest)',
+  'checks / Verify (ubuntu-24.04)',
+]);
 export const TRUSTED_GITHUB_ENVIRONMENT = 'trusted-main';
 export const TRUSTED_ENVIRONMENT_BRANCH_POLICY = Object.freeze({
   type: 'branch',
@@ -86,8 +98,8 @@ export const UNTRUSTED_CURSOR_CREDENTIAL = [
 
 export const MISSING_LAUNCH_RECEIPT = [
   'Documented GET /v1/agents and GET /v1/agents/{id}/runs do not include model or originalModelName.',
-  'PASS requires a coordinator or trusted-launch receipt bound to authenticated agentId, runId, and repos[0].startingRef.',
-  'Do not accept verdict.model, agent.model, or undocumented fields as picker/runtime proof.',
+  'PASS requires a trusted-launch-job receipt bound to authenticated agentId, runId, repos[0].startingRef, and the GitHub Actions run that launched the critic.',
+  'Missing model fields on GET are not permission to treat coordinator or self-authored JSON as model proof.',
 ].join(' ');
 
 export const MISSING_ISOLATION_VARS = [
@@ -160,6 +172,80 @@ export function explainLinearLifecycleGap({ pr, linear, ticket } = {}) {
   return parts.join(' ');
 }
 
+export function githubActionsAppOk(check) {
+  return (
+    check?.app?.slug === GITHUB_ACTIONS_APP_SLUG &&
+    Number(check.app?.id) === GITHUB_ACTIONS_APP_ID
+  );
+}
+
+export function classifyLinearGate({ pr, linear, ticket } = {}) {
+  const actual = linear?.state ?? 'unknown';
+  const identifier = ticket ?? linear?.identifier ?? 'the ticket';
+  const expected = expectedLinearStateFromPr(pr);
+  const gap = explainLinearLifecycleGap({ pr, linear, ticket: identifier });
+  if (actual === LINEAR_MERGE_STATE) {
+    return {
+      kind: 'merge-eligible-linear',
+      exitCode: 0,
+      autofix: false,
+      message: `Linear ${identifier} is ${LINEAR_MERGE_STATE}.`,
+    };
+  }
+  const kind =
+    expected && actual === expected
+      ? 'expected-lifecycle'
+      : actual === 'Backlog' && expected
+        ? 'automation-gap'
+        : 'blocked-not-in-review';
+  return {
+    kind,
+    exitCode: 0,
+    autofix: false,
+    message: `${gap} Classification ${kind}: not a code defect. Do not autofix expected Linear In Development or an automation gap on a stale head.`,
+  };
+}
+
+export function classifyDeliveryCi({
+  liveHeadSha,
+  ciGateResult,
+  workflowSha,
+  checks = [],
+  linearKind,
+} = {}) {
+  const stale =
+    isFullSha(liveHeadSha) &&
+    isFullSha(workflowSha) &&
+    liveHeadSha !== workflowSha;
+  const gateFailed = Boolean(ciGateResult) && ciGateResult !== 'success';
+  const blockingOnLive = (checks ?? []).some(
+    (check) =>
+      check.name === CI_GATE_NAME &&
+      check.conclusion === 'failure' &&
+      check.head_sha === liveHeadSha,
+  );
+  const windowsNonblocking = (checks ?? []).some(
+    (check) =>
+      NONBLOCKING_VERIFY_CHECK_NAMES.includes(check.name) &&
+      (check.conclusion === 'failure' || check.conclusion === 'cancelled'),
+  );
+  const expectedLinear =
+    linearKind === 'expected-lifecycle' || linearKind === 'automation-gap';
+  const investigate = (gateFailed || blockingOnLive) && !stale;
+  return {
+    action: investigate ? 'investigate' : 'ignore',
+    staleHead: Boolean(stale),
+    autofix: false,
+    expected: [
+      expectedLinear ? 'linear-expected-lifecycle' : null,
+      windowsNonblocking ? 'windows-nonblocking-coverage' : null,
+    ].filter(Boolean),
+    reason: investigate
+      ? `Blocking ${CI_GATE_NAME} failed on live head ${liveHeadSha}`
+      : 'Do not autofix stale heads, expected Linear In Development, or nonblocking Windows coverage. Blocking signal is checks / CI gate on the current PR head only.',
+  };
+}
+
 export function redactSecrets(value) {
   if (value == null) return value;
   if (typeof value === 'string') {
@@ -205,7 +291,7 @@ export function touchesApplication(files = []) {
 
 export function isSonarWorkflowPath(file) {
   return (
-    file === '.github/workflows/sonar.yml' ||
+    file === HOSTED_SONAR_WORKFLOW_FILE ||
     file.startsWith('scripts/hosted-sonar')
   );
 }

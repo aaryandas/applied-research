@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  COORDINATOR_DISPATCH_RECEIPT_SOURCE,
   LAUNCH_RECEIPT_KIND,
   REQUIRED_MODEL_ID,
   REQUIRED_MODEL_PARAMS,
@@ -16,6 +17,7 @@ import {
   parseLaunchReceipt,
   requiredIsolationIds,
   reviewIdempotencyKey,
+  untrustedEnvLaunchReceipt,
 } from './delivery-trust.mjs';
 
 const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -110,29 +112,126 @@ test('launch receipt must bind documented model params, not a guessed picker fie
     {
       schemaVersion: 1,
       kind: LAUNCH_RECEIPT_KIND,
+      source: 'trusted-launch-job',
       agentId: AGENT,
       runId: RUN,
       headSha: HEAD,
       modelId: REQUIRED_MODEL_ID,
       modelParams: [...REQUIRED_MODEL_PARAMS],
+      githubRunId: '1',
+      githubWorkflowSha: HEAD,
+      githubEvent: 'workflow_run',
+      workflowPath: TRUSTED_WORKFLOW_FILE,
     },
     {
       expectedHeadSha: HEAD,
       agent: { id: AGENT },
       run: { id: RUN },
+      actionsRun: {
+        id: 1,
+        path: TRUSTED_WORKFLOW_FILE,
+        event: 'workflow_run',
+      },
     },
   );
   assert.deepEqual(failures, []);
   const spoofed = launchReceiptFailures({
     schemaVersion: 1,
     kind: LAUNCH_RECEIPT_KIND,
+    source: 'trusted-launch-job',
     agentId: AGENT,
     runId: RUN,
     headSha: HEAD,
     modelId: 'claude-fable-5-1',
     modelParams: [...REQUIRED_MODEL_PARAMS],
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_run',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
   });
   assert.match(spoofed.join('\n'), /modelId must be grok-4\.6/);
+  const coordinator = launchReceiptFailures({
+    schemaVersion: 1,
+    kind: LAUNCH_RECEIPT_KIND,
+    source: 'coordinator',
+    agentId: AGENT,
+    runId: RUN,
+    headSha: HEAD,
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_dispatch',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+  });
+  assert.match(coordinator.join('\n'), /trusted-launch-job/);
+  const wrongPath = launchReceiptFailures(
+    {
+      schemaVersion: 1,
+      kind: LAUNCH_RECEIPT_KIND,
+      source: 'trusted-launch-job',
+      agentId: AGENT,
+      runId: RUN,
+      headSha: HEAD,
+      modelId: REQUIRED_MODEL_ID,
+      modelParams: [...REQUIRED_MODEL_PARAMS],
+      githubRunId: '1',
+      githubWorkflowSha: HEAD,
+      githubEvent: 'workflow_run',
+      workflowPath: TRUSTED_WORKFLOW_FILE,
+    },
+    {
+      actionsRun: {
+        id: 1,
+        path: '.github/workflows/forge.yml',
+        event: 'workflow_run',
+      },
+    },
+  );
+  assert.match(
+    wrongPath.join('\n'),
+    /trusted independent-review workflow path/,
+  );
+  const missingRun = launchReceiptFailures({
+    schemaVersion: 1,
+    kind: LAUNCH_RECEIPT_KIND,
+    source: 'trusted-launch-job',
+    agentId: AGENT,
+    runId: RUN,
+    headSha: HEAD,
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_run',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+  });
+  assert.match(missingRun.join('\n'), /must be bound to GET/);
+  const demoted = untrustedEnvLaunchReceipt({
+    schemaVersion: 1,
+    kind: LAUNCH_RECEIPT_KIND,
+    source: 'trusted-launch-job',
+    agentId: AGENT,
+    runId: RUN,
+    headSha: HEAD,
+    modelId: REQUIRED_MODEL_ID,
+    modelParams: [...REQUIRED_MODEL_PARAMS],
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_dispatch',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+  });
+  assert.equal(demoted.source, COORDINATOR_DISPATCH_RECEIPT_SOURCE);
+  assert.match(
+    launchReceiptFailures(demoted, {
+      actionsRun: {
+        id: 1,
+        path: TRUSTED_WORKFLOW_FILE,
+        event: 'workflow_dispatch',
+      },
+    }).join('\n'),
+    /trusted-launch-job/,
+  );
 });
 
 test('unparseable launch receipt fails closed', () => {

@@ -19,7 +19,7 @@ Repo settings, workflow YAML, prompts, and PR payloads are separate trust classe
 
 Repo settings currently mark `.github/workflows/claude-review.yml` workflow id **353522718** (Actions name `Independent review (Claude)`) as **`disabled_manually`** to stop Fable. That is a settings trust class, separate from this PR's YAML. Delivery tests still run inside `verify.yml` / `delivery-queue.yml`. After merge, trusted `workflow_run` listens to **CI** as well as the untrusted-pending workflow so evaluation is not dormant while that workflow stays disabled. Re-enabling it is a human Actions setting; this PR does not flip it.
 
-Until `independent-review-trusted.yml` exists on the default branch, `workflow_run` will not start this evaluator. Coordinator API launch remains the live critic path for this PR. After merge, default-branch `workflow_dispatch` with `launch_receipt_json` is the other live path.
+Until `independent-review-trusted.yml` exists on the default branch, `workflow_run` will not start this evaluator. Coordinator API launch remains the live critic path for this PR, but coordinator JSON is **not** merge-gate model proof. After merge, the trusted job owns the receipt via `maybeLaunchReview` when `CURSOR_REVIEW_LAUNCH=true`. `workflow_dispatch` `launch_receipt_json` is ignored.
 
 **Residual platform hole (not claimed closed):** a same-repo PR can add a _new_ `pull_request` workflow that references a **repository** secret. The authorized key already lives only on Environment `trusted-main` (deployment branch policy: type=`branch`, name=`main`). The repository-level `CURSOR_API_KEY` was removed after that protected copy was verified. The remaining hole is only if someone **re-adds** a repository secret. This PR's `pull_request` workflows do not receive the key. The trusted job also fails a PR that adds `secrets.CURSOR_API_KEY` to any workflow other than `independent-review-trusted.yml`. Do not create a new secret or environment.
 
@@ -45,9 +45,11 @@ PASS requires all of:
 2. Repository variables `IMPLEMENTER_AGENT_ID`, `VERIFIER_AGENT_ID`, and `RECORDER_AGENT_ID` set to documented `bc-` UUIDs. Empty values fail closed. Role identity is authenticated `agent.id` isolation plus `agent.name` matching `/^Independent review\b/i`. `run.result` JSON `role` is not identity (forbidden JSON roles still fail).
 3. Live GitHub PR `head.sha` (exact 40 characters). `refs/pull/*/merge` is rejected.
 4. `GET /v1/models` contains `grok-4.6` with params `effort=xhigh` and `fast=false`.
-5. A **launch receipt** (`kind: cursor-cloud-independent-review-launch`) bound to authenticated `GET /v1/agents/{id}` and `GET /v1/agents/{id}/runs/{runId}`: `receipt.agentId === agent.id`, `receipt.runId === run.id`, `receipt.headSha === live head === agent.repos[0].startingRef`. Receipt `modelId`/`modelParams` record what the trusted launcher POSTed (or what a coordinator attests they POSTed). `verdict.model` is rejected. Undocumented GET model fields are ignored and fail closed if present so tests cannot stub them as proof.
+5. A **launch receipt** (`kind: cursor-cloud-independent-review-launch`, `source: trusted-launch-job`) bound to authenticated `GET /v1/agents/{id}`, `GET /v1/agents/{id}/runs/{runId}`, and `GET /repos/.../actions/runs/{githubRunId}`: `receipt.agentId === agent.id`, `receipt.runId === run.id`, `receipt.headSha === live head === agent.repos[0].startingRef`, `receipt.workflowPath` is the trusted evaluator, `receipt.githubEvent` is `workflow_run` or `workflow_dispatch`. Receipt `modelId`/`modelParams` record what **that trusted launch job** POSTed. `verdict.model` and coordinator/self-authored receipts are rejected. Undocumented GET model fields are ignored and fail closed if present so tests cannot stub them as proof.
 6. `agent.env.type === 'cloud'` (missing type fails).
-7. FINISHED run, standards PASS, spec PASS, no unresolved material findings, immutable `https://cursor.com/agents/bc-…` URL.
+7. FINISHED run (`run.status` required), verdict `headSha` required and equal to the live head, `findings` required as an array, standards PASS, spec PASS, no unresolved material findings, immutable `https://cursor.com/agents/bc-…` URL.
+
+The GitHub check of the same name is not proof by name. Queue eligibility requires GitHub Actions app id `15368`, workflow path `.github/workflows/independent-review-trusted.yml`, job `Cursor Cloud Grok 4.6 Extra High`, and `githubRunId=` in the check summary matching `GET` `/actions/runs`. Same-name checks without that publisher fail closed.
 
 GitHub comments, `cursor[bot]` text, and marker strings are **not** proof. The trusted job posts a human comment and a check run; neither comment is authentication.
 
@@ -59,7 +61,7 @@ GitHub comments, `cursor[bot]` text, and marker strings are **not** proof. The t
 - **Create body omits `repos[].prUrl`.** Documented `prUrl` ignores `startingRef` and bases `workOnCurrentBranch=false` on the PR **base**. PR URL is bound on the receipt and in the prompt. Evaluation fails if GET `startingRef` ≠ live head.
 - 409 on the client-supplied id GETs the existing agent (bounded idempotent dispatch).
 
-A coordinator-controlled receipt is accepted on default-branch `workflow_dispatch` input `launch_receipt_json` when it binds to those GET identities. That is coordinator attestation for model params (the platform GET does not return them), not a substitute for agent/run/SHA binding. If no receipt exists, the gate stays PENDING/FAIL and names that remaining requirement.
+A coordinator-controlled dispatch input is **not** model proof. PASS requires a `trusted-launch-job` receipt whose `githubRunId` authenticates via `GET /repos/.../actions/runs/{id}` to `.github/workflows/independent-review-trusted.yml` on `workflow_run` or default-branch `workflow_dispatch`. Missing GET model fields do not authorize self-authored `modelId` JSON. If no such receipt exists, the gate stays PENDING/FAIL.
 
 Documented API only: `https://api.cursor.com/v1/*` with Basic auth as in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints).
 
@@ -71,7 +73,11 @@ Live evaluation is **only** `node scripts/delivery-queue.mjs evaluate` on defaul
 
 `pull_request` jobs log `untrusted-notice` and do not fetch. Native merge queues / `merge_group` refs are refused.
 
-`assessCandidate` and `linear-gate.mjs` map GitHub PR shape to expected Linear state (open draft → In Development, open ready → In Testing) and still require **In Review** for merge eligibility. They do not treat Backlog, In Development, or In Testing as In Review, and they do not move Linear status.
+`assessCandidate` and `linear-gate.mjs` map GitHub PR shape to expected Linear state (open draft → In Development, open ready → In Testing) and still require **In Review** for merge eligibility. They do not treat Backlog, In Development, or In Testing as In Review, and they do not move Linear status. Expected Linear In Development and nonblocking Windows Verify failures are classified `ignore` for coding-agent autofix; they are not a stale-head code defect. `checks / CI gate` on the live PR head remains the blocking CI signal.
+
+**Hosted Sonar (pre-merge vs post-merge):** PR code receives no `SONAR_TOKEN` / environment secrets. Hosted analysis stays main-only (AR-45 / `sonar.yml`). Pre-merge app-candidate eligibility requires independent source review at the exact PR head, not a PR-head Sonar check. Serialized queue eligibility plus **exact main** hosted Sonar after merge (`bindDeployment` / `evaluateSonar` `phase: postmerge`). Fabricated PR-head Sonar checks are not that analysis. Independent review still fails closed on unresolved material findings.
+
+Current-delivery walkthrough integration root remains `codex/ar-walkthrough-integration` @ `8d0a8154ade3ede7302f6595789aea1e31663707`. This orchestration does not retarget that branch.
 
 **Observed GitHub↔Linear status automation gap:** [next-run.md](../next-run.md) documents Linear GitHub integration PR opened → In Development and ready → In Testing. GitHub PRs [#45](https://github.com/aaryandas/applied-research/pull/45) (AR-52) and [#46](https://github.com/aaryandas/applied-research/pull/46) (AR-53) opened as drafts against the walkthrough candidate with the PR URL attached on Linear, but those tickets **remained Backlog** (`startedAt` null) after the PRs existed. Owned mapping reports that gap when Linear is still Backlog with an open PR; it does not invent In Review.
 
@@ -99,7 +105,7 @@ Product PRs still need a nonempty MP4 from [linear-demo-record](../../.cursor/sk
 
 Keep launch and merge activation off until all of the following happen, in order:
 
-1. Independent review PASS of this orchestration at the exact head (coordinator launch receipt bound to authenticated agent/run/`startingRef`).
+1. Independent review PASS of this orchestration at the exact head (`trusted-launch-job` receipt bound to authenticated agent/run/`startingRef` and `GET` `/actions/runs/{githubRunId}`). Coordinator dispatch JSON is not that proof.
 2. Merge this trusted replacement onto the default branch so `independent-review-trusted.yml` exists for `workflow_run` and untrusted `claude-review.yml` is no longer Fable.
 3. A human **explicitly re-enables** the appropriate Actions workflow after that merge. Workflow id `353522718` stays `disabled_manually` until then. Do not re-enable it while `main` still contains Fable.
 4. Keep `CURSOR_REVIEW_LAUNCH` unset until step 1.

@@ -5,10 +5,14 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   CI_GATE_NAME,
+  GITHUB_ACTIONS_APP_ID,
+  GITHUB_ACTIONS_APP_SLUG,
   LANE_GUARD_NAME,
   LINEAR_GATE_NAME,
   PARTIAL_ACCEPTANCE,
   REVIEW_CHECK_NAME,
+  TRUSTED_REVIEW_JOB_NAME,
+  TRUSTED_WORKFLOW_FILE,
 } from './delivery-constants.mjs';
 import {
   acquireQueueLock,
@@ -21,6 +25,7 @@ import {
   main,
   mergeActivationEnabled,
   releaseQueueLock,
+  trustedReviewPublisherOk,
   reviewFromChecks,
   runQueueTick,
   untrustedQueueNotice,
@@ -30,6 +35,36 @@ const HEAD = 'cccccccccccccccccccccccccccccccccccccccc';
 const MAIN = 'dddddddddddddddddddddddddddddddddddddddd';
 const OTHER = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
+function actionsApp() {
+  return { slug: GITHUB_ACTIONS_APP_SLUG, id: GITHUB_ACTIONS_APP_ID };
+}
+
+function trustedReviewCheck(sha = HEAD) {
+  return {
+    id: 99,
+    name: REVIEW_CHECK_NAME,
+    head_sha: sha,
+    status: 'completed',
+    conclusion: 'success',
+    html_url:
+      'https://github.com/aaryandas/applied-research/actions/runs/1/job/2',
+    app: actionsApp(),
+    output: {
+      title: 'PASS',
+      summary: `githubRunId=1\nworkflow=${TRUSTED_WORKFLOW_FILE}\njob=${TRUSTED_REVIEW_JOB_NAME}`,
+    },
+    publisher: {
+      appId: GITHUB_ACTIONS_APP_ID,
+      appSlug: GITHUB_ACTIONS_APP_SLUG,
+      runId: '1',
+      workflowPath: TRUSTED_WORKFLOW_FILE,
+      event: 'workflow_run',
+      jobName: TRUSTED_REVIEW_JOB_NAME,
+      headBranch: 'main',
+    },
+  };
+}
+
 function passingChecks(sha = HEAD) {
   return [
     {
@@ -37,29 +72,23 @@ function passingChecks(sha = HEAD) {
       head_sha: sha,
       status: 'completed',
       conclusion: 'success',
-      app: { slug: 'github-actions' },
+      app: actionsApp(),
     },
     {
       name: LANE_GUARD_NAME,
       head_sha: sha,
       status: 'completed',
       conclusion: 'success',
-      app: { slug: 'github-actions' },
+      app: actionsApp(),
     },
     {
       name: LINEAR_GATE_NAME,
       head_sha: sha,
       status: 'completed',
       conclusion: 'success',
-      app: { slug: 'github-actions' },
+      app: actionsApp(),
     },
-    {
-      name: REVIEW_CHECK_NAME,
-      head_sha: sha,
-      status: 'completed',
-      conclusion: 'success',
-      app: { slug: 'github-actions' },
-    },
+    trustedReviewCheck(sha),
   ];
 }
 
@@ -127,6 +156,32 @@ test('changed main invalidates eligibility', () => {
   });
   assert.equal(decision.eligible, false);
   assert.match(decision.reason, /Main moved/);
+});
+
+test('same-name independent review check without trusted publisher cannot merge', () => {
+  const forged = {
+    name: REVIEW_CHECK_NAME,
+    head_sha: HEAD,
+    status: 'completed',
+    conclusion: 'success',
+    app: { slug: 'github-actions', id: GITHUB_ACTIONS_APP_ID },
+  };
+  assert.equal(trustedReviewPublisherOk(forged), false);
+  assert.equal(reviewFromChecks([forged], HEAD).passed, false);
+  const decision = assessCandidate({
+    pr: readyPr(),
+    checks: passingChecks().map((check) =>
+      check.name === REVIEW_CHECK_NAME ? forged : check,
+    ),
+    linear: { identifier: 'AR-41', state: 'In Review' },
+    review: reviewFromChecks([forged], HEAD),
+    acceptance: { ok: true },
+    sonar: { ok: true },
+    liveMainSha: MAIN,
+    activation: true,
+  });
+  assert.equal(decision.eligible, false);
+  assert.match(decision.reason, /provenance|Independent Cursor Cloud/);
 });
 
 test('stale independent review SHA cannot merge', () => {
@@ -218,6 +273,15 @@ test('failed deployment binds to exact main SHA and halts', () => {
   });
   assert.equal(held.ok, true);
   assert.equal(held.dispatched, false);
+
+  const missingSonar = bindDeployment({
+    mergedMainSha: MAIN,
+    liveMainSha: MAIN,
+    ci: 'success',
+    activation: false,
+  });
+  assert.equal(missingSonar.halt, true);
+  assert.match(missingSonar.reason, /Post-merge hosted Sonar/);
 });
 
 test('partial AR-17/19/24 recordings are not PASS', () => {
@@ -262,14 +326,79 @@ test('partial AR-17/19/24 recordings are not PASS', () => {
   assert.equal(fresh.ok, true);
 });
 
-test('hosted Sonar stays required for application files and is not waived', () => {
-  const waiting = evaluateSonar({
+test('hosted Sonar is post-merge on exact main; pre-merge requires independent review not PR secrets', () => {
+  const premergeApp = evaluateSonar({
     files: ['src/main/index.ts'],
     checks: passingChecks(),
     headSha: HEAD,
+    phase: 'premerge',
   });
-  assert.equal(waiting.ok, false);
-  assert.match(waiting.reason, /hosted Sonar/);
+  assert.equal(premergeApp.ok, true);
+  assert.match(premergeApp.reason, /Pre-merge/);
+  assert.match(premergeApp.reason, /after merge/);
+
+  const fakePrSonar = evaluateSonar({
+    files: ['src/main/index.ts'],
+    checks: [
+      {
+        name: 'Sonar gate',
+        head_sha: HEAD,
+        status: 'completed',
+        conclusion: 'success',
+        app: { slug: 'cursor-bot', id: 1 },
+      },
+    ],
+    headSha: HEAD,
+    phase: 'premerge',
+  });
+  assert.equal(fakePrSonar.ok, true);
+  assert.equal(fakePrSonar.phase, 'premerge');
+
+  const postmergeStale = evaluateSonar({
+    files: ['src/main/index.ts'],
+    checks: [],
+    headSha: HEAD,
+    mainSonar: {
+      sha: OTHER,
+      conclusion: 'success',
+      app: actionsApp(),
+      publisher: { workflowPath: '.github/workflows/sonar.yml' },
+    },
+    phase: 'postmerge',
+  });
+  assert.equal(postmergeStale.ok, false);
+  assert.match(postmergeStale.reason, /Post-merge hosted Sonar/);
+
+  const postmergeOk = evaluateSonar({
+    files: ['src/main/index.ts'],
+    checks: [],
+    headSha: HEAD,
+    mainSonar: {
+      sha: HEAD,
+      conclusion: 'success',
+      app: actionsApp(),
+      publisher: { workflowPath: '.github/workflows/sonar.yml' },
+    },
+    phase: 'postmerge',
+  });
+  assert.equal(postmergeOk.ok, true);
+
+  const fakePublisher = evaluateSonar({
+    files: ['src/main/index.ts'],
+    checks: [
+      {
+        name: 'Sonar gate',
+        head_sha: HEAD,
+        status: 'completed',
+        conclusion: 'success',
+        app: actionsApp(),
+        publisher: { workflowPath: '.github/workflows/forge.yml' },
+      },
+    ],
+    headSha: HEAD,
+    phase: 'postmerge',
+  });
+  assert.equal(fakePublisher.ok, false);
 
   const delivery = evaluateSonar({
     files: ['scripts/delivery-queue.mjs'],
@@ -461,6 +590,23 @@ test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', 
         if (href.includes('/check-runs')) {
           return json({ check_runs: passingChecks() });
         }
+        if (href.includes('/actions/jobs/')) {
+          return json({
+            id: 2,
+            name: TRUSTED_REVIEW_JOB_NAME,
+            run_id: 1,
+          });
+        }
+        if (href.includes('/actions/runs/')) {
+          return json({
+            id: 1,
+            path: TRUSTED_WORKFLOW_FILE,
+            event: 'workflow_run',
+            name: 'Independent review',
+            head_branch: 'main',
+            head_sha: MAIN,
+          });
+        }
         if (href.includes('api.github.com/graphql')) {
           return json({
             data: {
@@ -505,6 +651,64 @@ test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', 
     true,
   );
   assert.equal(reviewFromChecks(passingChecks(), HEAD).passed, true);
+});
+
+test('premerge app candidate is eligible without PR-head Sonar when review provenance is trusted', () => {
+  const sonar = evaluateSonar({
+    files: ['src/main/index.ts'],
+    checks: passingChecks(),
+    headSha: HEAD,
+    mainSonar: null,
+    phase: 'premerge',
+  });
+  assert.equal(sonar.ok, true);
+  const decision = assessCandidate({
+    pr: readyPr({ files: ['src/main/index.ts'] }),
+    checks: passingChecks(),
+    linear: { identifier: 'AR-41', state: 'In Review' },
+    review: {
+      passed: true,
+      evidence: { headSha: HEAD },
+    },
+    acceptance: {
+      ok: true,
+      reason: 'Nonempty exact-revision MP4 attached',
+    },
+    sonar,
+    liveMainSha: MAIN,
+    activation: false,
+  });
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.merge, false);
+});
+
+test('same-name review check from another Actions workflow cannot merge', () => {
+  const steal = {
+    ...trustedReviewCheck(),
+    publisher: {
+      appId: GITHUB_ACTIONS_APP_ID,
+      appSlug: GITHUB_ACTIONS_APP_SLUG,
+      runId: '1',
+      workflowPath: '.github/workflows/steal.yml',
+      event: 'workflow_run',
+      jobName: TRUSTED_REVIEW_JOB_NAME,
+      headBranch: 'main',
+    },
+  };
+  assert.equal(trustedReviewPublisherOk(steal), false);
+  const decision = assessCandidate({
+    pr: readyPr(),
+    checks: passingChecks().map((check) =>
+      check.name === REVIEW_CHECK_NAME ? steal : check,
+    ),
+    linear: { identifier: 'AR-41', state: 'In Review' },
+    review: reviewFromChecks([steal], HEAD),
+    acceptance: { ok: true },
+    sonar: { ok: true },
+    liveMainSha: MAIN,
+    activation: true,
+  });
+  assert.equal(decision.eligible, false);
 });
 
 test('loadLiveCandidate refuses pull_request events', async () => {

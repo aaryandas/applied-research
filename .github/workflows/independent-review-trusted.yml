@@ -5,7 +5,8 @@ name: Independent review
 # ref is the default branch. Executable checkout is the default branch only;
 # PR number and SHA are data. CURSOR_API_KEY must not be referenced from
 # pull_request workflows. Launch stays off until this orchestration is
-# independently reviewed (CURSOR_REVIEW_LAUNCH).
+# independently reviewed (CURSOR_REVIEW_LAUNCH). workflow_dispatch input
+# launch_receipt_json is ignored; coordinator JSON is not model proof.
 #
 # Existing GitHub Environment trusted-main already holds the authorized
 # Cursor key. Deployment branch policy: type=branch, name=main. The
@@ -37,7 +38,7 @@ on:
         required: true
         type: string
       launch_receipt_json:
-        description: Coordinator launch receipt JSON bound to agentId/runId/startingRef
+        description: Ignored. Coordinator JSON is not model proof; the trusted launch job owns the receipt.
         required: false
         type: string
 
@@ -76,7 +77,6 @@ jobs:
           TRUSTED_DEFAULT_BRANCH: 'true'
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           CURSOR_REVIEW_LAUNCH: ${{ vars.CURSOR_REVIEW_LAUNCH }}
-          CURSOR_LAUNCH_RECEIPT_JSON: ${{ inputs.launch_receipt_json }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           HEAD_SHA: ${{ inputs.expected_sha || github.event.workflow_run.head_sha }}
@@ -86,6 +86,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
           IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
           VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
           RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}

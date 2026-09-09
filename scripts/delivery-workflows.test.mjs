@@ -50,6 +50,9 @@ test('trusted evaluator checks out the default branch only and pins starting eva
     /github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)/,
   );
   assert.equal(trusted.includes('claude-fable-5-1'), false);
+  assert.equal(trusted.includes('GITHUB_RUN_ID: ${{ github.run_id }}'), true);
+  assert.equal(trusted.includes('CURSOR_LAUNCH_RECEIPT_JSON'), false);
+  assert.match(trusted, /Coordinator JSON is not model proof/);
 });
 
 test('F5: queue pull_request job is notice-only; live job is default-branch dispatch', () => {
@@ -90,4 +93,13 @@ test('linear gate receives PR draft/state and does not claim to move Linear', ()
     true,
   );
   assert.match(gate, /does not move Linear status/);
+});
+
+test('CI classification job has no environment secrets and does not block on expected failures', () => {
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+  assert.match(ci, /Delivery CI classification/);
+  assert.match(ci, /node scripts\/delivery-ci-classify\.mjs/);
+  assert.equal(ci.includes('CURSOR_API_KEY'), false);
+  assert.equal(ci.includes('SONAR_TOKEN'), false);
+  assert.equal(ci.includes('environment:'), false);
 });

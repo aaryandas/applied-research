@@ -15,6 +15,9 @@ import {
   REQUIRED_REVIEW_DISPLAY,
   REVIEW_CHECK_NAME,
   RUN_ID,
+  TRUSTED_LAUNCH_RECEIPT_SOURCE,
+  TRUSTED_REVIEW_JOB_NAME,
+  TRUSTED_WORKFLOW_FILE,
   UNTRUSTED_CURSOR_CREDENTIAL,
   isFullSha,
   isSyntheticMergeRef,
@@ -33,6 +36,7 @@ import {
 import {
   fetchCommitPulls,
   fetchPullRequest,
+  fetchWorkflowRun,
   listWorkflowFilesAtRef,
   postCheckRun,
   postIssueComment,
@@ -46,9 +50,9 @@ import {
   idempotentReviewAgentId,
   isUntrustedGithubEvent,
   launchReceiptFailures,
-  parseLaunchReceipt,
   requiredIsolationIds,
   reviewIdempotencyKey,
+  untrustedEnvLaunchReceipt,
 } from './delivery-trust.mjs';
 
 export const REVIEW_PROMPT = `You are the independent critic for Applied Research. You are not the implementer, not the cloud verifier, and not the demo recorder.
@@ -181,6 +185,7 @@ export function evaluateIndependentReview({
   recorderAgentId,
   launchReceipt,
   comments = [],
+  actionsRun,
 } = {}) {
   const failures = [];
   const fail = (reason) => failures.push(reason);
@@ -251,6 +256,7 @@ export function evaluateIndependentReview({
     expectedHeadSha,
     agent,
     run,
+    actionsRun,
   })) {
     fail(reason);
   }
@@ -278,7 +284,11 @@ export function evaluateIndependentReview({
   if (FORBIDDEN_REVIEW_ROLES.includes(verdict?.role)) {
     fail(`Role ${verdict.role} cannot supply independent review`);
   }
-  if (verdict?.headSha && verdict.headSha !== expectedHeadSha) {
+  if (!verdict?.headSha) {
+    fail(
+      'Verdict headSha is required exact-head evidence; missing headSha is not PASS',
+    );
+  } else if (verdict.headSha !== expectedHeadSha) {
     fail(
       `Verdict headSha ${verdict.headSha} does not match current PR head ${expectedHeadSha}`,
     );
@@ -298,8 +308,10 @@ export function evaluateIndependentReview({
     fail('Cursor agent prUrl does not match this pull request URL');
   }
 
-  if (run?.status && run.status !== 'FINISHED') {
-    fail(`Cursor run is ${run.status}, not FINISHED`);
+  if (run?.status !== 'FINISHED') {
+    fail(
+      `Cursor run status must be FINISHED (saw ${run?.status ?? 'missing'})`,
+    );
   }
   if (run?.id && !RUN_ID.test(run.id) && !String(run.id).startsWith('run-')) {
     fail('Run identity is not a documented run id');
@@ -313,13 +325,17 @@ export function evaluateIndependentReview({
       `Standards/spec verdict is ${verdict?.standards ?? 'missing'}/${verdict?.spec ?? 'missing'}, not PASS/PASS`,
     );
   }
-  const open = unresolvedMaterial(verdict?.findings ?? []);
-  if (typeof open[0] === 'string') {
-    fail(open[0]);
-  } else if (open.length) {
-    fail(
-      `${open.length} unresolved material finding(s); independent review cannot PASS`,
-    );
+  if (!Array.isArray(verdict?.findings)) {
+    fail('Verdict findings must be an array; missing findings are not PASS');
+  } else {
+    const open = unresolvedMaterial(verdict.findings);
+    if (typeof open[0] === 'string') {
+      fail(open[0]);
+    } else if (open.length) {
+      fail(
+        `${open.length} unresolved material finding(s); independent review cannot PASS`,
+      );
+    }
   }
 
   const agentUrl = agent?.url ?? (agent?.id ? agentUrlFor(agent.id) : null);
@@ -351,7 +367,7 @@ export function evaluateIndependentReview({
             id: launchReceipt.modelId,
             displayName: required?.displayName,
             params: launchReceipt.modelParams,
-            provenance: 'launch-receipt-bound-to-get-agent-run',
+            provenance: 'trusted-launch-job-bound-to-get-agent-run',
           },
           standards: verdict.standards,
           spec: verdict.spec,
@@ -448,7 +464,9 @@ export function createLaunchReceipt({
   repository,
   githubRunId,
   githubWorkflowSha,
-  source = 'trusted-launch-job',
+  githubEvent,
+  source = TRUSTED_LAUNCH_RECEIPT_SOURCE,
+  workflowPath = TRUSTED_WORKFLOW_FILE,
 }) {
   return {
     schemaVersion: LAUNCH_RECEIPT_SCHEMA_VERSION,
@@ -468,6 +486,8 @@ export function createLaunchReceipt({
     }),
     githubRunId: githubRunId ?? null,
     githubWorkflowSha: githubWorkflowSha ?? null,
+    githubEvent: githubEvent ?? null,
+    workflowPath,
     launchedAt: new Date().toISOString(),
   };
 }
@@ -524,6 +544,45 @@ export async function evaluateFromCursor({
       evidence: null,
     };
   }
+  const githubRunId = launchReceipt.githubRunId;
+  const token = env?.GITHUB_TOKEN;
+  const repository = env?.REPOSITORY ?? env?.GITHUB_REPOSITORY;
+  if (!token || !repository) {
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [
+        'GITHUB_TOKEN and repository are required to GET the launch-receipt Actions run; missing GET is not permission to trust self-authored githubRunId',
+      ],
+      evidence: null,
+    };
+  }
+  if (!/^\d+$/.test(String(githubRunId ?? ''))) {
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [
+        'Launch receipt githubRunId must be the GitHub Actions run that owned the trusted launch',
+      ],
+      evidence: null,
+    };
+  }
+  let actionsRun;
+  try {
+    actionsRun = await fetchWorkflowRun(repository, githubRunId, {
+      token,
+      fetchImpl,
+    });
+  } catch (error) {
+    return {
+      passed: false,
+      status: 'FAIL',
+      failures: [
+        `Could not authenticate launch-receipt GitHub Actions run ${githubRunId}: ${redactSecrets(error.message)}`,
+      ],
+      evidence: null,
+    };
+  }
   let agent;
   let run;
   let artifacts = { items: [] };
@@ -556,6 +615,7 @@ export async function evaluateFromCursor({
     verifierAgentId,
     recorderAgentId,
     launchReceipt,
+    actionsRun,
   });
 }
 
@@ -622,7 +682,9 @@ export async function maybeLaunchReview({
       repository,
       githubRunId: env.GITHUB_RUN_ID,
       githubWorkflowSha: env.GITHUB_SHA,
-      source: 'trusted-launch-job',
+      githubEvent: githubEventName(env),
+      source: TRUSTED_LAUNCH_RECEIPT_SOURCE,
+      workflowPath: TRUSTED_WORKFLOW_FILE,
     }),
   };
 }
@@ -676,8 +738,26 @@ export async function scanPrWorkflows({
   return files;
 }
 
-async function publishCheck({ repository, token, headSha, result, fetchImpl }) {
+async function publishCheck({
+  repository,
+  token,
+  headSha,
+  result,
+  fetchImpl,
+  env = process.env,
+}) {
   if (!token) return;
+  const runId = env.GITHUB_RUN_ID;
+  const provenance = [
+    `githubRunId=${runId ?? ''}`,
+    `workflow=${TRUSTED_WORKFLOW_FILE}`,
+    `job=${TRUSTED_REVIEW_JOB_NAME}`,
+    result.evidence?.agentId ? `agentId=${result.evidence.agentId}` : null,
+    result.evidence?.runId ? `runId=${result.evidence.runId}` : null,
+    `headSha=${headSha}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
   await postCheckRun(
     repository,
     {
@@ -689,7 +769,8 @@ async function publishCheck({ repository, token, headSha, result, fetchImpl }) {
         title: result.passed
           ? 'Cursor Cloud Grok 4.6 Extra High PASS'
           : `Independent review ${result.status}`,
-        summary: (result.failures ?? []).join('\n') || 'PASS',
+        summary:
+          `${provenance}\n\n${(result.failures ?? []).join('\n') || 'PASS'}`.trim(),
       },
     },
     { token, fetchImpl },
@@ -766,7 +847,7 @@ export async function mainEvaluate(env = process.env, deps = {}) {
   let launchReceipt = null;
   try {
     if (env[LAUNCH_RECEIPT_ENV]?.trim()) {
-      launchReceipt = parseLaunchReceipt(env[LAUNCH_RECEIPT_ENV]);
+      launchReceipt = untrustedEnvLaunchReceipt(env[LAUNCH_RECEIPT_ENV]);
     }
   } catch (error) {
     result = {
@@ -832,6 +913,7 @@ export async function mainEvaluate(env = process.env, deps = {}) {
       headSha,
       result,
       fetchImpl,
+      env,
     });
   } catch (error) {
     log.error(redactSecrets(error.message));

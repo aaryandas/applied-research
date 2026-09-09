@@ -20,13 +20,13 @@ No terminal-screen coordination. Nothing is dispatched by typing into another ag
 
 Every transition has a trigger. Nobody moves a ticket by hand except the founder, and only to cancel or reprioritize.
 
-| From → To                   | Trigger                                                                                | Fired by                                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Todo → In Development       | Draft PR opened on a branch named `…/ar-NN-…`                                          | Linear GitHub integration (team setting "PR opened")                                      |
-| In Development → In Testing | PR marked ready for review                                                             | Linear GitHub integration (team setting "PR ready for review")                            |
-| In Testing → In Review      | Cloud verifier's walk-through passes                                                   | Cursor automation on In Testing (moves back to In Development with the failing criterion) |
-| In Review → Done            | PR merged                                                                              | Linear GitHub integration (team setting "PR merged")                                      |
-| Merge                       | Ticket In Review + macOS CI gate + lane + hosted Sonar + Cursor Cloud independent PASS | `delivery-queue.mjs` evaluates one candidate; merge activation remains off                |
+| From → To                   | Trigger                                                                                                  | Fired by                                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Todo → In Development       | Draft PR opened on a branch named `…/ar-NN-…`                                                            | Linear GitHub integration (team setting "PR opened")                                      |
+| In Development → In Testing | PR marked ready for review                                                                               | Linear GitHub integration (team setting "PR ready for review")                            |
+| In Testing → In Review      | Cloud verifier's walk-through passes                                                                     | Cursor automation on In Testing (moves back to In Development with the failing criterion) |
+| In Review → Done            | PR merged                                                                                                | Linear GitHub integration (team setting "PR merged")                                      |
+| Merge                       | Ticket In Review + macOS CI gate + lane + independent Cloud PASS; hosted Sonar on exact main after merge | `delivery-queue.mjs` evaluates one candidate; merge activation remains off                |
 
 That GitHub→Linear status automation is a **team setting**, not something this repository's workflows perform. **Observed gap:** GitHub PRs [#45](https://github.com/aaryandas/applied-research/pull/45) (AR-52) and [#46](https://github.com/aaryandas/applied-research/pull/46) (AR-53) opened as drafts against the walkthrough candidate with the PR URL attached, but both Linear issues **remained Backlog** (`startedAt` null) after those PRs existed. Owned `assessCandidate` / `linear-gate.mjs` mapping is: open draft → expected In Development; open ready → expected In Testing; merge eligibility still **In Review** only. Backlog with an open PR is reported as that automation gap. Those helpers do **not** treat Backlog (or In Development / In Testing) as In Review and do **not** move Linear status.
 
@@ -44,8 +44,9 @@ Blocked work gets a `Blocked:` paragraph plus a blocker relation, and a line in 
 - `Lane guard`.
 - `Linear gate`: the ticket is In Review. Needs the `LINEAR_API_KEY` repository secret (read plus attachment write).
 - Independent Cursor Cloud Grok 4.6 Extra High review at the exact head, fail-closed until authentic PASS. See [orchestration](design-handoff/ORCHESTRATION.md).
-- Hosted Sonar: required for application files at the exact SHA before merge activation; owned by AR-45 / `cursor/enable-hosted-sonar-main-acd0`. Do not run Sonar on a local Mac or waive the gate. False positives are listed by issue key for the founder, never suppressed.
+- Hosted Sonar: **post-merge** on the exact resulting `main` SHA (AR-45 / `cursor/enable-hosted-sonar-main-acd0`). PR code receives no Sonar secrets. Pre-merge app eligibility is independent source review at the exact head, not a PR-head Sonar check. Do not run Sonar on a local Mac or waive introduced-material findings. False positives are listed by issue key for the founder, never suppressed.
 - Evidence is the cloud verifier's screen recording of a hands-on walk-through, attached to the ticket, bound to the exact revision. Existing AR-17/AR-19/AR-24 recordings are partial proof. CI keeps Playwright traces for failures in `test-results/`.
+- Expected Linear In Development (draft PR) and nonblocking Windows Verify coverage failures are **not** coding-agent autofix work. `scripts/delivery-ci-classify.mjs` and Linear gate classification stay green for those cases; `checks / CI gate` on the live PR head is the blocking CI signal. Do not autofix superseded SHAs.
 
 ## Traps fixed in tooling
 

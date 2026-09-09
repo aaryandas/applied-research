@@ -6,6 +6,8 @@ import {
   MISSING_CURSOR_API_KEY,
   REQUIRED_MODEL_ID,
   REQUIRED_MODEL_PARAMS,
+  TRUSTED_LAUNCH_RECEIPT_SOURCE,
+  TRUSTED_WORKFLOW_FILE,
   isSyntheticMergeRef,
 } from './delivery-constants.mjs';
 import {
@@ -109,7 +111,7 @@ function receipt(overrides = {}) {
   return {
     schemaVersion: 1,
     kind: LAUNCH_RECEIPT_KIND,
-    source: 'coordinator',
+    source: TRUSTED_LAUNCH_RECEIPT_SOURCE,
     agentId: AGENT,
     runId: RUN,
     headSha: HEAD,
@@ -118,9 +120,20 @@ function receipt(overrides = {}) {
     modelId: REQUIRED_MODEL_ID,
     modelParams: [...REQUIRED_MODEL_PARAMS],
     idempotencyKey: `independent-review:aaryandas/applied-research:99:${HEAD}`,
-    githubRunId: '34326348344',
-    githubWorkflowSha: 'ffffffffffffffffffffffffffffffffffffffff',
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_run',
+    workflowPath: TRUSTED_WORKFLOW_FILE,
     launchedAt: '2026-09-09T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function trustedActionsRun(overrides = {}) {
+  return {
+    id: 1,
+    path: TRUSTED_WORKFLOW_FILE,
+    event: 'workflow_run',
     ...overrides,
   };
 }
@@ -137,6 +150,7 @@ function evaluate(overrides = {}) {
     verifierAgentId: VERIFIER,
     recorderAgentId: RECORDER,
     launchReceipt: receipt(),
+    actionsRun: trustedActionsRun(),
     ...overrides,
   });
 }
@@ -162,7 +176,7 @@ test('authentic exact-head PASS uses launch receipt, not GET model fields', () =
   assert.equal(result.evidence.model.id, REQUIRED_MODEL_ID);
   assert.equal(
     result.evidence.model.provenance,
-    'launch-receipt-bound-to-get-agent-run',
+    'trusted-launch-job-bound-to-get-agent-run',
   );
 });
 
@@ -270,9 +284,15 @@ test('F3: launch body pins startingRef SHA, omits prUrl, sends grok-4.6 params a
     prNumber: 99,
     prUrl: PR_URL,
     repository: 'aaryandas/applied-research',
+    githubRunId: '1',
+    githubWorkflowSha: HEAD,
+    githubEvent: 'workflow_run',
   });
   assert.equal(made.prUrl, PR_URL);
   assert.equal(made.modelId, REQUIRED_MODEL_ID);
+  assert.equal(made.source, TRUSTED_LAUNCH_RECEIPT_SOURCE);
+  assert.equal(made.workflowPath, TRUSTED_WORKFLOW_FILE);
+  assert.equal(made.githubEvent, 'workflow_run');
 });
 
 test('F4: unset isolation ids cannot PASS even with JSON independent-reviewer role', () => {
@@ -358,6 +378,45 @@ test('partial or missing run result is not PASS', () => {
   assert.equal(missing.passed, false);
   const unfinished = evaluate({ run: documentedRun({ status: 'RUNNING' }) });
   assert.equal(unfinished.passed, false);
+});
+
+test('missing verdict headSha, findings, or run status fail closed', () => {
+  const noHead = evaluate({
+    run: documentedRun({
+      result: JSON.stringify(verdict({ headSha: undefined })),
+    }),
+  });
+  assert.equal(noHead.passed, false);
+  assert.match(noHead.failures.join('\n'), /headSha is required/);
+
+  const noFindings = evaluate({
+    run: documentedRun({
+      result: JSON.stringify(verdict({ findings: undefined })),
+    }),
+  });
+  assert.equal(noFindings.passed, false);
+  assert.match(noFindings.failures.join('\n'), /findings must be an array/);
+
+  const noStatus = evaluate({
+    run: documentedRun({ status: undefined }),
+  });
+  assert.equal(noStatus.passed, false);
+  assert.match(
+    noStatus.failures.join('\n'),
+    /must be FINISHED \(saw missing\)/,
+  );
+});
+
+test('missing Actions run binding or env-supplied receipt cannot PASS', () => {
+  const missing = evaluate({ actionsRun: undefined });
+  assert.equal(missing.passed, false);
+  assert.match(missing.failures.join('\n'), /must be bound to GET/);
+
+  const envReceipt = evaluate({
+    launchReceipt: receipt({ source: 'coordinator-dispatch-input' }),
+  });
+  assert.equal(envReceipt.passed, false);
+  assert.match(envReceipt.failures.join('\n'), /trusted-launch-job/);
 });
 
 test('forged cursor[bot] comments and marker strings are not proof', () => {
@@ -496,4 +555,111 @@ test('evaluateFromCursor without a receipt does not treat list/prUrl JSON as PAS
   });
   assert.equal(result.passed, false);
   assert.match(result.failures.join('\n'), /receipt|originalModelName/);
+});
+
+test('evaluateFromCursor binds GET Actions run; missing token is not model proof', async () => {
+  const env = {
+    TRUSTED_DEFAULT_BRANCH: 'true',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_DEFAULT_BRANCH: 'main',
+    GITHUB_TOKEN: 'ghs_test',
+    GITHUB_REPOSITORY: 'aaryandas/applied-research',
+  };
+  const result = await evaluateFromCursor({
+    apiKey: 'cursor_test-key',
+    prUrl: PR_URL,
+    expectedHeadSha: HEAD,
+    implementerAgentId: IMPLEMENTER,
+    verifierAgentId: VERIFIER,
+    recorderAgentId: RECORDER,
+    launchReceipt: receipt(),
+    env,
+    fetchImpl: async (url) => {
+      const href = String(url);
+      if (href.includes('/v1/models')) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify(catalog);
+          },
+        };
+      }
+      if (href.includes(`/v1/agents/${AGENT}/runs/${RUN}`)) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify(documentedRun());
+          },
+        };
+      }
+      if (href.includes(`/v1/agents/${AGENT}/artifacts`)) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ items: [] });
+          },
+        };
+      }
+      if (href.includes(`/v1/agents/${AGENT}`)) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify(documentedAgent());
+          },
+        };
+      }
+      if (href.includes('/actions/runs/1')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              id: 1,
+              path: TRUSTED_WORKFLOW_FILE,
+              event: 'workflow_run',
+            };
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.passed, true);
+  assert.equal(
+    result.evidence.model.provenance,
+    'trusted-launch-job-bound-to-get-agent-run',
+  );
+
+  const noToken = await evaluateFromCursor({
+    apiKey: 'cursor_test-key',
+    prUrl: PR_URL,
+    expectedHeadSha: HEAD,
+    implementerAgentId: IMPLEMENTER,
+    verifierAgentId: VERIFIER,
+    recorderAgentId: RECORDER,
+    launchReceipt: receipt(),
+    env: {
+      TRUSTED_DEFAULT_BRANCH: 'true',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_DEFAULT_BRANCH: 'main',
+    },
+    fetchImpl: async (url) => {
+      assert.match(String(url), /\/v1\/models$/);
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify(catalog);
+        },
+      };
+    },
+  });
+  assert.equal(noToken.passed, false);
+  assert.match(noToken.failures.join('\n'), /GITHUB_TOKEN/);
 });

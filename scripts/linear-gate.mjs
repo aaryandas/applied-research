@@ -1,12 +1,10 @@
-// Required PR check: the PR's Linear ticket must be In Review before the PR can merge.
-// Ticket id comes from the head branch (…/ar-17-…) or a `Linear: AR-17` line in the PR body.
-// Also links the PR on the ticket. Does not move Linear status.
+// Required PR check: look up the Linear ticket and classify lifecycle.
+// Merge eligibility still requires In Review inside delivery-queue assessCandidate.
+// Expected In Development / automation-gap is not a code defect: this job stays
+// green so coding agents do not autofix stale heads. Does not move Linear status.
 // Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE,
 // PR_STATE, PR_DRAFT.
-import {
-  LINEAR_MERGE_STATE,
-  explainLinearLifecycleGap,
-} from './delivery-constants.mjs';
+import { classifyLinearGate } from './delivery-constants.mjs';
 
 const key = process.env.LINEAR_API_KEY;
 const EXEMPT_LANES = new Set(['integration']); // coordinator merges of the branch itself
@@ -72,14 +70,16 @@ const pr = {
       : 'OPEN',
   isDraft: process.env.PR_DRAFT === 'true',
 };
-if (issue.state.name !== LINEAR_MERGE_STATE) {
-  console.error(
-    explainLinearLifecycleGap({
-      pr,
-      linear: { identifier, state: issue.state.name },
-      ticket: identifier,
-    }),
-  );
-  process.exit(1);
+const classification = classifyLinearGate({
+  pr,
+  linear: { identifier, state: issue.state.name },
+  ticket: identifier,
+});
+console.log(
+  JSON.stringify({ classification: classification.kind, autofix: false }),
+);
+console.log(classification.message);
+if (classification.kind === 'merge-eligible-linear') {
+  console.log('Linear gate ok');
 }
-console.log('Linear gate ok');
+process.exit(classification.exitCode);

@@ -9,12 +9,18 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   CI_GATE_NAME,
+  GITHUB_ACTIONS_APP_ID,
   HOSTED_SONAR_NAMES,
+  HOSTED_SONAR_WORKFLOW_FILE,
   LANE_GUARD_NAME,
   LINEAR_GATE_NAME,
   PARTIAL_ACCEPTANCE,
   REVIEW_CHECK_NAME,
   TRUSTED_DEFAULT_BRANCH_ENV,
+  TRUSTED_GITHUB_EVENTS,
+  TRUSTED_REVIEW_JOB_NAME,
+  TRUSTED_WORKFLOW_FILE,
+  githubActionsAppOk,
   isFullSha,
   isSonarWorkflowPath,
   isSyntheticMergeRef,
@@ -24,6 +30,7 @@ import {
   explainLinearLifecycleGap,
 } from './delivery-constants.mjs';
 import {
+  enrichCheckPublisher,
   fetchCommitCheckRuns,
   fetchCompare,
   fetchDefaultBranchSha,
@@ -54,15 +61,39 @@ export function checkAtHead(checks, name, headSha) {
   );
 }
 
-export function actionsCheckOk(check, name) {
+export function actionsCheckOk(check) {
   return (
     check &&
     check.status === 'completed' &&
     check.conclusion === 'success' &&
-    (name === REVIEW_CHECK_NAME ||
-      check.app?.slug === 'github-actions' ||
-      check.app === undefined)
+    githubActionsAppOk(check)
   );
+}
+
+export function trustedReviewPublisherOk(
+  check,
+  { defaultBranch = 'main' } = {},
+) {
+  if (!actionsCheckOk(check)) return false;
+  if (check.name !== REVIEW_CHECK_NAME) return false;
+  const pub = check.publisher;
+  if (!pub) return false;
+  if (Number(pub.appId ?? check.app?.id) !== GITHUB_ACTIONS_APP_ID)
+    return false;
+  if (pub.workflowPath !== TRUSTED_WORKFLOW_FILE) return false;
+  if (pub.jobName !== TRUSTED_REVIEW_JOB_NAME) return false;
+  if (!TRUSTED_GITHUB_EVENTS.includes(pub.event)) return false;
+  if (
+    pub.event === 'workflow_dispatch' &&
+    pub.headBranch &&
+    pub.headBranch !== defaultBranch
+  ) {
+    return false;
+  }
+  if (!pub.runId) return false;
+  const summary = String(check.output?.summary ?? '');
+  if (!summary.includes(`githubRunId=${pub.runId}`)) return false;
+  return true;
 }
 
 export function nonemptyMp4(attachment) {
@@ -133,34 +164,68 @@ export function evaluateAcceptance({
   return { ok: true, reason: 'Nonempty exact-revision MP4 attached' };
 }
 
-export function evaluateSonar({ files = [], checks = [], headSha, mainSonar }) {
+export function evaluateSonar({
+  files = [],
+  checks = [],
+  headSha,
+  mainSonar,
+  phase = 'premerge',
+} = {}) {
   if (files.some(isSonarWorkflowPath)) {
     return {
       ok: false,
+      phase,
       reason:
         'This orchestration must not own Sonar workflow edits; hosted Sonar stays on cursor/enable-hosted-sonar-main-acd0',
+    };
+  }
+  if (phase === 'postmerge') {
+    const trustedMain =
+      mainSonar?.sha === headSha &&
+      mainSonar?.conclusion === 'success' &&
+      githubActionsAppOk(mainSonar) &&
+      mainSonar.publisher?.workflowPath === HOSTED_SONAR_WORKFLOW_FILE;
+    if (trustedMain) {
+      return {
+        ok: true,
+        phase,
+        reason: 'Hosted main Sonar passed this exact SHA',
+      };
+    }
+    const named = HOSTED_SONAR_NAMES.map((name) =>
+      checkAtHead(checks, name, headSha),
+    ).find(Boolean);
+    if (
+      named &&
+      actionsCheckOk(named) &&
+      named.publisher?.workflowPath === HOSTED_SONAR_WORKFLOW_FILE
+    ) {
+      return {
+        ok: true,
+        phase,
+        reason: 'Hosted main Sonar passed this exact SHA',
+      };
+    }
+    return {
+      ok: false,
+      phase,
+      reason:
+        'Post-merge hosted Sonar is required at this exact main SHA; PR-head checks and fabricated provenance are not that analysis',
     };
   }
   if (!touchesApplication(files)) {
     return {
       ok: true,
+      phase: 'premerge',
       reason:
-        'Delivery-only change: hosted Sonar remains required on the resulting main SHA before deploy',
+        'Delivery-only change: hosted Sonar remains required on the resulting main SHA after merge',
     };
   }
-  const sonar = HOSTED_SONAR_NAMES.map((name) =>
-    checkAtHead(checks, name, headSha),
-  ).find(Boolean);
-  if (actionsCheckOk(sonar, sonar?.name)) {
-    return { ok: true, reason: 'Hosted Sonar passed at this exact head' };
-  }
-  if (mainSonar?.sha === headSha && mainSonar?.conclusion === 'success') {
-    return { ok: true, reason: 'Hosted main Sonar passed this SHA' };
-  }
   return {
-    ok: false,
+    ok: true,
+    phase: 'premerge',
     reason:
-      'Application change is waiting for hosted Sonar at this exact SHA; do not waive or run a local scanner',
+      'Pre-merge: hosted Sonar is main-only and PR code receives no SONAR_TOKEN. Eligibility requires independent source review at this head; exact main analysis is required after merge.',
   };
 }
 
@@ -247,12 +312,13 @@ export function assessCandidate({
     if (check.conclusion !== 'success') {
       return refuse(`Failed check: ${name} (${check.conclusion})`);
     }
-    if (
-      name === CI_GATE_NAME &&
-      check.app?.slug &&
-      check.app.slug !== 'github-actions'
-    ) {
+    if (!githubActionsAppOk(check)) {
       return refuse(`Untrusted app for ${name}`);
+    }
+    if (name === REVIEW_CHECK_NAME && !trustedReviewPublisherOk(check)) {
+      return refuse(
+        'Independent review check is missing GitHub Actions trusted-workflow/job/run provenance',
+      );
     }
   }
 
@@ -428,11 +494,11 @@ export function bindDeployment({
       reason: `Main CI at ${mergedMainSha} is ${ci}; deployment halted`,
     };
   }
-  if (sonar && sonar !== 'success') {
+  if (sonar !== 'success') {
     return {
       ok: false,
       halt: true,
-      reason: `Hosted Sonar at ${mergedMainSha} is ${sonar}; deployment halted`,
+      reason: `Post-merge hosted Sonar at ${mergedMainSha} is ${sonar ?? 'missing'}; deployment halted`,
     };
   }
   if (!activation) {
@@ -522,11 +588,24 @@ export async function fetchLinearIssue(
   };
 }
 
-export function reviewFromChecks(checks, headSha) {
+export function reviewFromChecks(
+  checks,
+  headSha,
+  { defaultBranch = 'main' } = {},
+) {
   const check = checkAtHead(checks, REVIEW_CHECK_NAME, headSha);
+  const passed = trustedReviewPublisherOk(check, { defaultBranch });
   return {
-    passed: actionsCheckOk(check, REVIEW_CHECK_NAME),
-    evidence: check ? { headSha: check.head_sha } : null,
+    passed,
+    evidence: passed
+      ? {
+          headSha: check.head_sha,
+          checkId: check.id,
+          githubRunId: check.publisher.runId,
+          workflowPath: check.publisher.workflowPath,
+          jobName: check.publisher.jobName,
+        }
+      : null,
   };
 }
 
@@ -566,7 +645,14 @@ export async function loadLiveCandidate(
     github,
   );
   const files = await fetchPullFiles(repository, prNumber, github);
-  const checks = await fetchCommitCheckRuns(repository, headSha, github);
+  const rawChecks = await fetchCommitCheckRuns(repository, headSha, github);
+  const checks = await Promise.all(
+    rawChecks.map((check) =>
+      check.name === REVIEW_CHECK_NAME
+        ? enrichCheckPublisher(check, repository, github)
+        : check,
+    ),
+  );
   const reviewThreads = await fetchReviewThreads(repository, prNumber, github);
   const ticket = ticketFromBranchOrBody(prPayload.head?.ref, prPayload.body);
   const linear = ticket
@@ -603,6 +689,7 @@ export async function loadLiveCandidate(
     checks,
     headSha,
     mainSonar: null,
+    phase: 'premerge',
   });
   return {
     pr,

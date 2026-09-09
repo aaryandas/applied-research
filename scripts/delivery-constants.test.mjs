@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  CI_GATE_NAME,
   CURSOR_API_KEYS_URL,
+  GITHUB_ACTIONS_APP_ID,
   LEGACY_FABLE_WORKFLOW,
   LINEAR_DRAFT_PR_STATE,
   LINEAR_MERGE_STATE,
@@ -10,8 +12,12 @@ import {
   MISSING_CURSOR_API_KEY,
   TRUSTED_ENVIRONMENT_BRANCH_POLICY,
   TRUSTED_GITHUB_ENVIRONMENT,
+  WALKTHROUGH_INTEGRATION_ROOT,
+  classifyDeliveryCi,
+  classifyLinearGate,
   expectedLinearStateFromPr,
   explainLinearLifecycleGap,
+  githubActionsAppOk,
 } from './delivery-constants.mjs';
 
 test('trusted environment is the existing trusted-main branch policy, not a new secret', () => {
@@ -96,4 +102,63 @@ test('In Development on a draft PR still cannot merge', () => {
   assert.match(reason, /Owned mapping from this GitHub PR: In Development/);
   assert.equal(reason.includes('treat Backlog as In Review'), false);
   assert.match(reason, /does not move Linear status/);
+});
+
+test('expected Linear In Development and nonblocking Windows are not autofix signals', () => {
+  const linear = classifyLinearGate({
+    pr: { state: 'OPEN', isDraft: true },
+    linear: { identifier: 'AR-41', state: 'In Development' },
+    ticket: 'AR-41',
+  });
+  assert.equal(linear.kind, 'expected-lifecycle');
+  assert.equal(linear.exitCode, 0);
+  assert.equal(linear.autofix, false);
+  const ignore = classifyDeliveryCi({
+    liveHeadSha: 'a'.repeat(40),
+    ciGateResult: 'success',
+    workflowSha: 'a'.repeat(40),
+    linearKind: 'expected-lifecycle',
+    checks: [
+      {
+        name: 'checks / Verify (windows-latest)',
+        conclusion: 'failure',
+        head_sha: 'a'.repeat(40),
+      },
+    ],
+  });
+  assert.equal(ignore.action, 'ignore');
+  assert.equal(ignore.autofix, false);
+  assert.ok(ignore.expected.includes('windows-nonblocking-coverage'));
+  const stale = classifyDeliveryCi({
+    liveHeadSha: 'a'.repeat(40),
+    workflowSha: 'b'.repeat(40),
+    ciGateResult: 'failure',
+  });
+  assert.equal(stale.action, 'ignore');
+  assert.equal(stale.staleHead, true);
+  const blocking = classifyDeliveryCi({
+    liveHeadSha: 'a'.repeat(40),
+    workflowSha: 'a'.repeat(40),
+    ciGateResult: 'failure',
+    checks: [
+      {
+        name: CI_GATE_NAME,
+        conclusion: 'failure',
+        head_sha: 'a'.repeat(40),
+      },
+    ],
+  });
+  assert.equal(blocking.action, 'investigate');
+  assert.equal(WALKTHROUGH_INTEGRATION_ROOT.length, 40);
+  assert.equal(GITHUB_ACTIONS_APP_ID, 15368);
+  assert.equal(
+    githubActionsAppOk({
+      app: { slug: 'github-actions', id: 15368 },
+    }),
+    true,
+  );
+  assert.equal(
+    githubActionsAppOk({ app: { slug: 'github-actions', id: 1 } }),
+    false,
+  );
 });
