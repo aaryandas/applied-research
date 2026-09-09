@@ -66,8 +66,9 @@ function parseRequest(
         },
       ),
     });
-  } catch {
-    throw new IndexOperationError('invalid-input');
+  } catch (error) {
+    if (error instanceof IndexOperationError) throw error;
+    throw new IndexOperationError('invalid-input', { cause: error });
   }
 }
 
