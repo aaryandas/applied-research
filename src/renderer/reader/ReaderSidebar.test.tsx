@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LearningWorkspace } from '../../contracts/learning-records';
+import { createCanvasFixture } from '../canvas/canvas-fixture';
 import { ReaderSidebar } from './ReaderSidebar';
 
 const workspace: LearningWorkspace = {
@@ -74,5 +75,26 @@ describe('ReaderSidebar collapse', () => {
       screen.getByRole('button', { name: 'Applied Research home' }),
     );
     expect(onNavigate).toHaveBeenCalledWith('home');
+  });
+
+  it('opens a saved chapter from the outline while expanded', () => {
+    const onLesson = vi.fn();
+    render(
+      <ReaderSidebar
+        workspace={createCanvasFixture()}
+        onNavigate={vi.fn()}
+        onLesson={onLesson}
+        selectedLessonId="lesson"
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /Joint angles and hand position/ }),
+    );
+    expect(onLesson).toHaveBeenCalledWith({
+      pathId: 'path',
+      pathRevision: 1,
+      topicId: 'topic',
+      lessonId: 'lesson',
+    });
   });
 });

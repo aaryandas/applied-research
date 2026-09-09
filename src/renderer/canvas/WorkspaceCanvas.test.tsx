@@ -905,6 +905,11 @@ describe('Canvas authoring', () => {
       await screen.findByRole('heading', { name: 'Your note' }),
     ).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    fireEvent.keyDown(map, { key: 'q' });
+    expect(
+      await screen.findByRole('heading', { name: 'Your question' }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
     fireEvent.keyDown(container.querySelector('[data-id="insight"]')!, {
       key: 'F2',
     });
@@ -931,5 +936,39 @@ describe('Canvas authoring', () => {
     expect(
       screen.queryByRole('button', { name: 'Connect into insight' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('edits current human writing from the node menu and opens pane actions from the keyboard', async () => {
+    const records = recordsBridge();
+    const workspace = createCanvasFixture();
+    const { container } = render(
+      <WorkspaceCanvas
+        {...props({
+          records,
+          onWorkspace: vi.fn(),
+          workspace,
+          view: 'expanded',
+        })}
+      />,
+    );
+    fireEvent.contextMenu(container.querySelector('[data-id="note"]')!, {
+      clientX: 28,
+      clientY: 28,
+    });
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Edit this note' }),
+    );
+    expect(await screen.findByLabelText('In your own words')).toHaveValue(
+      workspace.entries[0]!.current.body,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    const map = screen.getByLabelText(/^Infinite learning map/);
+    fireEvent.keyDown(map, { key: 'F10', shiftKey: true });
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Ask a question' }),
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'Your question' }),
+    ).toBeVisible();
   });
 });

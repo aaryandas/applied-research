@@ -193,6 +193,53 @@ describe('AuthoringSession', () => {
     expect(session.getSnapshot().draft).toBeNull();
   });
 
+  it('refuses another project and reports a refresh that cannot load the conflict', async () => {
+    const { session, records, save } = setup();
+    expect(() =>
+      session.begin({
+        kind: 'note',
+        input: {
+          projectId: 'other',
+          expectedRevision: 0,
+          title: '',
+          body: 'no',
+          origin: null,
+        },
+      }),
+    ).toThrow(/another project/);
+    const entryId = session.begin({
+      kind: 'note',
+      input: {
+        projectId: 'project',
+        expectedRevision: 0,
+        title: '',
+        body: 'Keep',
+        origin: null,
+      },
+    });
+    session.edit({ title: '', body: 'Keep' });
+    save.mockResolvedValueOnce({
+      status: 'conflict',
+      conflict: {
+        code: 'revision-conflict',
+        projectId: 'project',
+        recordId: entryId,
+        expectedRevision: 0,
+        currentRevision: 1,
+      },
+    });
+    vi.mocked(records.getLearningWorkspace).mockResolvedValueOnce({
+      ...workspace,
+      project: { ...workspace.project, id: 'other' },
+    });
+    expect(await session.flush()).toBe(false);
+    expect(session.getSnapshot().error).toMatch(/refresh saved records/);
+    vi.mocked(records.getLearningWorkspace).mockResolvedValue(workspace);
+    await session.reloadConflict();
+    expect(session.getSnapshot().conflictLoaded).toBe(false);
+    expect(session.blockedNavigationNotice()).toMatch(/conflict/);
+  });
+
   it('does not recreate after a successful save whose initial placement is separate', async () => {
     const { session, save } = setup();
     const entryId = session.begin({

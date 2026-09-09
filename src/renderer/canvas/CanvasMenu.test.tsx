@@ -27,6 +27,11 @@ describe('CanvasMenu', () => {
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Home' });
     expect(note).toHaveFocus();
     fireEvent.click(note);
+    const question = screen.getByRole('menuitem', { name: 'Ask a question' });
+    fireEvent.keyDown(question, { key: 'End' });
+    expect(question).toHaveFocus();
+    fireEvent.keyDown(question, { key: 'ArrowUp' });
+    expect(note).toHaveFocus();
     expect(onSelect).toHaveBeenCalledWith('create:note');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onDismiss).toHaveBeenCalled();
