@@ -3,7 +3,7 @@ import type {
   LearningOrigin,
   LearningWorkspace,
   PathOrigin,
-} from './learning-records';
+} from './learning-records.js';
 
 /** Producer checkpoint for AR-19; not a persistence schema or IPC registration. */
 export interface PracticalActivity {
