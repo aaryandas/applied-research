@@ -172,4 +172,114 @@ describe('clip recipe projection', () => {
     expect(JSON.stringify(result)).not.toContain('artifactPath');
     expect(isSupportedClipPlan(plan)).toBe(true);
   });
+
+  it('maps weighted labels, rejects bad identity, and refuses mismatched retained clips', () => {
+    const weighted: Extract<
+      SupportedExplanationPlan,
+      { family: 'weighted-combination' }
+    > = {
+      status: 'supported',
+      family: 'weighted-combination',
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ],
+        weights: [3, 1],
+        labels: ['第一', '第二'],
+      },
+      stages: [{ name: 'Show weights', seconds: 2 }],
+      caption: 'Weights become shares',
+      copy: {
+        role: 'untrusted-display-copy',
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption',
+        note: 'Illustration only.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy',
+        text: 'The installed weighted-combination recipe can illustrate this.',
+      },
+    };
+    const mapped = recipeJsonFromClipPlan({
+      plan: weighted,
+      requestId: REQUEST,
+      projectId: PROJECT,
+      origin: {},
+    });
+    expect(mapped.ok).toBe(true);
+    if (!mapped.ok) throw new Error('map');
+    expect(JSON.parse(mapped.json).parameters.labels).toEqual(['v1', 'v2']);
+    expect(
+      recipeJsonFromClipPlan({
+        plan: linearPlan(),
+        requestId: 'nope',
+        projectId: PROJECT,
+        origin: {},
+      }).ok,
+    ).toBe(false);
+    const record: RetainedClipRecord = {
+      mediaId: 'not-a-uuid',
+      requestId: REQUEST,
+      attemptId: REQUEST,
+      accountId: REQUEST,
+      recipe: 'weighted-combination',
+      version: 1,
+      assetVersion: 'original-manim-1',
+      title: 'Weighted combination',
+      recipeHash: 'a'.repeat(64),
+      sha256: 'b'.repeat(64),
+      bytes: 64,
+      durationSeconds: 10,
+      width: 1280,
+      height: 720,
+      mediaType: 'video/mp4',
+      stages: [{ name: 'Show weights', seconds: 2 }],
+      endpoint: [1, 1],
+      renderer: {
+        name: 'manim-community',
+        version: '0.21.0',
+        image: PINNED,
+      },
+      origin: null,
+      timings: { queueMs: 1, computeMs: 2, verifyMs: 3, transferMs: 4 },
+    };
+    expect(clipResultFromRetained(record, weighted)).toBeNull();
+    expect(isSupportedClipPlan(weighted)).toBe(true);
+    const ascii = recipeJsonFromClipPlan({
+      plan: {
+        ...weighted,
+        parameters: {
+          ...weighted.parameters,
+          labels: ['First vector', 'Second vector'],
+        },
+      },
+      requestId: REQUEST,
+      projectId: PROJECT,
+      origin: { sourceRevisionId: 'not-a-uuid', highlightId: 'also-bad' },
+    });
+    expect(ascii.ok).toBe(true);
+    if (!ascii.ok) throw new Error('ascii');
+    expect(JSON.parse(ascii.json).parameters.labels).toEqual([
+      'First vector',
+      'Second vector',
+    ]);
+    expect(JSON.parse(ascii.json).origin.sourceVersionId).toBeNull();
+    expect(JSON.parse(ascii.json).origin.lessonId).toBeNull();
+    const mismatch = {
+      ...record,
+      mediaId: REQUEST,
+      recipe: 'linear-transform' as const,
+    };
+    expect(clipResultFromRetained(mismatch, weighted)).toBeNull();
+    expect(
+      clipResultFromRetained(
+        { ...mismatch, recipe: 'weighted-combination', sha256: 'nope' },
+        weighted,
+      ),
+    ).toBeNull();
+  });
 });

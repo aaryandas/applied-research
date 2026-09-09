@@ -386,6 +386,299 @@ describe('remote render engine', () => {
     await capacityEngine.close();
     await delivery.close();
   });
+
+  it('maps remaining worker failures and refuses unacknowledged cleanup', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    const bytes = mp4Bytes();
+    const reasons = [
+      'unsupported',
+      'invalid',
+      'closed',
+      'timeout',
+      'cleanup',
+      'deadline',
+      'mystery',
+    ] as const;
+    for (const reason of reasons) {
+      const engine = createRemoteRenderEngine({
+        transport: {
+          submit: async () => ({
+            ...queued(
+              reason === 'unsupported' || reason === 'invalid'
+                ? 'failed'
+                : 'failed',
+            ),
+            status:
+              reason === 'unsupported' || reason === 'invalid'
+                ? 'failed'
+                : reason === 'deadline'
+                  ? 'unavailable'
+                  : 'failed',
+            reason,
+          }),
+          status: vi.fn(),
+          cancel: vi.fn(),
+          artifact: vi.fn(),
+          release: vi.fn(),
+        },
+        stagingDirectory: staging,
+        wait: async () => undefined,
+      });
+      const outcome = await engine.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      });
+      if (reason === 'unsupported') {
+        expect(outcome.status).toBe('unsupported');
+      } else if (reason === 'invalid') {
+        expect(outcome.status).toBe('invalid');
+      } else if (reason === 'deadline') {
+        expect(outcome).toEqual({ status: 'failed', reason: 'timeout' });
+      } else if (reason === 'mystery') {
+        expect(outcome).toEqual({ status: 'failed', reason: 'runtime' });
+      } else {
+        expect(outcome).toEqual({
+          status: 'failed',
+          reason:
+            reason === 'closed'
+              ? 'closed'
+              : reason === 'timeout'
+                ? 'timeout'
+                : 'cleanup',
+        });
+      }
+      await engine.close();
+    }
+    const oversized = createRemoteRenderEngine({
+      transport: {
+        submit: async () => queued('succeeded'),
+        status: async () => queued('succeeded'),
+        cancel: vi.fn(),
+        artifact: async () => ({
+          sha256: 'c'.repeat(64),
+          bytes: Buffer.alloc(24 * 1024 * 1024 + 1),
+        }),
+        release: async () => 'released',
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await oversized.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'failed', reason: 'output-limit' });
+    const missingVerified = queued('succeeded');
+    const noMeta = createRemoteRenderEngine({
+      transport: {
+        submit: async () => ({
+          ...missingVerified,
+          verified: null,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          bytes: bytes.length,
+        }),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        artifact: async () => ({
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          bytes,
+        }),
+        release: async () => 'released',
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await noMeta.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'failed', reason: 'artifact' });
+    const deadline = createRemoteRenderEngine({
+      transport: {
+        submit: async () => queued('queued'),
+        status: async () => queued('queued'),
+        cancel: vi.fn(),
+        artifact: vi.fn(),
+        release: vi.fn(),
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+      maxPolls: 1,
+    });
+    expect(
+      await deadline.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'failed', reason: 'timeout' });
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const cleanup = createRemoteRenderEngine({
+      transport: {
+        submit: async () => ({
+          ...queued('succeeded'),
+          sha256: digest,
+          bytes: bytes.length,
+        }),
+        status: async () => queued('succeeded'),
+        cancel: vi.fn(),
+        artifact: async () => ({
+          sha256: digest,
+          bytes,
+        }),
+        release: async () => 'unavailable',
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    const rendered = await cleanup.render(recipeJson(), undefined, {
+      accountId: ACCOUNT.id,
+      requestId: randomUUID(),
+      attemptId: randomUUID(),
+    });
+    expect(rendered.status).toBe('succeeded');
+    if (rendered.status !== 'succeeded') throw new Error('render');
+    await expect(cleanup.release(rendered.jobId)).rejects.toThrow('cleanup');
+    await oversized.close();
+    await noMeta.close();
+    await deadline.close();
+    await cleanup.close();
+  });
+
+  it('treats aborted downloads and missing artifacts as cancelled or failed', async () => {
+    const staging = await mkdtemp(join(tmpdir(), 'ar-remote-stage-'));
+    roots.push(staging);
+    const bytes = mp4Bytes();
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const abortAfterPoll = new AbortController();
+    const afterPoll = createRemoteRenderEngine({
+      transport: {
+        submit: async () => queued('queued'),
+        status: async () => {
+          abortAfterPoll.abort();
+          return {
+            ...queued('succeeded'),
+            sha256: digest,
+            bytes: bytes.length,
+          };
+        },
+        cancel: vi.fn(async () => queued('cancelled')),
+        artifact: async () => ({ sha256: digest, bytes }),
+        release: async () => 'released',
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await afterPoll.render(recipeJson(), abortAfterPoll.signal, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'cancelled' });
+    const boom = createRemoteRenderEngine({
+      transport: {
+        submit: async () => ({
+          ...queued('succeeded'),
+          sha256: digest,
+          bytes: bytes.length,
+        }),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        artifact: async () => {
+          throw new Error('socket');
+        },
+        release: vi.fn(),
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await boom.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'failed', reason: 'runtime' });
+    const missing = createRemoteRenderEngine({
+      transport: {
+        submit: async () => ({
+          ...queued('succeeded'),
+          sha256: digest,
+          bytes: bytes.length,
+        }),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        artifact: async () => null,
+        release: vi.fn(),
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await missing.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'failed', reason: 'artifact' });
+    const afterDownload = new AbortController();
+    const lateAbort = createRemoteRenderEngine({
+      transport: {
+        submit: async () => ({
+          ...queued('succeeded'),
+          sha256: digest,
+          bytes: bytes.length,
+        }),
+        status: vi.fn(),
+        cancel: vi.fn(async () => queued('cancelled')),
+        artifact: async () => {
+          afterDownload.abort();
+          return { sha256: digest, bytes };
+        },
+        release: vi.fn(),
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await lateAbort.render(recipeJson(), afterDownload.signal, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'cancelled' });
+    const conflict = createRemoteRenderEngine({
+      transport: {
+        submit: async () => queued('conflict'),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        artifact: vi.fn(),
+        release: vi.fn(),
+      },
+      stagingDirectory: staging,
+      wait: async () => undefined,
+    });
+    expect(
+      await conflict.render(recipeJson(), undefined, {
+        accountId: ACCOUNT.id,
+        requestId: randomUUID(),
+        attemptId: randomUUID(),
+      }),
+    ).toEqual({ status: 'invalid', reason: 'recipe-hash' });
+    await afterPoll.release('missing-id');
+    await afterPoll.close();
+    await boom.close();
+    await missing.close();
+    await lateAbort.close();
+    await conflict.close();
+  });
 });
 
 describe('worker protocol identity', () => {

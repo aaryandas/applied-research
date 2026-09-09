@@ -36,6 +36,9 @@ describe('origin ownership seams', () => {
       }),
     ).toBe(false);
     expect(await ownership.assertOwned('', origin)).toBe(false);
+    expect(
+      await ownership.assertOwned(ACCOUNT, { ...origin, projectId: '' }),
+    ).toBe(false);
     expect(seen).toEqual([
       `${ACCOUNT}:${PROJECT}`,
       `${ACCOUNT}:dddddddd-dddd-4ddd-8ddd-dddddddddddd`,

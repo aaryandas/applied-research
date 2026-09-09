@@ -172,5 +172,116 @@ describe('render worker daemon main', () => {
     expect(JSON.stringify(outcome.artifact)).not.toContain('/tmp/ar-manim');
     await mapped.release('job');
     await mapped.close();
+    const failed = daemonEngineFromWorker({
+      render: async () => ({ status: 'failed', reason: 'runtime' }),
+      release: async () => undefined,
+      close: async () => undefined,
+    });
+    expect(await failed.render('{}')).toEqual({
+      status: 'failed',
+      reason: 'runtime',
+    });
+  });
+
+  it('listens through the default HTTPS adapter and drains close errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ar-daemon-listen-'));
+    roots.push(root);
+    const cert = join(root, 'cert.pem');
+    const key = join(root, 'key.pem');
+    const ca = join(root, 'ca.pem');
+    for (const path of [cert, key, ca]) {
+      await writeFile(path, 'placeholder\n', { mode: 0o600 });
+      await chmod(path, 0o600);
+    }
+    const started = await startRenderWorkerDaemon(
+      [
+        '--listen-host',
+        '127.0.0.1',
+        '--listen-port',
+        '9443',
+        '--tls-cert',
+        cert,
+        '--tls-key',
+        key,
+        '--tls-ca',
+        ca,
+        '--docker',
+        '/usr/bin/docker',
+        '--docker-context',
+        'desktop-linux',
+      ],
+      {
+        resolveRuntime: async () => ({
+          docker: '/usr/bin/docker',
+          dockerContext: 'desktop-linux',
+          ffmpeg: '/usr/bin/ffmpeg',
+          ffprobe: '/usr/bin/ffprobe',
+        }),
+        createEngine: async () => ({
+          render: async () => ({ status: 'cancelled' }),
+          release: async () => undefined,
+          close: async () => undefined,
+        }),
+        readArtifact: async () => Buffer.alloc(0),
+        createServer: (() => ({
+          once: (event: string, listener: (error: Error) => void) => {
+            if (event === 'error') void listener;
+          },
+          listen: (_port: number, _host: string, callback: () => void) => {
+            queueMicrotask(callback);
+          },
+          close: (callback?: (error?: Error) => void) => {
+            callback?.(new Error('already closed'));
+          },
+        })) as never,
+      },
+    );
+    await started.close();
+    const writable = join(root, 'open.pem');
+    await writeFile(writable, 'placeholder\n', { mode: 0o666 });
+    await chmod(writable, 0o666);
+    await expect(trustedTlsFile(writable, 'TLS certificate')).rejects.toThrow(
+      'write access',
+    );
+  });
+
+  it('rejects duplicate flags, bad hosts, and out-of-range ports', () => {
+    expect(() =>
+      parseDaemonArgv([
+        '--listen-host',
+        '127.0.0.1',
+        '--listen-host',
+        '0.0.0.0',
+      ]),
+    ).toThrow('Duplicate');
+    expect(() => parseDaemonArgv(['--listen-host'])).toThrow('requires');
+    expect(() =>
+      parseDaemonArgv([
+        '--listen-host',
+        '127.0.0.1;rm',
+        '--listen-port',
+        '9443',
+        '--tls-cert',
+        '/c',
+        '--tls-key',
+        '/k',
+        '--tls-ca',
+        '/a',
+      ]),
+    ).toThrow('hostname');
+    expect(() =>
+      parseDaemonArgv([
+        '--listen-host',
+        '127.0.0.1',
+        '--listen-port',
+        '0',
+        '--tls-cert',
+        '/c',
+        '--tls-key',
+        '/k',
+        '--tls-ca',
+        '/a',
+      ]),
+    ).toThrow('port');
   });
 });

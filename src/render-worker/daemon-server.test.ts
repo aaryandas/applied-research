@@ -255,6 +255,132 @@ describe('render daemon lifecycle', () => {
     const closed = await daemon.submit(OWNER, randomUUID(), json, hashOf(json));
     expect(closed.reason).toBe('closed');
   });
+
+  it('fails incomplete, mismatched, cancelled, and throwing engines', async () => {
+    const file = await sourceFile();
+    const incomplete = createRenderDaemon({
+      engine: engine(async () => ({
+        status: 'succeeded',
+        jobId: randomUUID(),
+      })),
+      readArtifact: async () => file.bytes,
+    });
+    const json = recipeJson();
+    const first = await incomplete.submit(OWNER, REQUEST, json, hashOf(json));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await incomplete.status(OWNER, first.executionId)).reason).toBe(
+      'artifact',
+    );
+    const mismatch = createRenderDaemon({
+      engine: engine(async () => ({
+        status: 'succeeded',
+        jobId: randomUUID(),
+        artifactPath: file.path,
+        artifact: { ...verified(file.bytes), sha256: 'c'.repeat(64) },
+      })),
+      readArtifact: async () => file.bytes,
+    });
+    const second = await mismatch.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await mismatch.status(OWNER, second.executionId)).reason).toBe(
+      'artifact',
+    );
+    const cancelled = createRenderDaemon({
+      engine: engine(async () => ({ status: 'cancelled' })),
+      readArtifact: async () => file.bytes,
+    });
+    const third = await cancelled.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await cancelled.status(OWNER, third.executionId)).status).toBe(
+      'cancelled',
+    );
+    const throwing = createRenderDaemon({
+      engine: engine(async () => {
+        throw new Error('boom');
+      }),
+      readArtifact: async () => file.bytes,
+    });
+    const fourth = await throwing.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await throwing.status(OWNER, fourth.executionId)).reason).toBe(
+      'runtime',
+    );
+    expect(await throwing.release(OTHER, fourth.executionId)).toBe(
+      'unavailable',
+    );
+    const aborting = createRenderDaemon({
+      engine: engine(async (_json, signal) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        if (signal?.aborted) throw new Error('aborted');
+        return { status: 'succeeded', jobId: randomUUID() };
+      }),
+      readArtifact: async () => file.bytes,
+    });
+    const fifth = await aborting.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await aborting.cancel(OWNER, fifth.executionId);
+    expect((await aborting.status(OWNER, fifth.executionId)).status).toBe(
+      'cancelled',
+    );
+    const lateSuccess = createRenderDaemon({
+      engine: engine(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return {
+          status: 'succeeded',
+          jobId: randomUUID(),
+          artifactPath: file.path,
+          artifact: verified(file.bytes),
+        };
+      }),
+      readArtifact: async () => file.bytes,
+    });
+    const sixth = await lateSuccess.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await lateSuccess.cancel(OWNER, sixth.executionId);
+    expect((await lateSuccess.status(OWNER, sixth.executionId)).status).toBe(
+      'cancelled',
+    );
+    const unsupported = createRenderDaemon({
+      engine: engine(async () => ({
+        status: 'unsupported',
+        reason: 'unsupported',
+      })),
+      readArtifact: async () => file.bytes,
+    });
+    const seventh = await unsupported.submit(
+      OWNER,
+      randomUUID(),
+      json,
+      hashOf(json),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await unsupported.status(OWNER, seventh.executionId)).status).toBe(
+      'failed',
+    );
+  });
 });
 
 describe('worker daemon HTTP', () => {
@@ -353,5 +479,144 @@ describe('worker daemon HTTP', () => {
     );
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ reason: 'forbidden' });
+  });
+
+  it('covers artifact, cancel, release, and invalid HTTP submits', async () => {
+    const file = await sourceFile();
+    const daemon = createRenderDaemon({
+      engine: engine(async () => ({
+        status: 'succeeded',
+        jobId: randomUUID(),
+        artifactPath: file.path,
+        artifact: verified(file.bytes),
+      })),
+      readArtifact: async () => file.bytes,
+    });
+    const server = createServer((request, response) => {
+      void handleWorkerDaemonHttp(daemon, request, response);
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve());
+    });
+    servers.push(
+      () =>
+        new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        }),
+    );
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('listen');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const json = recipeJson();
+    const headers = {
+      'content-type': 'application/json',
+      'x-ar-owner-scope': OWNER,
+    };
+    expect(
+      matchWorkerDaemonRoute(`/v1/worker/artifacts/${OWNER}`, 'GET'),
+    ).toEqual({
+      kind: 'artifact',
+      executionId: OWNER,
+    });
+    expect(
+      matchWorkerDaemonRoute(`/v1/worker/jobs/${OWNER}/release`, 'POST'),
+    ).toEqual({ kind: 'release', executionId: OWNER });
+    const missing = await fetch(`${origin}/v1/worker/nope`, {
+      headers: { 'x-ar-owner-scope': OWNER },
+    });
+    expect(missing.status).toBe(404);
+    const badType = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers: { 'x-ar-owner-scope': OWNER, 'content-type': 'text/plain' },
+      body: '{}',
+    });
+    expect(badType.status).toBe(503);
+    const leaked = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ artifactPath: file.path }),
+    });
+    expect(leaked.status).toBe(400);
+    const mismatch = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        protocol: 'ar-render-worker/1',
+        operation: 'submit',
+        ownerScope: OTHER,
+        requestId: REQUEST,
+        recipeJson: json,
+        recipeHash: hashOf(json),
+      }),
+    });
+    expect(mismatch.status).toBe(400);
+    const submitted = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        protocol: 'ar-render-worker/1',
+        operation: 'submit',
+        ownerScope: OWNER,
+        requestId: REQUEST,
+        recipeJson: json,
+        recipeHash: hashOf(json),
+      }),
+    });
+    const body = (await submitted.json()) as { executionId: string };
+    await new Promise((resolve) => setImmediate(resolve));
+    const status = await fetch(`${origin}/v1/worker/jobs/${body.executionId}`, {
+      headers: { 'x-ar-owner-scope': OWNER },
+    });
+    expect(status.status).toBe(200);
+    const cancelled = await fetch(
+      `${origin}/v1/worker/jobs/${body.executionId}/cancel`,
+      { method: 'POST', headers: { 'x-ar-owner-scope': OWNER } },
+    );
+    expect(cancelled.status).toBe(200);
+    const released = await fetch(
+      `${origin}/v1/worker/jobs/${body.executionId}/release`,
+      { method: 'POST', headers: { 'x-ar-owner-scope': OWNER } },
+    );
+    expect([200, 409]).toContain(released.status);
+    const missingArtifact = await fetch(
+      `${origin}/v1/worker/artifacts/${randomUUID()}`,
+      { headers: { 'x-ar-owner-scope': OWNER } },
+    );
+    expect(missingArtifact.status).toBe(404);
+    const badUuid = await fetch(`${origin}/v1/worker/jobs/not-a-uuid`, {
+      headers: { 'x-ar-owner-scope': OWNER },
+    });
+    expect(badUuid.status).toBe(404);
+    expect(
+      matchWorkerDaemonRoute('/v1/worker/jobs/not-a-uuid', 'GET'),
+    ).toBeNull();
+    expect(
+      matchWorkerDaemonRoute(`/v1/worker/jobs/not-a-uuid/cancel`, 'POST'),
+    ).toBeNull();
+    const fileLeak = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ recipeJson: 'file://tmp/secret.py' }),
+    });
+    expect(fileLeak.status).toBe(400);
+    const tooLarge = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: 'x'.repeat(65 * 1024),
+    });
+    expect(tooLarge.status).toBe(503);
+    const invalidHash = await fetch(`${origin}/v1/worker/jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        protocol: 'ar-render-worker/1',
+        operation: 'submit',
+        ownerScope: OWNER,
+        requestId: REQUEST,
+        recipeJson: json,
+        recipeHash: 'c'.repeat(64),
+      }),
+    });
+    expect(invalidHash.status).toBe(409);
   });
 });
