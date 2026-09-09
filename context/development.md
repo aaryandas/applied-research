@@ -6,16 +6,17 @@ Use Node 24 LTS and npm. `.node-version` works with version managers such as fnm
 
 ## Commands
 
-| Command                 | Purpose                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `npm run dev`           | Main/preload build, renderer hot reload, real Electron window                       |
-| `npm run format`        | Format maintained code/config/current docs; excludes archives and visual references |
-| `npm run check`         | Formatting, ESLint, both process type checks, unit tests/coverage, production build |
-| `npm run test:watch`    | Unit-test feedback while editing                                                    |
-| `npm run test:e2e`      | Real Electron smoke test against `out/`; run `build` first                          |
-| `npm run package`       | Build and create an unpacked current-platform application                           |
-| `npm run test:packaged` | Smoke test the unpacked application; run `package` first                            |
-| `npm run dist`          | Build unsigned installers for the host platform; publishing disabled                |
+| Command                 | Purpose                                                                                             |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `npm run dev`           | Main/preload build, renderer hot reload, real Electron window                                       |
+| `npm run format`        | Format maintained code/config/current docs; excludes archives and visual references                 |
+| `npm run test:delivery` | Node 24 `node --test` for trusted-evaluator, review, queue, Cursor API, and workflow YAML helpers   |
+| `npm run check`         | Formatting, ESLint, both process type checks, delivery tests, unit tests/coverage, production build |
+| `npm run test:watch`    | Unit-test feedback while editing                                                                    |
+| `npm run test:e2e`      | Real Electron smoke test against `out/`; run `build` first                                          |
+| `npm run package`       | Build and create an unpacked current-platform application                                           |
+| `npm run test:packaged` | Smoke test the unpacked application; run `package` first                                            |
+| `npm run dist`          | Build unsigned installers for the host platform; publishing disabled                                |
 
 Do not use `--passWithNoTests`. Combined coverage thresholds are explicit in `vitest.config.ts`. Startup wiring is verified through Electron rather than mocked unit tests. See [testing and CI](testing.md) for separate unit, renderer and integration commands, the Electron layers, Effect compatibility and remote activation status.
 

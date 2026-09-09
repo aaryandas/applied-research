@@ -2,7 +2,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, open, symlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { MAX_JOB_BYTES, renderContainer } from './docker.js';
+import {
+  MAX_JOB_BYTES,
+  renderArguments,
+  renderContainer,
+  trustedDockerContext,
+} from './docker.js';
 import type { DockerJob } from './docker.js';
 import type { ProcessRequest, ProcessResult } from './process.js';
 import { OK_PROCESS } from './test-support.js';
@@ -88,6 +93,15 @@ it('reports failed cleanup as a distinct error', async () => {
       },
     }),
   ).rejects.toThrow('cleanup');
+});
+
+it('accepts only a trusted Docker context identifier in argv', async () => {
+  const request = await job();
+  expect(trustedDockerContext('desktop-linux')).toBe('desktop-linux');
+  expect(renderArguments(request, 'orbstack')[1]).toBe('orbstack');
+  expect(() => trustedDockerContext('orbstack;rm')).toThrow('trusted');
+  expect(() => trustedDockerContext('../default')).toThrow();
+  expect(() => trustedDockerContext('--privileged')).toThrow();
 });
 
 it('skips removal only with explicit not-started evidence, even if cleanup would fail', async () => {

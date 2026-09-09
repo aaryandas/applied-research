@@ -37,6 +37,7 @@ import {
   entryDraft,
   entryPosition,
   identifier,
+  planWorkspaceActivate,
   text,
   toolBounds,
   tutorRequest,
@@ -286,10 +287,13 @@ async function createWindow(): Promise<void> {
     });
   }
   handle(SOURCE_CHANNELS.activate, (value) => {
-    practicalOperations.replaceWorkspace();
-    closeTool();
+    const plan = planWorkspaceActivate(selectedWorkspaceId, value);
+    if (plan.revokeOperations) {
+      practicalOperations.replaceWorkspace();
+      closeTool();
+    }
     sourceOperations.activate(value);
-    selectedWorkspaceId = typeof value === 'string' ? value : null;
+    selectedWorkspaceId = plan.nextId;
   });
   handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
   handle(SOURCE_CHANNELS.discover, (value) => sourceOperations.discover(value));

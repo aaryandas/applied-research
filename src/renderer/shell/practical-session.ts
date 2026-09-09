@@ -30,6 +30,7 @@ export class PracticalSessionOwner {
   private active = true;
   private tool: PracticalToolAdapter | null = null;
   private save: (() => Promise<PracticalFlushResult>) | null = null;
+  private attemptId: string;
   readonly registerFlush: RegisterPracticalFlush = (save) => {
     this.save = save;
     const unregister = this.options.registerFlush(() => this.flush());
@@ -64,6 +65,7 @@ export class PracticalSessionOwner {
     stop: () => this.revoke(),
   });
   constructor(private readonly options: PracticalSessionOptions) {
+    this.attemptId = options.attemptId;
     this.bridge = {
       ...options.bridge,
       loadPracticalAttempt: (input) =>
@@ -80,6 +82,9 @@ export class PracticalSessionOwner {
   }
   mount(): void {
     this.active = true;
+  }
+  setAttemptId(attemptId: string): void {
+    this.attemptId = attemptId;
   }
   revoke(): void {
     this.requester?.session.stop('attempt-replaced');
@@ -123,10 +128,7 @@ export class PracticalSessionOwner {
     const result = await pending;
     if (result.status !== 'loaded' || !this.active || token !== this.generation)
       return result;
-    this.bindRequester(
-      activity,
-      result.attempt?.attemptId ?? this.options.attemptId,
-    );
+    this.bindRequester(activity, result.attempt?.attemptId ?? this.attemptId);
     return result;
   }
 
@@ -139,10 +141,7 @@ export class PracticalSessionOwner {
     const result = await pending;
     if (result.status !== 'loaded' || !this.active || token !== this.generation)
       return result;
-    this.bindRequester(
-      activity,
-      result.attempt?.attemptId ?? this.options.attemptId,
-    );
+    this.bindRequester(activity, result.attempt?.attemptId ?? this.attemptId);
     return result;
   }
 }

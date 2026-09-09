@@ -1,6 +1,14 @@
 import { expect, it } from 'vitest';
 import { awaitPracticalOperation } from './practical-cancellation';
 
+it('refuses an already aborted signal without waiting for the operation', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    awaitPracticalOperation(new Promise(() => {}), controller.signal),
+  ).rejects.toThrow('Practical operation stopped.');
+});
+
 it('stops on abort and absorbs the late rejection of the dropped operation', async () => {
   const controller = new AbortController();
   const late = new Promise<never>((_resolve, reject) =>

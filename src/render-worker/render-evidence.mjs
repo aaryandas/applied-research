@@ -14,6 +14,14 @@ const { AnimationRenderWorker } = await import(compiled);
 const { LINEAR_EXAMPLE, WEIGHTED_EXAMPLE } = await import(
   pathToFileURL(join(evidence, 'compiled/render-worker/fixtures.js')).href
 );
+const { MANIM_IMAGE } = await import(
+  pathToFileURL(join(evidence, 'compiled/render-worker/docker.js')).href
+);
+const { resolveTrustedWorkerRuntime, workerCreateOptions } = await import(
+  pathToFileURL(join(evidence, 'compiled/render-worker/trusted-runtime.js'))
+    .href
+);
+const runtime = await resolveTrustedWorkerRuntime(process.argv.slice(3));
 const cases = [
   { name: 'linear-shear', recipe: LINEAR_EXAMPLE, expected: [2, 1] },
   { name: 'weighted-shares', recipe: WEIGHTED_EXAMPLE, expected: [1.25, 1.25] },
@@ -81,7 +89,7 @@ const cases = [
   },
 ];
 await mkdir(join(evidence, 'renders'), { recursive: true });
-const worker = await AnimationRenderWorker.create();
+const worker = await AnimationRenderWorker.create(workerCreateOptions(runtime));
 const compiledFiles = [
   'render-worker/worker.js',
   'render-worker/docker.js',
@@ -90,6 +98,7 @@ const compiledFiles = [
   'render-worker/recipe-math.js',
   'render-worker/fixtures.js',
   'contracts/animation-recipes.js',
+  'render-worker/trusted-runtime.js',
   'render-worker/presets/render.py',
   'render-worker/presets/scenes.py',
   'render-worker/presets/validation.py',
@@ -106,6 +115,13 @@ const sourceHashes = Object.fromEntries(
 );
 const receipt = {
   sourceHashes,
+  runtime: {
+    docker: runtime.docker,
+    dockerContext: runtime.dockerContext,
+    ffmpeg: runtime.ffmpeg,
+    ffprobe: runtime.ffprobe,
+    image: MANIM_IMAGE,
+  },
   machine: {
     cpu: cpus()[0]?.model,
     platform: platform(),

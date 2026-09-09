@@ -46,6 +46,7 @@
       "src/render-worker/**",
       "src/backend/render-delivery/**",
       "src/main/retained-media-*.ts",
+      "src/main/clip-*.ts",
       "src/main/contextual-help-*.ts",
       "src/main/explanation-*.ts",
       "src/backend/explanations/**",
@@ -87,6 +88,7 @@
       "src/main/index.ts",
       "src/main/startup-error.ts",
       "src/main/validation.ts",
+      "src/main/validation.test.ts",
       "src/main/tutor.ts",
       "src/preload/**"
     ],

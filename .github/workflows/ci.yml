@@ -16,3 +16,22 @@ concurrency:
 jobs:
   checks:
     uses: ./.github/workflows/verify.yml
+
+  classify:
+    name: Delivery CI classification
+    if: always()
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Classify expected Linear/Windows vs blocking CI gate
+        env:
+          CI_GATE_RESULT: ${{ needs.checks.result }}
+          LIVE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          WORKFLOW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: node scripts/delivery-ci-classify.mjs

@@ -13,6 +13,7 @@ import {
   ContainerCleanupError,
   MANIM_IMAGE,
   renderContainer,
+  trustedDockerContext,
 } from './docker.js';
 import type { DockerRuntime } from './docker.js';
 import { verifyMedia } from './media.js';
@@ -76,9 +77,14 @@ export class AnimationRenderWorker {
     private readonly presets: string,
     private readonly options: WorkerOptions,
   ) {
+    if (typeof options.dockerContext !== 'string') {
+      throw new Error(
+        'dockerContext must name a trusted Docker context. OrbStack is not inferred.',
+      );
+    }
     this.runtime = {
       command: options.docker ?? 'docker',
-      context: options.dockerContext ?? 'orbstack',
+      context: trustedDockerContext(options.dockerContext),
       run: options.run ?? runProcess,
     };
   }
@@ -96,6 +102,12 @@ export class AnimationRenderWorker {
       throw new Error(
         'The render worker requires a non-root POSIX host process.',
       );
+    if (typeof options.dockerContext !== 'string') {
+      throw new Error(
+        'dockerContext must name a trusted Docker context. OrbStack is not inferred.',
+      );
+    }
+    trustedDockerContext(options.dockerContext);
     const presets = await realpath(
       fileURLToPath(new URL('./presets', import.meta.url)),
     );

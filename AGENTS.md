@@ -50,7 +50,7 @@ Before choosing or replacing technology, read the [decision audit](context/decis
 ```sh
 npm ci
 npm run dev
-npm run check          # formatting, lint, types, unit coverage, build
+npm run check          # formatting, lint, types, delivery helpers, unit coverage, build
 npm run test:e2e       # built Electron smoke tests
 npm run package
 npm run test:packaged

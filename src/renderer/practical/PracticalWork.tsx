@@ -482,12 +482,23 @@ function ActivityWork(
               className="practical-button"
               type="button"
               disabled={busy}
-              onClick={() =>
-                runAction(async () => {
-                  await stopGuidance?.();
-                  await props.tool?.openExternal?.();
-                })
-              }
+              onClick={() => {
+                if (pendingAction.current) return;
+                setBusy(true);
+                setMessage('');
+                void (async () => {
+                  try {
+                    await stopGuidance?.();
+                    await props.tool?.openExternal?.();
+                  } catch {
+                    setMessage(
+                      'That action could not finish. Your draft is here; try again.',
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
             >
               Open externally
             </button>
