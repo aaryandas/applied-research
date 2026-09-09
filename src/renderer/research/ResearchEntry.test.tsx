@@ -10,6 +10,7 @@ import { expect, it, vi } from 'vitest';
 import type { MetadataOnlySource } from '../../contracts/sourcing';
 import { ResearchEntry } from './ResearchEntry';
 import type { ResearchEntryProps } from './research-contract';
+import { researchMessage } from './research-presentation';
 
 const paper: MetadataOnlySource = {
   sourceId: 'openalex_W123',
@@ -61,7 +62,10 @@ it('finds papers for a question with provenance and honest catalog-only actions'
   });
   fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
   expect(
-    await screen.findByRole('heading', { name: paper.title }),
+    await screen.findByRole('heading', { name: paper.title, level: 3 }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('heading', { name: 'Search results', level: 2 }),
   ).toBeVisible();
   expect(screen.getByText('Ada Example, Sam Example')).toBeVisible();
   expect(screen.getByText('2024-01-12')).toBeVisible();
@@ -534,7 +538,7 @@ it('keeps a remounted source busy and reports the original acquire failure', asy
   expect(callbacks.onOpenReader).not.toHaveBeenCalled();
 });
 
-it('lets the learner cancel acquisition and ignores a late committed response', async () => {
+it('lets the learner cancel acquisition and records a late commit without opening Reader', async () => {
   const callbacks = props();
   callbacks.initialQuestion = 'A learning question';
   callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
@@ -543,6 +547,9 @@ it('lets the learner cancel acquisition and ignores a late committed response', 
       requestId: request.requestId,
       candidates: [readablePaper()],
     }),
+  );
+  callbacks.onOpenOriginal = vi.fn<ResearchEntryProps['onOpenOriginal']>(
+    async () => 'unavailable',
   );
   let finish: (
     result: Awaited<ReturnType<ResearchEntryProps['onAcquireAndSave']>>,
@@ -560,6 +567,10 @@ it('lets the learner cancel acquisition and ignores a late committed response', 
   );
   const [request, operation] = vi.mocked(callbacks.onAcquireAndSave).mock
     .calls[0]!;
+  fireEvent.click(screen.getByRole('button', { name: 'Open original link' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'The original link is unavailable.',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Cancel acquisition' }));
   expect(operation.signal.aborted).toBe(true);
   expect(screen.getByRole('button', { name: 'Acquire & read' })).toHaveFocus();
@@ -568,9 +579,46 @@ it('lets the learner cancel acquisition and ignores a late committed response', 
   );
   await act(async () => finish(savedResult(request.requestId)));
   expect(callbacks.onOpenReader).not.toHaveBeenCalled();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'This source was saved before the cancellation took effect.',
+  );
   expect(
-    screen.queryByRole('region', { name: 'Saved references' }),
+    screen.getByRole('region', { name: 'Saved references' }),
+  ).toHaveTextContent('local-original-v2');
+  expect(
+    screen.getByRole('button', { name: 'Open saved version' }),
+  ).toBeEnabled();
+  expect(
+    screen.queryByRole('button', { name: 'Acquire & read' }),
   ).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('clears a cancelled acquisition alert when a new search starts', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'A learning question';
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'success',
+      requestId: request.requestId,
+      candidates: [readablePaper()],
+    }),
+  );
+  callbacks.onAcquireAndSave = vi.fn<ResearchEntryProps['onAcquireAndSave']>(
+    () => new Promise(() => {}),
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Acquire & read' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel acquisition' }));
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'The sourcing request was cancelled.',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  await screen.findByRole('button', { name: 'Acquire & read' });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
 it('marks an acquired result honestly and keeps related material separate from human notes', async () => {
@@ -600,10 +648,15 @@ it('marks an acquired result honestly and keeps related material separate from h
   render(<ResearchEntry {...callbacks} />);
   fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Open related source: course-a',
-    }),
+    await screen.findByRole('button', { name: 'Open related source' }),
   );
+  expect(
+    screen.getByRole('heading', { name: 'Related material', level: 4 }),
+  ).toBeVisible();
+  expect(
+    screen.getByText('paper associated with course · MIT OpenCourseWare'),
+  ).toBeVisible();
+  expect(screen.queryByText(/course-a/)).not.toBeInTheDocument();
   expect(callbacks.onOpenOriginal).toHaveBeenCalledWith({
     projectId: 'project-a',
     sourceId: 'course-a',
@@ -617,7 +670,10 @@ it('marks an acquired result honestly and keeps related material separate from h
   expect(
     within(results).queryByText('Version not acquired'),
   ).not.toBeInTheDocument();
-  expect(within(results).getByText('local-original-v2')).toBeVisible();
+  expect(
+    within(results).getByText('Acquired 2026-09-08 · Partial text'),
+  ).toBeVisible();
+  expect(within(results).getByText('local-original-v2')).toBeInTheDocument();
   expect(
     within(results).queryByRole('button', { name: 'Acquire & read' }),
   ).not.toBeInTheDocument();
@@ -716,7 +772,84 @@ it('handles a thrown provider failure without exposing its contents and permits 
       'No source candidates were found.',
     ),
   );
+  expect(
+    screen.queryByRole('region', { name: 'Search results' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox')).toHaveFocus();
 });
+
+it('treats an empty partial response as no results while naming the failed provider', async () => {
+  const callbacks = props();
+  callbacks.initialQuestion = 'A narrow question';
+  callbacks.onDiscover = vi.fn<ResearchEntryProps['onDiscover']>(
+    async (request) => ({
+      outcome: 'partial',
+      requestId: request.requestId,
+      candidates: [],
+      issues: [
+        {
+          provider: 'openalex',
+          reason: 'unavailable',
+          retryAfterMilliseconds: null,
+        },
+      ],
+    }),
+  );
+  render(<ResearchEntry {...callbacks} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Find sources' }));
+  await waitFor(() =>
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No source candidates were found.',
+    ),
+  );
+  expect(screen.getByText('OpenAlex: unavailable.')).toBeVisible();
+  expect(
+    screen.getByText('Try a broader question or different terms.'),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('region', { name: 'Search results' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox')).toHaveFocus();
+});
+
+it.each([
+  {
+    failure: {
+      outcome: 'rate-limited',
+      requestId: 'current',
+      message: 'The source provider rate limit was reached.',
+      retryAfterMilliseconds: 2500,
+    },
+    expected:
+      'The source provider rate limit was reached. Suggested retry delay: 3 seconds.',
+  },
+  {
+    failure: {
+      outcome: 'timed-out',
+      requestId: 'current',
+      message: 'The sourcing request timed out.',
+      retryable: true,
+    },
+    expected: 'The sourcing request timed out. Try again.',
+  },
+  {
+    failure: {
+      outcome: 'unavailable',
+      requestId: null,
+      message: 'The sourcing operation is unavailable.',
+      retryable: false,
+    },
+    expected: 'The sourcing operation is unavailable. Retrying will not help.',
+  },
+] satisfies {
+  failure: Awaited<ReturnType<ResearchEntryProps['onDiscover']>>;
+  expected: string;
+}[])(
+  'keeps the retry guidance from a $failure.outcome failure',
+  ({ failure, expected }) => {
+    expect(researchMessage(failure)).toBe(expected);
+  },
+);
 
 it('ignores empty and duplicate submissions and aborts search on project replacement', async () => {
   const callbacks = props();

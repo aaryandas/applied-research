@@ -108,12 +108,12 @@ test('research component contract in Electron: keyboard, exact target, themes an
       'The sourcing request was cancelled.',
     );
     for (const [query, message] of [
-      ['unavailable', 'The sourcing operation is unavailable.'],
+      ['unavailable', 'The sourcing operation is unavailable. Try again.'],
       ['no results', 'No source candidates were found.'],
-    ]) {
-      await question.fill(query!);
+    ] as const) {
+      await question.fill(query);
       await page.getByRole('button', { name: 'Find sources' }).click();
-      await expect(page.getByRole('status')).toHaveText(message!);
+      await expect(page.getByRole('status')).toHaveText(message);
     }
     await expect(saved).toContainText('local-original-v2');
     expect(errors).toEqual([]);

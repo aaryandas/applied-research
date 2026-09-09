@@ -1,4 +1,5 @@
 import type {
+  AcquiredCanonicalSourceRevision,
   MetadataOnlySource,
   SourceDiscoveryProvider,
 } from '../../contracts/sourcing';
@@ -36,6 +37,21 @@ export function sourceAvailability(source: MetadataOnlySource): string {
   return 'Catalog only';
 }
 
+/** Learner-facing version line; the revision id stays in the provenance disclosure. */
+export function acquiredVersion(
+  revision: AcquiredCanonicalSourceRevision,
+): string {
+  const coverage =
+    revision.extraction.coverage === 'partial'
+      ? 'Partial text'
+      : 'Complete extraction';
+  return `Acquired ${revision.acquiredAt.slice(0, 10)} · ${coverage}`;
+}
+
+export function retryDelay(milliseconds: number): string {
+  return `Suggested retry delay: ${Math.ceil(milliseconds / 1000)} seconds.`;
+}
+
 export function researchMessage(
   result: ResearchDiscoveryResult | ResearchAdoptionResult,
 ): string {
@@ -48,6 +64,15 @@ export function researchMessage(
     case 'partial':
     case 'saved':
       return '';
+    case 'rate-limited':
+      return result.retryAfterMilliseconds === null
+        ? result.message
+        : `${result.message} ${retryDelay(result.retryAfterMilliseconds)}`;
+    case 'timed-out':
+    case 'unavailable':
+      return `${result.message} ${
+        result.retryable ? 'Try again.' : 'Retrying will not help.'
+      }`;
     default:
       return result.message;
   }

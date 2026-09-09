@@ -20,7 +20,12 @@ import type {
 } from './research-contract';
 import { ResearchSource } from './ResearchSource';
 import './research.css';
-import { providerName, researchMessage } from './research-presentation';
+import {
+  acquiredVersion,
+  providerName,
+  researchMessage,
+  retryDelay,
+} from './research-presentation';
 
 type SavedResult = Extract<ResearchAdoptionResult, { outcome: 'saved' }>;
 interface SavedReference {
@@ -125,6 +130,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
     setIssues([]);
     setNoResults(false);
     setResults(null);
+    setSourceAlerts({});
     const operation = {
       context: structuredClone(props.context),
       question: query,
@@ -149,20 +155,23 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
         );
         return;
       }
-      if (response.outcome === 'success' || response.outcome === 'partial') {
+      const found =
+        response.outcome === 'success' || response.outcome === 'partial';
+      if (response.outcome === 'partial') setIssues(response.issues);
+      if (found && response.candidates.length > 0) {
         setResults({ sources: response.candidates, operation });
-        if (response.outcome === 'partial') {
-          setIssues(response.issues);
+        if (response.outcome === 'partial')
           setMessage(
             'Partial results. Some providers could not return sources.',
           );
-        } else if (response.candidates.length === 0) {
-          setNoResults(true);
-          setMessage(SOURCING_PUBLIC_MESSAGES.noResults);
-        }
       } else {
-        setMessage(researchMessage(response));
-        setNoResults(response.outcome === 'no-results');
+        const empty = found || response.outcome === 'no-results';
+        setNoResults(empty);
+        setMessage(
+          empty
+            ? SOURCING_PUBLIC_MESSAGES.noResults
+            : researchMessage(response),
+        );
         questionField.current?.focus();
       }
     } catch {
@@ -216,6 +225,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
   async function saveReference(
     result: SavedResult,
     operation: Omit<ResearchOperation, 'signal'>,
+    open: boolean,
   ): Promise<void> {
     const reference = { result, operation };
     setReferences((current) => [
@@ -224,7 +234,11 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
       ),
       reference,
     ]);
-    await openReference(reference);
+    if (open) await openReference(reference);
+    else
+      setMessage(
+        'This source was saved before the cancellation took effect. Open it from Saved references when you are ready.',
+      );
   }
   return (
     <section className="research-entry" aria-label="Research">
@@ -269,10 +283,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
                 {issue.reason.replaceAll('-', ' ')}.
               </p>
               {issue.retryAfterMilliseconds !== null && (
-                <p>
-                  Suggested retry delay:{' '}
-                  {Math.ceil(issue.retryAfterMilliseconds / 1000)} seconds.
-                </p>
+                <p>{retryDelay(issue.retryAfterMilliseconds)}</p>
               )}
             </li>
           ))}
@@ -288,15 +299,21 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
           {references.map((reference) => (
             <article key={reference.result.saved.revisionId}>
               <h3>{reference.result.source.title}</h3>
-              <p>
-                Acquired ·{' '}
-                {reference.result.source.content.revision.extraction
-                  .coverage === 'partial'
-                  ? 'Partial text'
-                  : 'Complete extraction'}
-              </p>
-              <p>Saved version: {reference.result.saved.revisionId}</p>
+              <p>{acquiredVersion(reference.result.source.content.revision)}</p>
               <p>{reference.result.source.content.revision.extraction.note}</p>
+              <details>
+                <summary>Source provenance</summary>
+                <dl>
+                  <div>
+                    <dt>Saved version</dt>
+                    <dd>{reference.result.saved.revisionId}</dd>
+                  </div>
+                  <div>
+                    <dt>Original source</dt>
+                    <dd>{reference.result.source.originalLocation.url}</dd>
+                  </div>
+                </dl>
+              </details>
               <button
                 disabled={opening}
                 onClick={() => void openReference(reference)}
@@ -330,7 +347,9 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
               onAcquisitionMessage={(message) =>
                 setSourceAlert(source.sourceId, message)
               }
-              onSaved={(result) => saveReference(result, results.operation)}
+              onSaved={(result, open) =>
+                saveReference(result, results.operation, open)
+              }
               saved={
                 references.find(
                   (reference) =>

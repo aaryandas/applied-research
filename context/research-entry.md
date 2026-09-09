@@ -18,6 +18,10 @@ The exported types live in `src/renderer/research/research-contract.ts`.
   `{ projectId, sourceId, revisionId }`. Remote and local identities may differ.
   Acquisition failure, permission denial, stale project and failed local save
   remain explicit outcomes. Never return `saved` for fetched-but-unsaved text.
+  When the operation signal aborts before the local commit, resolve `cancelled`,
+  never `saved`. A commit that completed before the abort was observed still
+  resolves `saved`; the renderer records that reference and reports it in the
+  status line without opening Reader.
 - `onOpenReader(ResearchReaderTarget)` flushes existing workspace drafts before
   opening the exact **local** source/revision. It receives the original question
   and `LearningOrigin`, and returns `opened`, `blocked`, `missing-source` or
@@ -28,7 +32,9 @@ The exported types live in `src/renderer/research/research-contract.ts`.
 
 The shell must abort remote work when the operation signal is aborted and check
 project/request identity again before committing. Renderer cancellation alone
-cannot undo a transaction. Preserve Reader mounting and its save barrier while
+cannot undo a transaction. Adapters resolve typed outcomes and never throw; the
+component's catch branches are a last resort that show generic copy and retain
+no adapter details. Preserve Reader mounting and its save barrier while
 showing research. Keep research mounted when temporarily entering Reader to
 retain question/results and return position; replace it only when replacing the
 project. No research callback may bypass the existing draft flush.
@@ -63,9 +69,9 @@ analysis are required before full acceptance. The local Sonar endpoint was
 unreachable during AR-38 preflight; this worktree has no `.env.sonar`.
 
 The dispatch explicitly permits `src/renderer/research/**`, context and E2E
-changes. The older lane catalog in base `9434020` has no research lane. AR-41
-owns its update; AR-38 must inspect that prerequisite before marking ready and
-must not edit `.github/lanes.json` itself.
+changes. `.github/lanes.json` carries the `research` lane
+(`src/renderer/research/**`), mirroring the AR-41 delivery-workflow catalog in
+PR #21 so the two merge cleanly; AR-41 owns the rest of that catalog.
 
 ## Local verification
 

@@ -11,6 +11,7 @@ import type {
   ResearchLinkTarget,
 } from './research-contract';
 import {
+  acquiredVersion,
   canAcquire,
   providerName,
   researchMessage,
@@ -23,7 +24,8 @@ interface ResearchSourceProps {
   source: MetadataOnlySource;
   operation: Omit<ResearchOperation, 'signal'>;
   callbacks: ResearchCallbacks;
-  onSaved: (result: SavedResult) => Promise<void>;
+  /** `open` is false when the commit landed after the learner cancelled. */
+  onSaved: (result: SavedResult, open: boolean) => Promise<void>;
   saved: SavedResult | undefined;
   onOpenSaved: () => Promise<void>;
   opening: boolean;
@@ -53,7 +55,7 @@ export function ResearchSource({
   onAcquisitionMessage,
 }: Readonly<ResearchSourceProps>): ReactElement {
   const [linkMessage, setLinkMessage] = useState('');
-  const message = linkMessage || acquisitionMessage;
+  const message = acquisitionMessage || linkMessage;
   const acquisitionAllowed = canAcquire(source) && !permissionDenied && !saved;
   const acquireButton = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -80,7 +82,9 @@ export function ResearchSource({
         },
         { ...operation, signal: controller.signal },
       );
-      if (controller.signal.aborted) return;
+      // A commit can land after the learner cancelled; it is still a real
+      // local revision, so it is recorded but not opened.
+      const aborted = controller.signal.aborted;
       const wrongRequest =
         result.requestId !== null && result.requestId !== requestId;
       const wrongSource =
@@ -89,16 +93,18 @@ export function ResearchSource({
           result.source.sourceId !== source.sourceId ||
           result.source.content.revision.sourceId !== source.sourceId);
       if (wrongRequest || wrongSource) {
-        onAcquisitionMessage(
-          'The saved source did not match this request. Search again.',
-        );
+        if (!aborted)
+          onAcquisitionMessage(
+            'The saved source did not match this request. Search again.',
+          );
         return;
       }
       if (result.outcome === 'saved') {
-        pending.current = null;
+        if (pending.current === controller) pending.current = null;
         release();
-        await onSaved(result);
-      } else {
+        if (aborted) onAcquisitionMessage('');
+        await onSaved(result, !aborted);
+      } else if (!aborted) {
         if (result.outcome === 'not-permitted') onPermissionDenied();
         onAcquisitionMessage(researchMessage(result));
       }
@@ -109,7 +115,8 @@ export function ResearchSource({
         );
     } finally {
       release();
-      if (!controller.signal.aborted) pending.current = null;
+      setLinkMessage('');
+      if (pending.current === controller) pending.current = null;
     }
   }
   function cancelAcquisition(): void {
@@ -129,7 +136,7 @@ export function ResearchSource({
   );
   return (
     <article className="research-source">
-      <h2>{source.title}</h2>
+      <h3>{source.title}</h3>
       <p className="research-source-kind">
         {source.kind} ·{' '}
         {source.providerIds.map((id) => providerName(id.provider)).join(', ') ||
@@ -147,7 +154,11 @@ export function ResearchSource({
         </div>
         <div>
           <dt>Version</dt>
-          <dd>{saved?.saved.revisionId ?? 'Version not acquired'}</dd>
+          <dd>
+            {saved
+              ? acquiredVersion(saved.source.content.revision)
+              : 'Version not acquired'}
+          </dd>
         </div>
         <div>
           <dt>Access</dt>
@@ -196,6 +207,12 @@ export function ResearchSource({
             <dt>Discovered</dt>
             <dd>{source.discoveredAt}</dd>
           </div>
+          {saved && (
+            <div>
+              <dt>Saved version</dt>
+              <dd>{saved.saved.revisionId}</dd>
+            </div>
+          )}
           {source.scholarlyIdentity.doi && (
             <div>
               <dt>DOI</dt>
@@ -212,15 +229,16 @@ export function ResearchSource({
       </details>
       {source.relationships.length > 0 && (
         <section aria-label="Related source material">
-          <h3>Related material</h3>
+          <h4>Related material</h4>
           <ul>
             {source.relationships.map((relationship) => {
               const parentIdentity = relationship.parentProviderIds[0];
               return (
                 <li key={`${relationship.kind}:${relationship.parentSourceId}`}>
                   <p>
-                    {relationship.kind.replaceAll('-', ' ')} ·{' '}
-                    {relationship.parentSourceId}
+                    {relationship.kind.replaceAll('-', ' ')}
+                    {parentIdentity &&
+                      ` · ${providerName(parentIdentity.provider)}`}
                   </p>
                   {parentIdentity && (
                     <button
@@ -232,7 +250,7 @@ export function ResearchSource({
                         })
                       }
                     >
-                      Open related source: {relationship.parentSourceId}
+                      Open related source
                     </button>
                   )}
                 </li>
