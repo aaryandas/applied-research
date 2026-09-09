@@ -1,6 +1,6 @@
 # Testing and CI
 
-Work is tracked in [AR-8](https://linear.app/aaryan-das/issue/AR-8) and Sonar activation in [AR-9](https://linear.app/aaryan-das/issue/AR-9). Use the installed exact dependencies and Node 24; CI must not require provider credentials, personal data or a live AI service.
+Work is tracked in [AR-8](https://linear.app/aaryan-das/issue/AR-8). GitHub analysis against Railway SonarQube is [AR-45](https://linear.app/aaryan-das/issue/AR-45); the optional local Compose instance remains [AR-9](https://linear.app/aaryan-das/issue/AR-9). Use the installed exact dependencies and Node 24; CI must not require provider credentials, personal data or a live AI service.
 
 ## Test layers
 
@@ -46,6 +46,6 @@ The reference contains `@effect/vitest@0.30.0`. Published metadata verified duri
 
 ## Sonar activation
 
-The founder moved hosting to Railway. GitHub `Sonar (main only)` analyzes `main` against [https://sonarqube-production-6550.up.railway.app](https://sonarqube-production-6550.up.railway.app) / `applied-research-hosted`. It still needs repository secret `SONAR_TOKEN` (project analysis token). Enter that secret through GitHub's secret UI or secure stdin, never tracked files or Linear. Host and project key are defaults in the workflow; set `SONAR_ENABLED=false` to disable. An enabled workflow with a missing token fails explicitly.
+The founder moved hosting to Railway. GitHub `Sonar (main only)` analyzes `main` against [https://sonarqube-production-6550.up.railway.app](https://sonarqube-production-6550.up.railway.app) / `applied-research-hosted`. Coverage for that scan is the LCOV artifact from the macOS Verify leg, which is the platform that gates. It still needs repository secret `SONAR_TOKEN` (project analysis token). Enter that secret through GitHub's secret UI or secure stdin, never tracked files or Linear. Host and project key are defaults in the workflow; set `SONAR_ENABLED=false` to disable. An enabled workflow with a missing token fails explicitly.
 
 [Local Compose](sonar-local.md) is optional and is not reachable from hosted runners. Community Build's [small-scale host requirements](https://docs.sonarsource.com/sonarqube-community-build/server-installation/server-host-requirements) specify 2 cores, 4 GB RAM and 30 GB disk; size the database and operating headroom separately. See [release operations](releases.md) for the repository settings and analysis boundary.

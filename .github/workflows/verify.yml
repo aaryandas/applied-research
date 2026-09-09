@@ -50,8 +50,12 @@ jobs:
       - name: Packaged smoke test (Windows/macOS)
         if: runner.os != 'Linux'
         run: npm run test:packaged
+      # Sonar (and any other consumer of this artifact) must receive coverage from
+      # the gating platform. Linux/Windows are continue-on-error; if only Linux
+      # uploaded `coverage` and that leg failed, CI gate could still pass and
+      # download-artifact would fail for an unrelated reason.
       - name: Save coverage
-        if: runner.os == 'Linux'
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage

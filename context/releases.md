@@ -2,7 +2,7 @@
 
 ## Pull requests and main
 
-See [testing and CI](testing.md) for test layers, Effect compatibility, observed remote results and pending activation decisions. Sonar hosting is tracked in [AR-9](https://linear.app/aaryan-das/issue/AR-9).
+See [testing and CI](testing.md) for test layers, Effect compatibility, observed remote results and pending activation decisions. GitHub analysis against the Railway-hosted instance is tracked in [AR-45](https://linear.app/aaryan-das/issue/AR-45); the optional local Compose instance remains [AR-9](https://linear.app/aaryan-das/issue/AR-9).
 
 `ci.yml` calls a reusable verification workflow on pull requests and pushes to main. The workflow runs locked installs, format/lint/type/unit/coverage/build checks, Electron smoke tests, unpacked packaging, and a packaged smoke test on Linux, Windows, and macOS. The final **CI gate** is the stable check to require in branch rules; it fails if any platform fails or is skipped.
 
@@ -48,7 +48,7 @@ The API service requires the non-secret Railway variable `RAILPACK_INSTALL_CMD` 
 
 GitHub analysis uses the Railway-hosted Community Build instance selected after AR-9: [https://sonarqube-production-6550.up.railway.app](https://sonarqube-production-6550.up.railway.app), project `applied-research-hosted`. Local Compose remains optional developer tooling; do not point GitHub at localhost.
 
-Sonar supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from that verification, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
+Sonar supplements the required CI gate. Community Build supports default-branch analysis, not native PR or multiple-branch analysis. The Sonar workflow accepts only main, verifies the revision first, obtains LCOV coverage from the macOS (gating) verification leg, then scans first-party `src/` code and waits for the quality gate. It does not scan generated output or the design-system study. Research and historical evidence live outside the repository.
 
 The workflow uses that Railway host and project key unless repository variables override them. Set `SONAR_ENABLED=false` to disable. A project-scoped analysis token is still required:
 
