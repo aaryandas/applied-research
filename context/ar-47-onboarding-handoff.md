@@ -6,8 +6,10 @@ Apply these diffs on `codex/ar-walkthrough-integration` (or cherry-pick onto the
 integration merge). Do not use migration 0004 (AR-50) or 0006 (AR-56).
 
 Consumer branch: `codex/ar-47-onboarding-cloud`  
+Candidate SHA: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89`  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
+Patch path: `context/ar-47-onboarding-handoff.md`
 
 Until these patches land, unit tests apply `drizzle/0005_learning_onboarding.sql`
 onto an already-constructed `WorkspaceStore` connection via
