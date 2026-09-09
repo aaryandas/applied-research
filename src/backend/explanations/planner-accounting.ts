@@ -25,6 +25,7 @@ export function plannerInputHash(request: ExplanationPlannerRequest): string {
         requestId: request.requestId,
         model: request.model,
         operation: request.operation,
+        renderContext: request.renderContext ?? null,
       }),
     )
     .digest('hex');

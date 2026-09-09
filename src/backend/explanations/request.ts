@@ -7,6 +7,7 @@ import type {
   SourceProvenanceKind,
   SourceRevisionInput,
 } from '../../contracts/learning-api.js';
+import { isContractUuid } from '../../contracts/contextual-contract-guards.js';
 import { MAX_SOURCE_CHARACTERS } from '../policy.js';
 import { RequestValidationError } from '../validation.js';
 import {
@@ -15,6 +16,7 @@ import {
   sha256Text,
   SOURCE_FORMATS,
 } from '../validation-primitives.js';
+import { decodePlannerRenderContext } from './render-context.js';
 import {
   EXPLANATION_PLANNER_KIND,
   type ExplanationPlannerRequest,
@@ -138,6 +140,7 @@ export function parseExplanationPlannerRequest(
     'requestId',
     'model',
     'operation',
+    'renderContext',
   ]);
   const requestId = identifier(input.requestId, 'Request id');
   if (input.apiVersion !== LEARNING_API_VERSION) {
@@ -145,6 +148,21 @@ export function parseExplanationPlannerRequest(
   }
   if (!includesMember(LEARNING_MODEL_ALLOWLIST, input.model)) {
     invalid('The model is not admitted.', requestId);
+  }
+  let renderContext: ExplanationPlannerRequest['renderContext'];
+  if (
+    Object.hasOwn(input, 'renderContext') &&
+    input.renderContext !== null &&
+    input.renderContext !== undefined
+  ) {
+    if (!isContractUuid(requestId)) {
+      invalid('Render plans must use a UUID request id.', requestId);
+    }
+    const decoded = decodePlannerRenderContext(input.renderContext);
+    if (!decoded.ok) {
+      invalid('Render context is invalid.', requestId);
+    }
+    renderContext = decoded.value;
   }
   const operation = validation.strictRecord(input.operation, [
     'kind',
@@ -188,5 +206,6 @@ export function parseExplanationPlannerRequest(
       sources,
       learnerContext: learnerContext(operation.learnerContext),
     },
+    ...(renderContext === undefined ? {} : { renderContext }),
   };
 }

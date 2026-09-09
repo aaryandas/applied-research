@@ -25,6 +25,11 @@ import {
   type ExplanationPlannerService,
 } from './explanations/index.js';
 import {
+  handleRenderDelivery,
+  matchRenderDeliveryRoute,
+  type RenderDeliveryService,
+} from './render-delivery/index.js';
+import {
   API_ORIGIN,
   ELECTRON_AUTH_CALLBACK_PATH,
   ELECTRON_AUTH_CALLBACK_SCRIPT_PATH,
@@ -48,6 +53,7 @@ export interface HttpDependencies {
   readonly onboarding?: OnboardingService;
   readonly explanationPlanner?: ExplanationPlannerService;
   readonly lookupAdmittedSource?: AccountScopedAdmittedSourceLookup;
+  readonly renderDelivery?: RenderDeliveryService;
   readonly runEffect: <A, E>(
     effect: Effect.Effect<A, E>,
     signal?: AbortSignal,
@@ -286,6 +292,24 @@ export function createHttpHandler(
         ...(dependencies.lookupAdmittedSource
           ? { lookupAdmittedSource: dependencies.lookupAdmittedSource }
           : {}),
+      });
+      return;
+    }
+    const renderRoute = matchRenderDeliveryRoute(
+      url.pathname,
+      request.method ?? '',
+    );
+    if (renderRoute) {
+      if (!dependencies.renderDelivery) {
+        writeJson(response, 503, {
+          outcome: 'unavailable',
+          message: 'Remote render host configuration is not present.',
+        });
+        return;
+      }
+      await handleRenderDelivery(renderRoute, request, response, {
+        auth: dependencies.auth,
+        delivery: dependencies.renderDelivery,
       });
       return;
     }

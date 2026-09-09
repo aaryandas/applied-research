@@ -35,6 +35,11 @@ export {
   decodePlannerRenderContext,
   decodePlannerRenderReceipt,
 } from './render-context.js';
+export {
+  interpretStoredPlannerGrant,
+  makePostgresApprovedRecipeReader,
+} from './approved-recipe.js';
+export { installedRecipeJsonFromPlan } from './installed-recipe.js';
 export type {
   ClipRenderFamily,
   PlannerRenderContext,

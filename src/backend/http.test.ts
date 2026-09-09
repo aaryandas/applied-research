@@ -12,6 +12,7 @@ import type { HttpDependencies } from './http.js';
 import type { LearningService } from './learning.js';
 import { API_ORIGIN } from './policy.js';
 import { startHttpServer } from './runtime.js';
+import { createUnconfiguredRenderDelivery } from './render-delivery/index.js';
 
 const userA: PublicAccount = { id: 'user-a', name: 'Ada', image: null };
 const userB: PublicAccount = { id: 'user-b', name: 'Grace', image: null };
@@ -439,6 +440,47 @@ describe('backend HTTP journeys', () => {
     expect(authenticated.status).toBe(400);
     expect(await authenticated.json()).toMatchObject({
       outcome: 'invalid-request',
+    });
+  });
+
+  it('mounts render jobs as authenticated routes and fails closed without a host', async () => {
+    const missing = await server();
+    const unauthenticatedMissing = await fetch(
+      `${missing.origin}/v1/render/jobs`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: '11111111-1111-4111-8111-111111111111',
+        }),
+      },
+    );
+    expect(unauthenticatedMissing.status).toBe(503);
+    const closed = await server({
+      renderDelivery: createUnconfiguredRenderDelivery(),
+    });
+    const unauthenticated = await fetch(`${closed.origin}/v1/render/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requestId: '11111111-1111-4111-8111-111111111111',
+      }),
+    });
+    expect(unauthenticated.status).toBe(401);
+    const unavailable = await fetch(`${closed.origin}/v1/render/jobs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'session=user-a',
+      },
+      body: JSON.stringify({
+        requestId: '11111111-1111-4111-8111-111111111111',
+      }),
+    });
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toMatchObject({
+      status: 'failed',
+      failure: { reason: 'unavailable' },
     });
   });
 });

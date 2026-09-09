@@ -30,6 +30,23 @@ describe('planner accounting helpers', () => {
         operation: { ...request.operation, question: 'Different question.' },
       }),
     ).not.toBe(plannerInputHash(request));
+    expect(
+      plannerInputHash({
+        ...request,
+        renderContext: {
+          projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          origin: {
+            sourceRevisionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            path: {
+              pathId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+              pathRevision: 1,
+              topicId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+              lessonId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            },
+          },
+        },
+      }),
+    ).not.toBe(plannerInputHash(request));
   });
 
   it('keeps a stored success plan when a later settle is cancelled or failed', () => {

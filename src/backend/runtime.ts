@@ -7,6 +7,7 @@ import { Authentication, makeAuthLayer } from './auth.js';
 import { makePostgresAccounting } from './accounting.js';
 import type { BackendConfig } from './config.js';
 import { Database, makeDatabaseLayer } from './database.js';
+import type { DatabaseService } from './database.js';
 import { makePostgresGenerationEvalBudget } from './generation-eval.js';
 import { createHttpHandler } from './http.js';
 import type { HttpDependencies } from './http.js';
@@ -22,9 +23,19 @@ import {
   adaptGenerationEvalLedger,
   makeExplanationPlannerProvider,
   makeExplanationPlannerService,
+  makePostgresApprovedRecipeReader,
   makePostgresPlannerAccounting,
   type ExplanationPlannerService,
 } from './explanations/index.js';
+import {
+  createArtifactStore,
+  createHttpsWorkerTransport,
+  createRemoteRenderEngine,
+  createRenderDeliveryService,
+  createUnconfiguredRenderDelivery,
+  readRenderHostConfig,
+  type RenderDeliveryService,
+} from './render-delivery/index.js';
 import {
   makeOnboardingService,
   makePostgresOnboardingStore,
@@ -63,6 +74,7 @@ interface BackendServicesValue {
   readonly onboarding: OnboardingService;
   readonly explanationPlanner: ExplanationPlannerService;
   readonly lookupAdmittedSource: AccountScopedAdmittedSourceLookup;
+  readonly renderDelivery: RenderDeliveryService;
   readonly ready: () => Promise<boolean>;
 }
 
@@ -87,6 +99,29 @@ const ELECTRON_AUTH_CALLBACK_SCRIPT = new URL(
   '../public/electron-auth-callback.js',
   import.meta.url,
 );
+
+async function composeRenderDelivery(
+  database: DatabaseService,
+): Promise<RenderDeliveryService> {
+  const host = readRenderHostConfig();
+  if (!host) return createUnconfiguredRenderDelivery();
+  try {
+    const transport = await createHttpsWorkerTransport({
+      origin: host.origin,
+      certificates: host.certificates,
+    });
+    return createRenderDeliveryService({
+      engine: createRemoteRenderEngine({
+        transport,
+        stagingDirectory: host.stagingDirectory,
+      }),
+      store: createArtifactStore(host.artifactDirectory),
+      resolveApprovedRecipe: makePostgresApprovedRecipeReader(database),
+    });
+  } catch {
+    return createUnconfiguredRenderDelivery();
+  }
+}
 
 function makeBackendLayer(
   config: BackendConfig,
@@ -219,6 +254,9 @@ function makeBackendLayer(
         persistence,
         runEffect,
       );
+      const renderDelivery = yield* Effect.promise(() =>
+        composeRenderDelivery(database),
+      );
       return {
         auth,
         learning,
@@ -227,6 +265,7 @@ function makeBackendLayer(
         onboarding,
         explanationPlanner,
         lookupAdmittedSource,
+        renderDelivery,
         ready: async () => {
           try {
             const migration = await database.pool.query(
@@ -325,6 +364,7 @@ export async function startBackend(
         onboarding: services.onboarding,
         explanationPlanner: services.explanationPlanner,
         lookupAdmittedSource: services.lookupAdmittedSource,
+        renderDelivery: services.renderDelivery,
         ready: services.ready,
         diagnostics: options.diagnostics ?? consoleDiagnostics,
         runEffect: (effect, signal) =>
@@ -336,6 +376,7 @@ export async function startBackend(
     return {
       port: server.port,
       stop: async () => {
+        await services.renderDelivery.close();
         await server.stop();
         await runtime.dispose();
       },

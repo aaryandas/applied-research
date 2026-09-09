@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArtifactStore } from './artifact-store.js';
 import { createRenderDeliveryService } from './service.js';
 import type {
+  ApprovedRecipeReader,
+  ClipOrigin,
   EngineArtifact,
   RenderEngine,
   RenderEngineOutcome,
@@ -22,6 +24,14 @@ const FOREIGN = {
   image: null,
 };
 const PROJECT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const SOURCE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const LESSON = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const GRANT_ORIGIN: ClipOrigin = {
+  projectId: PROJECT,
+  sourceVersionId: SOURCE,
+  questionId: null,
+  lessonId: LESSON,
+};
 const roots: string[] = [];
 
 function mp4Bytes(): Buffer {
@@ -31,19 +41,12 @@ function mp4Bytes(): Buffer {
   return bytes;
 }
 
-function recipeJson(
-  origin: unknown = {
-    projectId: PROJECT,
-    sourceVersionId: null,
-    questionId: null,
-    lessonId: null,
-  },
-): string {
+function recipeJson(requestId: string): string {
   return JSON.stringify({
-    id: randomUUID(),
+    id: requestId,
     version: 1,
     assetVersion: 'original-manim-1',
-    origin,
+    origin: GRANT_ORIGIN,
     title: 'A shear moves every point',
     recipe: 'linear-transform',
     parameters: {
@@ -68,12 +71,7 @@ function artifact(bytes: Buffer): EngineArtifact {
       version: 1,
       assetVersion: 'original-manim-1',
       title: 'A shear moves every point',
-      origin: {
-        projectId: PROJECT,
-        sourceVersionId: null,
-        questionId: null,
-        lessonId: null,
-      },
+      origin: GRANT_ORIGIN,
     },
     recipeHash: 'c'.repeat(64),
     sha256: createHash('sha256').update(bytes).digest('hex'),
@@ -112,16 +110,33 @@ afterEach(async () => {
   );
 });
 
-async function service(renderEngine: RenderEngine, owned = true) {
+function approveAccount(): ApprovedRecipeReader {
+  return async (accountId, requestId) => {
+    if (accountId !== ACCOUNT.id) {
+      return {
+        ok: false,
+        reason: 'not-found',
+        message: 'The planner request was not found.',
+      };
+    }
+    return {
+      ok: true,
+      recipeJson: recipeJson(requestId),
+      origin: GRANT_ORIGIN,
+    };
+  };
+}
+
+async function service(
+  renderEngine: RenderEngine,
+  resolveApprovedRecipe: ApprovedRecipeReader = approveAccount(),
+) {
   const root = await mkdtemp(join(tmpdir(), 'ar-delivery-'));
   roots.push(root);
   return createRenderDeliveryService({
     engine: renderEngine,
     store: createArtifactStore(root),
-    originOwnership: {
-      assertOwned: async (accountId, origin) =>
-        owned && accountId === ACCOUNT.id && origin.projectId === PROJECT,
-    },
+    resolveApprovedRecipe,
   });
 }
 
@@ -138,7 +153,7 @@ describe('render delivery ownership and lifecycle', () => {
     const requestId = randomUUID();
     const job = await delivery.submit(
       ACCOUNT,
-      { requestId, recipeJson: recipeJson() },
+      { requestId },
       new AbortController().signal,
     );
     expect(job.status).toBe('ready');
@@ -155,52 +170,48 @@ describe('render delivery ownership and lifecycle', () => {
     ).toBe(job.mediaId);
   });
 
-  it('rejects foreign origins, extra keys, and renderer-supplied paths', async () => {
+  it('rejects missing grants, extra keys, and renderer-supplied paths before the engine', async () => {
     const file = await sourceFile();
-    const delivery = await service(
-      engine(async () => ({
-        status: 'succeeded',
-        jobId: randomUUID(),
-        artifactPath: file.path,
-        artifact: artifact(file.bytes),
-      })),
+    const render = vi.fn(async () => ({
+      status: 'succeeded' as const,
+      jobId: randomUUID(),
+      artifactPath: file.path,
+      artifact: artifact(file.bytes),
+    }));
+    const delivery = await service(engine(render), async (accountId) => {
+      if (accountId !== ACCOUNT.id) {
+        return {
+          ok: false,
+          reason: 'not-found',
+          message: 'The planner request was not found.',
+        };
+      }
+      return {
+        ok: false,
+        reason: 'not-found',
+        message: 'The planner request was not found.',
+      };
+    });
+    const missing = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID() },
+      new AbortController().signal,
     );
-    expect(
-      (
-        await delivery.submit(
-          ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
-          new AbortController().signal,
-        )
-      ).failure?.reason,
-    ).toBeUndefined();
-    const foreign = await delivery.submit(
+    expect(missing.failure?.reason).toBe('not-found');
+    expect(render).not.toHaveBeenCalled();
+    const extra = await (
+      await service(engine(render))
+    ).submit(
       ACCOUNT,
       {
         requestId: randomUUID(),
-        recipeJson: recipeJson({
-          projectId: randomUUID(),
-          sourceVersionId: null,
-          questionId: null,
-          lessonId: null,
-        }),
+        recipeJson: '{}',
+        artifactPath: '/tmp/evil',
       },
       new AbortController().signal,
     );
-    expect(foreign.failure?.reason).toBe('not-found');
-    expect(
-      (
-        await delivery.submit(
-          ACCOUNT,
-          {
-            requestId: randomUUID(),
-            recipeJson: recipeJson(),
-            artifactPath: '/tmp/evil',
-          },
-          new AbortController().signal,
-        )
-      ).failure?.reason,
-    ).toBe('invalid-request');
+    expect(extra.failure?.reason).toBe('invalid-request');
+    expect(render).not.toHaveBeenCalled();
   });
 
   it('cancels in-flight work and refuses late success after cancel', async () => {
@@ -226,11 +237,7 @@ describe('render delivery ownership and lifecycle', () => {
     const delivery = await service(render);
     const requestId = randomUUID();
     const abort = new AbortController();
-    const pending = delivery.submit(
-      ACCOUNT,
-      { requestId, recipeJson: recipeJson() },
-      abort.signal,
-    );
+    const pending = delivery.submit(ACCOUNT, { requestId }, abort.signal);
     await vi.waitFor(async () => {
       expect(await delivery.status(ACCOUNT, requestId)).toMatchObject({
         status: 'rendering',
@@ -267,13 +274,13 @@ describe('render delivery ownership and lifecycle', () => {
     const delivery = await service(render);
     const first = await delivery.submit(
       ACCOUNT,
-      { requestId: randomUUID(), recipeJson: recipeJson() },
+      { requestId: randomUUID() },
       new AbortController().signal,
     );
     expect(first.status).toBe('ready');
     const second = await delivery.submit(
       ACCOUNT,
-      { requestId: randomUUID(), recipeJson: recipeJson() },
+      { requestId: randomUUID() },
       new AbortController().signal,
     );
     expect(second.status).toBe('failed');
@@ -293,13 +300,61 @@ describe('render delivery ownership and lifecycle', () => {
     }));
     const delivery = await service(render);
     const requestId = randomUUID();
-    const body = { requestId, recipeJson: recipeJson() };
+    const body = { requestId };
     const first = delivery.submit(ACCOUNT, body, new AbortController().signal);
     const second = delivery.submit(ACCOUNT, body, new AbortController().signal);
     const [a, b] = await Promise.all([first, second]);
     expect(a.attemptId).toBe(b.attemptId);
     expect(await delivery.status(FOREIGN, requestId)).toBeNull();
     expect(await delivery.cancel(FOREIGN, requestId)).toBeNull();
+  });
+
+  it('conflicts when the approved origin changes under the same request id', async () => {
+    const file = await sourceFile();
+    let origin = GRANT_ORIGIN;
+    const delivery = await service(
+      engine(async () => ({
+        status: 'succeeded',
+        jobId: randomUUID(),
+        artifactPath: file.path,
+        artifact: artifact(file.bytes),
+      })),
+      async (accountId, requestId) => {
+        if (accountId !== ACCOUNT.id) {
+          return {
+            ok: false,
+            reason: 'not-found',
+            message: 'The planner request was not found.',
+          };
+        }
+        return {
+          ok: true,
+          recipeJson: recipeJson(requestId),
+          origin,
+        };
+      },
+    );
+    const requestId = randomUUID();
+    const first = await delivery.submit(
+      ACCOUNT,
+      { requestId },
+      new AbortController().signal,
+    );
+    expect(first.status).toBe('ready');
+    origin = {
+      ...GRANT_ORIGIN,
+      lessonId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    };
+    const conflicted = await delivery.submit(
+      ACCOUNT,
+      { requestId },
+      new AbortController().signal,
+    );
+    expect(conflicted.failure?.reason).toBe('conflict');
+    expect(conflicted.clip).toBeNull();
+    expect((await delivery.status(ACCOUNT, requestId))?.mediaId).toBe(
+      first.mediaId,
+    );
   });
 
   it('maps engine invalid, unsupported, capacity and corrupt retain failures', async () => {
@@ -310,7 +365,7 @@ describe('render delivery ownership and lifecycle', () => {
           await service(missing)
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
@@ -326,7 +381,7 @@ describe('render delivery ownership and lifecycle', () => {
           )
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
@@ -347,33 +402,37 @@ describe('render delivery ownership and lifecycle', () => {
           await service(corrupt)
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
     ).toBe('artifact');
   });
 
-  it('rejects unbound origin, origin mismatch, bad dimensions and engine throws', async () => {
+  it('rejects missing grants, origin mismatch, bad dimensions and engine throws', async () => {
     const file = await sourceFile();
+    const render = vi.fn(async () => ({
+      status: 'succeeded' as const,
+      jobId: randomUUID(),
+      artifactPath: file.path,
+      artifact: artifact(file.bytes),
+    }));
     expect(
       (
         await (
-          await service(
-            engine(async () => ({
-              status: 'succeeded',
-              jobId: randomUUID(),
-              artifactPath: file.path,
-              artifact: artifact(file.bytes),
-            })),
-          )
+          await service(engine(render), async () => ({
+            ok: false,
+            reason: 'unsupported',
+            message: 'This planner result cannot start a remote render.',
+          }))
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson(null) },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
-    ).toBe('invalid-request');
+    ).toBe('unsupported');
+    expect(render).not.toHaveBeenCalled();
     const mismatched = await (
       await service(
         engine(async () => ({
@@ -396,7 +455,7 @@ describe('render delivery ownership and lifecycle', () => {
       )
     ).submit(
       ACCOUNT,
-      { requestId: randomUUID(), recipeJson: recipeJson() },
+      { requestId: randomUUID() },
       new AbortController().signal,
     );
     expect(mismatched.failure?.reason).toBe('artifact');
@@ -413,7 +472,7 @@ describe('render delivery ownership and lifecycle', () => {
           )
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
@@ -428,7 +487,7 @@ describe('render delivery ownership and lifecycle', () => {
           )
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).failure?.reason,
@@ -456,7 +515,7 @@ describe('render delivery ownership and lifecycle', () => {
     const firstId = randomUUID();
     const pending = delivery.submit(
       ACCOUNT,
-      { requestId: firstId, recipeJson: recipeJson() },
+      { requestId: firstId },
       new AbortController().signal,
     );
     await vi.waitFor(async () => {
@@ -466,7 +525,7 @@ describe('render delivery ownership and lifecycle', () => {
     });
     const blocked = await delivery.submit(
       ACCOUNT,
-      { requestId: randomUUID(), recipeJson: recipeJson() },
+      { requestId: randomUUID() },
       new AbortController().signal,
     );
     expect(blocked.failure?.reason).toBe('capacity');
@@ -477,7 +536,7 @@ describe('render delivery ownership and lifecycle', () => {
     release?.();
     const afterClose = await delivery.submit(
       ACCOUNT,
-      { requestId: randomUUID(), recipeJson: recipeJson() },
+      { requestId: randomUUID() },
       new AbortController().signal,
     );
     expect(afterClose.failure?.reason).toBe('closed');
@@ -487,7 +546,7 @@ describe('render delivery ownership and lifecycle', () => {
           await service(engine(async () => ({ status: 'cancelled' })))
         ).submit(
           ACCOUNT,
-          { requestId: randomUUID(), recipeJson: recipeJson() },
+          { requestId: randomUUID() },
           new AbortController().signal,
         )
       ).status,
@@ -505,10 +564,7 @@ describe('render delivery ownership and lifecycle', () => {
           )
         ).submit(
           ACCOUNT,
-          {
-            requestId: randomUUID(),
-            recipeJson: recipeJson({ projectId: PROJECT }),
-          },
+          { requestId: randomUUID(), origin: GRANT_ORIGIN },
           new AbortController().signal,
         )
       ).failure?.reason,

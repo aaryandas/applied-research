@@ -85,6 +85,40 @@ describe('explanation planner request', () => {
       'workspace-plain-v1',
     );
   });
+
+  it('admits renderContext as hashed metadata and requires a UUID request id', () => {
+    const context = {
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      origin: {
+        sourceRevisionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        path: {
+          pathId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          pathRevision: 1,
+          topicId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          lessonId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        },
+      },
+    };
+    const parsed = parseExplanationPlannerRequest({
+      ...plannerRequest(),
+      renderContext: context,
+    });
+    expect(parsed.renderContext).toEqual(context);
+    expect(() =>
+      parseExplanationPlannerRequest({
+        ...plannerRequest(),
+        requestId: 'planner-req-01',
+        renderContext: context,
+      }),
+    ).toThrow(RequestValidationError);
+    const body = JSON.parse(buildPlannerBody(parsed));
+    expect(JSON.parse(body.messages[1].content)).not.toHaveProperty(
+      'renderContext',
+    );
+    expect(plannerInputHash(parsed)).not.toBe(
+      plannerInputHash(plannerRequest()),
+    );
+  });
 });
 
 describe('explanation planner provider', () => {
@@ -306,6 +340,103 @@ describe('explanation planner service accounting', () => {
     expect(complete).toHaveBeenCalledTimes(1);
     expect(generation.physicalDispatchCount()).toBe(1);
     expect(decodePlannerHttpResponse(replay, requestId).ok).toBe(true);
+  });
+
+  it('mints a render receipt only for supported clip families with renderContext', async () => {
+    const clipPlan = {
+      status: 'supported' as const,
+      family: 'weighted-combination' as const,
+      parameters: {
+        vectors: [
+          [2, 1],
+          [-1, 2],
+        ] as [[number, number], [number, number]],
+        weights: [3, 1] as [number, number],
+        labels: ['First vector', 'Second vector'] as [string, string],
+      },
+      stages: [{ name: 'Combine', seconds: 2 }],
+      caption: 'Weighted sum of two vectors',
+      copy: {
+        role: 'untrusted-display-copy' as const,
+        title: 'Weights',
+        quote: null,
+      },
+      sourceSupport: {
+        kind: 'illustrative-assumption' as const,
+        note: 'Shown for the cited passage.',
+      },
+      rationale: {
+        role: 'untrusted-display-copy' as const,
+        text: 'Shows a weighted combination.',
+      },
+    };
+    const renderContext = {
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      origin: {
+        sourceRevisionId: revisionId,
+        path: {
+          pathId: '30000000-0000-4000-8000-000000000001',
+          pathRevision: 1,
+          topicId: '40000000-0000-4000-8000-000000000001',
+          lessonId: '50000000-0000-4000-8000-000000000001',
+        },
+      },
+    };
+    const accounting = makeMemoryPlannerAccounting();
+    const generation = makeMemoryGenerationEvalLedger();
+    const service = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting,
+        generation,
+        provider: {
+          complete: () =>
+            Effect.succeed({
+              plan: clipPlan,
+              providerRequestId: 'or-planner-clip',
+              actualMicrousd: 7,
+              model: 'google/gemini-3.8-flash' as const,
+            }),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const granted = await Effect.runPromise(
+      service.request(account, { ...plannerRequest(), renderContext }),
+    );
+    expect(granted.outcome).toBe('success');
+    if (granted.outcome === 'success') {
+      expect(granted.renderReceipt).toMatchObject({
+        plannerRequestId: requestId,
+        projectId: renderContext.projectId,
+        family: 'weighted-combination',
+        origin: renderContext.origin,
+      });
+    }
+    const ordinary = await Effect.runPromise(
+      makeExplanationPlannerService({
+        accounting: makeMemoryPlannerAccounting(),
+        generation: makeMemoryGenerationEvalLedger(),
+        provider: {
+          complete: () =>
+            Effect.succeed({
+              plan,
+              providerRequestId: 'or-planner-plain',
+              actualMicrousd: 0,
+              model: 'google/gemini-3.8-flash' as const,
+            }),
+        },
+        config,
+        now: () => new Date(createdAt),
+      }),
+    );
+    const withoutGrant = await Effect.runPromise(
+      ordinary.request(account, plannerRequest()),
+    );
+    expect(withoutGrant.outcome).toBe('success');
+    if (withoutGrant.outcome === 'success') {
+      expect(withoutGrant.renderReceipt).toBeUndefined();
+    }
   });
 
   it('rejects a stored placeholder instead of treating it as success', () => {
