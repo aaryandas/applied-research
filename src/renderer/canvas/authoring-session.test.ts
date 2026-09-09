@@ -63,8 +63,11 @@ function committed(
 }
 
 function setup() {
-  const save = vi.fn(async (input: SaveHumanEntryInput) =>
-    committed(input.entryId ?? 'generated', input),
+  const save = vi.fn(
+    async (
+      input: SaveHumanEntryInput,
+    ): Promise<CommitResult<LearningEntryRecord>> =>
+      committed(input.entryId ?? 'generated', input),
   );
   const records: CanvasRecordsWriter = {
     getLearningWorkspace: vi.fn(async () => workspace),

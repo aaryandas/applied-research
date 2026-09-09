@@ -35,8 +35,8 @@ import type { CanvasView } from '../../contracts/learning-records';
 interface AuthoringHookOptions {
   workspace: LearningWorkspace;
   view: CanvasView;
-  records?: CanvasRecordsWriter;
-  onWorkspace?: (workspace: LearningWorkspace) => void;
+  records?: CanvasRecordsWriter | undefined;
+  onWorkspace?: ((workspace: LearningWorkspace) => void) | undefined;
   onEditEntry: (entry: EntryRevisionReference) => void;
   flow: ReturnType<typeof useReactFlow<CanvasNode>>;
   placement: PlacementSession;

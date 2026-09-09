@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCanvas } from './WorkspaceCanvas';
 import { createCanvasFixture } from './canvas-fixture';
 import type { CanvasShellControls, WorkspaceCanvasProps } from './types';
+import type {
+  CommitResult,
+  LearningEntryRecord,
+  SaveHumanEntryInput,
+  SaveInsightInput,
+} from '../../contracts/learning-records';
 
 function props(
   overrides: Partial<WorkspaceCanvasProps> = {},
@@ -518,17 +524,9 @@ describe('Canvas authoring', () => {
   function recordsBridge() {
     const commit = (
       kind: 'note' | 'question' | 'insight',
-      input: {
-        entryId?: string;
-        body: string;
-        origin: unknown;
-        expectedRevision: number;
-        title: string;
-        projectId: string;
-        supports?: unknown;
-      },
-    ) => ({
-      status: 'committed' as const,
+      input: SaveHumanEntryInput & Partial<SaveInsightInput>,
+    ): Extract<CommitResult<LearningEntryRecord>, { status: 'committed' }> => ({
+      status: 'committed',
       acknowledgement: {
         projectId: 'project',
         recordId: input.entryId ?? `new-${kind}`,
@@ -549,18 +547,24 @@ describe('Canvas authoring', () => {
           body: input.body,
           url: '',
           citations: [],
-          authorKind: 'human' as const,
+          authorKind: 'human',
           recordedAt: '',
           origin: input.origin,
-          supports: Array.isArray(input.supports) ? input.supports : [],
+          supports: input.supports ?? [],
         },
         revisions: [],
       },
     });
     return {
-      saveReadingNote: vi.fn(async (input) => commit('note', input)),
-      saveQuestion: vi.fn(async (input) => commit('question', input)),
-      saveInsight: vi.fn(async (input) => commit('insight', input)),
+      saveReadingNote: vi.fn(async (input: SaveHumanEntryInput) =>
+        commit('note', input),
+      ),
+      saveQuestion: vi.fn(async (input: SaveHumanEntryInput) =>
+        commit('question', input),
+      ),
+      saveInsight: vi.fn(async (input: SaveInsightInput) =>
+        commit('insight', input),
+      ),
       getLearningWorkspace: vi.fn(async () => createCanvasFixture()),
     };
   }
@@ -861,7 +865,7 @@ describe('Canvas authoring', () => {
       },
     });
     expect(
-      records.saveReadingNote.mock.calls[0]![0].origin.path.lessonId,
+      records.saveReadingNote.mock.calls[0]![0].origin?.path?.lessonId,
     ).toBeUndefined();
   });
 
