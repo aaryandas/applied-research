@@ -23,7 +23,13 @@ export interface CorpusRevision {
 }
 
 export interface CorpusAuthority {
-  /** Reads the current authoritative grant/tombstone, never an index copy. */
+  /**
+   * Producer-supplied snapshot of the authoritative grant/tombstone for the
+   * current operation. The seam is synchronous, so the producer must refresh it
+   * from its durable store before each call into the adapter; the adapter only
+   * observes changes the resolver reflects. An asynchronous resolver receiving
+   * the operation signal is required before producer integration (AR-43).
+   */
   resolve(
     accountId: string,
     version: SourceRevisionIdentity,

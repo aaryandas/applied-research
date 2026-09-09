@@ -5,6 +5,7 @@ import { generationId, passageId, sourceKey } from './identity.js';
 import { IndexOperationError } from './results.js';
 import { send } from './transport.js';
 import {
+  currentRevision,
   eligibleRevision,
   validGeneration,
   validLocator,
@@ -12,6 +13,7 @@ import {
   validateWriteReceipt,
 } from './validation.js';
 import type {
+  CorpusRevision,
   IndexBatch,
   IndexPassage,
   IndexWriteResult,
@@ -22,12 +24,9 @@ const MAX_BATCH_PASSAGES = 100;
 
 function prepareRow(
   passage: IndexPassage,
-  options: TurbopufferIndexOptions,
-  accountId: string,
+  canonical: CorpusRevision,
   generation: string,
 ) {
-  const canonical = eligibleRevision(options, accountId, passage.sourceVersion);
-  if (!canonical) throw new IndexOperationError('not-eligible');
   if (
     !validLocator(
       passage.locator,
@@ -67,10 +66,18 @@ function prepareRows(
   if (batch.passages.length > MAX_BATCH_PASSAGES)
     throw new IndexOperationError('limit-exceeded');
   const rows = new Map<string, ReturnType<typeof prepareRow>>();
+  // One canonical decode per distinct source revision, however many passages share it.
+  const canonical = new Map<string, CorpusRevision>();
   for (const passage of batch.passages) {
     if (!validVector(passage.vector, options.generation.dimensions))
       throw new IndexOperationError('invalid-input');
-    const row = prepareRow(passage, options, accountId, generation);
+    const key = sourceKey(passage.sourceVersion);
+    const revision =
+      canonical.get(key) ??
+      eligibleRevision(options, accountId, passage.sourceVersion);
+    if (!revision) throw new IndexOperationError('not-eligible');
+    canonical.set(key, revision);
+    const row = prepareRow(passage, revision, generation);
     const existing = rows.get(row.id);
     if (
       existing &&
@@ -107,13 +114,13 @@ export async function writeBatch(
     invocation.signal,
     () => {
       for (const passage of batch.passages) {
-        const current = eligibleRevision(
+        const current = currentRevision(
           options,
           invocation.account.id,
           passage.sourceVersion,
         );
         const id =
-          current &&
+          current?.state === 'eligible' &&
           passageId(
             generation,
             current.accessScope,
@@ -136,15 +143,8 @@ export async function deleteRevision(
 ): Promise<IndexWriteResult> {
   const fixture = options.fixture;
   if (!fixture) throw new IndexOperationError('live-configuration-required');
-  const entry = options.authority.resolve(invocation.account.id, version);
-  if (
-    !entry ||
-    entry.state === 'eligible' ||
-    entry.corpusVersion !== options.generation.corpusVersion ||
-    sourceKey(entry.source.content.revision) !== sourceKey(version) ||
-    (entry.accessScope !== 'public' &&
-      entry.accessScope !== `account:${invocation.account.id}`)
-  )
+  const entry = currentRevision(options, invocation.account.id, version);
+  if (!entry || entry.state === 'eligible')
     throw new IndexOperationError('not-eligible');
   const receipt = await send(
     fixture.request,
@@ -160,6 +160,15 @@ export async function deleteRevision(
       ],
     }),
     invocation.signal,
+    () => {
+      const current = currentRevision(options, invocation.account.id, version);
+      if (
+        !current ||
+        current.state === 'eligible' ||
+        current.accessScope !== entry.accessScope
+      )
+        throw new IndexOperationError('not-eligible');
+    },
   );
   validateWriteReceipt(receipt);
   return { outcome: 'deleted' };

@@ -1224,3 +1224,29 @@ it('rejects empty batches, invalid generation bounds, query dimensions and malfo
   }
   expect(request).not.toHaveBeenCalled();
 });
+
+it('resolves and decodes a source revision once per batch, then rechecks authority per attempt', async () => {
+  const request = vi.fn<typeof fetch>(async () =>
+    Response.json({ rows_affected: 1 }),
+  );
+  const resolve = vi.fn<CorpusAuthority['resolve']>(() => ({
+    source,
+    accessScope: 'public' as const,
+    corpusVersion: 'corpus-v1',
+    state: 'eligible' as const,
+  }));
+  const passages = [1, 2, 3].map(() => ({
+    sourceVersion: version,
+    locator,
+    vector: [1, 0, 0],
+  }));
+  expect(
+    await fixture(request, resolve).indexBatch(
+      { generation, passages },
+      invocation,
+    ),
+  ).toEqual({ outcome: 'indexed', passages: 1 });
+  // One full validation for the shared revision, then one cheap recheck per passage
+  // before the single dispatch; never a decode per passage.
+  expect(resolve).toHaveBeenCalledTimes(1 + passages.length);
+});

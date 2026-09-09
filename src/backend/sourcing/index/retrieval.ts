@@ -18,7 +18,11 @@ import { abortable } from './deadline.js';
 import { generationId, passageId, sourceKey } from './identity.js';
 import { IndexOperationError } from './results.js';
 import { send } from './transport.js';
-import { eligibleRevision, validVector } from './validation.js';
+import {
+  currentRevision,
+  eligibleRevision,
+  validVector,
+} from './validation.js';
 import type { CorpusRevision, TurbopufferIndexOptions } from './types.js';
 
 const RRF_RANK_CONSTANT = 60;
@@ -136,8 +140,14 @@ function evidenceFromRow(
       row.access_scope === entry.accessScope,
   );
   if (!source) return null;
-  const current = eligibleRevision(options, accountId, source.version);
-  if (!current || current.accessScope !== row.access_scope) return null;
+  // Authority is re-read per row; the canonical text was decoded once in eligibleSources.
+  const current = currentRevision(options, accountId, source.version);
+  if (
+    !current ||
+    current.state !== 'eligible' ||
+    current.accessScope !== row.access_scope
+  )
+    return null;
   try {
     const response = parseRetrieveEvidenceResponse(
       {
@@ -171,8 +181,9 @@ function evidenceFromRow(
       },
       {
         request,
-        canonicalTextFor: () => current.source.content.revision.canonicalText,
-        indexingFor: () => current.source.usePolicy.indexing,
+        canonicalTextFor: () =>
+          source.entry.source.content.revision.canonicalText,
+        indexingFor: () => source.entry.source.usePolicy.indexing,
       },
     );
     if (response.outcome !== 'success') return null;
@@ -267,8 +278,8 @@ export async function retrieve(
   invocation: SourcingInvocation,
 ): Promise<RetrieveEvidenceResponse> {
   const request = parseRequest(input);
-  if (!options.fixture)
-    throw new IndexOperationError('live-configuration-required');
+  const fixture = options.fixture;
+  if (!fixture) throw new IndexOperationError('live-configuration-required');
   const sources = eligibleSources(options, request, invocation.account.id);
   if (!sources.length)
     return {
@@ -277,7 +288,7 @@ export async function retrieve(
       message: SOURCING_PUBLIC_MESSAGES.noEvidence,
     };
   const embedding = await abortable(
-    () => options.fixture!.embedQuery(request.query, invocation.signal),
+    () => fixture.embedQuery(request.query, invocation.signal),
     invocation.signal,
   );
   const generation = generationId(options.generation);
@@ -292,7 +303,7 @@ export async function retrieve(
     include_attributes: RETURNED_ATTRIBUTES,
   };
   const value = await send(
-    options.fixture.request,
+    fixture.request,
     `${url}/query`,
     JSON.stringify({
       consistency: { level: 'strong' },
@@ -304,12 +315,16 @@ export async function retrieve(
     invocation.signal,
     () => {
       for (const source of sources) {
-        const current = eligibleRevision(
+        const current = currentRevision(
           options,
           invocation.account.id,
           source.version,
         );
-        if (!current || current.accessScope !== source.entry.accessScope)
+        if (
+          !current ||
+          current.state !== 'eligible' ||
+          current.accessScope !== source.entry.accessScope
+        )
           throw new IndexOperationError('not-eligible');
       }
     },

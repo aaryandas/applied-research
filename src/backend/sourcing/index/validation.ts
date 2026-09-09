@@ -101,7 +101,12 @@ export function validLocator(
   }
 }
 
-export function eligibleRevision(
+/**
+ * Current authority for one revision: grant/tombstone state, corpus version, access
+ * scope and exact identity only. No canonical decode, so it is cheap enough to run per
+ * attempt and per returned row once eligibleRevision has validated the source.
+ */
+export function currentRevision(
   options: TurbopufferIndexOptions,
   accountId: string,
   version: SourceRevisionIdentity,
@@ -109,12 +114,28 @@ export function eligibleRevision(
   const entry = options.authority.resolve(accountId, version);
   if (
     !entry ||
-    entry.state !== 'eligible' ||
     entry.corpusVersion !== options.generation.corpusVersion ||
     (entry.accessScope !== 'public' &&
       entry.accessScope !== `account:${accountId}`)
   )
     return null;
+  try {
+    return sourceKey(entry.source.content.revision) === sourceKey(version)
+      ? entry
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Current authority plus the AR-30 canonical decode. Run once per source per operation. */
+export function eligibleRevision(
+  options: TurbopufferIndexOptions,
+  accountId: string,
+  version: SourceRevisionIdentity,
+): CorpusRevision | null {
+  const entry = currentRevision(options, accountId, version);
+  if (!entry || entry.state !== 'eligible') return null;
   try {
     const response = parseAcquireCanonicalSourceResponse(
       {
