@@ -45,6 +45,7 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 ## MVP modules
 
+- `src/main/auth-sdk.ts`: supported Better Auth Electron client, guarded Node fetch for cookie-bearing auth responses, and the SDK OAuth state compatibility wrapper. Adjacent SDK tests cover real Node response headers; `tests/e2e/auth.spec.ts` exercises encrypted restart and sign-out in Electron.
 - `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
 - `src/contracts/learning-records.ts`: serializable source, highlight, human-entry, path, placement, acknowledgement and conflict contracts for the durable learning workspace.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.

@@ -63,20 +63,13 @@ export function writeHumanLearningEntry(
   if (existing && existing.projectId !== input.projectId) {
     throw new Error('Learning record not found in this learning space.');
   }
-  if (!existing && input.expectedRevision !== 0) {
+  const currentRevision = existing?.currentRevision ?? 0;
+  if (currentRevision !== input.expectedRevision) {
     return conflict({
       projectId: input.projectId,
       recordId: entryId,
       expectedRevision: input.expectedRevision,
-      currentRevision: 0,
-    });
-  }
-  if (existing && existing.currentRevision !== input.expectedRevision) {
-    return conflict({
-      projectId: input.projectId,
-      recordId: entryId,
-      expectedRevision: input.expectedRevision,
-      currentRevision: existing.currentRevision,
+      currentRevision,
     });
   }
   const recordedAt = new Date();
@@ -319,8 +312,7 @@ function assertInsightSupports(
       .get();
     const semanticKind = stored?.recordKind ?? stored?.kind;
     if (
-      !stored ||
-      stored.authorKind !== 'human' ||
+      stored?.authorKind !== 'human' ||
       (semanticKind !== 'note' && semanticKind !== 'question')
     ) {
       throw new Error(
