@@ -39,3 +39,56 @@ export const practicalFiles = sqliteTable('practical_files', {
   content: blob('content', { mode: 'buffer' }).notNull(),
   importedAt: text('imported_at').notNull(),
 });
+
+export const practicalAcceptedBriefs = sqliteTable(
+  'practical_accepted_briefs',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    activityJson: text('activity_json').notNull(),
+    briefRevision: integer('brief_revision').notNull(),
+    briefJson: text('brief_json').notNull(),
+    provenanceJson: text('provenance_json').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+);
+
+export const practicalAttemptJourney = sqliteTable(
+  'practical_attempt_journey',
+  {
+    attemptId: text('attempt_id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    briefId: text('brief_id'),
+    briefRevision: integer('brief_revision'),
+    workChoiceJson: text('work_choice_json'),
+    humanPlanJson: text('human_plan_json'),
+    humanPlanRevision: integer('human_plan_revision').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+);
+
+export const practicalMilestoneProgress = sqliteTable(
+  'practical_milestone_progress',
+  {
+    attemptId: text('attempt_id').notNull(),
+    checkpointId: text('checkpoint_id').notNull(),
+    projectId: text('project_id').notNull(),
+    sourceKind: text('source_kind').notNull(),
+    sourceRevision: integer('source_revision').notNull(),
+    status: text('status').notNull(),
+    note: text('note').notNull(),
+    evidenceSelectionId: text('evidence_selection_id'),
+    revision: integer('revision').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.attemptId,
+        table.checkpointId,
+        table.sourceKind,
+        table.sourceRevision,
+      ],
+    }),
+  ],
+);

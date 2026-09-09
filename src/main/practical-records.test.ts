@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -8,8 +14,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { RecordPracticalResultInput } from '../contracts/practical-work';
 import { PracticalRecords } from './practical-records';
 import { PracticalFileSelection } from './practical-file-selection';
+import { PracticalFileExport } from './practical-export';
 import { WorkspaceStore } from './workspace-store';
 import { workspaceSchema } from './workspace-schema';
+import { MAX_PRACTICAL_FIELD_LENGTH } from '../contracts/practical-work';
+import { syntheticAcceptedCourseBrief } from '../contracts/practical-brief.fixture';
+import { briefCheckpointId } from '../contracts/practical-brief';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -303,12 +313,6 @@ function setup(withSource = false) {
     };
   }
   const connection = open();
-  connection.database.exec(
-    readFileSync(
-      new URL('../../context/practical-work-migration.sql', import.meta.url),
-      'utf8',
-    ),
-  );
   return { ...connection, input, open, directory };
 }
 
@@ -665,4 +669,261 @@ it('fails closed when retained file bytes no longer match their stored hash', ()
     records.readPracticalFile(scope, imported.file.selectionId),
   ).toBeNull();
   expect(records.loadPracticalAttempt(scope)).toEqual({ status: 'failed' });
+});
+
+it('previews complete and truncated text, reports unsupported images, and refuses corrupt hashes', () => {
+  const { records, input, database } = setup();
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  const text = records.importPracticalFile(scope, {
+    displayName: 'notes.txt',
+    bytes: Buffer.from('  exact observation 🧪\n'),
+  });
+  if (text.status !== 'imported') throw new Error('Expected import');
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: text.file.selectionId,
+    }),
+  ).toMatchObject({
+    status: 'ready',
+    completeness: 'complete',
+    text: '  exact observation 🧪\n',
+    provenanceId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+  });
+  const long = 'a'.repeat(MAX_PRACTICAL_FIELD_LENGTH + 8);
+  const truncated = records.importPracticalFile(scope, {
+    displayName: 'long.txt',
+    bytes: Buffer.from(long),
+  });
+  if (truncated.status !== 'imported') throw new Error('Expected import');
+  const preview = records.previewPracticalFile({
+    ...scope,
+    selectionId: truncated.file.selectionId,
+  });
+  expect(preview).toMatchObject({
+    status: 'ready',
+    completeness: 'truncated',
+  });
+  if (preview.status !== 'ready') throw new Error('Expected text preview');
+  expect(preview.text).toHaveLength(MAX_PRACTICAL_FIELD_LENGTH);
+  const png = records.importPracticalFile(scope, {
+    displayName: 'plot.png',
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4N8AAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  if (png.status !== 'imported') throw new Error('Expected import');
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: png.file.selectionId,
+    }),
+  ).toMatchObject({ status: 'unsupported-preview' });
+  database
+    .prepare('UPDATE practical_files SET content = ? WHERE id = ?')
+    .run(
+      Buffer.alloc(Buffer.from('  exact observation 🧪\n').length, 0x61),
+      text.file.selectionId,
+    );
+  expect(
+    records.previewPracticalFile({
+      ...scope,
+      selectionId: text.file.selectionId,
+    }),
+  ).toEqual({ status: 'unavailable' });
+});
+
+it('exports exact retained bytes and drops a late write after cancellation', async () => {
+  const { records, input, directory } = setup();
+  const scope = { activity: input.activity, attemptId: input.attemptId };
+  const bytes = Buffer.from('input,output\n1,12\n');
+  const imported = records.importPracticalFile(scope, {
+    displayName: 'trial.csv',
+    bytes,
+  });
+  if (imported.status !== 'imported') throw new Error('Expected import');
+  const destination = join(directory, 'exported.csv');
+  const fileExport = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: async () => destination,
+  });
+  expect(
+    await fileExport.export({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toMatchObject({ status: 'exported', byteLength: bytes.length });
+  expect(readFileSync(destination)).toEqual(bytes);
+
+  let finish!: (value: string | null) => void;
+  const delayed = new PracticalFileExport({
+    records,
+    currentGeneration: () => 1,
+    isCurrent: () => true,
+    chooseSavePath: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const pending = delayed.export({
+    ...scope,
+    selectionId: imported.file.selectionId,
+  });
+  delayed.cancel();
+  expect(await pending).toEqual({ status: 'cancelled' });
+  const late = join(directory, 'late.csv');
+  finish(late);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(existsSync(late)).toBe(false);
+});
+
+it('binds milestone progress to the accepted brief revision and human-plan revision separately', () => {
+  const { records, input } = setup();
+  const first = syntheticAcceptedCourseBrief(input.activity, 1);
+  const second = syntheticAcceptedCourseBrief(input.activity, 2);
+  expect(records.retainAcceptedBrief(first)).toMatchObject({
+    status: 'retained',
+    briefRevision: 1,
+  });
+  expect(records.retainAcceptedBrief(second)).toMatchObject({
+    status: 'retained',
+    briefRevision: 2,
+  });
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      choice: {
+        kind: 'external-work',
+        label: 'Own notebook',
+        instructions: 'Work outside the app.',
+      },
+    }),
+  ).toEqual({ status: 'saved' });
+  const journey = records.loadPracticalJourney({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(journey).toMatchObject({
+    status: 'loaded',
+    journey: { brief: { briefRevision: 2 } },
+  });
+  if (journey.status !== 'loaded' || !journey.journey.brief)
+    throw new Error('Expected bound brief');
+  const checkpointId = briefCheckpointId(0);
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      checkpointId,
+      source: { kind: 'accepted-brief', briefRevision: 2 },
+      status: 'user-reported-complete',
+      note: 'I produced the file.',
+      evidence: null,
+    }),
+  ).toMatchObject({ status: 'committed', revision: 1 });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      expectedRevision: 0,
+      checkpointId,
+      source: { kind: 'accepted-brief', briefRevision: 1 },
+      status: 'in-progress',
+      note: 'Old revision',
+      evidence: null,
+    }),
+  ).toEqual({ status: 'failed' });
+  const plan = {
+    outcome: 'Build a trial artifact',
+    setup: 'Use my notebook',
+    deliverable: 'A csv of the trial',
+    evaluation: 'The csv opens',
+    reflectionPrompt: 'What changed?',
+    milestones: [
+      {
+        id: randomUUID(),
+        title: 'Collect the output',
+        description: 'Save the csv',
+        expectedResult: 'A nonempty csv',
+      },
+    ],
+  };
+  const otherAttempt = randomUUID();
+  expect(
+    records.savePracticalHumanPlan({
+      activity: input.activity,
+      attemptId: otherAttempt,
+      expectedRevision: 0,
+      plan,
+    }),
+  ).toMatchObject({ status: 'saved', revision: 1 });
+  expect(
+    records.recordPracticalProgress({
+      activity: input.activity,
+      attemptId: otherAttempt,
+      expectedRevision: 0,
+      checkpointId: plan.milestones[0]!.id,
+      source: { kind: 'human-plan', planRevision: 1 },
+      status: 'in-progress',
+      note: 'Started',
+      evidence: null,
+    }),
+  ).toMatchObject({ status: 'committed', revision: 1 });
+  expect(
+    records.savePracticalHumanPlan({
+      activity: input.activity,
+      attemptId: otherAttempt,
+      expectedRevision: 0,
+      plan: { ...plan, outcome: 'Changed plan' },
+    }),
+  ).toEqual({ status: 'conflict' });
+});
+
+it('replays unchanged checkpoint progress and rejects a stale different status', () => {
+  const { records, input } = setup();
+  const snapshot = syntheticAcceptedCourseBrief(input.activity);
+  expect(records.retainAcceptedBrief(snapshot).status).toBe('retained');
+  expect(
+    records.recordPracticalWorkChoice({
+      activity: input.activity,
+      attemptId: input.attemptId,
+      choice: { kind: 'supported-tool', toolId: 'desmos-graphing' },
+    }).status,
+  ).toBe('saved');
+  const loaded = records.loadPracticalJourney({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  if (loaded.status !== 'loaded' || !loaded.journey.brief)
+    throw new Error('Expected brief');
+  const checkpointId = briefCheckpointId(0);
+  const progress = {
+    activity: input.activity,
+    attemptId: input.attemptId,
+    expectedRevision: 0,
+    checkpointId,
+    source: { kind: 'accepted-brief' as const, briefRevision: 1 },
+    status: 'in-progress' as const,
+    note: 'Working',
+    evidence: null,
+  };
+  expect(records.recordPracticalProgress(progress)).toMatchObject({
+    status: 'committed',
+    revision: 1,
+  });
+  expect(records.recordPracticalProgress(progress)).toMatchObject({
+    status: 'committed',
+    revision: 1,
+  });
+  expect(
+    records.recordPracticalProgress({
+      ...progress,
+      status: 'user-reported-complete',
+    }),
+  ).toEqual({ status: 'conflict' });
 });

@@ -34,9 +34,15 @@ export function decodePracticalLoad(value: unknown): LoadPracticalAttemptInput {
 }
 
 export function decodePracticalScope(value: unknown): PracticalAttemptScope {
-  const input = decodePracticalLoad(value);
-  if (!input.attemptId) throw new Error('Attempt identity is required.');
-  return { activity: input.activity, attemptId: input.attemptId };
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid attempt request.');
+  const input = value as Record<string, unknown>;
+  if (!isPracticalActivity(input.activity))
+    throw new Error('Attempt identity is required.');
+  return {
+    activity: input.activity,
+    attemptId: decodeUuid(input.attemptId, 'attempt id'),
+  };
 }
 
 /** The path revision, including its source identity, is the authority for activity text. */
