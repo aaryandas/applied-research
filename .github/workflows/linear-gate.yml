@@ -1,33 +1,43 @@
 name: Linear gate
 
-# A PR may merge only when its ticket is In Review, i.e. the cloud verifier walked the
-# frozen revision and passed it. Runs on every PR event so the check re-evaluates as
-# the ticket moves; re-run it from the Checks tab after a status change.
-
+# Secrets and gate code come from the trusted base, never the PR checkout.
+# Periodic reconciliation refreshes the exact-head status after Linear-only changes.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [linear-verification-completed]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
   pull-requests: read
+  statuses: write
+
+concurrency:
+  group: linear-gate-${{ github.event.pull_request.number || github.event.merge_group.head_sha || 'reconcile' }}
+  cancel-in-progress: false
 
 jobs:
   gate:
-    name: Linear gate
+    name: Reconcile Linear verification
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-      - name: Ticket must be In Review
+      - name: Publish exact-head Linear gate statuses
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/linear-gate.mjs

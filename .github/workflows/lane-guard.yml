@@ -1,6 +1,8 @@
 name: Lane guard
 
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
@@ -11,6 +13,7 @@ permissions:
 jobs:
   guard:
     name: Lane guard
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
@@ -29,3 +32,26 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: node scripts/lane-guard.mjs
+
+  queue:
+    if: github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+      - name: Require lane checks for every constituent revision
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GATE_CONTEXT: Lane guard
+        run: node scripts/merge-group-gates.mjs
