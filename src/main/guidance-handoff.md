@@ -4,14 +4,15 @@ Owned by the Companion lane. Main assembler `run-f562` owns `src/main/index.ts`,
 
 ## Exports
 
-| Symbol                                                      | Module                            |
-| ----------------------------------------------------------- | --------------------------------- |
-| `createCompanionGuidanceOperations(options)`                | `src/main/guidance-operations.ts` |
-| `CompanionGuidanceOperationsOptions`                        | same                              |
-| `resolveCompanionGuidanceContext(request, readers, signal)` | `src/main/guidance-context.ts`    |
-| `CompanionGuidanceReaders`                                  | same                              |
-| `makeCompanionGuidanceTransport(options)`                   | `src/main/guidance-transport.ts`  |
-| `buildCompanionGuidanceEnvelope(...)`                       | `src/main/guidance-envelope.ts`   |
+| Symbol                                                      | Module                                  |
+| ----------------------------------------------------------- | --------------------------------------- |
+| `createCompanionGuidanceOperations(options)`                | `src/main/guidance-operations.ts`       |
+| `CompanionGuidanceOperationsOptions`                        | same                                    |
+| `resolveCompanionGuidanceContext(request, readers, signal)` | `src/main/guidance-context.ts`          |
+| `CompanionGuidanceReaders`                                  | same                                    |
+| `measuredCaptureTextFromTrusted(capture)`                   | `src/main/guidance-measured-capture.ts` |
+| `makeCompanionGuidanceTransport(options)`                   | `src/main/guidance-transport.ts`        |
+| `buildCompanionGuidanceEnvelope(...)`                       | `src/main/guidance-envelope.ts`         |
 
 Channels (already in AR53 contracts; do not redeclare):
 
@@ -36,36 +37,113 @@ Public methods: `activate(projectId)`, `request(value)`, `cancel(value)`, synchr
 
 Never trust renderer-supplied context, account, URL, measurement, provenance, or saved-state claims. `request` decodes AR53, checks window/project + generations, resolves through injected readers, posts one envelope, then re-checks generations/selection epoch and suppresses late success.
 
+## Backend compatibility delta (keep `947bd563` available)
+
+Request contract version stays `2026-09-09`. HTTP success from `947bd5637a1a6a0ca54f0fecdb0882e673750d17` already emits `nextAction` and `citations`. This follow-up **stops stripping them** in main transport and requires those keys on the named AR53 success decoder. AR48's 947 HTTP join remains valid. Assembler/preload must pass the extra success keys through named `requestCompanionGuidance`. Do not decode this body with the old five-key success decoder.
+
+AR53 success is the exact seven keys:
+
+```ts
+{
+  outcome: 'success',
+  requestId,
+  authorKind: 'ai',
+  text,
+  provenance, // decodeAiProvenance, exact keys
+  nextAction, // nonempty advice, ≤400; never an automatic command
+  citations,  // 1–12: decodeSourceCitation (UUID scholarly) or exact-key identifier citations for supplied app/file/measurement context
+}
+```
+
+Citation reveal is owned retained revision/context copy, not a model URL. Extra keys, missing citations, or quote-length mismatches are `unavailable`.
+
+`revoke('selection-replaced' | 'attempt-replaced' | 'tool-closed' | 'external-handoff' | 'project-replaced')` settles in-flight work as `stale`. User cancel / `user-stop` / sign-out / teardown / unmount remain `cancelled`.
+
 ## Exact reader injection (no new storage)
 
 ```ts
+import { measuredCaptureTextFromTrusted } from './guidance-context';
+
 const readers: CompanionGuidanceReaders = {
   readWorkspace: (projectId) => store.getLearningWorkspace(projectId),
   loadOwnedAttempt: (projectId, attemptId) => {
-    const loaded =
-      practical.loadPracticalAttempt(/* assembler-owned activity+id */);
+    const loaded = practical.loadPracticalAttemptByProjectAndId(
+      projectId,
+      attemptId,
+    );
     return loaded.status === 'loaded' ? loaded.attempt : null;
   },
   readImportedFile: (projectId, attemptId, selectionId) => {
+    const loaded = practical.loadPracticalAttemptByProjectAndId(
+      projectId,
+      attemptId,
+    );
+    if (loaded.status !== 'loaded' || !loaded.attempt) return null;
     const preview = practical.previewPracticalFile({
-      activity,
+      activity: loaded.attempt.activity,
       attemptId,
       selectionId,
     });
-    return preview.status === 'ready'
-      ? { text: preview.text, displayName: preview.displayName }
-      : null;
+    if (preview.status === 'ready') {
+      return {
+        status: 'ready',
+        text: preview.text,
+        displayName: preview.displayName,
+        completeness: preview.completeness, // preserve 'truncated'
+      };
+    }
+    if (preview.status === 'unsupported-preview') {
+      return {
+        status: 'unsupported',
+        displayName: preview.displayName,
+        mediaType: preview.mediaType,
+      };
+    }
+    return null;
   },
-  // Omit lookupMeasuredCapture until AR56. Do not stub a fake capture.
+  lookupMeasuredCapture: (projectId, attemptId, captureId) => {
+    const loaded = practical.loadPracticalAttemptByProjectAndId(
+      projectId,
+      attemptId,
+    );
+    if (loaded.status !== 'loaded' || !loaded.attempt) return null;
+    const selected = loaded.attempt.draft.selectedEvidence;
+    if (selected?.kind !== 'app-measured' || selected.captureId !== captureId)
+      return null;
+    const capture = store.explanations.loadCapture(projectId, captureId);
+    if (!capture) return null;
+    return measuredCaptureTextFromTrusted(capture); // never renderer text
+  },
   boundToolSession: (projectId) => {
     // From the assembler-owned tool host; never a renderer URL.
-    // { sessionId, title, controls: [{ name, description }] } | null
     return bound;
   },
 };
 ```
 
-Unresolved producer dependency: **measured-capture lookup** is not on HEAD. Omit `lookupMeasuredCapture` until AR56 injects a real main-owned capture read. The resolver then returns `unavailable` with a precise seam message. Do not invent a second store or a fake capture in this lane. A provided reader that returns null is `stale`.
+`loadPracticalAttemptByProjectAndId` is a **main-internal** PracticalRecords method (not IPC). It decodes persisted `activityJson` then reuses `loadPracticalAttempt`. Exact AR56 store wrapper (do not add generic SQL):
+
+```ts
+// src/main/workspace-store.ts — AR56 private wrapper only
+loadPracticalAttemptByProjectAndId(projectId: string, attemptId: string) {
+  return this.practical.loadPracticalAttemptByProjectAndId(projectId, attemptId);
+}
+```
+
+Inject capture lookup into `PracticalRecords` when constructing it (AR56 store constructor; this lane did not edit `workspace-store.ts`):
+
+```ts
+this.practical = new PracticalRecords(this.orm, {
+  loadCapture: (projectId, captureId) =>
+    this.explanations.loadCapture(projectId, captureId),
+  loadExplanation: (projectId, explanationId) => {
+    const explanation = this.explanations.load(projectId, explanationId);
+    return explanation ? { origin: explanation.origin } : null;
+  },
+});
+```
+
+Do not stub fake captures. `acceptTrustedSceneCapture` remains AR56 (recompute in MAIN before persistence). This lane only associates an already-owned capture id onto the attempt draft. A provided `lookupMeasuredCapture` that returns null is `stale`. PNG/PDF previews are `unsupported`, not missing files.
 
 AR51 `groundingForSource` / `tutorSourceInput` at `f7f733f` were inspected only. This producer inlines a bounded canonicalizer + SHA-256 helper. When the coordinator integrates that exact AR51 SHA, those helpers may replace the local copies; do not merge AR51 from here.
 
@@ -101,10 +179,45 @@ handle(COMPANION_GUIDANCE_CANCEL_CHANNEL, (value) => guidance.cancel(value));
 //   revealRegistry.invalidate(); guidance.revoke(reason); companion.stop(reason);
 ```
 
-Preload: expose **only** named `requestCompanionGuidance` and `cancelCompanionGuidance`. Never raw IPC, SQL, cookies, or `CompanionGuidanceInput`.
+Preload: expose **only** named `requestCompanionGuidance` and `cancelCompanionGuidance`. Never raw IPC, SQL, cookies, or `CompanionGuidanceInput`. The named success reply now includes `nextAction` and `citations`; do not project them away.
 
 Transport posts `POST ${DESKTOP_AUTH_API_ORIGIN}/v1/learning/companion` once with `origin: applied-research:/` and the session cookie. No retry after uncertainty. Combined-signal timeout is `unavailable`, not `cancelled`. HTTP 401/403 is `unauthenticated` even if the body is success-shaped. Success-shaped JSON is accepted only with HTTP 200.
 
-HTTP success JSON now includes tutor `citations` and `nextAction`. AR53 `CompanionGuidanceReply` is unchanged (`outcome`, `requestId`, `authorKind`, `text`, `provenance`). Main transport maps HTTP→AR53 by omitting those extra keys so preload's exact decoder does not fail. Assembler/AR53 must add a citations field before answer-side citation reveal can be built.
+## Exact AR51 capture-ID handoff (do not edit ContextualHelpPanel here)
 
-`revoke('selection-replaced' | 'attempt-replaced' | 'tool-closed' | 'external-handoff' | 'project-replaced')` settles in-flight work as `stale`. User cancel / `user-stop` / sign-out / teardown / unmount remain `cancelled`. Do not conflate selection revoke with user cancel.
+AR51 currently discards `acceptSceneCapture` / `acceptTrustedSceneCapture` return ID. Required patch, no silent match to the latest unrelated attempt:
+
+```ts
+const accepted = await api.acceptTrustedSceneCapture(request);
+if (accepted.status !== 'accepted') {
+  return;
+}
+const captureId = accepted.capture.captureId; // retain the real returned opaque id
+offerCaptureToMountedPracticalAttempt({
+  captureId,
+  projectId, // same project only
+});
+```
+
+The offer must be an **explicit user action** on the currently mounted Practical attempt (same project + activity). Do not auto-select the most recently updated attempt. Practical then records `draft.selectedEvidence: { kind: 'app-measured', captureId }` through the existing result commit. Renderer must not supply measurement text.
+
+## Exact Shell mount (assembler-owned, do not edit Shell here)
+
+```ts
+const host = createCompanionGuidanceHost({
+  bridge: {
+    requestCompanionGuidance: api.requestCompanionGuidance,
+    cancelCompanionGuidance: api.cancelCompanionGuidance,
+  },
+  activate: (projectId) => windowCompanionGenerations(projectId),
+  createRequestId: () => crypto.randomUUID(),
+});
+const requester = createCompanionRequester({
+  ...identity,
+  requestGuidance: (input, signal) => host.requestFromSession(input, signal),
+  onStateChange,
+  now,
+  createRequestId,
+});
+// session outcome now carries citations, nextAction, and AI provenance.
+```

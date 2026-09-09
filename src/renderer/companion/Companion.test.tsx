@@ -12,9 +12,16 @@ import type {
   CompanionState,
 } from '../../contracts/companion';
 import type { CompanionSelectedTarget } from '../../contracts/companion-guidance';
+import { decodeCompanionGuidanceReply } from '../../contracts/companion-guidance';
 import type { PracticalGuidanceRequest } from '../../contracts/practical-work';
 import { Companion } from './Companion';
 import { createCompanionGuidanceHost } from './guidance-adapter';
+import {
+  answeredGuidance,
+  ipcSuccessReply,
+  TEST_APP_CONTEXT_CITATION,
+  TEST_SCHOLARLY_CITATION,
+} from './guidance-test-answer';
 import {
   companionWorkspaceRevealKey,
   createCompanionRevealRegistry,
@@ -99,7 +106,7 @@ function setup({
     }),
   );
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
-    async () => ({ status: 'answered', text: 'Compare the changed variable.' }),
+    async () => answeredGuidance('Compare the changed variable.'),
   );
   const surface = document.createElement('div');
   document.body.append(surface);
@@ -175,7 +182,7 @@ describe('Companion app-owned controls and decoration', () => {
       screen.getByRole('button', { name: 'Ask about selected target' }),
     );
     await screen.findByText(
-      'AI guidance · Selected result · Unsaved human-reported result',
+      /AI guidance · Selected result · Unsaved human-reported result/,
     );
   });
 
@@ -216,7 +223,9 @@ describe('Companion app-owned controls and decoration', () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Ask about selected target' }),
       );
-      await screen.findByText(`AI guidance · Selected result · ${label}`);
+      await screen.findByText(
+        new RegExp(`AI guidance · Selected result · ${label}`),
+      );
       expect(screen.getByRole('textbox', { name: 'Human draft' })).toHaveValue(
         'My untouched draft',
       );
@@ -237,7 +246,7 @@ describe('Companion app-owned controls and decoration', () => {
 
   it('keeps one-shot cancellation reachable with the panel closed and restores keyboard focus', async () => {
     const t = setup();
-    let finish!: (value: { status: 'answered'; text: string }) => void;
+    let finish!: (value: ReturnType<typeof answeredGuidance>) => void;
     t.requestGuidance.mockReturnValueOnce(
       new Promise((resolve) => {
         finish = resolve;
@@ -265,7 +274,7 @@ describe('Companion app-owned controls and decoration', () => {
       screen.getByText('Stopping the previous request…'),
     ).toBeInTheDocument();
     await act(async () => {
-      finish({ status: 'answered', text: 'Late answer' });
+      finish(answeredGuidance('Late answer'));
     });
     expect(screen.queryByText('Late answer')).not.toBeInTheDocument();
     expect(t.session.getState().observation.status).toBe('inactive');
@@ -307,6 +316,21 @@ describe('Companion app-owned controls and decoration', () => {
         /AI guidance · Your reflection · Unsaved human reflection/,
       ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/openrouter · google\/gemini-3.8-flash/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Acquired scholarly citation · retained revision b0000000-0000-4000-8000-000000000001 (not a web link)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Shear the basis')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Suggested next step \(advice only, never an automatic command\): Change one input and compare the result\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Human draft' })).toHaveValue(
       'My untouched draft',
     );
@@ -496,33 +520,9 @@ const workspaceTarget: CompanionSelectedTarget = {
 
 describe('Companion Reader/Canvas selected help', () => {
   it('asks about a selected passage, shows AI provenance, starts/stops, and reveals an owned ref', async () => {
-    const requestCompanionGuidance = vi.fn(async () => ({
-      outcome: 'success' as const,
-      requestId: '31000000-0000-4000-8000-000000000001',
-      authorKind: 'ai' as const,
-      text: 'Compare the sheared image to the original basis.',
-      provenance: {
-        author: 'ai' as const,
-        provider: 'openrouter' as const,
-        providerRequestId: 'provreq03',
-        model: 'google/gemini-3.8-flash' as const,
-        requestVersion: '2026-09-08' as const,
-        promptVersion: 'learning-v2-2026-09-09',
-        createdAt: '2026-09-09T08:00:00.000Z',
-        sourceRevisions: [
-          {
-            sourceId: 'source-01',
-            revisionId: 'revision01',
-            title: 'Linear maps',
-            sha256: 'a'.repeat(64),
-            format: 'plain-text' as const,
-            canonicalizationVersion: 'workspace-plain-v1',
-            acquiredAt: '2026-09-09T08:00:00.000Z',
-            provenance: { kind: 'human-imported' as const, locator: null },
-          },
-        ],
-      },
-    }));
+    const requestCompanionGuidance = vi.fn(async () =>
+      ipcSuccessReply('Compare the sheared image to the original basis.'),
+    );
     const host = createCompanionGuidanceHost({
       bridge: {
         requestCompanionGuidance,
@@ -722,6 +722,58 @@ describe('Companion Reader/Canvas selected help', () => {
     ).not.toBeInTheDocument();
     expect(requestCompanionGuidance).not.toHaveBeenCalled();
     owned.remove();
+  });
+
+  it('keeps backend citations and nextAction visible after named IPC decode', async () => {
+    const decoded = decodeCompanionGuidanceReply(
+      ipcSuccessReply('Compare the sheared image to the original basis.', {
+        citations: [TEST_SCHOLARLY_CITATION, TEST_APP_CONTEXT_CITATION],
+        nextAction: 'Change one entry and predict the image.',
+      }),
+    );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw new Error('expected success decode');
+    const requestCompanionGuidance = vi.fn(async () => decoded.value);
+    const host = createCompanionGuidanceHost({
+      bridge: {
+        requestCompanionGuidance,
+        cancelCompanionGuidance: vi.fn(),
+      },
+      activate: async () => ({ projectGeneration: 1, requestGeneration: 0 }),
+      createRequestId: () => '31000000-0000-4000-8000-000000000001',
+    });
+    const surface = document.createElement('div');
+    document.body.append(surface);
+    render(
+      <Companion
+        selectedRequest={null}
+        workspaceSelection={workspaceTarget}
+        guidanceHost={host}
+        pointerSurface={surface}
+      />,
+      { container: surface },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about selected target' }),
+    );
+    await screen.findByText('Compare the sheared image to the original basis.');
+    expect(
+      screen.getByText(/openrouter · google\/gemini-3.8-flash/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Acquired scholarly citation/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Supplied application context/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Suggested next step \(advice only, never an automatic command\): Change one entry and predict the image\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Change one entry/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('labels a selected canvas record', () => {

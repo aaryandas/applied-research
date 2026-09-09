@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { RecordPracticalResultInput } from '../contracts/practical-work';
+import type { TrustedSceneCapture } from '../contracts/explanation-artifacts';
 import { PracticalRecords } from './practical-records';
 import { PracticalFileSelection } from './practical-file-selection';
 import { PracticalFileExport } from './practical-export';
@@ -1567,4 +1568,145 @@ it('exports fail closed for a missing file, a directory destination, and a stale
   ).toEqual({ status: 'cancelled' });
   expect(existsSync(destination)).toBe(false);
   expect(stale.occupied).toBe(false);
+});
+
+it('associates an owned retained capture, revalidates on load, and still rejects forgeries', () => {
+  const { input, database, otherActivity } = setup();
+  const captureId = randomUUID();
+  const explanationId = randomUUID();
+  const measuredAt = '2026-09-09T08:00:00.000Z';
+  const capture: TrustedSceneCapture = {
+    kind: 'app-measured',
+    captureId,
+    explanationId,
+    measurement: {
+      kind: 'endpoint',
+      endpoint: { x: 3.5, y: 0, z: 0 },
+      units: 'model units',
+    },
+    measuredAt,
+  };
+  const captures = new Map<string, TrustedSceneCapture>([[captureId, capture]]);
+  const records = new PracticalRecords(
+    drizzle(database, { schema: workspaceSchema }),
+    {
+      loadCapture: (projectId, id) =>
+        projectId === input.activity.projectId
+          ? (captures.get(id) ?? null)
+          : null,
+      loadExplanation: (projectId, id) => {
+        if (projectId !== input.activity.projectId || id !== explanationId)
+          return null;
+        return {
+          origin: {
+            projectId,
+            sourceVersionId: null,
+            questionId: null,
+            lessonId: input.activity.origin.path.lessonId,
+          },
+        };
+      },
+    },
+  );
+  const mismatchedLesson = new PracticalRecords(
+    drizzle(database, { schema: workspaceSchema }),
+    {
+      loadCapture: () => capture,
+      loadExplanation: () => ({
+        origin: {
+          projectId: input.activity.projectId,
+          sourceVersionId: null,
+          questionId: null,
+          lessonId: otherActivity.origin.path.lessonId,
+        },
+      }),
+    },
+  );
+  expect(
+    mismatchedLesson.recordPracticalResult({
+      ...input,
+      draft: {
+        ...input.draft,
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      draft: {
+        ...input.draft,
+        selectedEvidence: { kind: 'app-measured', captureId: randomUUID() },
+      },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      activity: otherActivity,
+      draft: {
+        ...input.draft,
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+    }),
+  ).toEqual({ status: 'failed' });
+  expect(
+    records.recordPracticalResult({
+      ...input,
+      draft: {
+        ...input.draft,
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+    }),
+  ).toMatchObject({ status: 'committed', acknowledgement: { revision: 1 } });
+  const loaded = records.loadPracticalAttempt({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(loaded).toMatchObject({
+    status: 'loaded',
+    attempt: {
+      draft: {
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+    },
+  });
+  if (loaded.status !== 'loaded' || !loaded.attempt)
+    throw new Error('Expected owned attempt');
+  expect(loaded.attempt.returnedEvidence).toEqual([
+    {
+      kind: 'app-measured',
+      captureId,
+      measuredAt,
+      summary: expect.stringContaining('App-measured endpoint'),
+    },
+  ]);
+  const byIds = records.loadPracticalAttemptByProjectAndId(
+    input.activity.projectId,
+    input.attemptId,
+  );
+  expect(byIds).toMatchObject({
+    status: 'loaded',
+    attempt: { attemptId: input.attemptId },
+  });
+  captures.delete(captureId);
+  const stale = records.loadPracticalAttempt({
+    activity: input.activity,
+    attemptId: input.attemptId,
+  });
+  expect(stale).toMatchObject({
+    status: 'loaded',
+    attempt: {
+      draft: {
+        selectedEvidence: { kind: 'app-measured', captureId },
+      },
+      returnedEvidence: [],
+    },
+  });
+  expect(
+    records.loadPracticalAttemptByProjectAndId(
+      input.activity.projectId,
+      randomUUID(),
+    ),
+  ).toEqual({ status: 'loaded', attempt: null });
 });

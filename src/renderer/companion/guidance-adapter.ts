@@ -95,7 +95,13 @@ function boundAnswer(reply: CompanionGuidanceReply): CompanionGuidanceReply {
 
 function toSessionReply(reply: CompanionGuidanceReply): CompanionSessionReply {
   if (reply.outcome === 'success') {
-    return { status: 'answered', text: reply.text };
+    return {
+      status: 'answered',
+      text: reply.text,
+      nextAction: reply.nextAction,
+      citations: reply.citations,
+      provenance: reply.provenance,
+    };
   }
   if (
     reply.outcome === 'unauthenticated' ||

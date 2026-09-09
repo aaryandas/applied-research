@@ -5,12 +5,13 @@ import {
   isExactExcerptMapping,
 } from '../contracts/contextual-help';
 import { isContractIdentifier } from '../contracts/contextual-contract-guards';
-import type {
-  CompanionEvidenceReference,
-  CompanionGuidanceReply,
-  CompanionGuidanceRequest,
-  CompanionHumanUtterance,
-  CompanionSelectedTarget,
+import {
+  COMPANION_APP_CONTEXT_SOURCE_ID,
+  type CompanionEvidenceReference,
+  type CompanionGuidanceReply,
+  type CompanionGuidanceRequest,
+  type CompanionHumanUtterance,
+  type CompanionSelectedTarget,
 } from '../contracts/companion-guidance';
 import type {
   LearnerContextItem,
@@ -28,9 +29,9 @@ import type {
   PracticalEvidenceReference,
 } from '../contracts/practical-work';
 
-export const APP_CONTEXT_SOURCE_ID = 'companion-app-context';
+export const APP_CONTEXT_SOURCE_ID = COMPANION_APP_CONTEXT_SOURCE_ID;
 export const LOCAL_PLAIN_CANONICALIZER = 'workspace-plain-v1';
-
+export { measuredCaptureTextFromTrusted } from './guidance-measured-capture';
 export type CompanionGuidanceAttribution =
   | 'retained-source'
   | 'saved-human'
@@ -56,15 +57,23 @@ export interface BoundCompanionToolSession {
   readonly controls: readonly { name: string; description: string }[];
 }
 
-export interface ImportedFileText {
-  readonly text: string;
-  readonly displayName: string;
-}
-
 export interface MeasuredCaptureText {
   readonly text: string;
   readonly capturedAt: string;
 }
+
+export type ImportedFileRead =
+  | {
+      status: 'ready';
+      text: string;
+      displayName: string;
+      completeness: 'complete' | 'truncated';
+    }
+  | {
+      status: 'unsupported';
+      displayName: string;
+      mediaType: string;
+    };
 
 export interface CompanionGuidanceReaders {
   readonly readWorkspace: (
@@ -78,11 +87,12 @@ export interface CompanionGuidanceReaders {
     projectId: string,
     attemptId: string,
     selectionId: string,
-  ) => Promise<ImportedFileText | null>;
+  ) => Promise<ImportedFileRead | null>;
   /**
-   * Main-owned measured-capture read. Omit until AR56 supplies the real
-   * resolver; do not stub a fake capture. A provided reader that returns
-   * null means that capture is gone.
+   * Main-owned measured-capture read. Assembler must derive text/time with
+   * `measuredCaptureTextFromTrusted` from `store.explanations.loadCapture`.
+   * Omit until AR56 supplies that read. A provided reader that returns null
+   * means that capture is gone.
    */
   readonly lookupMeasuredCapture?: (
     projectId: string,
@@ -756,10 +766,24 @@ async function resolveSelectedResult(
           'The selected imported file is no longer available.',
         );
       }
+      if (file.status === 'unsupported') {
+        return failed(
+          'unsupported',
+          request.requestId,
+          file.mediaType.startsWith('image/') ||
+            file.mediaType === 'application/pdf'
+            ? 'Preview is not available for this file type yet. Export the exact retained bytes to open it in your own tools.'
+            : 'This retained file cannot be previewed here.',
+        );
+      }
+      const truncated = file.completeness === 'truncated';
+      const canonicalText = truncated
+        ? `Imported file preview is truncated.\n${file.text}`
+        : file.text;
       const source = appSource(
         request.requestId,
         file.displayName,
-        file.text,
+        canonicalText,
         acquiredAt,
         'human-imported',
       );
@@ -782,11 +806,13 @@ async function resolveSelectedResult(
             {
               id: 'imported-result-01',
               kind: 'reported-result',
-              text: file.text.slice(0, 4_000),
+              text: canonicalText.slice(0, 4_000),
             },
           ]),
           attribution: 'imported-file',
-          attributionSummary: `Imported result · ${file.displayName}`,
+          attributionSummary: truncated
+            ? `Imported result · ${file.displayName} · truncated`
+            : `Imported result · ${file.displayName}`,
         },
       };
     }

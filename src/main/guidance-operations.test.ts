@@ -85,6 +85,16 @@ function success(): CompanionGuidanceReply {
         },
       ],
     },
+    nextAction: 'Change one matrix entry and predict the image.',
+    citations: [
+      {
+        sourceId: 'companion-app-context',
+        revisionId: requestId,
+        start: 0,
+        end: 24,
+        quote: 'Change one matrix entry.',
+      },
+    ],
   };
 }
 

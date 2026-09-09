@@ -1,6 +1,7 @@
 import type {
   CompanionContext,
   CompanionGuidanceInput,
+  CompanionGuidanceReply,
   CompanionOutcome,
   CompanionSession,
   CompanionSessionOptions,
@@ -19,6 +20,20 @@ const cancelled = (): CompanionOutcome => ({
   status: 'cancelled',
   message: 'Guidance stopped. Ask again when ready.',
 });
+
+function attributedAnswer(
+  reply: CompanionGuidanceReply,
+): reply is Extract<CompanionGuidanceReply, { status: 'answered' }> {
+  return (
+    reply.status === 'answered' &&
+    typeof reply.nextAction === 'string' &&
+    reply.nextAction.trim().length > 0 &&
+    reply.nextAction.length <= 400 &&
+    Array.isArray(reply.citations) &&
+    reply.citations.length > 0 &&
+    reply.provenance?.author === 'ai'
+  );
+}
 
 function hasForeignGuest(
   context: CompanionContext,
@@ -191,7 +206,9 @@ export function createCompanionSession(
         if (!current()) return cancelled();
         if (
           reply.status === 'answered' &&
-          (!reply.text.trim() || reply.text.length > MAX_ANSWER_CHARACTERS)
+          (!reply.text.trim() ||
+            reply.text.length > MAX_ANSWER_CHARACTERS ||
+            !attributedAnswer(reply))
         ) {
           throw new Error('Invalid guidance answer');
         }
@@ -202,6 +219,9 @@ export function createCompanionSession(
                 status: 'answered',
                 authorKind: 'ai',
                 text: reply.text,
+                nextAction: reply.nextAction,
+                citations: reply.citations,
+                provenance: reply.provenance,
               }
             : reply;
       }

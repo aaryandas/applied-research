@@ -40,7 +40,7 @@ Authenticate with `auth.authenticate(request.headers)` (Better Auth cookies). In
 
 Source-poor tool/app-control envelopes use `grounding: 'app-context'` and a labelled `companion-app-context` source revision so the existing tutor schema (citations minItems 1) can cite the actual control description instead of inventing papers. The untrusted-content prefix is applied for **both** `source` and `app-context`.
 
-HTTP success JSON (hand-off from this producer; AR53 IPC is unchanged):
+HTTP success JSON (hand-off from this producer; AR48 `947bd563` join stays valid):
 
 ```ts
 {
@@ -49,11 +49,11 @@ HTTP success JSON (hand-off from this producer; AR53 IPC is unchanged):
   authorKind: 'ai',
   text,
   provenance,
-  nextAction, // tutor nextAction
+  nextAction, // tutor nextAction — advice only, never an automatic command
   citations,  // exact SourceCitation[] from LearningResponse
 }
 ```
 
-Main transport strips `nextAction`/`citations` when mapping onto AR53 `CompanionGuidanceReply`. Do not decode this HTTP body with `decodeCompanionGuidanceReply` directly; extra keys fail that decoder.
+AR53 named IPC success now **requires** `nextAction` and `citations` (follow-up after 947). Main transport no longer strips those keys. Assembler/preload must pass them through `requestCompanionGuidance`. Extra keys still fail the strict decoder.
 
 Reply JSON otherwise matches the AR53 success/failure shape (no `stale`/`offline` from HTTP; those are desktop outcomes).

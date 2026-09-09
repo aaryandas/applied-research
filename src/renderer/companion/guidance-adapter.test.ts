@@ -9,6 +9,7 @@ import {
   CONSUMER_ANSWER_LIMIT,
   createCompanionGuidanceHost,
 } from './guidance-adapter';
+import { ipcSuccessReply } from './guidance-test-answer';
 
 const projectId = '10000000-0000-4000-8000-000000000001';
 const attemptId = '32000000-0000-4000-8000-000000000001';
@@ -48,33 +49,9 @@ function practicalInput(
   };
 }
 
-const success: CompanionGuidanceReply = {
-  outcome: 'success',
-  requestId,
-  authorKind: 'ai',
-  text: 'Compare the sheared image to the original basis.',
-  provenance: {
-    author: 'ai',
-    provider: 'openrouter',
-    providerRequestId: 'provreq03',
-    model: 'google/gemini-3.8-flash',
-    requestVersion: '2026-09-08',
-    promptVersion: 'learning-v2-2026-09-09',
-    createdAt: '2026-09-09T08:00:00.000Z',
-    sourceRevisions: [
-      {
-        sourceId: 'source-01',
-        revisionId: 'revision01',
-        title: 'Linear maps',
-        sha256: 'a'.repeat(64),
-        format: 'plain-text',
-        canonicalizationVersion: 'workspace-plain-v1',
-        acquiredAt: '2026-09-09T08:00:00.000Z',
-        provenance: { kind: 'human-imported', locator: null },
-      },
-    ],
-  },
-};
+const success: CompanionGuidanceReply = ipcSuccessReply(
+  'Compare the sheared image to the original basis.',
+);
 
 function setup() {
   const requestCompanionGuidance = vi.fn(

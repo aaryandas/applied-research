@@ -9,13 +9,17 @@ import {
 } from 'react';
 import type {
   CompanionContext,
+  CompanionOutcome,
   CompanionSession,
   CompanionState,
 } from '../../contracts/companion';
-import type {
-  CompanionGuidanceReply,
-  CompanionSelectedTarget,
+import {
+  COMPANION_APP_CONTEXT_SOURCE_ID,
+  type CompanionGuidanceReply,
+  type CompanionSelectedTarget,
 } from '../../contracts/companion-guidance';
+import type { AiProvenance } from '../../contracts/learning-api';
+import type { SourceCitation } from '../../contracts/learning-records';
 import type {
   PracticalGuidanceRequest,
   PracticalTarget,
@@ -73,9 +77,82 @@ function workspaceLabel(target: CompanionSelectedTarget): string {
   }
 }
 
+function provenanceCopy(provenance: AiProvenance): string {
+  return ` · ${provenance.provider} · ${provenance.model}`;
+}
+
 function provenanceLabel(reply: CompanionGuidanceReply): string {
   if (reply.outcome !== 'success') return '';
-  return ` · ${reply.provenance.provider} · ${reply.provenance.model}`;
+  return provenanceCopy(reply.provenance);
+}
+
+function citationKindLabel(citation: SourceCitation): string {
+  return citation.sourceId === COMPANION_APP_CONTEXT_SOURCE_ID
+    ? 'Supplied application context'
+    : 'Acquired scholarly citation';
+}
+
+function GuidanceCitations({
+  citations,
+}: {
+  citations: readonly SourceCitation[];
+}): ReactElement {
+  return (
+    <ul className="activity-companion-citations">
+      {citations.map((citation) => (
+        <li
+          key={`${citation.sourceId}:${citation.revisionId}:${citation.start}:${citation.end}`}
+        >
+          <p className="activity-companion-citation-kind">
+            {citationKindLabel(citation)} · retained revision{' '}
+            {citation.revisionId} (not a web link)
+          </p>
+          <blockquote className="activity-companion-citation-quote">
+            {citation.quote}
+          </blockquote>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function GuidanceAnswerBody({
+  text,
+  nextAction,
+  citations,
+}: {
+  text: string;
+  nextAction: string;
+  citations: readonly SourceCitation[];
+}): ReactElement {
+  return (
+    <>
+      <p className="activity-companion-answer">{text}</p>
+      <GuidanceCitations citations={citations} />
+      <p className="activity-companion-next-action">
+        Suggested next step (advice only, never an automatic command):{' '}
+        {nextAction}
+      </p>
+    </>
+  );
+}
+
+function sessionAnswer(outcome: CompanionOutcome): ReactElement | null {
+  if (outcome.status !== 'answered') return null;
+  return (
+    <>
+      <p className="activity-companion-attribution">
+        AI guidance · {TARGET_LABELS[outcome.requestedTarget.target]}
+        {contextAttribution(outcome.context)}
+        {provenanceCopy(outcome.provenance)}
+      </p>
+      <GuidanceAnswerBody
+        text={outcome.text}
+        nextAction={outcome.nextAction}
+        citations={outcome.citations}
+      />
+    </>
+  );
 }
 
 export interface CompanionProps {
@@ -462,15 +539,7 @@ export function Companion({
                     : 'Asking for guidance…'}
               </p>
             )}
-            {outcome?.status === 'answered' && (
-              <>
-                <p className="activity-companion-attribution">
-                  AI guidance · {TARGET_LABELS[outcome.requestedTarget.target]}
-                  {contextAttribution(outcome.context)}
-                </p>
-                <p className="activity-companion-answer">{outcome.text}</p>
-              </>
-            )}
+            {outcome?.status === 'answered' && sessionAnswer(outcome)}
             {outcome &&
               outcome.status !== 'answered' &&
               outcome.status !== 'ignored' && <p>{outcome.message}</p>}
@@ -483,7 +552,11 @@ export function Companion({
                     : ''}
                   {provenanceLabel(hostReply)}
                 </p>
-                <p className="activity-companion-answer">{hostReply.text}</p>
+                <GuidanceAnswerBody
+                  text={hostReply.text}
+                  nextAction={hostReply.nextAction}
+                  citations={hostReply.citations}
+                />
               </>
             )}
             {hostReply && hostReply.outcome !== 'success' && !outcome && (

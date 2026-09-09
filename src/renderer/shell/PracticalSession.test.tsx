@@ -18,6 +18,7 @@ import type {
   PracticalDraft,
 } from '../../contracts/practical-work';
 import type { CompanionSessionOptions } from '../../contracts/companion';
+import { answeredGuidance } from '../companion/guidance-test-answer';
 import type { ToolState } from '../../contracts/workspace';
 import { syntheticAcceptedCourseBrief } from '../../contracts/practical-brief.fixture';
 import { PRACTICAL_HOST_CONTROLS } from '../practical/host-controls';
@@ -168,10 +169,9 @@ function renderSession(
   const tools = overrides.tools ?? toolBridge();
   const requestGuidance =
     overrides.requestGuidance ??
-    vi.fn<CompanionSessionOptions['requestGuidance']>(async () => ({
-      status: 'answered',
-      text: 'Synthetic guidance transport answer.',
-    }));
+    vi.fn<CompanionSessionOptions['requestGuidance']>(async () =>
+      answeredGuidance('Synthetic guidance transport answer.'),
+    );
   const session = (
     <PracticalSession
       bridge={overrides.bridge ?? sessionBridge()}
@@ -298,10 +298,7 @@ it('asks with the reopened attempt and exact owned reflection through the mounte
     cancelPracticalFileSelection: async () => {},
   });
   const requestGuidance = vi.fn<CompanionSessionOptions['requestGuidance']>(
-    async () => ({
-      status: 'answered',
-      text: 'Synthetic guidance transport answer.',
-    }),
+    async () => answeredGuidance('Synthetic guidance transport answer.'),
   );
   let revoke = () => {};
   const view = render(

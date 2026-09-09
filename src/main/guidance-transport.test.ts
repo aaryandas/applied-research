@@ -58,6 +58,16 @@ const reply = {
       },
     ],
   },
+  nextAction: 'Change one entry.',
+  citations: [
+    {
+      sourceId: 'source-01',
+      revisionId: 'revision01',
+      start: 0,
+      end: 5,
+      quote: 'Shear',
+    },
+  ],
 };
 
 describe('authenticated companion guidance transport', () => {
@@ -214,14 +224,13 @@ describe('authenticated companion guidance transport', () => {
     ).rejects.toMatchObject({ code: 'unauthenticated' });
   });
 
-  it('strips HTTP citations for the AR53 reply and requires HTTP 200 for success', async () => {
+  it('preserves HTTP citations and nextAction for the AR53 reply and requires HTTP 200 for success', async () => {
     const cited = {
       ...reply,
-      nextAction: 'Change one entry.',
       citations: [
         {
-          sourceId: 'source-01',
-          revisionId: 'revision01',
+          sourceId: 'a0000000-0000-4000-8000-000000000001',
+          revisionId: 'b0000000-0000-4000-8000-000000000001',
           start: 0,
           end: 5,
           quote: 'Shear',
@@ -237,9 +246,12 @@ describe('authenticated companion guidance transport', () => {
       sessionCookie: () => 'session=ok',
     });
     const decoded = await post(envelope, new AbortController().signal);
-    expect(decoded).toMatchObject({ outcome: 'success', requestId });
-    expect(decoded).not.toHaveProperty('citations');
-    expect(decoded).not.toHaveProperty('nextAction');
+    expect(decoded).toMatchObject({
+      outcome: 'success',
+      requestId,
+      nextAction: 'Change one entry.',
+      citations: cited.citations,
+    });
 
     const nonOk = makeCompanionGuidanceTransport({
       request: async () =>
@@ -251,6 +263,74 @@ describe('authenticated companion guidance transport', () => {
     });
     await expect(
       nonOk(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
+  it('rejects missing citations, quote mismatch, extra keys, and stale-shaped success', async () => {
+    const missing = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(
+          JSON.stringify({
+            outcome: 'success',
+            requestId,
+            authorKind: 'ai',
+            text: 'Compare the sheared image.',
+            provenance: reply.provenance,
+            nextAction: 'Change one entry.',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      missing(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+
+    const mismatched = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(
+          JSON.stringify({
+            ...reply,
+            citations: [
+              {
+                sourceId: 'a0000000-0000-4000-8000-000000000001',
+                revisionId: 'b0000000-0000-4000-8000-000000000001',
+                start: 0,
+                end: 15,
+                quote: 'Shear',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      mismatched(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+
+    const extra = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(
+          JSON.stringify({
+            ...reply,
+            href: 'https://example.test/paper',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      extra(envelope, new AbortController().signal),
     ).rejects.toMatchObject({ code: 'unavailable' });
   });
 
