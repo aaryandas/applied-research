@@ -4,11 +4,14 @@ import {
   COMPATIBLE_SOURCED_LEARNING_SCOPE,
   LEARNING_ONBOARDING_API_VERSION,
   LEARNING_ONBOARDING_LIMITS,
+  LEARNING_ONBOARDING_OPERATIONS,
   LEARNING_ONBOARDING_PATH,
   LEARNING_ONBOARDING_PUBLIC_MESSAGES,
+  LEARNING_ONBOARDING_SCOPES,
   ONBOARDING_CONTEXT_TRUST,
 } from './learning-onboarding-api.js';
 import type {
+  AcceptedCourseAdjustmentSuccess,
   LearningOnboardingRequest,
   LearningOnboardingResponse,
   ProposalSource,
@@ -507,6 +510,95 @@ const selectedLessonRequest: LearningOnboardingRequest = {
   },
 };
 
+const adjustedBrief = {
+  ...tokenizerBrief,
+  intendedOutcome: 'Produce a tokenizer and a documented unknown-token rule.',
+};
+
+const adjustmentRequest: LearningOnboardingRequest = {
+  apiVersion: LEARNING_ONBOARDING_API_VERSION,
+  requestId: 'request-03',
+  model: 'google/gemini-3.8-flash',
+  operation: {
+    kind: 'adjust-accepted-course',
+    human: {
+      ...human,
+      answers: [
+        ...human.answers,
+        {
+          trust: ONBOARDING_CONTEXT_TRUST.human,
+          promptId: desktopOnboarding.ADJUSTMENT_NOTES_PROMPT_ID,
+          answer: 'Tokenizer practice still failed on unknown tokens.',
+        },
+      ],
+    },
+    model: {
+      trust: ONBOARDING_CONTEXT_TRUST.model,
+      priorProposal: { id: 'proposal-01', revision: 1 },
+      syllabus: compactFromSyllabus(),
+      personalization: null,
+    },
+    progress: {
+      trust: ONBOARDING_CONTEXT_TRUST.human,
+      practicalAttempts: [
+        {
+          trust: ONBOARDING_CONTEXT_TRUST.human,
+          kind: 'practical-attempt-locator',
+          attemptId: 'e1234567-1234-4234-8234-123456789012',
+          recordedRevision: 1,
+          remoteStepId: 'step-002',
+        },
+      ],
+    },
+    acceptedProposal: { id: 'proposal-01', revision: 1 },
+  },
+};
+
+const adjustmentSuccess: AcceptedCourseAdjustmentSuccess = {
+  outcome: 'success',
+  requestId: 'request-03',
+  scope: 'accepted-course-adjustment',
+  adjustment: {
+    acceptedProposal: { id: 'proposal-01', revision: 1 },
+    summary: {
+      author: 'ai',
+      summary:
+        'Returned tokenizer work still misses the unknown-token rule; deepen that pending practice.',
+      observedGaps: ['Unknown-token handling is still unproven.'],
+      masteryEstablished: false,
+    },
+    focus: {
+      before: human.focus,
+      after: 'Tokenizer unknown-token handling before LoRA.',
+    },
+    depth: { before: 'balanced', after: 'deep' },
+    patches: [
+      {
+        remoteStepId: 'step-002',
+        field: 'practice',
+        before: tokenizerBrief.intendedOutcome,
+        after: adjustedBrief.intendedOutcome,
+        practice: adjustedBrief,
+      },
+    ],
+    citations: [
+      {
+        sourceId: 'openalex_W1',
+        revisionId: 'edition-1',
+        start: 0,
+        end: 5,
+        quote: HELLO,
+      },
+    ],
+  },
+  sources: [acquiredSource],
+  bibliography: [bibliographySource],
+  evidence: [evidence],
+  gaps: [],
+  provenance: [provenance],
+  quota,
+};
+
 describe('learning onboarding contracts', () => {
   it('keeps sourced-learning compatibility constants distinct from onboarding', () => {
     expect(LEARNING_API_VERSION).toBe('2026-09-08');
@@ -525,6 +617,8 @@ describe('learning onboarding contracts', () => {
     expect(LEARNING_ONBOARDING_LIMITS.pastedSeedCharacters).toBe(
       LEARNING_ONBOARDING_LIMITS.previewCharacters,
     );
+    expect(LEARNING_ONBOARDING_OPERATIONS).toContain('adjust-accepted-course');
+    expect(LEARNING_ONBOARDING_SCOPES).toContain('accepted-course-adjustment');
     expect(SOURCE_CHANNELS.generate).toBe('sources:generate-learning-path');
     expect(desktopOnboarding).not.toHaveProperty('LEARNING_ONBOARDING_PATH');
     expect(desktopOnboarding).not.toHaveProperty(
@@ -654,6 +748,87 @@ describe('learning onboarding contracts', () => {
         draft: unbound,
       }).draft.profileRevision,
     ).toBe(0);
+  });
+
+  it('roundtrips accepted-course adjustment overlays and rejects replacement syllabi or ready-lesson patches', () => {
+    expect(
+      validation.parseLearningOnboardingRequest(adjustmentRequest),
+    ).toEqual(adjustmentRequest);
+    expect(
+      validation.parseLearningOnboardingResponse(
+        adjustmentSuccess,
+        adjustmentRequest,
+      ),
+    ).toEqual(adjustmentSuccess);
+    expect(
+      validation.parseAdjustAcceptedCourseInput({
+        projectId,
+        requestId: 'request-03',
+        acceptedProposal: { id: 'proposal-01', revision: 1 },
+        interviewRevision: 1,
+        notes: 'Tokenizer practice still failed on unknown tokens.',
+        progress: {
+          practicalAttempts: [
+            {
+              attemptId: 'e1234567-1234-4234-8234-123456789012',
+              recordedRevision: 1,
+              remoteStepId: 'step-002',
+            },
+          ],
+        },
+        consent: 'acquire-learning-evidence',
+      }).notes,
+    ).toBe('Tokenizer practice still failed on unknown tokens.');
+    expectRejected(
+      {
+        ...adjustmentSuccess,
+        syllabus,
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, adjustmentRequest),
+    );
+    expectRejected(
+      {
+        ...adjustmentSuccess,
+        adjustment: {
+          ...adjustmentSuccess.adjustment,
+          patches: [
+            {
+              remoteStepId: 'step-001',
+              field: 'objective',
+              before: 'Explain scaled dot-product attention.',
+              after: 'Skip the first lesson.',
+              practice: null,
+            },
+          ],
+        },
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, adjustmentRequest),
+    );
+    expectRejected(
+      {
+        ...adjustmentRequest,
+        operation: {
+          ...adjustmentRequest.operation,
+          acceptedProposal: { id: 'proposal-99', revision: 1 },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expectRejected(
+      {
+        projectId,
+        requestId: 'request-03',
+        acceptedProposal: { id: 'proposal-01', revision: 1 },
+        interviewRevision: 1,
+        notes: 'ok',
+        progress: { practicalAttempts: [] },
+        consent: 'acquire-learning-evidence',
+        evidence: [{ attemptId: 'forged' }],
+      },
+      validation.parseAdjustAcceptedCourseInput,
+    );
   });
 
   it('rejects forged renderer authority on accept, ensure and network envelopes', () => {

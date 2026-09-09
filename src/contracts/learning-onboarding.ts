@@ -23,8 +23,13 @@ export const LEARNING_ONBOARDING_CHANNELS = {
   revise: 'onboarding:revise-course',
   accept: 'onboarding:accept-course',
   ensureLesson: 'onboarding:ensure-lesson',
+  adjust: 'onboarding:adjust-accepted-course',
+  acceptAdjustment: 'onboarding:accept-course-adjustment',
   cancel: 'onboarding:cancel',
 } as const;
+
+/** Human notes attached only to an accepted-course adjustment request. */
+export const ADJUSTMENT_NOTES_PROMPT_ID = 'adjustment-notes-01' as const;
 
 export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
 export type LessonDepth = (typeof LESSON_DEPTHS)[number];
@@ -259,6 +264,7 @@ export type LearningOnboardingSnapshot = {
   interview: InterviewRecord | null;
   proposal: CourseProposal | null;
   accepted: AcceptedOnboarding | null;
+  adjustment: CourseAdjustmentProposal | null;
 };
 
 export type RevisionWrite<T> =
@@ -317,6 +323,61 @@ export type EnsureLessonInput = OnboardingRequest & {
 export type InterviewPromptInput = OnboardingRequest & {
   interviewRevision: number;
   consent: 'acquire-learning-evidence';
+};
+
+export type CourseAdjustmentEvidenceItem = {
+  attemptId: string;
+  recordedRevision: number;
+  remoteStepId: string;
+  lessonTitle: string;
+};
+
+export type CourseAdjustmentPatchView = {
+  remoteStepId: string;
+  lessonTitle: string;
+  sourceState: PathSourceState;
+  field: 'objective' | 'activity' | 'practice';
+  before: string;
+  after: string;
+};
+
+export type CourseAdjustmentProposal = {
+  id: string;
+  revision: number;
+  projectId: string;
+  acceptedProposal: OpaqueRevisionRef;
+  title: string;
+  summary: OnboardingPersonalization;
+  focus: { before: string; after: string } | null;
+  depth: { before: LessonDepth; after: LessonDepth } | null;
+  patches: CourseAdjustmentPatchView[];
+  sources: ProposalSource[];
+  gaps: OnboardingCoverageGap[];
+  acceptance: 'ready' | 'coverage-pending';
+};
+
+export type AdjustAcceptedCourseInput = OnboardingRequest & {
+  acceptedProposal: OpaqueRevisionRef;
+  interviewRevision: number;
+  notes: string;
+  progress: {
+    practicalAttempts: {
+      attemptId: string;
+      recordedRevision: number;
+      remoteStepId: string;
+    }[];
+  };
+  consent: 'acquire-learning-evidence';
+};
+
+export type AcceptCourseAdjustmentInput = OnboardingRequest & {
+  adjustment: OpaqueRevisionRef;
+};
+
+export type AcceptCourseAdjustmentValue = {
+  adjustment: OpaqueRevisionRef;
+  pathId: string;
+  pathRevision: number;
 };
 
 export type AcceptCourseValue = {
@@ -383,5 +444,11 @@ export interface LearningOnboardingBridge {
   ensureLesson(
     input: EnsureLessonInput,
   ): Promise<OnboardingResult<EnsureLessonValue>>;
+  proposeAcceptedCourseAdjustment(
+    input: AdjustAcceptedCourseInput,
+  ): Promise<OnboardingResult<CourseAdjustmentProposal>>;
+  acceptCourseAdjustment(
+    input: AcceptCourseAdjustmentInput,
+  ): Promise<OnboardingResult<AcceptCourseAdjustmentValue>>;
   cancelLearningOnboarding(input: OnboardingRequest): Promise<void>;
 }

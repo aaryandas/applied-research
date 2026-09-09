@@ -23,6 +23,7 @@ import {
   LESSON_DEPTHS,
   LESSON_ROLES,
   ONBOARDING_CONTEXT_TRUST,
+  COURSE_ADJUSTMENT_PATCH_FIELDS,
 } from './learning-onboarding-api.js';
 import type {
   CompactSyllabus,
@@ -30,6 +31,11 @@ import type {
   CoursePracticeBrief,
   CoursePracticeToolChoice,
   CourseProposalSuccess,
+  AcceptedCourseAdjustmentSuccess,
+  AdjustAcceptedCourseOperation,
+  CourseAdjustmentPatch,
+  CourseAdjustmentPatchField,
+  CourseAdjustmentProgress,
   GenerateSelectedLessonOperation,
   GeneratedCoursePracticeBrief,
   HumanDiagnosticAnswer,
@@ -49,6 +55,7 @@ import type {
   OnboardingSyllabusLesson,
   OnboardingSyllabusTopic,
   OpaqueRevisionRef,
+  PracticalAttemptLocator,
   ProposalSource,
   ProposeCourseOperation,
   ReviseCourseOperation,
@@ -59,8 +66,11 @@ import type {
   UntrustedModelSyllabusContext,
 } from './learning-onboarding-api.js';
 import type {
+  AcceptCourseAdjustmentInput,
   AcceptCourseInput,
   AcceptedStepMapping,
+  AdjustAcceptedCourseInput,
+  CourseAdjustmentProposal,
   CourseProposal,
   EnsureLessonInput,
   InterviewAnswer,
@@ -170,6 +180,9 @@ export interface LearningOnboardingValidation {
   parseReviseCourseInput(value: unknown): ReviseCourseInput;
   parseAcceptCourseInput(value: unknown): AcceptCourseInput;
   parseEnsureLessonInput(value: unknown): EnsureLessonInput;
+  parseAdjustAcceptedCourseInput(value: unknown): AdjustAcceptedCourseInput;
+  parseAcceptCourseAdjustmentInput(value: unknown): AcceptCourseAdjustmentInput;
+  parseCourseAdjustmentProposal(value: unknown): CourseAdjustmentProposal;
   parseOnboardingRequest(value: unknown): OnboardingRequest;
   parseCourseProposal(value: unknown): CourseProposal;
   parseAcceptedStepMapping(value: unknown): AcceptedStepMapping;
@@ -1015,6 +1028,84 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function parseAdjustAcceptedCourseInput(
+    value: unknown,
+  ): AdjustAcceptedCourseInput {
+    const input = remoteRequest(value, [
+      'acceptedProposal',
+      'notes',
+      'progress',
+    ]);
+    if (input.proposal !== undefined || input.changes !== undefined) {
+      invalid('Accepted-course adjustment fields are invalid.');
+    }
+    if (input.target !== undefined)
+      invalid('Accepted-course adjustment fields are invalid.');
+    const progress = strictRecord(input.progress, ['practicalAttempts']);
+    if (
+      !isDenseArray(progress.practicalAttempts) ||
+      progress.practicalAttempts.length > LIMITS.practicalAttemptLocators
+    ) {
+      invalid('Practical attempt locators are invalid.');
+    }
+    const practicalAttempts = progress.practicalAttempts.map((item) => {
+      const locator = strictRecord(item, [
+        'attemptId',
+        'recordedRevision',
+        'remoteStepId',
+      ]);
+      return {
+        attemptId: identifier(locator.attemptId, 'Attempt id'),
+        recordedRevision: boundedInteger(
+          locator.recordedRevision,
+          1,
+          LIMITS.revision,
+          'Attempt revision',
+        ),
+        remoteStepId: identifier(locator.remoteStepId, 'Remote step id'),
+      };
+    });
+    if (
+      new Set(practicalAttempts.map((item) => item.attemptId)).size !==
+      practicalAttempts.length
+    ) {
+      invalid('Practical attempt locators must be distinct.');
+    }
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      acceptedProposal: opaqueRef(input.acceptedProposal),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      notes:
+        input.notes === ''
+          ? ''
+          : boundedText(
+              input.notes,
+              LIMITS.diagnosticAnswerCharacters,
+              'Adjustment notes',
+            ),
+      progress: { practicalAttempts },
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function parseAcceptCourseAdjustmentInput(
+    value: unknown,
+  ): AcceptCourseAdjustmentInput {
+    const input = strictRecord(value, ['projectId', 'requestId', 'adjustment']);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      adjustment: opaqueRef(input.adjustment),
+    };
+  }
+
   function coverage(value: unknown): OnboardingSourceCoverage {
     const input = strictRecord(value, [
       'readyLessons',
@@ -1505,6 +1596,134 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function parseCourseAdjustmentProposal(
+    value: unknown,
+  ): CourseAdjustmentProposal {
+    const input = strictRecord(value, [
+      'id',
+      'revision',
+      'projectId',
+      'acceptedProposal',
+      'title',
+      'summary',
+      'focus',
+      'depth',
+      'patches',
+      'sources',
+      'gaps',
+      'acceptance',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (
+      input.acceptance !== 'ready' &&
+      input.acceptance !== 'coverage-pending'
+    ) {
+      invalid('Adjustment acceptance state is invalid.');
+    }
+    if (
+      !isDenseArray(input.patches) ||
+      input.patches.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Course adjustment patches are invalid.');
+    }
+    const patches = input.patches.map((item) => {
+      const patch = strictRecord(item, [
+        'remoteStepId',
+        'lessonTitle',
+        'sourceState',
+        'field',
+        'before',
+        'after',
+      ]);
+      if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, patch.field)) {
+        invalid('Course adjustment patch field is invalid.');
+      }
+      if (patch.sourceState === 'ready') {
+        invalid('Ready lessons cannot appear in an adjustment overlay.');
+      }
+      return {
+        remoteStepId: identifier(patch.remoteStepId, 'Remote step id'),
+        lessonTitle: boundedText(
+          patch.lessonTitle,
+          LIMITS.titleCharacters,
+          'Lesson title',
+        ),
+        sourceState: sourceState(patch.sourceState),
+        field: patch.field,
+        before: boundedText(
+          patch.before,
+          LIMITS.adjustmentBeforeAfterCharacters,
+          'Adjustment before',
+        ),
+        after: boundedText(
+          patch.after,
+          LIMITS.adjustmentBeforeAfterCharacters,
+          'Adjustment after',
+        ),
+      };
+    });
+    if (
+      new Set(patches.map((item) => `${item.remoteStepId}:${item.field}`))
+        .size !== patches.length
+    ) {
+      invalid('Course adjustment patches must be distinct.');
+    }
+    const sources = (() => {
+      if (
+        !isDenseArray(input.sources) ||
+        input.sources.length > LIMITS.proposalSources
+      ) {
+        invalid('Adjustment sources are invalid.');
+      }
+      return input.sources.map(proposalSource);
+    })();
+    return {
+      id: identifier(input.id, 'Adjustment id'),
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Adjustment revision',
+      ),
+      projectId: identifier(input.projectId, 'Project id'),
+      acceptedProposal: opaqueRef(input.acceptedProposal),
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
+      summary: personalization(input.summary),
+      focus:
+        input.focus === null
+          ? null
+          : (() => {
+              const change = strictRecord(input.focus, ['before', 'after']);
+              return {
+                before: boundedText(
+                  change.before,
+                  LIMITS.focusCharacters,
+                  'Focus before',
+                ),
+                after: boundedText(
+                  change.after,
+                  LIMITS.focusCharacters,
+                  'Focus after',
+                ),
+              };
+            })(),
+      depth:
+        input.depth === null
+          ? null
+          : (() => {
+              const change = strictRecord(input.depth, ['before', 'after']);
+              return {
+                before: depth(change.before),
+                after: depth(change.after),
+              };
+            })(),
+      patches,
+      sources,
+      gaps: gaps(input.gaps),
+      acceptance: input.acceptance,
+    };
+  }
+
   function parseAcceptedStepMapping(value: unknown): AcceptedStepMapping {
     const input = strictRecord(value, [
       'projectId',
@@ -1602,7 +1821,12 @@ export function createLearningOnboardingValidation(
   function parseLearningOnboardingSnapshot(
     value: unknown,
   ): LearningOnboardingSnapshot {
-    const input = strictRecord(value, ['interview', 'proposal', 'accepted']);
+    const input = strictRecord(value, [
+      'interview',
+      'proposal',
+      'accepted',
+      'adjustment',
+    ]);
     const accepted =
       input.accepted === null
         ? null
@@ -1647,6 +1871,10 @@ export function createLearningOnboardingValidation(
       proposal:
         input.proposal === null ? null : parseCourseProposal(input.proposal),
       accepted,
+      adjustment:
+        input.adjustment === null
+          ? null
+          : parseCourseAdjustmentProposal(input.adjustment),
     };
   }
 
@@ -1875,6 +2103,64 @@ export function createLearningOnboardingValidation(
     };
   }
 
+  function adjustmentProgress(
+    value: unknown,
+    lessons: readonly CompactSyllabus['topics'][number]['lessons'][number][],
+  ): CourseAdjustmentProgress {
+    const input = strictRecord(value, ['trust', 'practicalAttempts']);
+    rejectForbiddenAuthority(input);
+    if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
+      invalid('Adjustment progress must be marked untrusted human context.');
+    }
+    if (
+      !isDenseArray(input.practicalAttempts) ||
+      input.practicalAttempts.length > LIMITS.practicalAttemptLocators
+    ) {
+      invalid('Practical attempt locators are invalid.');
+    }
+    const stepIds = new Set(lessons.map((lesson) => lesson.stepId));
+    const practicalAttempts = input.practicalAttempts.map((item) => {
+      const locator = strictRecord(item, [
+        'trust',
+        'kind',
+        'attemptId',
+        'recordedRevision',
+        'remoteStepId',
+      ]);
+      rejectForbiddenAuthority(locator);
+      if (
+        locator.trust !== ONBOARDING_CONTEXT_TRUST.human ||
+        locator.kind !== 'practical-attempt-locator'
+      ) {
+        invalid('Practical attempt locator attribution is invalid.');
+      }
+      const remoteStepId = identifier(locator.remoteStepId, 'Remote step id');
+      if (!stepIds.has(remoteStepId)) {
+        invalid('Practical attempt locator is not in the retained syllabus.');
+      }
+      const parsed: PracticalAttemptLocator = {
+        trust: locator.trust,
+        kind: locator.kind,
+        attemptId: identifier(locator.attemptId, 'Attempt id'),
+        recordedRevision: boundedInteger(
+          locator.recordedRevision,
+          1,
+          LIMITS.revision,
+          'Attempt revision',
+        ),
+        remoteStepId,
+      };
+      return parsed;
+    });
+    if (
+      new Set(practicalAttempts.map((item) => item.attemptId)).size !==
+      practicalAttempts.length
+    ) {
+      invalid('Practical attempt locators must be distinct.');
+    }
+    return { trust: input.trust, practicalAttempts };
+  }
+
   function operation(value: unknown): LearningOnboardingOperation {
     const input = strictRecord(value, [
       'kind',
@@ -1882,6 +2168,8 @@ export function createLearningOnboardingValidation(
       'model',
       'changes',
       'target',
+      'progress',
+      'acceptedProposal',
     ]);
     if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
       invalid('Onboarding operation is not supported.');
@@ -1891,7 +2179,9 @@ export function createLearningOnboardingValidation(
       if (
         input.model !== undefined ||
         input.changes !== undefined ||
-        input.target !== undefined
+        input.target !== undefined ||
+        input.progress !== undefined ||
+        input.acceptedProposal !== undefined
       ) {
         invalid('Onboarding operation fields are invalid.');
       }
@@ -1899,7 +2189,11 @@ export function createLearningOnboardingValidation(
         InterviewPromptOperation | ProposeCourseOperation;
     }
     if (input.kind === 'revise-course') {
-      if (input.target !== undefined)
+      if (
+        input.target !== undefined ||
+        input.progress !== undefined ||
+        input.acceptedProposal !== undefined
+      )
         invalid('Revise-course fields are invalid.');
       const changes = strictRecord(input.changes, ['focus', 'depth']);
       return {
@@ -1915,6 +2209,38 @@ export function createLearningOnboardingValidation(
           depth: depth(changes.depth),
         },
       } satisfies ReviseCourseOperation;
+    }
+    if (input.kind === 'adjust-accepted-course') {
+      if (input.changes !== undefined || input.target !== undefined) {
+        invalid('Accepted-course adjustment fields are invalid.');
+      }
+      const model = modelContext(input.model);
+      const acceptedProposal = opaqueRef(input.acceptedProposal);
+      if (
+        acceptedProposal.id !== model.priorProposal.id ||
+        acceptedProposal.revision !== model.priorProposal.revision
+      ) {
+        invalid(
+          'Adjustment proposal identity does not match the retained syllabus.',
+        );
+      }
+      const adjusted: AdjustAcceptedCourseOperation = {
+        kind: 'adjust-accepted-course',
+        human,
+        model,
+        progress: adjustmentProgress(
+          input.progress,
+          model.syllabus.topics.flatMap((topic) => topic.lessons),
+        ),
+        acceptedProposal,
+      };
+      return adjusted;
+    }
+    if (input.kind !== 'generate-selected-lesson') {
+      invalid('Onboarding operation is not supported.');
+    }
+    if (input.progress !== undefined || input.acceptedProposal !== undefined) {
+      invalid('Selected-lesson fields are invalid.');
     }
     const target = strictRecord(input.target, [
       'remoteStepId',
@@ -2520,6 +2846,7 @@ export function createLearningOnboardingValidation(
       'personalization',
       'provenance',
       'quota',
+      'adjustment',
       'message',
       'retryable',
       'accounting',
@@ -2550,6 +2877,7 @@ export function createLearningOnboardingValidation(
         'sourceCoverage',
         'personalization',
         'provenance',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2579,6 +2907,7 @@ export function createLearningOnboardingValidation(
         'prompt',
         'assessment',
         'lesson',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2683,6 +3012,7 @@ export function createLearningOnboardingValidation(
         'firstLesson',
         'sourceCoverage',
         'personalization',
+        'adjustment',
         'message',
         'retryable',
         'accounting',
@@ -2714,6 +3044,204 @@ export function createLearningOnboardingValidation(
       requestId: identifier(input.requestId, 'Request id'),
       scope: 'selected-existing-lesson',
       lesson,
+      sources,
+      bibliography: listedBibliography,
+      evidence: evidenceList(input.evidence, originals),
+      gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+      provenance: input.provenance.map(provenance),
+      quota: quota(input.quota),
+    };
+  }
+
+  function wireAdjustmentPatch(
+    value: unknown,
+    lessons: readonly CompactSyllabus['topics'][number]['lessons'][number][],
+  ): CourseAdjustmentPatch {
+    const input = strictRecord(value, [
+      'remoteStepId',
+      'field',
+      'before',
+      'after',
+      'practice',
+    ]);
+    if (!includesMember(COURSE_ADJUSTMENT_PATCH_FIELDS, input.field)) {
+      invalid('Course adjustment patch field is invalid.');
+    }
+    const field: CourseAdjustmentPatchField = input.field;
+    const remoteStepId = identifier(input.remoteStepId, 'Remote step id');
+    const compact = lessons.find((lesson) => lesson.stepId === remoteStepId);
+    if (compact === undefined) {
+      invalid('Adjustment patch is not in the retained syllabus.');
+    }
+    if (compact.sourceState === 'ready') {
+      invalid('Accepted ready lessons cannot be replaced by an adjustment.');
+    }
+    const practice =
+      field === 'practice' ? practiceBrief(input.practice) : null;
+    if (field !== 'practice' && input.practice !== null) {
+      invalid('Non-practice adjustment patches cannot include a brief.');
+    }
+    if (field === 'practice' && !isPracticeRole(compact.role)) {
+      invalid('Practice patches require a pending practice or capstone step.');
+    }
+    const before = boundedText(
+      input.before,
+      LIMITS.adjustmentBeforeAfterCharacters,
+      'Adjustment before',
+    );
+    const after = boundedText(
+      input.after,
+      LIMITS.adjustmentBeforeAfterCharacters,
+      'Adjustment after',
+    );
+    if (before === after && field !== 'practice') {
+      invalid('Adjustment patches must change the named field.');
+    }
+    return { remoteStepId, field, before, after, practice };
+  }
+
+  function adjustmentSuccess(
+    input: Record<string, unknown>,
+    request: LearningOnboardingRequest,
+  ): AcceptedCourseAdjustmentSuccess {
+    if (request.operation.kind !== 'adjust-accepted-course') {
+      invalid('Adjustment success does not match its request.');
+    }
+    rejectDefinedFields(
+      input,
+      [
+        'prompt',
+        'assessment',
+        'syllabus',
+        'firstLesson',
+        'lesson',
+        'sourceCoverage',
+        'personalization',
+        'message',
+        'retryable',
+        'accounting',
+        'expectedRevision',
+        'currentRevision',
+      ],
+      'Adjustment success outcome is invalid.',
+    );
+    const lessons = request.operation.model.syllabus.topics.flatMap(
+      (topic) => topic.lessons,
+    );
+    const sources = acquiredSources(input.sources);
+    const originals = sources.map((source) => ({
+      sourceId: source.content.revision.sourceId,
+      revisionId: source.content.revision.revisionId,
+      canonicalText: source.content.revision.canonicalText,
+      sha256: source.content.revision.sha256,
+      canonicalizationVersion: source.content.revision.canonicalizationVersion,
+    }));
+    const body = strictRecord(input.adjustment, [
+      'acceptedProposal',
+      'summary',
+      'focus',
+      'depth',
+      'patches',
+      'citations',
+    ]);
+    const acceptedProposal = opaqueRef(body.acceptedProposal);
+    if (
+      acceptedProposal.id !== request.operation.acceptedProposal.id ||
+      acceptedProposal.revision !== request.operation.acceptedProposal.revision
+    ) {
+      invalid(
+        'Adjustment success identity does not match the retained syllabus.',
+      );
+    }
+    if (
+      !isDenseArray(body.patches) ||
+      body.patches.length > LIMITS.adjustmentPatches
+    ) {
+      invalid('Course adjustment patches are invalid.');
+    }
+    const patches = body.patches.map((item) =>
+      wireAdjustmentPatch(item, lessons),
+    );
+    if (
+      new Set(patches.map((item) => `${item.remoteStepId}:${item.field}`))
+        .size !== patches.length
+    ) {
+      invalid('Course adjustment patches must be distinct.');
+    }
+    const listedBibliography = bibliography(input.bibliography);
+    bibliographyClosure(lessons, listedBibliography);
+    if (
+      !isDenseArray(input.provenance) ||
+      input.provenance.length < 1 ||
+      input.provenance.length > LIMITS.provenanceReceipts
+    ) {
+      invalid('AI provenance receipts are invalid.');
+    }
+    const citations =
+      body.citations === undefined
+        ? []
+        : (() => {
+            if (
+              !isDenseArray(body.citations) ||
+              body.citations.length > LIMITS.retrievalPassages
+            ) {
+              invalid('Adjustment citations are invalid.');
+            }
+            return body.citations.map((item) => citation(item, originals));
+          })();
+    const focus =
+      body.focus === null
+        ? null
+        : (() => {
+            const change = strictRecord(body.focus, ['before', 'after']);
+            return {
+              before: boundedText(
+                change.before,
+                LIMITS.focusCharacters,
+                'Focus before',
+              ),
+              after: boundedText(
+                change.after,
+                LIMITS.focusCharacters,
+                'Focus after',
+              ),
+            };
+          })();
+    const depthChange =
+      body.depth === null
+        ? null
+        : (() => {
+            const change = strictRecord(body.depth, ['before', 'after']);
+            return {
+              before: depth(change.before),
+              after: depth(change.after),
+            };
+          })();
+    if (focus === null && depthChange === null && patches.length === 0) {
+      invalid('An adjustment must propose a visible change.');
+    }
+    if (focus && focus.before === focus.after) {
+      invalid('Focus adjustment must change the focus text.');
+    }
+    if (depthChange && depthChange.before === depthChange.after) {
+      invalid('Depth adjustment must change the lesson depth.');
+    }
+    const summary = personalization(body.summary);
+    if (summary.masteryEstablished !== false) {
+      invalid('Adjustment observations cannot establish mastery.');
+    }
+    return {
+      outcome: 'success',
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: 'accepted-course-adjustment',
+      adjustment: {
+        acceptedProposal,
+        summary,
+        focus,
+        depth: depthChange,
+        patches,
+        citations,
+      },
       sources,
       bibliography: listedBibliography,
       evidence: evidenceList(input.evidence, originals),
@@ -2896,6 +3424,9 @@ export function createLearningOnboardingValidation(
       }
       return courseSuccess(input);
     }
+    if (input.scope === 'accepted-course-adjustment') {
+      return adjustmentSuccess(input, request);
+    }
     return selectedSuccess(input, request);
   }
 
@@ -2921,6 +3452,9 @@ export function createLearningOnboardingValidation(
     parseReviseCourseInput,
     parseAcceptCourseInput,
     parseEnsureLessonInput,
+    parseAdjustAcceptedCourseInput,
+    parseAcceptCourseAdjustmentInput,
+    parseCourseAdjustmentProposal,
     parseOnboardingRequest,
     parseCourseProposal,
     parseAcceptedStepMapping,
