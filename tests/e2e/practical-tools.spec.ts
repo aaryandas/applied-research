@@ -9,22 +9,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolState } from '../../src/contracts/workspace';
 import { createPracticalToolAdapter } from '../../src/renderer/practical/tool-adapter';
+import { createPracticalContextResolver } from '../../src/renderer/practical/context-resolver';
+import { createPracticalSaveSession } from '../../src/renderer/practical/save-session';
+import type { RecordPracticalResultInput } from '../../src/contracts/practical-work';
 import {
   closeTestApplication,
   useElectronCloseHandling,
 } from './electron-lifecycle';
 
 async function nativeBridge(page: Page) {
+  let currentState: ToolState | null = null;
   let publish: (state: ToolState) => void = () => {};
-  await page.exposeFunction('reportPracticalToolState', (state: ToolState) =>
-    publish(state),
-  );
+  await page.exposeFunction('reportPracticalToolState', (state: ToolState) => {
+    currentState = state;
+    publish(state);
+  });
   await page.evaluate(() => {
     window.desktop.onToolState((state) =>
       Reflect.get(window, 'reportPracticalToolState')(state),
     );
   });
   return {
+    getState: () => currentState,
     onToolState: (listener: (state: ToolState) => void) => {
       publish = listener;
       return () => {
@@ -89,6 +95,91 @@ test('Practical tool adapter uses an isolated real guest and reports blocked, fa
     await page.evaluate(() =>
       window.desktop.resizeTool({ x: 320, y: 80, width: 480, height: 400 }),
     );
+    const sessionId = await application.evaluate(({ webContents }) =>
+      String(
+        webContents
+          .getAllWebContents()
+          .find(
+            (contents) =>
+              contents.getURL() === 'https://www.desmos.com/calculator',
+          )?.id,
+      ),
+    );
+    expect(sessionId).not.toBe('undefined');
+    const input: RecordPracticalResultInput = {
+      activity: {
+        projectId: '11111111-1111-1111-1111-111111111111',
+        origin: {
+          path: {
+            pathId: '22222222-2222-2222-2222-222222222222',
+            pathRevision: 1,
+            topicId: '33333333-3333-3333-3333-333333333333',
+            lessonId: '44444444-4444-4444-4444-444444444444',
+          },
+        },
+        title: 'Synthetic guest isolation activity',
+        instructions: 'Inspect the supported tool.',
+        objective: 'Keep host metadata separate from guest content.',
+      },
+      attemptId: '55555555-5555-5555-5555-555555555555',
+      expectedRevision: 0,
+      draft: {
+        prediction: '',
+        attempt: '',
+        reportedResult: { kind: 'user-reported-text', text: '' },
+        selectedEvidence: null,
+        reflection: { authorKind: 'human', text: '' },
+      },
+    };
+    const save = createPracticalSaveSession({ input, onChange: () => {} });
+    const context = createPracticalContextResolver({
+      identity: input,
+      getSnapshot: save.getContextSnapshot,
+      toolSessionId: sessionId,
+      getToolState: () => {
+        const state = bridge.getState();
+        return state
+          ? {
+              ...state,
+              error: state.error || null,
+              sessionId,
+              controls: [
+                {
+                  name: 'Open externally',
+                  description:
+                    'Stop guidance and open the chosen tool externally.',
+                },
+              ],
+            }
+          : null;
+      },
+    });
+    const target = {
+      trigger: 'explicit-action' as const,
+      target: {
+        scope: 'applied-research' as const,
+        surface: 'practical-work' as const,
+        activity: input.activity,
+        attemptId: input.attemptId,
+        target: 'tool-controls' as const,
+      },
+    };
+    const resolved = await context.resolveTarget(
+      target,
+      new AbortController().signal,
+    );
+    expect(resolved).toMatchObject({
+      status: 'available',
+      context: {
+        guest: { sessionId, url: 'https://www.desmos.com/calculator' },
+        controls: [{ name: 'Open externally' }],
+      },
+    });
+    expect(JSON.stringify(resolved)).not.toContain('Input <input');
+    context.dispose();
+    expect(
+      await context.resolveTarget(target, new AbortController().signal),
+    ).toMatchObject({ status: 'cancelled' });
     const isolation = await application.evaluate(async ({ webContents }) => {
       const guest = webContents
         .getAllWebContents()

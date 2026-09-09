@@ -46,6 +46,46 @@ function committed(revision: number): PracticalCommitResult {
 }
 
 describe('practical save session', () => {
+  it('exposes detached current and acknowledged drafts without promoting edits during a save', async () => {
+    let finish!: (result: PracticalCommitResult) => void;
+    const commit = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<PracticalCommitResult>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ status: 'failed' });
+    const session = createPracticalSaveSession({
+      input,
+      commit,
+      onChange: () => {},
+    });
+    expect(session.getContextSnapshot().saved).toBeNull();
+    session.update({
+      reflection: { authorKind: 'human', text: '  submitted\n' },
+    });
+    const saving = session.flush();
+    session.update({
+      reflection: { authorKind: 'human', text: '  still editing\n' },
+    });
+    finish(committed(1));
+    await saving;
+    const snapshot = session.getContextSnapshot();
+    expect(snapshot.saved).toEqual({
+      revision: 1,
+      draft: {
+        ...input.draft,
+        reflection: { authorKind: 'human', text: '  submitted\n' },
+      },
+    });
+    expect(snapshot.draft.reflection.text).toBe('  still editing\n');
+    snapshot.draft.reflection.text = 'mutated';
+    expect(session.getContextSnapshot().draft.reflection.text).toBe(
+      '  still editing\n',
+    );
+  });
   it('waits for acknowledgement, serializes edits and advances expected revision', async () => {
     let resolve: (result: PracticalCommitResult) => void = () => {};
     const commit = vi
