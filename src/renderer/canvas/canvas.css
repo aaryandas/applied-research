@@ -31,16 +31,15 @@
   color: var(--accent);
   background: var(--surface-subtle);
 }
-/* Blanket ring: React Flow's nodes, edges and tabIndex=0 pane are not rendered by this
-   surface, so they cannot carry .ui-focusable. Values are base.css's shared ring. */
-.workspace-canvas :focus-visible,
-.workspace-canvas .react-flow__node:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
-}
-.workspace-canvas ::selection {
-  background: var(--human-soft);
-  color: var(--ink);
+/* React Flow's stylesheet sets outline: none on selectable nodes, edges and the
+   selection rect, so the app-wide :focus-visible ring in styles.css cannot reach them.
+   Restore it there only, with the same tokens; everything else in the surface already
+   gets the shared ring. */
+.workspace-canvas .react-flow__node.selectable:focus-visible,
+.workspace-canvas .react-flow__edge:focus-visible,
+.workspace-canvas .react-flow__nodesselection-rect:focus-visible {
+  outline: var(--focus-ring) solid var(--focus);
+  outline-offset: var(--focus-offset);
 }
 .workspace-canvas-node {
   padding: 24px;
