@@ -17,6 +17,13 @@ import type {
   ReturnedPracticalEvidence,
   SelectedPracticalFile,
 } from '../../contracts/practical-work';
+import type {
+  PracticalAttemptJourney,
+  PracticalAttemptRevision,
+  PracticalAttemptSummary,
+  PracticalFilePreviewResult,
+  PracticalMilestoneStatus,
+} from '../../contracts/practical-records';
 import {
   createPracticalSaveSession,
   type PracticalSaveState,
@@ -26,6 +33,14 @@ import {
   type PracticalActivityGuidance,
 } from './ActivityGuidanceControls';
 import { PracticalField } from './PracticalField';
+import { ActivityChooser } from './ActivityChooser';
+import { AttemptHistory } from './AttemptHistory';
+import { ProjectBriefPanel } from './ProjectBriefPanel';
+import { MilestoneList } from './MilestoneList';
+import { EvidencePreview } from './EvidencePreview';
+import { HumanPlanDraft } from './HumanPlanForm';
+import { EMPTY_HUMAN_PLAN } from './human-plan';
+import { projectPracticeCheckpoints } from '../../contracts/practical-brief';
 import {
   createPracticalContextResolver,
   type PracticalContextRegistration,
@@ -67,6 +82,23 @@ export interface PracticalWorkProps {
   registerFlush: RegisterPracticalFlush;
   onReturnToLearning: (activity: PracticalActivity) => void | Promise<void>;
   onRequestGuidance?: (request: PracticalGuidanceRequest) => void;
+  availableActivities?: readonly PracticalActivity[];
+  onSelectActivity?: (activity: PracticalActivity) => void;
+  journey?: PracticalAttemptJourney;
+  attempts?: readonly PracticalAttemptSummary[];
+  previewFile?: (selectionId: string) => Promise<PracticalFilePreviewResult>;
+  exportFile?: (selectionId: string) => Promise<void>;
+  onRecordProgress?: (input: {
+    checkpointId: string;
+    expectedRevision: number;
+    status: PracticalMilestoneStatus;
+    note: string;
+    evidenceSelectionId: string | null;
+  }) => Promise<void>;
+  onSaveHumanPlan?: (plan: PracticalHumanPlan) => Promise<void>;
+  onResumeAttempt?: (attemptId: string) => void;
+  onStartNewAttempt?: () => void;
+  attemptRevisions?: readonly PracticalAttemptRevision[];
 }
 
 const EMPTY_DRAFT: PracticalDraft = {
@@ -114,7 +146,12 @@ export function PracticalWork(
       </section>
     );
   if (!props.activity || props.activityStatus === 'unavailable')
-    return (
+    return props.onSelectActivity ? (
+      <ActivityChooser
+        activities={props.availableActivities ?? []}
+        onSelect={props.onSelectActivity}
+      />
+    ) : (
       <section className="practical-work" aria-label="Practical work">
         <h1 className="practical-heading">Practical work</h1>
         <p className="practical-copy">
@@ -282,16 +319,95 @@ function ActivityWork(
     );
   }
 
+  const selectedFiles = evidence.filter(
+    (item): item is SelectedPracticalFile => item.kind === 'user-selected-file',
+  );
+  const brief = props.journey?.brief ?? null;
+  const milestoneSource = brief
+    ? {
+        kind: 'accepted-brief' as const,
+        briefRevision: brief.briefRevision,
+      }
+    : props.journey && props.journey.humanPlanRevision > 0
+      ? {
+          kind: 'human-plan' as const,
+          planRevision: props.journey.humanPlanRevision,
+        }
+      : null;
+  const checkpoints = brief
+    ? projectPracticeCheckpoints(brief.brief)
+    : (props.journey?.humanPlan?.milestones ?? []);
+
+  function leaveAttempt(next: () => void): void {
+    runAction(async () => {
+      await stopGuidance?.();
+      const result = await session.flush();
+      if (result.status === 'ready') next();
+    });
+  }
+
   return (
     <section className="practical-work" aria-labelledby={`${id}-title`}>
       <header>
         <h1 className="practical-heading" id={`${id}-title`}>
           {activity.title}
         </h1>
-        <p className="practical-copy practical-objective">
-          {activity.objective}
-        </p>
       </header>
+      <ProjectBriefPanel activity={activity} brief={brief} />
+      {props.onResumeAttempt && props.onStartNewAttempt && (
+        <AttemptHistory
+          attempts={props.attempts ?? []}
+          currentAttemptId={props.attemptId}
+          revisions={(props.attemptRevisions ?? []).map((revision) => ({
+            revision: revision.revision,
+            recordedAt: revision.recordedAt,
+          }))}
+          onResume={(attemptId) =>
+            leaveAttempt(() => props.onResumeAttempt?.(attemptId))
+          }
+          onStartNew={() => leaveAttempt(() => props.onStartNewAttempt?.())}
+        />
+      )}
+      {milestoneSource && checkpoints.length > 0 ? (
+        <MilestoneList
+          checkpoints={checkpoints}
+          source={milestoneSource}
+          progress={props.journey?.milestones ?? []}
+          evidence={selectedFiles}
+          disabled={busy || conflict}
+          onChange={(input) => {
+            if (!props.onRecordProgress) return;
+            void props
+              .onRecordProgress(input)
+              .catch(() =>
+                setMessage(
+                  'Checkpoint progress could not be saved. Your draft is here; try again.',
+                ),
+              );
+          }}
+        />
+      ) : null}
+      {!brief ? (
+        <HumanPlanDraft
+          key={props.journey?.humanPlanRevision ?? 0}
+          initial={props.journey?.humanPlan ?? EMPTY_HUMAN_PLAN}
+          disabled={busy || conflict}
+          onSave={(plan) => {
+            if (!props.onSaveHumanPlan) return;
+            runAction(async () => {
+              await props.onSaveHumanPlan?.(plan);
+            });
+          }}
+        />
+      ) : null}
+      {props.previewFile && props.exportFile ? (
+        <EvidencePreview
+          files={selectedFiles}
+          previewFile={props.previewFile}
+          exportFile={props.exportFile}
+          disabled={busy}
+        />
+      ) : null}
       <section
         className="practical-section"
         data-practical-target="activity-instructions"

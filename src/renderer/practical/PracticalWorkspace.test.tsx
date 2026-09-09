@@ -6,6 +6,10 @@ import type {
   PracticalDraft,
 } from '../../contracts/practical-work';
 import { PracticalWorkspace } from './PracticalWorkspace';
+import {
+  loadedJourney,
+  practicalWorkspaceMethods,
+} from './workspace-bridge.fixture';
 
 const activity: PracticalActivity = {
   projectId: 'a1234567-1234-1234-1234-123456789012',
@@ -31,20 +35,20 @@ const draft: PracticalDraft = {
 const attemptId = 'e1234567-1234-1234-1234-123456789012';
 
 function bridge(): PracticalWorkspaceBridge {
-  return {
-    loadPracticalAttempt: vi.fn<
-      PracticalWorkspaceBridge['loadPracticalAttempt']
-    >(async () => ({
+  const attempt = {
+    attemptId,
+    activity,
+    currentRevision: 3,
+    draft,
+    revisions: [],
+    returnedEvidence: [],
+  };
+  return practicalWorkspaceMethods({
+    loadPracticalAttempt: vi.fn(async () => ({
       status: 'loaded',
-      attempt: {
-        attemptId,
-        activity,
-        currentRevision: 3,
-        draft,
-        revisions: [],
-        returnedEvidence: [],
-      },
+      attempt,
     })),
+    loadPracticalJourney: vi.fn(async () => loadedJourney(attempt)),
     recordPracticalResult: vi.fn<
       PracticalWorkspaceBridge['recordPracticalResult']
     >(async (input) => ({
@@ -58,11 +62,10 @@ function bridge(): PracticalWorkspaceBridge {
         changed: true,
       },
     })),
-    selectPracticalFile: vi.fn<PracticalWorkspaceBridge['selectPracticalFile']>(
-      async () => ({ status: 'cancelled' }),
-    ),
+    selectPracticalFile: vi.fn(async () => ({ status: 'cancelled' })),
     cancelPracticalFileSelection: vi.fn(async () => {}),
-  };
+    cancelPracticalExport: vi.fn(async () => {}),
+  });
 }
 
 it('reopens the durable attempt and returns only after saving its next exact revision', async () => {
@@ -102,7 +105,7 @@ it('reopens the durable attempt and returns only after saving its next exact rev
 
 it('refuses a mismatched loaded origin and offers a retry without exposing the other draft', async () => {
   const desktop = bridge();
-  vi.mocked(desktop.loadPracticalAttempt).mockResolvedValueOnce({
+  vi.mocked(desktop.loadPracticalJourney).mockResolvedValueOnce({
     status: 'loaded',
     attempt: {
       attemptId,
@@ -112,6 +115,8 @@ it('refuses a mismatched loaded origin and offers a retry without exposing the o
       revisions: [],
       returnedEvidence: [],
     },
+    attempts: [],
+    journey: loadedJourney(null).journey,
   });
   render(
     <PracticalWorkspace
@@ -154,13 +159,16 @@ it('cancels native selection when its owning workspace is disposed', async () =>
   );
   mounted.unmount();
   expect(desktop.cancelPracticalFileSelection).toHaveBeenCalled();
+  expect(desktop.cancelPracticalExport).toHaveBeenCalled();
 });
 
 it('keeps a new draft after failed import and can retry the selected file', async () => {
   const desktop = bridge();
-  vi.mocked(desktop.loadPracticalAttempt).mockResolvedValue({
+  vi.mocked(desktop.loadPracticalJourney).mockResolvedValue({
     status: 'loaded',
     attempt: null,
+    attempts: [],
+    journey: loadedJourney(null).journey,
   });
   const file = {
     kind: 'user-selected-file' as const,
@@ -195,7 +203,9 @@ it('keeps a new draft after failed import and can retry the selected file', asyn
     '  Keep this draft.\n',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Select a result file' }));
-  await waitFor(() => expect(screen.getByText('trial.csv')).toBeVisible());
+  await waitFor(() =>
+    expect(screen.getAllByText('trial.csv').length).toBeGreaterThan(0),
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Save work' }));
   await waitFor(() =>
     expect(desktop.recordPracticalResult).toHaveBeenCalledWith(

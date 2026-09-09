@@ -138,7 +138,39 @@
   color: var(--danger);
 }
 
-.practical-status {
-  display: block;
-  margin-block: 1em;
+.practical-preview {
+  max-width: 68ch;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 0.75rem;
+  background: var(--surface);
+  font: 12px/1.5 var(--font-ui);
+}
+.practical-activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.practical-activity-list .practical-button {
+  width: 100%;
+  text-align: left;
+}
+.practical-milestone {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.practical-milestone select,
+.practical-section select {
+  min-height: 2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
 }

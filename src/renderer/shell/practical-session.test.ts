@@ -13,6 +13,7 @@ import type {
   PracticalFlushResult,
 } from '../../contracts/practical-work';
 import { PracticalSessionOwner } from './practical-session';
+import { practicalWorkspaceMethods } from '../practical/workspace-bridge.fixture';
 
 const activity: PracticalActivity = {
   projectId: 'a1234567-1234-4234-8234-123456789012',
@@ -39,12 +40,12 @@ const savedId = 'e1234567-1234-4234-8234-123456789012';
 function setup(load: PracticalWorkspaceBridge['loadPracticalAttempt']) {
   let requester: CompanionRequester | null = null;
   const states: CompanionState[] = [];
-  const bridge: PracticalWorkspaceBridge = {
+  const bridge: PracticalWorkspaceBridge = practicalWorkspaceMethods({
     loadPracticalAttempt: load,
     recordPracticalResult: async () => ({ status: 'failed' }),
     selectPracticalFile: async () => ({ status: 'cancelled' }),
     cancelPracticalFileSelection: async () => {},
-  };
+  });
   const owner = new PracticalSessionOwner({
     bridge,
     attemptId: 'f1234567-1234-4234-8234-123456789012',

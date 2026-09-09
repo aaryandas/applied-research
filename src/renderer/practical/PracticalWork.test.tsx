@@ -69,6 +69,29 @@ it('shows an honest empty state without activity controls', () => {
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 });
 
+it('offers an honest chooser of saved lesson activities when none is selected', () => {
+  const onSelect = vi.fn();
+  const activity = props().activity!;
+  render(
+    <PracticalWork
+      {...props()}
+      activity={null}
+      availableActivities={[activity]}
+      onSelectActivity={onSelect}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Synthetic activity/ }));
+  expect(onSelect).toHaveBeenCalledWith(activity);
+});
+
+it('does not claim a generated capstone when no accepted brief is retained', () => {
+  render(<PracticalWork {...props()} />);
+  expect(
+    screen.getByText(/generated course brief or capstone is not available/i),
+  ).toBeVisible();
+  expect(screen.getByRole('textbox', { name: /Outcome/ })).toBeVisible();
+});
+
 it('retains unavailable drafts and does not leave on a blocked save', async () => {
   const options = props();
   render(<PracticalWork {...options} />);
@@ -419,7 +442,7 @@ it('offers explicit selected-result guidance for human-reported text and detache
   expect(guidance.mock.calls[0]?.[0].target.target).toBe('selected-result');
   expect(options.activity?.title).toBe('Synthetic activity');
   expect(
-    screen.getByRole('heading', { name: 'Synthetic activity' }),
+    screen.getByRole('heading', { level: 1, name: 'Synthetic activity' }),
   ).toBeVisible();
 });
 

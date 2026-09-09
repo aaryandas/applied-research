@@ -1,6 +1,6 @@
 # Practical Work checkpoint
 
-September 9 AR-19 update: the transaction-backed result/file producer and `PracticalWorkspace` load/save wrapper now exist. [The owning contract and exact AR-37 integration handoff](../../../context/practical-work.md) supersedes the older missing-producer statements below. Shared migration, desktop bridge and Shell/companion wiring remain pending; no full connected acceptance is claimed. The existing visual composition is retained.
+September 9 AR-50: the local Practical journey is connected through Shell → PracticalSession → PracticalWorkspace and SQLite `0003`/`0004`. [The owning contract](../../../context/practical-work.md) is current. A generated capstone is not claimed. AR-52 PR #45 is not accepted producer input.
 
 Import `PracticalWork` from `./PracticalWork`. It renders supplied activity context, prediction, attempt, reported result, a single selected evidence reference, separately authored reflection and an explicit return action. No example curriculum or production adapter is supplied. The READY `PracticalTarget`, `PracticalGuidanceRequest` and `PracticalActivity` contract shapes remain unchanged by the component repairs.
 
