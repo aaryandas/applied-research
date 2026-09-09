@@ -54,6 +54,7 @@ export interface ReaderNavigationControls {
   flushViewNavigation: () => Promise<boolean>;
   openOrigin: (origin: LearningOrigin) => void;
   editEntry: (entry: EntryRevisionReference) => void;
+  revealEntry: (entry: EntryRevisionReference) => void;
 }
 
 /** The shell must flush before replacing this project-keyed component. */
@@ -119,6 +120,8 @@ function ProjectReader({
   });
   const [supports, setSupports] = useState<string[]>([]);
   const [reveal, setReveal] = useState<{ span: TextSpan | null } | null>(null);
+  const [revealedEntry, setRevealedEntry] =
+    useState<EntryRevisionReference | null>(null);
   const isOccupied = busy || importState.saving;
   function selectPath(next: PathOrigin | undefined): void {
     setPath(next);
@@ -143,6 +146,7 @@ function ProjectReader({
       }
       edit(entry);
     },
+    revealEntry,
   }));
   useEffect(() => {
     active.current = true;
@@ -330,6 +334,28 @@ function ProjectReader({
       highlight: result.record,
     };
   }
+  function revealEntry(reference: EntryRevisionReference): void {
+    const entry = workspace.entries.find(
+      (item) => item.id === reference.entryId,
+    );
+    if (!entry) {
+      setRevealedEntry(null);
+      setMessage('The referenced entry is unavailable.');
+      return;
+    }
+    const revision = entry.revisions.find(
+      (item) => item.revision === reference.revision,
+    );
+    if (!revision) {
+      setRevealedEntry(null);
+      setMessage(
+        `This link refers to revision ${reference.revision}; that retained wording is unavailable.`,
+      );
+      return;
+    }
+    setMessage(null);
+    setRevealedEntry(reference);
+  }
   function openOrigin(origin: LearningOrigin): void {
     if (!origin.sourceRevisionId && origin.path) {
       void openLesson(origin.path);
@@ -510,9 +536,11 @@ function ProjectReader({
             session={session}
             supports={supports}
             busy={busy}
+            reveal={revealedEntry}
             onSupportsChange={setSupports}
             onEdit={edit}
             onOpenOrigin={openOrigin}
+            onRevealEntry={revealEntry}
             onInsight={() => void retainSelectionAndBegin('insight')}
             onSource={(source) =>
               void beforeNavigation(() => {

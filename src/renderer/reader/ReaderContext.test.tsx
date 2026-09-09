@@ -83,6 +83,7 @@ describe('shared project context controls', () => {
       onSupportsChange: vi.fn(),
       onEdit: vi.fn(),
       onOpenOrigin: vi.fn(),
+      onRevealEntry: vi.fn(),
       onInsight: vi.fn(),
       onSource: vi.fn(),
     };

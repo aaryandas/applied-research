@@ -40,6 +40,7 @@ import {
   listPracticalActivities,
   searchWorkspace,
 } from './shell-records';
+import type { WorkspaceSearchResult } from './shell/record-navigation';
 import { useWorkspaceFlush } from './useWorkspaceFlush';
 import './shell.css';
 
@@ -293,6 +294,45 @@ export function Shell({
       reader.current?.openOrigin({ path });
     }, 'view');
   }
+  function revealEntry(reference: EntryRevisionReference): void {
+    stopNativePractical();
+    void navigate(() => {
+      setDestination('reader');
+      reader.current?.revealEntry(reference);
+    }, 'view');
+  }
+  function openSearchResult(result: WorkspaceSearchResult): void {
+    const { target } = result;
+    if (target.kind === 'source') {
+      openOrigin({ sourceRevisionId: target.sourceRevisionId });
+      return;
+    }
+    if (target.kind === 'lesson') {
+      selectLesson(target.path);
+      return;
+    }
+    if (target.kind === 'topic') {
+      const pathRecord = workspace.paths.find(
+        (item) => item.id === target.path.pathId,
+      );
+      const revision =
+        pathRecord?.currentRevision === target.path.pathRevision
+          ? pathRecord.current
+          : pathRecord?.revisions.find(
+              (item) => item.revision === target.path.pathRevision,
+            );
+      const firstLesson = revision?.topics.find(
+        (topic) => topic.id === target.path.topicId,
+      )?.lessons[0];
+      if (firstLesson) {
+        selectLesson({ ...target.path, lessonId: firstLesson.id });
+        return;
+      }
+      openOrigin({ path: target.path });
+      return;
+    }
+    revealEntry(target.reference);
+  }
   function selectPracticalActivity(activity: PracticalActivity): void {
     stopNativePractical();
     void navigate(() => {
@@ -536,7 +576,7 @@ export function Shell({
               <button onClick={() => go('reader')}>Back to reading</button>
             </header>
             <label>
-              Search your sources and saved writing
+              Search lessons, sources and saved writing
               <input
                 ref={search}
                 type="search"
@@ -550,17 +590,13 @@ export function Shell({
             <ul>
               {results.map((result) => (
                 <li key={result.id}>
-                  {result.origin ? (
-                    <button onClick={() => openOrigin(result.origin!)}>
-                      <small>{result.kind}</small>
-                      <span>{result.label}</span>
-                    </button>
-                  ) : (
-                    <div>
-                      <small>{result.kind} · no source origin</small>
-                      <p className="reader-human">{result.label}</p>
-                    </div>
-                  )}
+                  <button onClick={() => openSearchResult(result)}>
+                    <small>{result.kind}</small>
+                    <span>{result.label}</span>
+                    {result.excerpt ? (
+                      <p className="reader-muted">{result.excerpt}</p>
+                    ) : null}
+                  </button>
                 </li>
               ))}
             </ul>

@@ -614,4 +614,73 @@ describe('Reader human learning flow', () => {
       expect(await flush!()).toBe(true);
     });
   });
+  it('reveals an originless note and a historical revision without editing or changing reading text', async () => {
+    const { bridge } = fixture();
+    await bridge.importTextSource({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Retained source',
+      text: 'Unrelated reading passage',
+      acquiredAt: '',
+    });
+    const note = await bridge.saveReadingNote({
+      projectId: 'project',
+      expectedRevision: 0,
+      title: 'Originless canvas note',
+      body: 'Exact originless wording',
+      origin: null,
+    });
+    if (note.status !== 'committed') throw new Error('expected commit');
+    await bridge.saveReadingNote({
+      projectId: 'project',
+      entryId: note.record.id,
+      expectedRevision: 1,
+      title: 'Originless canvas note',
+      body: 'Current wording replaced later',
+      origin: null,
+    });
+    const workspace = await bridge.getLearningWorkspace('project');
+    const navigationRef = createRef<ReaderNavigationControls>();
+    render(
+      <Reader
+        bridge={bridge}
+        workspace={workspace}
+        onNavigate={vi.fn()}
+        onWorkspace={vi.fn()}
+        registerFlush={vi.fn()}
+        navigationRef={navigationRef}
+      />,
+    );
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+    act(() =>
+      navigationRef.current!.revealEntry({
+        entryId: note.record.id,
+        revision: 1,
+      }),
+    );
+    const historical = await screen.findByRole('heading', {
+      name: 'Originless canvas note · revision 1',
+    });
+    expect(historical).toHaveFocus();
+    expect(screen.getByText('Exact originless wording')).toBeVisible();
+    expect(screen.getByText(/This is the retained revision/)).toBeVisible();
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+    expect(bridge.saveReadingNote).toHaveBeenCalledTimes(2);
+    act(() =>
+      navigationRef.current!.revealEntry({
+        entryId: 'missing',
+        revision: 1,
+      }),
+    );
+    expect(
+      screen.getByText('The referenced entry is unavailable.'),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      'Unrelated reading passage',
+    );
+  });
 });

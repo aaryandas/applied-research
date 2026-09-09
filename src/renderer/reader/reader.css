@@ -260,6 +260,15 @@
 .reader-entry {
   margin: 24px 0;
 }
+.reader-entry__heading {
+  font: 500 16px/1.3 var(--font-reading);
+  margin: 0 0 8px;
+}
+.reader-entry--revealed {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  padding: 8px;
+}
 /* Self-contained: it no longer inherits the stack from the bare-label shim above. 13px and
    6px are today's shipping values and the token scale has no 13px step. */
 .reader-support {

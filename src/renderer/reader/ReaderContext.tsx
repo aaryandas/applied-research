@@ -1,7 +1,10 @@
 import type { ReactElement } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { Tabs, TabList, Tab, TabPanel } from 'react-aria-components';
 import type {
+  EntryRevisionReference,
   LearningEntryRecord,
+  LearningEntryRevision,
   LearningOrigin,
   LearningWorkspace,
   SourceRecord,
@@ -17,20 +20,90 @@ interface ReaderContextProps {
   session: DraftSession;
   supports: string[];
   busy: boolean;
+  reveal?: EntryRevisionReference | null;
   onSupportsChange: (supports: string[]) => void;
   onEdit: (entry: LearningEntryRecord) => void;
   onOpenOrigin: (origin: LearningOrigin) => void;
+  onRevealEntry: (reference: EntryRevisionReference) => void;
   onInsight: () => void;
   onSource: (source: SourceRecord) => void;
 }
+
+export function recordHeadingId(reference: EntryRevisionReference): string {
+  return `reader-record-${reference.entryId}-r${reference.revision}`;
+}
+
+function tabForRevision(revision: LearningEntryRevision | undefined): string {
+  if (revision?.kind === 'insight') return 'insights';
+  return 'notes';
+}
+
+function RevealedRecord({
+  entry,
+  revision,
+  workspace,
+  onOpenOrigin,
+  onRevealEntry,
+}: Readonly<{
+  entry: LearningEntryRecord;
+  revision: LearningEntryRevision;
+  workspace: LearningWorkspace;
+  onOpenOrigin: (origin: LearningOrigin) => void;
+  onRevealEntry: (reference: EntryRevisionReference) => void;
+}>): ReactElement {
+  const historical = revision.revision !== entry.currentRevision;
+  return (
+    <section
+      className="reader-entry reader-entry--revealed"
+      data-record-id={entry.id}
+      data-revision={revision.revision}
+    >
+      <h3
+        id={recordHeadingId({
+          entryId: entry.id,
+          revision: revision.revision,
+        })}
+        className="reader-entry__heading"
+        tabIndex={-1}
+      >
+        {revision.title || revision.kind}
+        {historical ? ` · revision ${revision.revision}` : ''}
+      </h3>
+      <p className="reader-coordinate">
+        {revision.authorKind === 'human' ? 'Human' : 'AI'} {revision.kind} ·
+        revision {revision.revision}
+        {historical ? ` · current is revision ${entry.currentRevision}` : ''}
+      </p>
+      <p
+        className={revision.authorKind === 'human' ? 'reader-human' : undefined}
+      >
+        {revision.body}
+      </p>
+      {historical ? (
+        <p className="reader-muted">
+          This is the retained revision. Current wording was not replaced.
+        </p>
+      ) : null}
+      <EntryOrigin
+        revision={revision}
+        workspace={workspace}
+        onOpen={onOpenOrigin}
+        onRevealEntry={onRevealEntry}
+      />
+    </section>
+  );
+}
+
 export function ReaderContext({
   workspace,
   session,
   supports,
   busy,
+  reveal = null,
   onSupportsChange,
   onEdit,
   onOpenOrigin,
+  onRevealEntry,
   onInsight,
   onSource,
 }: Readonly<ReaderContextProps>): ReactElement {
@@ -38,10 +111,45 @@ export function ReaderContext({
   const insights = workspace.entries.filter(
     (entry) => entry.current.kind === 'insight',
   );
+  const revealedEntry = reveal
+    ? workspace.entries.find((entry) => entry.id === reveal.entryId)
+    : undefined;
+  const revealedRevision = revealedEntry?.revisions.find(
+    (item) => item.revision === reveal?.revision,
+  );
+  const listedCurrent =
+    Boolean(revealedEntry) &&
+    reveal?.revision === revealedEntry?.currentRevision &&
+    (isHumanSupport(revealedEntry!) ||
+      revealedEntry!.current.kind === 'insight');
+  const [tab, setTab] = useState('notes');
+  const [receivedReveal, setReceivedReveal] = useState(reveal);
+  if (receivedReveal !== reveal) {
+    setReceivedReveal(reveal);
+    if (reveal) setTab(tabForRevision(revealedRevision));
+  }
+  useLayoutEffect(() => {
+    if (!reveal || !revealedRevision) return;
+    document.getElementById(recordHeadingId(reveal))?.focus();
+  }, [reveal, revealedRevision, tab]);
   return (
     <aside className="reader-context" aria-label="Reading context">
       <NoteComposer session={session} workspace={workspace} />
-      <Tabs defaultSelectedKey="notes">
+      {reveal && !revealedEntry ? (
+        <p className="ui-alert ui-alert--error" role="alert">
+          The referenced entry is unavailable.
+        </p>
+      ) : null}
+      {revealedEntry && revealedRevision && !listedCurrent ? (
+        <RevealedRecord
+          entry={revealedEntry}
+          revision={revealedRevision}
+          workspace={workspace}
+          onOpenOrigin={onOpenOrigin}
+          onRevealEntry={onRevealEntry}
+        />
+      ) : null}
+      <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key))}>
         <TabList aria-label="Reading records" className="reader-panel-tabs">
           <Tab id="notes">Notes</Tab>
           <Tab id="insights">Insights</Tab>
@@ -57,6 +165,16 @@ export function ReaderContext({
           )}
           {humanSupports.map((entry) => (
             <section className="reader-entry" key={entry.id}>
+              <h3
+                id={recordHeadingId({
+                  entryId: entry.id,
+                  revision: entry.currentRevision,
+                })}
+                className="reader-entry__heading"
+                tabIndex={-1}
+              >
+                {entry.current.title || entry.current.kind}
+              </h3>
               <label className="reader-support">
                 <input
                   type="checkbox"
@@ -85,6 +203,7 @@ export function ReaderContext({
                 revision={entry.current}
                 workspace={workspace}
                 onOpen={onOpenOrigin}
+                onRevealEntry={onRevealEntry}
               />
             </section>
           ))}
@@ -99,7 +218,17 @@ export function ReaderContext({
         <TabPanel id="insights">
           <h2 className="ui-sr-only">Insights</h2>
           {insights.map((entry) => (
-            <section key={entry.id}>
+            <section className="reader-entry" key={entry.id}>
+              <h3
+                id={recordHeadingId({
+                  entryId: entry.id,
+                  revision: entry.currentRevision,
+                })}
+                className="reader-entry__heading"
+                tabIndex={-1}
+              >
+                {entry.current.title || entry.current.kind}
+              </h3>
               <p className="reader-coordinate">
                 {entry.current.authorKind === 'human' ? 'Human' : 'AI'} insight
               </p>
@@ -116,6 +245,7 @@ export function ReaderContext({
                 revision={entry.current}
                 workspace={workspace}
                 onOpen={onOpenOrigin}
+                onRevealEntry={onRevealEntry}
               />
             </section>
           ))}

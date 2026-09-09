@@ -352,6 +352,117 @@ it('finds local source content and opens the exact retained reading origin', asy
   );
 });
 
+it('finds an originless note, a sourced note, a pending lesson and distinct same-body records', async () => {
+  const workspace = createCanvasFixture();
+  const shared = 'Identical saved bodies remain distinct records';
+  const note = workspace.entries[0]!;
+  workspace.entries.push(
+    {
+      ...note,
+      id: 'twin-a',
+      current: { ...note.current, origin: null, title: '', body: shared },
+      revisions: [{ ...note.current, origin: null, title: '', body: shared }],
+    },
+    {
+      ...note,
+      id: 'twin-b',
+      current: { ...note.current, origin: null, title: '', body: shared },
+      revisions: [{ ...note.current, origin: null, title: '', body: shared }],
+    },
+  );
+  workspace.paths[0]!.current.topics[0]!.lessons.push({
+    id: 'pending-lesson',
+    title: 'Pending title-only lesson',
+    objective: 'Wait for a source',
+    activity: '',
+    sourceState: 'pending',
+    sourceRevisionId: null,
+    citations: [],
+  });
+  const { bridge, project } = setup({ workspace });
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  const reading = screen.getByLabelText('Source text').textContent;
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  const input = await screen.findByRole('searchbox');
+  fireEvent.change(input, { target: { value: 'whole arm' } });
+  fireEvent.click(screen.getByRole('button', { name: /^insight/i }));
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        'The same joint rotation moves the hand differently depending on the whole arm’s configuration.',
+      ),
+    ).toBeVisible(),
+  );
+  expect(document.activeElement).toHaveAttribute(
+    'id',
+    'reader-record-insight-r1',
+  );
+  expect(screen.getByLabelText('Source text').textContent).toBe(reading);
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(await screen.findByRole('searchbox'), {
+    target: { value: 'joint angle changes the direction' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: /^note/i,
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        'A joint angle changes the direction of every link after it.',
+      ),
+    ).toBeVisible(),
+  );
+  expect(document.activeElement).toHaveAttribute('id', 'reader-record-note-r1');
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(await screen.findByRole('searchbox'), {
+    target: { value: 'pending title-only' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: /LessonPending title-only lesson/ }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', {
+        name: /Pending title-only lessonReadable content pending/,
+      }),
+    ).toHaveAttribute('aria-current', 'page'),
+  );
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(await screen.findByRole('searchbox'), {
+    target: { value: 'identical saved bodies' },
+  });
+  const twins = screen.getAllByRole('button', {
+    name: /Identical saved bodies remain distinct records/,
+  });
+  expect(twins).toHaveLength(2);
+  expect(bridge.saveReadingNote).not.toHaveBeenCalled();
+  expect(bridge.saveQuestion).not.toHaveBeenCalled();
+  expect(bridge.saveInsight).not.toHaveBeenCalled();
+});
+
+it('keeps an incomplete Reader draft mounted while Find is open', async () => {
+  const { bridge, project } = setup();
+  render(<App bridge={bridge} />);
+  await reopen(project);
+  fireEvent.click(screen.getByRole('button', { name: 'Save a question' }));
+  fireEvent.change(await screen.findByLabelText('Title'), {
+    target: { value: '  Exact find draft 😀' },
+  });
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  await screen.findByRole('heading', { name: 'Find in this project' });
+  expect(screen.getByLabelText('Title', { hidden: true })).toHaveValue(
+    '  Exact find draft 😀',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Back to reading' }));
+  await waitFor(() =>
+    expect(screen.getByRole('heading', { name: 'Reading' })).toBeVisible(),
+  );
+  expect(screen.getByLabelText('Title')).toHaveValue('  Exact find draft 😀');
+});
+
 it('makes explanations reachable inline and retains their recipe selection across views', async () => {
   const { bridge, project } = setup();
   render(<App bridge={bridge} />);
