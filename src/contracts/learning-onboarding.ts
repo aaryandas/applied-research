@@ -2,8 +2,11 @@ import type { AiProvenance } from './learning-api.js';
 import type { LearningWorkspace, PathOrigin } from './learning-records.js';
 import type {
   CompactSyllabus,
+  CourseCapstoneDesignation,
+  CoursePracticeBrief,
+  CoursePracticeToolChoice,
+  GeneratedCoursePracticeBrief,
   LessonDepth,
-  LessonRole,
   LearningOnboardingRequest,
   LearningOnboardingResponse,
   OpaqueRevisionRef,
@@ -11,6 +14,8 @@ import type {
   OnboardingPersonalization,
   OnboardingSourceCoverage,
   OnboardingSyllabus,
+  OnboardingSyllabusLesson,
+  OnboardingSyllabusTopic,
   ProposalSource,
   UnacquiredSeedUrl,
 } from './learning-onboarding-api.js';
@@ -84,24 +89,8 @@ export type SaveLearningInterviewInput = {
   draft: InterviewDraft;
 };
 
-export type ProposalLesson = {
-  stepId: string;
-  title: string;
-  objective: string;
-  activity: string;
-  role: LessonRole;
-  prerequisiteStepIds: string[];
-  sourceState: 'ready' | 'pending' | 'unsupported';
-  sourceIds: string[];
-};
-
-export type ProposalTopic = {
-  topicId: string;
-  title: string;
-  outcome: string;
-  prerequisiteTopicIds: string[];
-  lessons: ProposalLesson[];
-};
+export type ProposalLesson = OnboardingSyllabusLesson;
+export type ProposalTopic = OnboardingSyllabusTopic;
 
 /**
  * Renderer display projection. Never accepted back as authority.
@@ -114,6 +103,7 @@ export type CourseProposal = {
   interviewRevision: number;
   title: string;
   topics: ProposalTopic[];
+  capstone: CourseCapstoneDesignation | null;
   firstLesson: { stepId: string; title: string; text: string } | null;
   sources: ProposalSource[];
   gaps: OnboardingCoverageGap[];
@@ -212,6 +202,15 @@ export type AcceptedStepMapping = {
 };
 
 /**
+ * AR-50 constructs existing PracticalActivity from this binding.
+ * Do not add a second attempt, result, or human-reflection model.
+ */
+export type CoursePracticeActivityBinding = {
+  mapping: AcceptedStepMapping;
+  brief: CoursePracticeBrief;
+};
+
+/**
  * Named validated onboarding operations. Renderer submits opaque identity,
  * human drafts and consent only. Canonical AI lesson/source/provenance JSON
  * is not a legal input. AR-47 registers this on Window.desktop.
@@ -247,6 +246,10 @@ export interface LearningOnboardingBridge {
 
 export type {
   CompactSyllabus,
+  CourseCapstoneDesignation,
+  CoursePracticeBrief,
+  CoursePracticeToolChoice,
+  GeneratedCoursePracticeBrief,
   LearningOnboardingRequest,
   LearningOnboardingResponse,
   OnboardingSyllabus,

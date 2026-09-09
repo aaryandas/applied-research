@@ -56,9 +56,29 @@ sources, 48,000 canonical generation characters, 12 retrieval passages,
 transport already allows a 4 MiB response; this contract documents that ceiling
 without changing it.
 
+## Practice brief and capstone (AR-50)
+
+Practice and capstone lessons carry a generated `CoursePracticeBrief`:
+intended outcome, setup/prerequisites, explicit real tool choice, instructions,
+observable checkpoints, expected learner-produced artifact, and a reflection
+**prompt**. This is source-supported structured guidance, not renderer-parsed
+`activity` prose and not a generic animation.
+
+`activity` remains a concept/setup note only and is null on practice/capstone.
+Optional `capstone: { stepId, outcome, substantial: true }` names at most one
+substantial capstone. App-hosted tools reuse existing `PRACTICAL_TOOLS` ids;
+learner-external names a real environment. AR-50 binds
+`CoursePracticeActivityBinding` (`AcceptedStepMapping` + brief) onto existing
+`PracticalActivity`. Attempts, results, files and human reflections stay in
+`practical-work` / `practical-records`. Do not add a second attempt model.
+AR-51 owns later explanation-request contracts; do not change companion or
+explanation modules here.
+
+Selected-lesson requests include the retained brief as untrusted context.
+Generated practice lessons must match that brief and add source citations.
+
 ## Stable mapping
 
-Acceptance persists
 `{projectId, pathId, acceptedProposalId, acceptedProposalRevision, remoteStepId, localTopicId, localLessonId}`.
 Selected-lesson generation must reuse those identities, update only that
 pending lesson to ready, and must not emit a replacement syllabus.
@@ -77,6 +97,14 @@ Do not change installed foundations, model, spend policy or dependencies.
 Importing the new API module from `src/backend` is enough for
 `tsconfig.backend.json` (include currently lists `learning-api.ts` only;
 the import graph pulls additional contracts).
+
+**Practical / AR-50:** consume `CoursePracticeBrief` and
+`CoursePracticeActivityBinding`. Populate existing Practical activity
+title/instructions/objective from the brief and mapping. Do not parse syllabus
+`activity` prose. Do not duplicate attempt/result/reflection records.
+
+**Explanations / AR-51:** add explanation-request contracts separately. Do not
+alter companion or Practical contracts in this checkpoint.
 
 The earlier [proposal](onboarding-contract-proposal.md) is historical
 recommendation text. Where it disagrees with this page and the TypeScript

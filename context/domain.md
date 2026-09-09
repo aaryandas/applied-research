@@ -29,7 +29,7 @@ Current working vocabulary. Definitions marked **proposed** need detailed contra
 - **Check:** an activity assessing understanding; getting code to run or opening all readings is insufficient by itself.
 - **Learner profile:** a local human-authored record of background, learning goals and prior knowledge. It is not an account id. Later edits do not silently rewrite how an existing course was personalized.
 - **Onboarding interview:** retained human diagnostic answers plus main-retained AI prompt text. Answers are self-report/evidence, never claimed mastery.
-- **Course proposal:** a renderer display projection of a sourced syllabus. Acceptance uses only opaque id+revision resolved in main. Remaining lessons stay pending until selected generation.
+- **Course proposal:** a renderer display projection of a sourced syllabus. Acceptance uses only opaque id+revision resolved in main. Remaining lessons stay pending until selected generation. Practice/capstone steps include a generated source-supported brief; human attempts stay on Practical records.
 - **Unsupported:** evidence or citation verification failed; never a claim of correctness.
 
 The original lesson-status rules and counter/resolution/idea/known event schema are historical. Use the current product decisions rather than copying them into new code.

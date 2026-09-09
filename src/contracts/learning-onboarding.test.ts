@@ -195,8 +195,69 @@ const human = {
   unacquiredSeedUrls: [],
 } satisfies UntrustedHumanLearnerContext;
 
+const tokenizerBrief = {
+  kind: 'source-supported-practice-brief' as const,
+  author: 'ai' as const,
+  masteryEstablished: false as const,
+  intendedOutcome: 'Produce a working tokenizer on a short corpus.',
+  setup: 'Python 3, a small text file, and the paper vocabulary rules.',
+  tool: {
+    kind: 'learner-external' as const,
+    toolName: 'Python and a local editor',
+    intendedUse:
+      'Implement tokenization outside the app and return the vocabulary file.',
+  },
+  instructions:
+    'Tokenize the sample corpus using the paper’s rules and save the vocabulary.',
+  observableCheckpoints: [
+    'Vocabulary size is computed from the corpus.',
+    'Unknown tokens have an explicit rule.',
+  ],
+  expectedArtifact: 'A tokenizer script plus a saved vocabulary file.',
+  reflectionPrompt:
+    'What broke when the corpus differed from the paper example?',
+  sourceIds: ['openalex_W1'],
+};
+
+const capstoneBrief = {
+  kind: 'source-supported-practice-brief' as const,
+  author: 'ai' as const,
+  masteryEstablished: false as const,
+  intendedOutcome: 'Ship a small LoRA adapter with measured held-out quality.',
+  setup: 'A pretrained checkpoint, PEFT, and a tiny evaluation split.',
+  tool: {
+    kind: 'learner-external' as const,
+    toolName: 'Hugging Face PEFT',
+    intendedUse: 'Fine-tune an adapter in the learner’s own environment.',
+  },
+  instructions:
+    'Train a LoRA adapter on the paper task and record held-out loss.',
+  observableCheckpoints: [
+    'Adapter weights are saved as files the learner produced.',
+    'Held-out loss is reported from the learner’s run.',
+  ],
+  expectedArtifact: 'Saved LoRA adapter weights and an evaluation log.',
+  reflectionPrompt: 'Which paper constraint actually limited the adapter?',
+  sourceIds: ['openalex_W1'],
+};
+
+const capstone = {
+  stepId: 'step-003',
+  outcome: 'A small LoRA adapter trained and evaluated on a held-out sample.',
+  substantial: true as const,
+};
+
+const practiceCitation = {
+  sourceId: 'openalex_W1',
+  revisionId: 'edition-1',
+  start: 0,
+  end: 5,
+  quote: HELLO,
+};
+
 const syllabus = {
   title: 'Transformers from sources',
+  capstone,
   topics: [
     {
       topicId: 'topic-01',
@@ -213,26 +274,29 @@ const syllabus = {
           prerequisiteStepIds: [],
           sourceState: 'ready' as const,
           sourceIds: ['openalex_W1'],
+          practice: null,
         },
         {
           stepId: 'step-002',
           title: 'Tokenizer practice',
           objective: 'Build a tokenizer against the paper setup.',
-          activity: 'Tokenize a short corpus outside the app.',
+          activity: null,
           role: 'practice' as const,
           prerequisiteStepIds: ['step-001'],
           sourceState: 'pending' as const,
           sourceIds: ['openalex_W1'],
+          practice: tokenizerBrief,
         },
         {
           stepId: 'step-003',
           title: 'Capstone',
           objective: 'Ship a small LoRA experiment.',
-          activity: 'Fine-tune with PEFT in the learner tools.',
+          activity: null,
           role: 'capstone' as const,
           prerequisiteStepIds: ['step-002'],
           sourceState: 'pending' as const,
           sourceIds: ['openalex_W1'],
+          practice: capstoneBrief,
         },
       ],
     },
@@ -280,11 +344,7 @@ const generatedLesson = {
       ],
     },
   ],
-  activity: {
-    text: 'Reimplement a tiny attention step.',
-    kind: 'ai-proposed-activity' as const,
-    masteryEstablished: false as const,
-  },
+  practice: null,
 };
 
 const evidence = {
@@ -356,6 +416,7 @@ const proposal = {
   projectId,
   interviewRevision: 1,
   title: syllabus.title,
+  capstone: syllabus.capstone,
   topics: syllabus.topics,
   firstLesson: {
     stepId: 'step-001',
@@ -380,6 +441,41 @@ const proposal = {
   acceptance: 'ready' as const,
 };
 
+const selectedLessonRequest: LearningOnboardingRequest = {
+  apiVersion: LEARNING_ONBOARDING_API_VERSION,
+  requestId: 'request-02',
+  model: 'google/gemini-3.8-flash',
+  operation: {
+    kind: 'generate-selected-lesson',
+    human,
+    model: {
+      trust: ONBOARDING_CONTEXT_TRUST.model,
+      priorProposal: { id: 'proposal-01', revision: 1 },
+      syllabus: {
+        title: syllabus.title,
+        topics: [
+          {
+            topicId: 'topic-01',
+            title: 'Foundations',
+            lessons: syllabus.topics[0]!.lessons.map((lesson) => ({
+              stepId: lesson.stepId,
+              title: lesson.title,
+              role: lesson.role,
+              sourceState: lesson.sourceState,
+            })),
+          },
+        ],
+      },
+      personalization: null,
+    },
+    target: {
+      remoteStepId: 'step-002',
+      acceptedProposal: { id: 'proposal-01', revision: 1 },
+      practice: tokenizerBrief,
+    },
+  },
+};
+
 describe('learning onboarding contracts', () => {
   it('keeps sourced-learning compatibility constants distinct from onboarding', () => {
     expect(LEARNING_API_VERSION).toBe('2026-09-08');
@@ -393,6 +489,7 @@ describe('learning onboarding contracts', () => {
     expect(LEARNING_ONBOARDING_LIMITS.generationEvidenceCharacters).toBe(
       48_000,
     );
+    expect(LEARNING_ONBOARDING_LIMITS.practiceCheckpoints).toBe(8);
     expect(SOURCE_CHANNELS.generate).toBe('sources:generate-learning-path');
   });
 
@@ -706,39 +803,7 @@ describe('learning onboarding contracts', () => {
     expect(
       validation.parseLearningOnboardingResponse(conflict, proposeRequest),
     ).toEqual(conflict);
-    const selectedRequest: LearningOnboardingRequest = {
-      apiVersion: LEARNING_ONBOARDING_API_VERSION,
-      requestId: 'request-02',
-      model: 'google/gemini-3.8-flash',
-      operation: {
-        kind: 'generate-selected-lesson',
-        human,
-        model: {
-          trust: ONBOARDING_CONTEXT_TRUST.model,
-          priorProposal: { id: 'proposal-01', revision: 1 },
-          syllabus: {
-            title: syllabus.title,
-            topics: [
-              {
-                topicId: 'topic-01',
-                title: 'Foundations',
-                lessons: syllabus.topics[0]!.lessons.map((lesson) => ({
-                  stepId: lesson.stepId,
-                  title: lesson.title,
-                  role: lesson.role,
-                  sourceState: lesson.sourceState,
-                })),
-              },
-            ],
-          },
-          personalization: null,
-        },
-        target: {
-          remoteStepId: 'step-002',
-          acceptedProposal: { id: 'proposal-01', revision: 1 },
-        },
-      },
-    };
+    const selectedRequest = selectedLessonRequest;
     expect(validation.parseLearningOnboardingRequest(selectedRequest)).toEqual(
       selectedRequest,
     );
@@ -750,6 +815,7 @@ describe('learning onboarding contracts', () => {
           target: {
             remoteStepId: 'step-999',
             acceptedProposal: { id: 'proposal-01', revision: 1 },
+            practice: tokenizerBrief,
           },
         },
       },
@@ -763,6 +829,7 @@ describe('learning onboarding contracts', () => {
         ...generatedLesson,
         stepId: 'step-002',
         source: { ...generatedLesson.source, title: 'Tokenizer practice' },
+        practice: { ...tokenizerBrief, citations: [practiceCitation] },
       },
       sources: [acquiredSource],
       bibliography: [bibliographySource],
@@ -840,6 +907,136 @@ describe('learning onboarding contracts', () => {
     ).toEqual(cancelled);
     expectRejected({ ...cancelled, retryable: true }, (value) =>
       validation.parseLearningOnboardingResponse(value, proposeRequest),
+    );
+  });
+
+  it('keeps source-supported practice briefs and optional capstone off Practical attempt records', () => {
+    expect(validation.parseCourseProposal(proposal).capstone).toEqual(capstone);
+    expect(proposal.topics[0]!.lessons[1]!.practice).toEqual(tokenizerBrief);
+    expectRejected(
+      {
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            lessons: [
+              syllabus.topics[0]!.lessons[0]!,
+              {
+                ...syllabus.topics[0]!.lessons[1]!,
+                activity: 'Tokenize a short corpus outside the app.',
+                practice: null,
+              },
+              syllabus.topics[0]!.lessons[2]!,
+            ],
+          },
+        ],
+      },
+      validation.parseCourseProposal,
+    );
+    expectRejected(
+      {
+        ...proposal,
+        capstone: null,
+      },
+      validation.parseCourseProposal,
+    );
+    expectRejected(
+      {
+        ...tokenizerBrief,
+        tool: { kind: 'animation', toolName: 'Manim' },
+      },
+      (value) =>
+        validation.parseCourseProposal({
+          ...proposal,
+          topics: [
+            {
+              ...syllabus.topics[0]!,
+              lessons: [
+                syllabus.topics[0]!.lessons[0]!,
+                {
+                  ...syllabus.topics[0]!.lessons[1]!,
+                  practice: value,
+                },
+                syllabus.topics[0]!.lessons[2]!,
+              ],
+            },
+          ],
+        }),
+    );
+    expectRejected(
+      {
+        ...tokenizerBrief,
+        attempt: 'I ran the tokenizer.',
+        prediction: 'It will match the paper.',
+      },
+      (value) =>
+        validation.parseCourseProposal({
+          ...proposal,
+          topics: [
+            {
+              ...syllabus.topics[0]!,
+              lessons: [
+                syllabus.topics[0]!.lessons[0]!,
+                {
+                  ...syllabus.topics[0]!.lessons[1]!,
+                  practice: value,
+                },
+                syllabus.topics[0]!.lessons[2]!,
+              ],
+            },
+          ],
+        }),
+    );
+    expectRejected(
+      {
+        ...generatedLesson,
+        activity: {
+          text: 'Reimplement a tiny attention step.',
+          kind: 'ai-proposed-activity',
+          masteryEstablished: false,
+        },
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(
+          { ...courseSuccess, firstLesson: value },
+          proposeRequest,
+        ),
+    );
+    const hostedBrief = {
+      ...tokenizerBrief,
+      tool: { kind: 'app-hosted-catalog' as const, toolId: 'desmos-graphing' },
+    };
+    expect(
+      validation.parseCourseProposal({
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            lessons: [
+              syllabus.topics[0]!.lessons[0]!,
+              {
+                ...syllabus.topics[0]!.lessons[1]!,
+                practice: hostedBrief,
+              },
+              syllabus.topics[0]!.lessons[2]!,
+            ],
+          },
+        ],
+      }).topics[0]!.lessons[1]!.practice,
+    ).toEqual(hostedBrief);
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          ...selectedLessonRequest.operation,
+          target: {
+            remoteStepId: 'step-001',
+            acceptedProposal: { id: 'proposal-01', revision: 1 },
+            practice: tokenizerBrief,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
     );
   });
 });

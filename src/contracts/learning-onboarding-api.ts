@@ -11,6 +11,7 @@ import {
   LEARNING_MODEL_ALLOWLIST,
 } from './learning-api.js';
 import type { PathSourceState } from './learning-records.js';
+import type { PracticalToolId } from './practical-tools.js';
 import type {
   AcquiredSource,
   ProviderIdentity,
@@ -58,6 +59,58 @@ export const LESSON_ROLES = [
 ] as const;
 export type LessonRole = (typeof LESSON_ROLES)[number];
 
+export const COURSE_PRACTICE_BRIEF_KIND =
+  'source-supported-practice-brief' as const;
+export const COURSE_PRACTICE_TOOL_KINDS = [
+  'app-hosted-catalog',
+  'learner-external',
+] as const;
+export type CoursePracticeToolKind =
+  (typeof COURSE_PRACTICE_TOOL_KINDS)[number];
+
+/**
+ * Generated course-side tool choice. App-hosted ids reuse the existing
+ * Practical catalog; opening those tools stays in AR-19/AR-50. Learner-external
+ * names a real environment. This is not an attempt, animation, or code runtime.
+ */
+export type CoursePracticeToolChoice =
+  | { kind: 'app-hosted-catalog'; toolId: PracticalToolId }
+  | {
+      kind: 'learner-external';
+      toolName: string;
+      intendedUse: string;
+    };
+
+/**
+ * Source-supported practice/capstone brief. AR-50 binds this to existing
+ * PracticalActivity identity. Human attempts, results and reflections stay in
+ * `practical-work` / `practical-records`.
+ */
+export type CoursePracticeBrief = {
+  kind: typeof COURSE_PRACTICE_BRIEF_KIND;
+  author: 'ai';
+  masteryEstablished: false;
+  intendedOutcome: string;
+  setup: string;
+  tool: CoursePracticeToolChoice;
+  instructions: string;
+  observableCheckpoints: string[];
+  expectedArtifact: string;
+  reflectionPrompt: string;
+  sourceIds: string[];
+};
+
+export type GeneratedCoursePracticeBrief = CoursePracticeBrief & {
+  citations: SourceCitation[];
+};
+
+/** Optional. Present only when the syllabus includes a unique capstone lesson. */
+export type CourseCapstoneDesignation = {
+  stepId: string;
+  outcome: string;
+  substantial: true;
+};
+
 export const EXTRACTION_COVERAGE = [
   'complete',
   'partial',
@@ -93,6 +146,14 @@ export const LEARNING_ONBOARDING_LIMITS = {
   outcomeCharacters: 2_000,
   objectiveCharacters: 2_000,
   activityCharacters: 2_000,
+  practiceCheckpoints: 8,
+  practiceCheckpointCharacters: 500,
+  practiceSetupCharacters: 2_000,
+  practiceInstructionsCharacters: 4_000,
+  practiceArtifactCharacters: 2_000,
+  practiceReflectionPromptCharacters: 2_000,
+  practiceToolNameCharacters: 200,
+  practiceIntendedUseCharacters: 2_000,
   previewCharacters: 24_000,
   generatedLessonCharacters: 48_000,
   generationEvidenceSources: 4,
@@ -211,11 +272,17 @@ export type OnboardingSyllabusLesson = {
   stepId: string;
   title: string;
   objective: string;
-  activity: string;
+  /**
+   * Concept/setup related-work note only. Practice/capstone must be null;
+   * AR-50 must not parse this as a practical brief.
+   */
+  activity: string | null;
   role: LessonRole;
   prerequisiteStepIds: string[];
   sourceState: PathSourceState;
   sourceIds: string[];
+  /** Required for practice/capstone; null for concept/setup. */
+  practice: CoursePracticeBrief | null;
 };
 
 export type OnboardingSyllabusTopic = {
@@ -229,6 +296,7 @@ export type OnboardingSyllabusTopic = {
 export type OnboardingSyllabus = {
   title: string;
   topics: OnboardingSyllabusTopic[];
+  capstone: CourseCapstoneDesignation | null;
 };
 
 export type OnboardingCoverageGap = {
@@ -252,11 +320,11 @@ export type OnboardingGeneratedLesson = {
     kind: 'ai-explanation';
     citations: SourceCitation[];
   }[];
-  activity: {
-    text: string;
-    kind: 'ai-proposed-activity';
-    masteryEstablished: false;
-  };
+  /**
+   * Structured source-supported brief for practice/capstone lessons.
+   * Concept/setup lessons are null. Not renderer-parsed activity prose.
+   */
+  practice: GeneratedCoursePracticeBrief | null;
 };
 
 export type OnboardingPersonalization = {
@@ -290,6 +358,11 @@ export type GenerateSelectedLessonOperation = {
   target: {
     remoteStepId: string;
     acceptedProposal: OpaqueRevisionRef;
+    /**
+     * Main-retained syllabus brief for this step, sent as untrusted context.
+     * Required for practice/capstone targets; null otherwise.
+     */
+    practice: CoursePracticeBrief | null;
   };
 };
 

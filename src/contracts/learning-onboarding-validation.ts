@@ -12,6 +12,7 @@ import type {
 import type { PathSourceState } from './learning-records.js';
 import {
   COMPATIBLE_SOURCED_LEARNING_SCOPE,
+  COURSE_PRACTICE_BRIEF_KIND,
   EXTRACTION_COVERAGE,
   FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS,
   LEARNING_ONBOARDING_API_VERSION,
@@ -25,8 +26,12 @@ import {
 } from './learning-onboarding-api.js';
 import type {
   CompactSyllabus,
+  CourseCapstoneDesignation,
+  CoursePracticeBrief,
+  CoursePracticeToolChoice,
   CourseProposalSuccess,
   GenerateSelectedLessonOperation,
+  GeneratedCoursePracticeBrief,
   HumanDiagnosticAnswer,
   InterviewPromptOperation,
   InterviewPromptSuccess,
@@ -41,6 +46,7 @@ import type {
   OnboardingPersonalization,
   OnboardingSourceCoverage,
   OnboardingSyllabus,
+  OnboardingSyllabusLesson,
   OnboardingSyllabusTopic,
   OpaqueRevisionRef,
   ProposalSource,
@@ -66,8 +72,6 @@ import type {
   LearnerProfileDraft,
   LearningOnboardingSnapshot,
   OnboardingRequest,
-  ProposalLesson,
-  ProposalTopic,
   ProposeCourseInput,
   RevisionWrite,
   ReviseCourseInput,
@@ -86,6 +90,7 @@ import {
   SOURCE_RETRIEVAL_PROVIDERS,
   SOURCING_LIMITS,
 } from './sourcing.js';
+import { PRACTICAL_TOOLS } from './practical-tools.js';
 import type {
   AcquiredSource,
   OpenAlexWorkId,
@@ -260,6 +265,193 @@ export function createLearningOnboardingValidation(
       invalid('Lesson source state is invalid.');
     }
     return value;
+  }
+
+  function isPracticeRole(value: LessonRole): boolean {
+    return value === 'practice' || value === 'capstone';
+  }
+
+  function practiceTool(value: unknown): CoursePracticeToolChoice {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      invalid('Practice tool choice is invalid.');
+    }
+    const record = value as Record<string, unknown>;
+    if (record.kind === 'app-hosted-catalog') {
+      const input = strictRecord(record, ['kind', 'toolId']);
+      const tool = PRACTICAL_TOOLS.find((entry) => entry.id === input.toolId);
+      if (tool === undefined) {
+        invalid('App-hosted practice tool is not in the Practical catalog.');
+      }
+      return { kind: 'app-hosted-catalog', toolId: tool.id };
+    }
+    if (record.kind === 'learner-external') {
+      const input = strictRecord(record, ['kind', 'toolName', 'intendedUse']);
+      return {
+        kind: 'learner-external',
+        toolName: boundedText(
+          input.toolName,
+          LIMITS.practiceToolNameCharacters,
+          'Practice tool name',
+        ),
+        intendedUse: boundedText(
+          input.intendedUse,
+          LIMITS.practiceIntendedUseCharacters,
+          'Practice tool use',
+        ),
+      };
+    }
+    invalid('Practice tool choice is invalid.');
+  }
+
+  function practiceBrief(value: unknown): CoursePracticeBrief {
+    const input = strictRecord(value, [
+      'kind',
+      'author',
+      'masteryEstablished',
+      'intendedOutcome',
+      'setup',
+      'tool',
+      'instructions',
+      'observableCheckpoints',
+      'expectedArtifact',
+      'reflectionPrompt',
+      'sourceIds',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.kind !== COURSE_PRACTICE_BRIEF_KIND) {
+      invalid('Practice brief kind is invalid.');
+    }
+    if (input.author !== 'ai' || input.masteryEstablished !== false) {
+      invalid('Practice brief cannot claim human authorship or mastery.');
+    }
+    if (
+      !isDenseArray(input.observableCheckpoints) ||
+      input.observableCheckpoints.length < 1 ||
+      input.observableCheckpoints.length > LIMITS.practiceCheckpoints
+    ) {
+      invalid('Practice checkpoints are invalid.');
+    }
+    const sourceIds = identifiers(
+      input.sourceIds,
+      LIMITS.sourceRefsPerLesson,
+      'Practice source id',
+    );
+    if (sourceIds.length < 1) {
+      invalid('Practice brief must cite at least one source.');
+    }
+    return {
+      kind: COURSE_PRACTICE_BRIEF_KIND,
+      author: 'ai',
+      masteryEstablished: false,
+      intendedOutcome: boundedText(
+        input.intendedOutcome,
+        LIMITS.outcomeCharacters,
+        'Practice intended outcome',
+      ),
+      setup: boundedText(
+        input.setup,
+        LIMITS.practiceSetupCharacters,
+        'Practice setup',
+      ),
+      tool: practiceTool(input.tool),
+      instructions: boundedText(
+        input.instructions,
+        LIMITS.practiceInstructionsCharacters,
+        'Practice instructions',
+      ),
+      observableCheckpoints: input.observableCheckpoints.map((item, index) =>
+        boundedText(
+          item,
+          LIMITS.practiceCheckpointCharacters,
+          `Practice checkpoint ${String(index + 1)}`,
+        ),
+      ),
+      expectedArtifact: boundedText(
+        input.expectedArtifact,
+        LIMITS.practiceArtifactCharacters,
+        'Expected learner artifact',
+      ),
+      reflectionPrompt: boundedText(
+        input.reflectionPrompt,
+        LIMITS.practiceReflectionPromptCharacters,
+        'Practice reflection prompt',
+      ),
+      sourceIds,
+    };
+  }
+
+  function samePracticeBrief(
+    expected: CoursePracticeBrief,
+    actual: CoursePracticeBrief,
+  ): boolean {
+    if (
+      expected.kind !== actual.kind ||
+      expected.author !== actual.author ||
+      expected.masteryEstablished !== actual.masteryEstablished ||
+      expected.intendedOutcome !== actual.intendedOutcome ||
+      expected.setup !== actual.setup ||
+      expected.instructions !== actual.instructions ||
+      expected.expectedArtifact !== actual.expectedArtifact ||
+      expected.reflectionPrompt !== actual.reflectionPrompt
+    ) {
+      return false;
+    }
+    if (
+      expected.sourceIds.join('\0') !== actual.sourceIds.join('\0') ||
+      expected.observableCheckpoints.join('\0') !==
+        actual.observableCheckpoints.join('\0')
+    ) {
+      return false;
+    }
+    if (expected.tool.kind !== actual.tool.kind) return false;
+    if (
+      expected.tool.kind === 'app-hosted-catalog' &&
+      actual.tool.kind === 'app-hosted-catalog'
+    ) {
+      return expected.tool.toolId === actual.tool.toolId;
+    }
+    return (
+      expected.tool.kind === 'learner-external' &&
+      actual.tool.kind === 'learner-external' &&
+      expected.tool.toolName === actual.tool.toolName &&
+      expected.tool.intendedUse === actual.tool.intendedUse
+    );
+  }
+
+  function capstoneDesignation(
+    value: unknown,
+    lessons: readonly Pick<OnboardingSyllabusLesson, 'stepId' | 'role'>[],
+  ): CourseCapstoneDesignation | null {
+    const capstones = lessons.filter((lesson) => lesson.role === 'capstone');
+    if (value === null) {
+      if (capstones.length > 0) {
+        invalid(
+          'A capstone lesson requires a substantial capstone designation.',
+        );
+      }
+      return null;
+    }
+    const input = strictRecord(value, ['stepId', 'outcome', 'substantial']);
+    if (input.substantial !== true) {
+      invalid('Capstone designation must be marked substantial.');
+    }
+    const stepId = identifier(input.stepId, 'Capstone step id');
+    if (
+      capstones.length !== 1 ||
+      capstones[0]?.stepId !== stepId ||
+      capstones[0]?.role !== 'capstone'
+    ) {
+      invalid('Capstone designation must name the unique capstone lesson.');
+    }
+    return {
+      stepId,
+      outcome: boundedText(
+        input.outcome,
+        LIMITS.outcomeCharacters,
+        'Capstone outcome',
+      ),
+      substantial: true,
+    };
   }
 
   function opaqueRef(value: unknown): OpaqueRevisionRef {
@@ -899,7 +1091,7 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function proposalLesson(value: unknown): ProposalLesson {
+  function proposalLesson(value: unknown): OnboardingSyllabusLesson {
     const input = strictRecord(value, [
       'stepId',
       'title',
@@ -909,7 +1101,31 @@ export function createLearningOnboardingValidation(
       'prerequisiteStepIds',
       'sourceState',
       'sourceIds',
+      'practice',
     ]);
+    const parsedRole = role(input.role);
+    const practical = isPracticeRole(parsedRole);
+    if (practical) {
+      if (input.activity !== null) {
+        invalid(
+          'Practice and capstone lessons use a structured brief, not activity prose.',
+        );
+      }
+    } else if (input.practice !== null) {
+      invalid('Concept and setup lessons cannot carry a practice brief.');
+    }
+    const sourceIds = identifiers(
+      input.sourceIds,
+      LIMITS.sourceRefsPerLesson,
+      'Source id',
+    );
+    const practice = practical ? practiceBrief(input.practice) : null;
+    if (
+      practice !== null &&
+      practice.sourceIds.some((sourceId) => !sourceIds.includes(sourceId))
+    ) {
+      invalid('Practice brief sources must belong to the lesson.');
+    }
     return {
       stepId: identifier(input.stepId, 'Step id'),
       title: boundedText(input.title, LIMITS.titleCharacters, 'Lesson title'),
@@ -918,27 +1134,26 @@ export function createLearningOnboardingValidation(
         LIMITS.objectiveCharacters,
         'Lesson objective',
       ),
-      activity: boundedText(
-        input.activity,
-        LIMITS.activityCharacters,
-        'Lesson activity',
-      ),
-      role: role(input.role),
+      activity: practical
+        ? null
+        : boundedText(
+            input.activity,
+            LIMITS.activityCharacters,
+            'Lesson activity',
+          ),
+      role: parsedRole,
       prerequisiteStepIds: identifiers(
         input.prerequisiteStepIds,
         LIMITS.prerequisiteIds,
         'Prerequisite step id',
       ),
       sourceState: sourceState(input.sourceState),
-      sourceIds: identifiers(
-        input.sourceIds,
-        LIMITS.sourceRefsPerLesson,
-        'Source id',
-      ),
+      sourceIds,
+      practice,
     };
   }
 
-  function proposalTopics(value: unknown): ProposalTopic[] {
+  function proposalTopics(value: unknown): OnboardingSyllabusTopic[] {
     if (
       !isDenseArray(value) ||
       value.length < 1 ||
@@ -946,7 +1161,7 @@ export function createLearningOnboardingValidation(
     ) {
       invalid('Syllabus topics are invalid.');
     }
-    const topics = value.map((item): ProposalTopic => {
+    const topics = value.map((item): OnboardingSyllabusTopic => {
       const input = strictRecord(item, [
         'topicId',
         'title',
@@ -1015,7 +1230,7 @@ export function createLearningOnboardingValidation(
   }
 
   function sourceCoverageMatches(
-    topics: readonly ProposalTopic[] | readonly OnboardingSyllabusTopic[],
+    topics: readonly OnboardingSyllabusTopic[],
     reported: OnboardingSourceCoverage,
     sourceCount: number,
     gapCount: number,
@@ -1049,6 +1264,7 @@ export function createLearningOnboardingValidation(
       'interviewRevision',
       'title',
       'topics',
+      'capstone',
       'firstLesson',
       'sources',
       'gaps',
@@ -1058,6 +1274,10 @@ export function createLearningOnboardingValidation(
     ]);
     rejectForbiddenAuthority(input);
     const topics = proposalTopics(input.topics);
+    const capstone = capstoneDesignation(
+      input.capstone,
+      topics.flatMap((topic) => topic.lessons),
+    );
     const sources = (() => {
       if (
         !isDenseArray(input.sources) ||
@@ -1133,6 +1353,7 @@ export function createLearningOnboardingValidation(
       ),
       title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
       topics,
+      capstone,
       firstLesson: first,
       sources,
       gaps: reportedGaps,
@@ -1485,24 +1706,32 @@ export function createLearningOnboardingValidation(
     const target = strictRecord(input.target, [
       'remoteStepId',
       'acceptedProposal',
+      'practice',
     ]);
+    const model = modelContext(input.model);
+    const remoteStepId = identifier(target.remoteStepId, 'Remote step id');
+    const compact = model.syllabus.topics
+      .flatMap((topic) => topic.lessons)
+      .find((lesson) => lesson.stepId === remoteStepId);
+    if (compact === undefined) {
+      invalid('Selected lesson target is not in the supplied syllabus.');
+    }
+    const targetPractice = isPracticeRole(compact.role)
+      ? practiceBrief(target.practice)
+      : null;
+    if (!isPracticeRole(compact.role) && target.practice !== null) {
+      invalid('Concept and setup targets cannot include a practice brief.');
+    }
     const selected: GenerateSelectedLessonOperation = {
       kind: 'generate-selected-lesson',
       human,
-      model: modelContext(input.model),
+      model,
       target: {
-        remoteStepId: identifier(target.remoteStepId, 'Remote step id'),
+        remoteStepId,
         acceptedProposal: opaqueRef(target.acceptedProposal),
+        practice: targetPractice,
       },
     };
-    const steps = selected.model.syllabus.topics.flatMap(
-      (topic) => topic.lessons,
-    );
-    if (
-      !steps.some((lesson) => lesson.stepId === selected.target.remoteStepId)
-    ) {
-      invalid('Selected lesson target is not in the supplied syllabus.');
-    }
     if (input.changes !== undefined)
       invalid('Selected-lesson fields are invalid.');
     return selected;
@@ -1859,6 +2088,42 @@ export function createLearningOnboardingValidation(
     return value.map(evidenceItem);
   }
 
+  function generatedPracticeBrief(
+    value: unknown,
+    originals: readonly {
+      sourceId: string;
+      revisionId: string;
+      canonicalText: string;
+    }[],
+  ): GeneratedCoursePracticeBrief {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      invalid('Generated practice brief is invalid.');
+    }
+    const record = value as Record<string, unknown>;
+    const citationsValue = record.citations;
+    const brief = practiceBrief(
+      Object.fromEntries(
+        Object.entries(record).filter(([key]) => key !== 'citations'),
+      ),
+    );
+    if (
+      !isDenseArray(citationsValue) ||
+      citationsValue.length < 1 ||
+      citationsValue.length > 12
+    ) {
+      invalid('Practice brief citations are invalid.');
+    }
+    const citations = citationsValue.map((entry) => citation(entry, originals));
+    if (
+      brief.sourceIds.some(
+        (sourceId) => !citations.some((entry) => entry.sourceId === sourceId),
+      )
+    ) {
+      invalid('Practice brief citations must cover the brief sources.');
+    }
+    return { ...brief, citations };
+  }
+
   function generatedLesson(
     value: unknown,
     originals: readonly {
@@ -1866,21 +2131,24 @@ export function createLearningOnboardingValidation(
       revisionId: string;
       canonicalText: string;
     }[],
-    expectedStepId: string,
-    expectedTitle: string,
-    expectedActivity: string | null,
+    expected: {
+      stepId: string;
+      title: string;
+      role: LessonRole;
+      practice: CoursePracticeBrief | null;
+    },
   ): OnboardingGeneratedLesson {
     const input = strictRecord(value, [
       'stepId',
       'source',
       'paragraphs',
-      'activity',
+      'practice',
     ]);
     const stepId = identifier(input.stepId, 'Step id');
-    if (stepId !== expectedStepId)
+    if (stepId !== expected.stepId)
       invalid('Generated lesson does not match its target step.');
     const source = generatedSource(input.source);
-    if (source.title !== expectedTitle) {
+    if (source.title !== expected.title) {
       invalid('Generated lesson title does not match its step.');
     }
     if (
@@ -1919,41 +2187,33 @@ export function createLearningOnboardingValidation(
     ) {
       invalid('Generated lesson text does not match its canonical source.');
     }
-    const activity = strictRecord(input.activity, [
-      'text',
-      'kind',
-      'masteryEstablished',
-    ]);
-    if (
-      activity.kind !== 'ai-proposed-activity' ||
-      activity.masteryEstablished !== false ||
-      (expectedActivity !== null && activity.text !== expectedActivity)
-    ) {
-      invalid(
-        'Generated activity does not match its step and cannot claim mastery.',
-      );
+    const requiresPractice = isPracticeRole(expected.role);
+    if (requiresPractice) {
+      if (expected.practice === null) {
+        invalid('Practice and capstone steps require a retained brief.');
+      }
+      const practice = generatedPracticeBrief(input.practice, originals);
+      if (!samePracticeBrief(expected.practice, practice)) {
+        invalid('Generated practice brief does not match its syllabus step.');
+      }
+      return { stepId, source, paragraphs, practice };
     }
-    return {
-      stepId,
-      source,
-      paragraphs,
-      activity: {
-        text: boundedText(
-          activity.text,
-          LIMITS.activityCharacters,
-          'Lesson activity',
-        ),
-        kind: 'ai-proposed-activity',
-        masteryEstablished: false,
-      },
-    };
+    if (input.practice !== null || expected.practice !== null) {
+      invalid('Concept and setup lessons cannot include a practice brief.');
+    }
+    return { stepId, source, paragraphs, practice: null };
   }
 
   function parseSyllabus(value: unknown): OnboardingSyllabus {
-    const input = strictRecord(value, ['title', 'topics']);
+    const input = strictRecord(value, ['title', 'topics', 'capstone']);
+    const topics = proposalTopics(input.topics);
     return {
       title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
-      topics: proposalTopics(input.topics),
+      topics,
+      capstone: capstoneDesignation(
+        input.capstone,
+        topics.flatMap((topic) => topic.lessons),
+      ),
     };
   }
 
@@ -2059,13 +2319,12 @@ export function createLearningOnboardingValidation(
       revisionId: source.content.revision.revisionId,
       canonicalText: source.content.revision.canonicalText,
     }));
-    const firstLesson = generatedLesson(
-      input.firstLesson,
-      originals,
-      firstStep.stepId,
-      firstStep.title,
-      firstStep.activity,
-    );
+    const firstLesson = generatedLesson(input.firstLesson, originals, {
+      stepId: firstStep.stepId,
+      title: firstStep.title,
+      role: firstStep.role,
+      practice: firstStep.practice,
+    });
     const reportedGaps = input.gaps === undefined ? [] : gaps(input.gaps);
     const listedBibliography = bibliography(input.bibliography);
     const sourceCoverage = coverage(input.sourceCoverage);
@@ -2142,13 +2401,12 @@ export function createLearningOnboardingValidation(
       ],
       'Selected-lesson success outcome is invalid.',
     );
-    const lesson = generatedLesson(
-      input.lesson,
-      originals,
-      target,
-      compact.title,
-      null,
-    );
+    const lesson = generatedLesson(input.lesson, originals, {
+      stepId: target,
+      title: compact.title,
+      role: compact.role,
+      practice: request.operation.target.practice,
+    });
     if (
       !isDenseArray(input.provenance) ||
       input.provenance.length < 1 ||
