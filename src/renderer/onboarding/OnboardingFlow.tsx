@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type {
   AcceptCourseValue,
   CourseProposal,
+  InterviewPrompt,
   InterviewRecord,
   LearnerProfile,
   LessonDepth,
@@ -10,7 +17,12 @@ import type {
   RevisionWrite,
 } from '../../contracts/learning-onboarding';
 import { LESSON_DEPTHS } from '../../contracts/learning-onboarding';
-import { LOCAL_PROMPT_IDS, type OpeningOnboardingBridge } from './types';
+import {
+  LOCAL_FOLLOWUP_QUESTION,
+  LOCAL_PROMPT_IDS,
+  type OnboardingDraftPersist,
+  type OpeningOnboardingBridge,
+} from './types';
 import '../shell/ui/button.css';
 import './onboarding.css';
 
@@ -107,6 +119,7 @@ export function OnboardingFlow({
   bridge,
   onAccepted,
   onCancel,
+  persistHandle = null,
 }: {
   projectId: string;
   goal: string;
@@ -115,6 +128,7 @@ export function OnboardingFlow({
   bridge: OpeningOnboardingBridge;
   onAccepted: (value: AcceptCourseValue) => void;
   onCancel: () => void;
+  persistHandle?: React.Ref<OnboardingDraftPersist> | null;
 }): React.JSX.Element {
   const questions = useMemo(() => localQuestions(goal), [goal]);
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
@@ -130,18 +144,24 @@ export function OnboardingFlow({
   const [status, setStatus] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [retryable, setRetryable] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState<InterviewPrompt | null>(null);
+  const [localFollowUp, setLocalFollowUp] = useState(false);
+  const [promptBusy, setPromptBusy] = useState(false);
   const submitting = useRef(false);
   const ignoreRemote = useRef(false);
   const leaving = useRef(false);
   const dirty = useRef(false);
-  const busyRef = useRef(false);
-  const persistInterviewRef = useRef<
-    (mode: 'plan' | 'draft') => Promise<InterviewRecord | null>
-  >(async () => null);
+  const persistInFlight = useRef<Promise<'saved' | 'failed' | 'idle'> | null>(
+    null,
+  );
+  const lastInterviewAction = useRef<'plan' | 'prompt'>('plan');
   const requestId = useRef(newRequestId());
   const acceptRequestId = useRef<string | undefined>(undefined);
   const interviewRevision = useRef(0);
   const profileRevision = useRef(0);
+  const diagnosticComplete = questions.every(
+    (item) => (answers[item.id] ?? '').trim() !== '',
+  );
 
   const markDirty = (): void => {
     dirty.current = true;
@@ -162,6 +182,16 @@ export function OnboardingFlow({
           }
           return next;
         });
+        const latestPrompt =
+          snapshot.interview.prompts[snapshot.interview.prompts.length - 1];
+        if (latestPrompt) setAiPrompt(latestPrompt);
+        else if (
+          snapshot.interview.answers.some(
+            (answer) => answer.promptId === LOCAL_PROMPT_IDS.localFollowUp,
+          )
+        ) {
+          setLocalFollowUp(true);
+        }
         const seed = snapshot.interview.seedDrafts[0]?.url;
         if (seed) setSourceUrl(seed);
       } else {
@@ -188,20 +218,6 @@ export function OnboardingFlow({
       }
     })();
   }, [bridge, projectId]);
-
-  useEffect(() => {
-    return () => {
-      if (
-        leaving.current ||
-        submitting.current ||
-        busyRef.current ||
-        !dirty.current
-      ) {
-        return;
-      }
-      void persistInterviewRef.current('draft').catch(() => undefined);
-    };
-  }, []);
 
   const applyRemote = <T,>(
     result: OnboardingResult<T>,
@@ -291,6 +307,11 @@ export function OnboardingFlow({
       profileRevision.current = currentProfile.revision;
     }
     const snapshot = await bridge.getLearningOnboarding({ projectId });
+    const followUps = [
+      ...questions,
+      ...(aiPrompt ? [{ id: aiPrompt.id }] : []),
+      ...(localFollowUp ? [{ id: LOCAL_PROMPT_IDS.localFollowUp }] : []),
+    ];
     const interviewWrite = await bridge.saveLearningInterview({
       projectId,
       expectedRevision: snapshot.interview?.revision ?? 0,
@@ -301,7 +322,7 @@ export function OnboardingFlow({
         profileRevision: profile?.revision ?? 0,
         sourceRevisionIds: snapshot.interview?.sourceRevisionIds ?? [],
         seedDrafts: seedFromUrl(sourceUrl),
-        answers: typedInterviewAnswers(questions, answers),
+        answers: typedInterviewAnswers(followUps, answers),
       },
     });
     let interview: InterviewRecord | undefined;
@@ -331,15 +352,50 @@ export function OnboardingFlow({
     return interview!;
   };
 
-  useEffect(() => {
-    busyRef.current = busy;
-    persistInterviewRef.current = persistInterview;
-  });
+  const persistDraftOnce = (
+    force = false,
+  ): Promise<'saved' | 'failed' | 'idle'> => {
+    if (persistInFlight.current) return persistInFlight.current;
+    if (submitting.current || busy) {
+      setError(
+        'A planner request is still running. Cancel it before leaving so your answers can be saved.',
+      );
+      setRetryable(true);
+      return Promise.resolve('failed');
+    }
+    if (!force && !dirty.current) return Promise.resolve('idle');
+    const work = (async (): Promise<'saved' | 'failed' | 'idle'> => {
+      try {
+        const interview = await persistInterview('draft');
+        if (!interview) return 'failed';
+        dirty.current = false;
+        return 'saved';
+      } catch (failure) {
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'The planner could not save this draft. Your typed answers remain.',
+        );
+        setRetryable(true);
+        return 'failed';
+      }
+    })();
+    persistInFlight.current = work;
+    void work.finally(() => {
+      if (persistInFlight.current === work) persistInFlight.current = null;
+    });
+    return work;
+  };
+
+  useImperativeHandle(persistHandle, () => ({
+    persistDraft: () => persistDraftOnce(false),
+  }));
 
   const submitInterview = async (): Promise<void> => {
     if (submitting.current || busy) return;
     submitting.current = true;
     ignoreRemote.current = false;
+    lastInterviewAction.current = 'plan';
     setBusy(true);
     setError(undefined);
     setStatus('Saving your answers…');
@@ -369,6 +425,64 @@ export function OnboardingFlow({
       );
     } finally {
       submitting.current = false;
+    }
+  };
+
+  const requestFollowUp = async (): Promise<void> => {
+    if (submitting.current || busy || promptBusy || !diagnosticComplete) return;
+    submitting.current = true;
+    ignoreRemote.current = false;
+    lastInterviewAction.current = 'prompt';
+    setPromptBusy(true);
+    setBusy(true);
+    setError(undefined);
+    setStatus('Saving your answers…');
+    try {
+      const interview = await persistInterview('plan');
+      if (!interview || ignoreRemote.current) return;
+      requestId.current = newRequestId();
+      setStatus('Requesting a follow-up question…');
+      const prompted = await bridge.requestInterviewPrompt({
+        projectId,
+        requestId: requestId.current,
+        interviewRevision: interview.revision,
+        consent: 'acquire-learning-evidence',
+      });
+      if (ignoreRemote.current) return;
+      if (prompted.outcome === 'unavailable') {
+        setBusy(false);
+        setPromptBusy(false);
+        setStatus(undefined);
+        setLocalFollowUp(true);
+        setError(
+          describeFailure(prompted.outcome, prompted.message) +
+            ' A local follow-up is below. It is not an AI question.',
+        );
+        setRetryable(prompted.retryable);
+        dirty.current = true;
+        return;
+      }
+      applyRemote(prompted, (record) => {
+        const latest = record.prompts[record.prompts.length - 1];
+        if (latest) {
+          setAiPrompt(latest);
+          setLocalFollowUp(false);
+        }
+        interviewRevision.current = record.revision;
+        dirty.current = true;
+      });
+    } catch (failure) {
+      setBusy(false);
+      setStatus(undefined);
+      setRetryable(true);
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'The follow-up question could not be requested. Your answers remain.',
+      );
+    } finally {
+      submitting.current = false;
+      setPromptBusy(false);
     }
   };
 
@@ -454,8 +568,8 @@ export function OnboardingFlow({
     if (leaving.current || submitting.current || busy) return;
     leaving.current = true;
     try {
-      const interview = await persistInterview('draft');
-      if (!interview) {
+      const result = await persistDraftOnce(true);
+      if (result === 'failed') {
         leaving.current = false;
         return;
       }
@@ -715,6 +829,61 @@ export function OnboardingFlow({
           disabled={busy}
         />
       </label>
+      {aiPrompt ? (
+        <aside className="onboarding-ai" aria-label="Planner follow-up">
+          <p className="onboarding-label">Planner follow-up</p>
+          <p>{aiPrompt.text}</p>
+          <p className="onboarding-attribution">
+            This question is AI-authored, not your diagnostic answer, and it
+            does not establish mastery.
+          </p>
+          <label className="onboarding-field">
+            Your answer to the follow-up
+            <textarea
+              value={answers[aiPrompt.id] ?? ''}
+              onChange={(event) => {
+                markDirty();
+                const promptId = aiPrompt.id;
+                setAnswers((current) => ({
+                  ...current,
+                  [promptId]: event.target.value,
+                }));
+              }}
+              rows={4}
+              disabled={busy}
+            />
+          </label>
+        </aside>
+      ) : localFollowUp ? (
+        <aside className="onboarding-ai" aria-label="Local follow-up">
+          <p className="onboarding-label">Local follow-up</p>
+          <p>{LOCAL_FOLLOWUP_QUESTION}</p>
+          <p className="onboarding-attribution">
+            The planner was unavailable, so this is a fixed local question, not
+            an AI diagnosis.
+          </p>
+          <label className="onboarding-field">
+            Your answer to the follow-up
+            <textarea
+              value={answers[LOCAL_PROMPT_IDS.localFollowUp] ?? ''}
+              onChange={(event) => {
+                markDirty();
+                setAnswers((current) => ({
+                  ...current,
+                  [LOCAL_PROMPT_IDS.localFollowUp]: event.target.value,
+                }));
+              }}
+              rows={4}
+              disabled={busy}
+            />
+          </label>
+        </aside>
+      ) : (
+        <p className="onboarding-lede">
+          After the four human questions, you can request one adaptive
+          follow-up. That request is optional and is not sent until you ask.
+        </p>
+      )}
       {status ? (
         <p role="status" aria-live="polite">
           {status}
@@ -739,19 +908,35 @@ export function OnboardingFlow({
             Cancel planning
           </button>
         ) : (
-          <button
-            type="button"
-            className="ui-button ui-button--primary"
-            onClick={() => void submitInterview()}
-          >
-            Plan this course
-          </button>
+          <>
+            {aiPrompt || localFollowUp ? null : (
+              <button
+                type="button"
+                className="ui-button ui-button--secondary"
+                onClick={() => void requestFollowUp()}
+                disabled={busy || !diagnosticComplete}
+              >
+                Request a follow-up question
+              </button>
+            )}
+            <button
+              type="button"
+              className="ui-button ui-button--primary"
+              onClick={() => void submitInterview()}
+            >
+              Plan this course
+            </button>
+          </>
         )}
         {retryable && !busy ? (
           <button
             type="button"
             className="ui-button ui-button--secondary"
-            onClick={() => void submitInterview()}
+            onClick={() =>
+              void (lastInterviewAction.current === 'prompt'
+                ? requestFollowUp()
+                : submitInterview())
+            }
           >
             Retry
           </button>

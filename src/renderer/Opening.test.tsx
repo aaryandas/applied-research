@@ -322,3 +322,92 @@ it('passes source URL and pasted excerpt into onboarding and continues without a
     '  excerpt from a paper  ',
   );
 });
+
+it('opens the accepted-course review sheet from Opening without a fake course', async () => {
+  const bridge = {
+    getLearningOnboarding: vi.fn(async () => ({
+      interview: {
+        projectId: 'saved-0',
+        revision: 1,
+        updatedAt: '2026-09-09T12:00:00.000Z',
+        goal: 'Robot perception',
+        focus: 'Robot perception',
+        depth: 'balanced',
+        profileRevision: 1,
+        sourceRevisionIds: [],
+        seedDrafts: [],
+        answers: [{ promptId: 'diagnostic-01', answer: 'I am not sure yet' }],
+        prompts: [],
+      },
+      proposal: null,
+      accepted: {
+        proposal: { id: '11111111-1111-4111-8111-111111111111', revision: 1 },
+        pathId: 'path-1',
+        pathRevision: 1,
+        firstLesson: {
+          pathId: 'path-1',
+          pathRevision: 1,
+          topicId: 'topic-1',
+          lessonId: 'lesson-1',
+        },
+      },
+      adjustment: null,
+    })),
+    proposeAcceptedCourseAdjustment: vi.fn(),
+    cancelLearningOnboarding: vi.fn(async () => {}),
+    getLearnerProfile: vi.fn(async () => ({
+      background: 'Robotics internships',
+      learningGoals: 'Ship a perception stack',
+      priorKnowledge: 'Kalman filters',
+      revision: 3,
+      updatedAt: '2026-09-09T13:00:00.000Z',
+      author: 'human' as const,
+    })),
+  } as unknown as OpeningOnboardingBridge;
+  render(
+    <Opening
+      projects={[project('Robot perception', 'saved-0')]}
+      onCreate={vi.fn(async () => {})}
+      onReopen={vi.fn()}
+      continueLearning={{
+        projectId: 'saved-0',
+        path: {
+          pathId: 'path-1',
+          pathRevision: 1,
+          topicId: 'topic-1',
+          lessonId: 'lesson-1',
+        },
+        sourceRevisionId: null,
+        span: null,
+        lessonTitle: 'Attention',
+        projectGoal: 'Robot perception',
+      }}
+      onboarding={{
+        createDraftProject: vi.fn(async () => ({ id: 'draft-1' })),
+        bridge,
+        onAccepted: vi.fn(),
+        adjustmentEvidence: async () => [
+          {
+            attemptId: 'e1234567-1234-4234-8234-123456789012',
+            recordedRevision: 1,
+            remoteStepId: 'step-002',
+            lessonTitle: 'Tokenizer practice',
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review course from your work' }),
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Robot perception' }),
+  ).toBeVisible();
+  expect(screen.getByText(/Tokenizer practice/)).toBeVisible();
+  expect(await screen.findByText('Robotics internships')).toBeVisible();
+  expect(screen.getByText(/Live profile revision 3/)).toBeVisible();
+  expect(screen.getByText(/Live profile revision 3/)).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Request reviewed adjustment' }),
+  ).toBeEnabled();
+});

@@ -6,8 +6,16 @@ Apply these diffs on `codex/ar-walkthrough-integration` (or cherry-pick onto the
 integration merge). Do not use migration 0004 (AR-50) or 0006 (AR-56).
 
 Consumer branch: `codex/ar-47-onboarding-cloud`  
-Candidate SHA: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89` (implementation).
-Docs-only follow-ups may sit on the same branch; use `git rev-parse origin/codex/ar-47-onboarding-cloud` for HEAD.  
+Independently reviewed producer (Standards/Spec PASS, keep; do not remake): `9c325f590494c4f86dd5ef6ae1d68473a33cf100`.
+Implementation origin: `d4b7710f617bbd554d96fffd3d6dd4aeed744c89`.
+Coverage/late-cancel: `fe8bbefc1f9e80fce3d930315ecb1fa927a7effa` (keep; do not remake).
+Producer follow-up inside that PASS: `a70cc0d76f16431a436509858ef1af1abe74c04b` (intended live profile for selected-lesson generation, partial interview persist on Back/close, and `pastedSeedText` on the untrusted human wire).
+Full-app remainder after `9c325f5` (do not rebase or remake that PASS, and do not wipe `pastedSeedText` / intended-profile / `profileRevision` 0):
+contracts `4738c4713eaee8a583bd138ca5ef76edbc9eafdf`,
+main overlay `0e5a2a03cb6c642335090f276cd05b144c796186`,
+Opening mount `5cd07e4c7d80f7d5b3d68c02b49adb44c0321bde`,
+live intended profile + follow-up gating `80105d67d13be1461668576be79897a353700b49`.
+Docs/handoff pin is this file’s commit; published HEAD is `git rev-parse origin/codex/ar-47-onboarding-cloud`.  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
 Patch path: `context/ar-47-onboarding-handoff.md`
@@ -103,6 +111,18 @@ Insert into `EXPECTED_TABLE_COLUMNS` immediately before `__drizzle_migrations`:
     'practice_digest',
     'source_ids_json',
     'practice_brief_json',
+  ],
+  learning_adjustments: [
+    'project_id',
+    'adjustment_id',
+    'revision',
+    'accepted_proposal_id',
+    'accepted_proposal_revision',
+    'envelope_json',
+    'projection_json',
+    'accepted_at',
+    'request_id',
+    'updated_at',
   ],
   learning_resume: [
     'id',
@@ -236,6 +256,12 @@ handle(LEARNING_ONBOARDING_CHANNELS.accept, (value) =>
 handle(LEARNING_ONBOARDING_CHANNELS.ensureLesson, (value) =>
   onboardingOperations.ensureLesson(value),
 );
+handle(LEARNING_ONBOARDING_CHANNELS.adjust, (value) =>
+  onboardingOperations.proposeAcceptedCourseAdjustment(value),
+);
+handle(LEARNING_ONBOARDING_CHANNELS.acceptAdjustment, (value) =>
+  onboardingOperations.acceptCourseAdjustment(value),
+);
 handle(LEARNING_ONBOARDING_CHANNELS.cancel, (value) =>
   onboardingOperations.cancelLearningOnboarding(value),
 );
@@ -293,6 +319,10 @@ acceptCourse: (input) =>
   ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.accept, input),
 ensureLesson: (input) =>
   ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.ensureLesson, input),
+proposeAcceptedCourseAdjustment: (input) =>
+  ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.adjust, input),
+acceptCourseAdjustment: (input) =>
+  ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.acceptAdjustment, input),
 cancelLearningOnboarding: (input) =>
   ipcRenderer.invoke(LEARNING_ONBOARDING_CHANNELS.cancel, input),
 getContinueLearning: () =>
@@ -314,7 +344,30 @@ still lands a new topic in Reader. When the onboarding methods exist:
 
 - `createDraftProject`: `bridge.createProject(goal)` then list it, **do not**
   `openProject` (that would present an empty project as a course).
-- Pass `onboarding={{ createDraftProject, bridge, onAccepted }}`.
+- Pass `onboarding={{ createDraftProject, bridge, onAccepted, adjustmentEvidence }}`.
+  `adjustmentEvidence(projectId)` is AR-56 owned: resolve existing
+  `practical-records` attempt summaries for accepted practice mappings into
+  `{ attemptId, recordedRevision, remoteStepId, lessonTitle }`. Do not invent
+  attempts. Empty is honest when none exist.
+- Hold `const onboardingPersistRef = useRef<OnboardingDraftPersist>(null)` and
+  pass it to Opening. Opening forwards `OnboardingFlow.persistHandle`.
+- **Native close / Home barrier (root-owned; unused in this producer):**
+  this producer does **not** claim Electron native close is fully fixed. App
+  and `useWorkspaceFlush` must await the Opening persist hook **before**
+  unmounting Opening or destroying the window:
+
+```ts
+const persist = await onboardingPersistRef.current?.persistDraft();
+if (persist === 'failed') {
+  // Keep Opening mounted. Do not continue close/Home.
+  return { status: 'blocked', reason: 'onboarding-draft' };
+}
+```
+
+Unmount persist was removed because it swallowed errors (P2). Back already
+awaits persist and stays on the sheet on conflict/throw. Native close stays
+incomplete until this hook is wired in App/main.
+
 - `onAccepted`: `setWorkspace(value.workspace)` and remember
   `value.firstLesson` for Shell resume.
 - `getContinueLearning()` for the compact Continue learning card. Draft
@@ -332,6 +385,12 @@ still lands a new topic in Reader. When the onboarding methods exist:
 - Opening Back already persists the interview (and explicit paste clear) before
   unmounting the sheet. Reopen step 3 restores exact answer/paste bytes via
   `getLearningOnboarding` + `getPastedSource`.
+  `getLearningOnboarding` + `getPastedSource`, including AI follow-up prompts
+  and their separate human answers.
+- Continue learning remains the resume card. Opening also mounts producer-owned
+  `AcceptedCourseAdjustment` from **Review course from your work**. Shell may
+  reuse that component after Practical evidence exists; pass locators through
+  `adjustmentEvidence`.
 - Preserve every `listProjects()` row under All saved work.
 
 Type the App bridge as
@@ -382,6 +441,62 @@ and OpenAlex papers). First success scope is
 
 Keep the existing allowlisted model (`google/gemini-3.8-flash`) and US$20
 monthly quota. No new provider or budget.
+`generate-selected-lesson` / `selected-existing-lesson`. Reviewed accepted
+courses use `adjust-accepted-course` / `accepted-course-adjustment` (overlay,
+not a replacement syllabus).
+
+Keep the existing allowlisted model (`google/gemini-3.8-flash`) and US$20
+monthly quota. No new provider, second planner, or budget. Do not treat the
+separately authorized $2/10 evaluation cap as this ticket’s monthly quota.
+
+| `operation.kind`           | Expected success `scope`             | Notes                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interview-prompt`         | `interview-prompt`                   | User-initiated follow-up only. Prompt is AI-authored; not a human diagnostic answer.                                                                                                                                                                                                  |
+| `propose-course`           | `complete-syllabus-and-first-lesson` |                                                                                                                                                                                                                                                                                       |
+| `revise-course`            | `complete-syllabus-and-first-lesson` | Preview only. Must not run after accept.                                                                                                                                                                                                                                              |
+| `generate-selected-lesson` | `selected-existing-lesson`           | Compact syllabus may already show updated pending `practiceDigest` after an accepted overlay. `target.practice` must match that digest. Do **not** reject live `human.profileRevision` ≠ stored interview `profileRevision`.                                                          |
+| `adjust-accepted-course`   | `accepted-course-adjustment`         | **New.** Overlay only. Forbidden: replacement `syllabus`, new lesson/path IDs, `evidence` authority field, ready-lesson patches, `masteryEstablished: true`. Progress key is `progress.practicalAttempts` (locators). Human notes arrive as `adjustment-notes-01` on `human.answers`. |
+
+Parse with `parseLearningOnboardingRequestWire` /
+`parseLearningOnboardingResponseWire` on the **raw** body. `progress` is
+illegal on interview/propose/revise/selected-lesson. `acceptedProposal` is
+illegal on interview/propose/revise. Selected-lesson must not have a root
+`acceptedProposal` (it lives on `target`). Success envelopes other than
+`accepted-course-adjustment` must omit `adjustment`.
+
+### `adjust-accepted-course` mapping (exact)
+
+Request `operation`:
+
+- `kind: 'adjust-accepted-course'`
+- `human`: live intended profile (`profileRevision` may be newer than the
+  stored interview bind). Interview answers remain historical self-report.
+  Optional notes are extra human answers with prompt id `adjustment-notes-01`
+  (`ADJUSTMENT_NOTES_PROMPT_ID`). Still `untrusted-human-context`.
+- `model`: retained compact syllabus as `untrusted-model-context`. Ready steps
+  stay byte-identical. Pending `practiceDigest` may already reflect a prior
+  accepted overlay.
+- `progress`: `{ trust: 'untrusted-human-context', practicalAttempts: PracticalAttemptLocator[] }`.
+  Locators are `{ trust, kind: 'practical-attempt-locator', attemptId, recordedRevision, remoteStepId }`.
+  Empty is honest. These are not mastery and not `evidence`.
+- `acceptedProposal`: opaque id+revision equal to `model.priorProposal`.
+
+Success body (`scope: 'accepted-course-adjustment'`):
+
+- `adjustment`: `{ acceptedProposal, summary, focus, depth, patches, citations }`.
+  `summary.masteryEstablished` must be `false`. `focus`/`depth` are `{before,after}`
+  or null. `patches` name pending `remoteStepId` + `field` (`objective` |
+  `activity` | `practice`) with visible before/after. Practice patches include
+  the replacement `CoursePracticeBrief`; others have `practice: null`.
+- **Must not** include `syllabus`, `firstLesson`, `lesson`, or new identities.
+- Citations/evidence must be acquired originals already in `sources`.
+- Desktop retains the envelope under `learning_adjustments` and applies only
+  after explicit `acceptCourseAdjustment`. Ready completed lessons, path IDs,
+  accepted proposal identity, and human/AI attribution stay.
+
+Until this operation is real, return explicit `unavailable`
+(`retryable: true` only when `accounting` is `none` or `released`). Do not
+fake a reviewed overlay.
 
 ### `human.pastedSeedText` (required `string | null`)
 
@@ -432,3 +547,73 @@ text as human answers.
 **App/Opening mount.** Assembler owns the named onboarding bridge. Root applies
 section 8; AR-56 owns Reader/`ensureLesson` lifetime. This producer does not
 edit `App.tsx` / `Shell.tsx` / `src/main/index.ts`.
+## Remaining assembly (producer remainder is implemented)
+
+This producer now implements the previously deferred full-app remainder on
+Opening-owned modules. Independent critic of `9c325f5` still stands for that
+checkpoint; this remainder needs its own standards/spec pass. Not Done. Not
+real-app Cloud acceptance (needs integrated main/CI and actual auth). Do not
+seed fake courses or call paid models from this lane.
+
+**Mounted `requestInterviewPrompt`.** After the four human diagnostic answers,
+Opening shows **Request a follow-up question** (disabled until those four
+answers are non-empty; user-initiated; no implicit paid dispatch). Main already
+appended AI prompts on `InterviewRecord.prompts` with `author: 'ai'`. The human
+answer is a separate field. Unavailable keeps a fixed local question
+(`follow-up-local-01`) that is explicitly not AI. Loading/error/cancel/retry
+are explicit. Reopen restores last prompts and the separate human answer.
+Background/goals/diagnostic answers and optional paste stay.
+
+**W42 accepted-course overlay.** `revise-course` still replaces a _preview_
+syllabus and cannot safely express post-accept review. Named operation
+`adjust-accepted-course` (scope `accepted-course-adjustment`) proposes a
+bounded overlay: focus/depth before-after, pending practice/objective patches,
+citations from acquired evidence. Explicit **Accept overlay** applies pending
+practice briefs only. Ready lessons, path IDs, accepted proposal identity, and
+human/AI attribution stay. Self-report is not mastery. Opening mounts
+`AcceptedCourseAdjustment` from **Review course from your work**. The sheet
+shows live intended profile bytes (`getLearnerProfile` /
+`getLearnerProfileView`) separately from historical interview answers and from
+any AI assessment (`author: 'ai'`, mastery not established). Empty Practical
+locators are honest until AR-56 passes `adjustmentEvidence`.
+
+**Honest persist (P2).** Unmount `.catch(() => undefined)` is gone. Back and
+`OnboardingDraftPersist.persistDraft()` share one in-flight save and surface
+conflict/throw. Busy persist returns `'failed'` (cancel the planner first).
+Opening exposes `onboardingPersistRef` → `persistDraft()`. **Native close is
+not fully fixed:** App/`useWorkspaceFlush` must await that hook (section 8)
+before unmounting Opening. This producer cannot claim Electron native close
+while that hook is unused.
+
+### Residual joins (assembler / AR-56 / AR-48 / coordinator)
+
+Do not treat these as AR-47 producer Done:
+
+1. Journal idx 5 `0005_learning_onboarding` **including** `learning_adjustments`
+   columns in `EXPECTED_TABLE_COLUMNS` (section 2). Tests still apply 0005 onto
+   an already-migrated store until the journal lands.
+2. WorkspaceStore `onboardingRecords()`, `DesktopBridge` intersection, preload
+   - `src/main/index.ts` handlers for `adjust` / `acceptAdjustment` (sections
+     4–7).
+3. App section 8: `onboarding` bridge, `resumeDraft` reopen, Continue learning,
+   `adjustmentEvidence(projectId)` from existing `practical-records` (attempt
+   summaries for accepted practice mappings; do not invent attempts), and the
+   **native-close persist hook**:
+
+```ts
+const persist = await onboardingPersistRef.current?.persistDraft();
+if (persist === 'failed') {
+  return { status: 'blocked', reason: 'onboarding-draft' };
+}
+```
+
+4. Shell may reuse `AcceptedCourseAdjustment`; pass locators through
+   `adjustmentEvidence`. AR-56 owns `ensureLesson` renderer lifetime, Reader
+   handoff, resume barrier.
+5. AR-48 must map `adjust-accepted-course` as specified above. No second
+   provider/budget. Compact syllabus after overlay accept may carry updated
+   pending `practiceDigest`; selected-lesson `target.practice` must match.
+6. SettingsPanel LearnerProfile mount (section 10).
+
+This producer does not edit `App.tsx` / `Shell.tsx` / `Reader*` /
+`src/main/index.ts` / preload / WorkspaceStore / journal / workflow.

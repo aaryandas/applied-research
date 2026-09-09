@@ -63,6 +63,7 @@ export const LEARNING_ONBOARDING_SCOPES = [
   'interview-prompt',
   'complete-syllabus-and-first-lesson',
   'selected-existing-lesson',
+  'accepted-course-adjustment',
 ] as const;
 export type LearningOnboardingScope =
   (typeof LEARNING_ONBOARDING_SCOPES)[number];
@@ -72,6 +73,7 @@ export const LEARNING_ONBOARDING_OPERATIONS = [
   'propose-course',
   'revise-course',
   'generate-selected-lesson',
+  'adjust-accepted-course',
 ] as const;
 export type LearningOnboardingOperationKind =
   (typeof LEARNING_ONBOARDING_OPERATIONS)[number];
@@ -100,6 +102,9 @@ export const LEARNING_ONBOARDING_LIMITS = {
   diagnosticAnswers: 6,
   diagnosticAnswerCharacters: 4_000,
   interviewPrompts: 6,
+  practicalAttemptLocators: 16,
+  adjustmentPatches: 32,
+  adjustmentBeforeAfterCharacters: 2_000,
   promptCharacters: 2_000,
   pastedSeedCharacters: 24_000,
   seedRevisionLocators: 8,
@@ -282,11 +287,73 @@ export type GenerateSelectedLessonOperation = {
   };
 };
 
+/**
+ * Opaque Practical attempt locator. Not an attempt body, file, mastery flag,
+ * or canonical source. Main must resolve ownership; backend must not treat
+ * these as evidence authority.
+ */
+export type PracticalAttemptLocator = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  kind: 'practical-attempt-locator';
+  attemptId: string;
+  recordedRevision: number;
+  remoteStepId: string;
+};
+
+export type CourseAdjustmentProgress = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  practicalAttempts: PracticalAttemptLocator[];
+};
+
+export const COURSE_ADJUSTMENT_PATCH_FIELDS = [
+  'objective',
+  'activity',
+  'practice',
+] as const;
+export type CourseAdjustmentPatchField =
+  (typeof COURSE_ADJUSTMENT_PATCH_FIELDS)[number];
+
+/**
+ * Proposed overlay on a still-pending accepted step. Ready completed lessons
+ * cannot appear here. `practice` is the replacement brief when `field` is
+ * `practice`; otherwise it is null. Before/after text is display only.
+ */
+export type CourseAdjustmentPatch = {
+  remoteStepId: string;
+  field: CourseAdjustmentPatchField;
+  before: string;
+  after: string;
+  practice: CoursePracticeBrief | null;
+};
+
+export type CourseAdjustmentProposalBody = {
+  acceptedProposal: OpaqueRevisionRef;
+  summary: OnboardingPersonalization;
+  focus: { before: string; after: string } | null;
+  depth: { before: LessonDepth; after: LessonDepth } | null;
+  patches: CourseAdjustmentPatch[];
+  citations: SourceCitation[];
+};
+
+/**
+ * Bounded review of an already-accepted course. Reuses the existing
+ * onboarding planner/allowlist/quota. Must not emit a replacement syllabus
+ * or new lesson identities.
+ */
+export type AdjustAcceptedCourseOperation = {
+  kind: 'adjust-accepted-course';
+  human: UntrustedHumanLearnerContext;
+  model: UntrustedModelSyllabusContext;
+  progress: CourseAdjustmentProgress;
+  acceptedProposal: OpaqueRevisionRef;
+};
+
 export type LearningOnboardingOperation =
   | InterviewPromptOperation
   | ProposeCourseOperation
   | ReviseCourseOperation
-  | GenerateSelectedLessonOperation;
+  | GenerateSelectedLessonOperation
+  | AdjustAcceptedCourseOperation;
 
 /**
  * Main→backend envelope. Account is session-derived and must be absent.
@@ -343,8 +410,24 @@ export type SelectedLessonSuccess = {
   quota: MonthlyQuota;
 };
 
+export type AcceptedCourseAdjustmentSuccess = {
+  outcome: 'success';
+  requestId: string;
+  scope: 'accepted-course-adjustment';
+  adjustment: CourseAdjustmentProposalBody;
+  sources: AcquiredSource[];
+  bibliography: ProposalSource[];
+  evidence: RetrievalEvidence[];
+  gaps: OnboardingCoverageGap[];
+  provenance: AiProvenance[];
+  quota: MonthlyQuota;
+};
+
 export type LearningOnboardingSuccess =
-  InterviewPromptSuccess | CourseProposalSuccess | SelectedLessonSuccess;
+  | InterviewPromptSuccess
+  | CourseProposalSuccess
+  | SelectedLessonSuccess
+  | AcceptedCourseAdjustmentSuccess;
 
 export type OnboardingInvalidRequest = {
   outcome: 'invalid-request';

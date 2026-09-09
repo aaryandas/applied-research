@@ -24,7 +24,7 @@ CREATE TABLE learning_interviews (
   goal text NOT NULL,
   focus text NOT NULL,
   depth text NOT NULL CHECK (depth IN ('concise', 'balanced', 'deep')),
-  profile_revision integer NOT NULL CHECK (profile_revision >= 1),
+  profile_revision integer NOT NULL CHECK (profile_revision >= 0),
   source_revision_ids_json text NOT NULL CHECK (json_valid(source_revision_ids_json)),
   seed_drafts_json text NOT NULL CHECK (json_valid(seed_drafts_json)),
   answers_json text NOT NULL CHECK (json_valid(answers_json)),
@@ -77,6 +77,21 @@ CREATE TABLE accepted_step_mappings (
 --> statement-breakpoint
 CREATE INDEX accepted_step_mappings_path_index
   ON accepted_step_mappings(project_id, path_id);
+--> statement-breakpoint
+CREATE TABLE learning_adjustments (
+  project_id text PRIMARY KEY NOT NULL,
+  adjustment_id text NOT NULL,
+  revision integer NOT NULL CHECK (revision >= 1),
+  accepted_proposal_id text NOT NULL,
+  accepted_proposal_revision integer NOT NULL CHECK (accepted_proposal_revision >= 1),
+  envelope_json text NOT NULL CHECK (json_valid(envelope_json)),
+  projection_json text NOT NULL CHECK (json_valid(projection_json)),
+  accepted_at text,
+  request_id text,
+  updated_at text NOT NULL,
+  UNIQUE (request_id),
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
 --> statement-breakpoint
 CREATE TABLE learning_resume (
   id integer PRIMARY KEY CHECK (id = 1),

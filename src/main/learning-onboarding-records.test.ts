@@ -243,5 +243,6 @@ describe('learning onboarding records', () => {
       end: 9,
       quote: 'Attention',
     });
+    expect(records.getAdjustmentByRequest('missing-request')).toBeNull();
   });
 });

@@ -9,6 +9,7 @@ import {
   type LearningOnboardingRequest,
   type LearningOnboardingResponse,
   type SelectedLessonSuccess,
+  type AcceptedCourseAdjustmentSuccess,
   type UntrustedHumanLearnerContext,
   type UntrustedModelSyllabusContext,
 } from '../contracts/learning-onboarding-api';
@@ -18,6 +19,11 @@ import {
   type AcceptCourseInput,
   type AcceptCourseValue,
   type ContinueLearningCard,
+  ADJUSTMENT_NOTES_PROMPT_ID,
+  type AcceptCourseAdjustmentInput,
+  type AcceptCourseAdjustmentValue,
+  type AdjustAcceptedCourseInput,
+  type CourseAdjustmentProposal,
   type CourseProposal,
   type EnsureLessonInput,
   type EnsureLessonValue,
@@ -575,6 +581,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       parsed.projectId,
       this.options.records.getInterview(parsed.projectId)?.revision ?? 0,
       'intended-current',
+      this.appliedAdjustmentNotes(parsed.projectId),
     );
     const stored = this.options.records.getProposal(parsed.projectId);
     if (!human || !stored) {
@@ -590,7 +597,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         operation: {
           kind: 'generate-selected-lesson',
           human,
-          model: this.untrustedModelContext(stored),
+          model: this.untrustedModelContext(stored, parsed.projectId),
           target: {
             remoteStepId: mapping.remoteStepId,
             acceptedProposal: {
@@ -635,6 +642,237 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     }
   }
 
+  async proposeAcceptedCourseAdjustment(
+    input: AdjustAcceptedCourseInput,
+  ): Promise<OnboardingResult<CourseAdjustmentProposal>> {
+    const parsed = validation.parseAdjustAcceptedCourseInput(input);
+    const accepted = this.options.records.getAcceptance(parsed.projectId);
+    if (
+      !accepted ||
+      accepted.proposal.id !== parsed.acceptedProposal.id ||
+      accepted.proposal.revision !== parsed.acceptedProposal.revision
+    ) {
+      return this.staleRevision(parsed.requestId);
+    }
+    const stored = this.options.records.getProposal(parsed.projectId);
+    if (
+      !stored ||
+      stored.proposalId !== parsed.acceptedProposal.id ||
+      stored.revision !== parsed.acceptedProposal.revision
+    ) {
+      return this.staleRevision(parsed.requestId);
+    }
+    const human = this.humanContext(
+      parsed.projectId,
+      parsed.interviewRevision,
+      'intended-current',
+      parsed.notes.trim() === ''
+        ? []
+        : [
+            {
+              promptId: ADJUSTMENT_NOTES_PROMPT_ID,
+              answer: parsed.notes,
+            },
+          ],
+    );
+    if (!human) {
+      return this.staleRevision(parsed.requestId);
+    }
+    const mappings = this.options.records.listMappings(parsed.projectId);
+    for (const locator of parsed.progress.practicalAttempts) {
+      if (!mappings.some((row) => row.remoteStepId === locator.remoteStepId)) {
+        return {
+          outcome: 'conflict',
+          requestId: parsed.requestId,
+          message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.conflict,
+          retryable: false,
+        };
+      }
+    }
+    const response = await this.remote(
+      parsed.projectId,
+      parsed.requestId,
+      {
+        apiVersion: LEARNING_ONBOARDING_API_VERSION,
+        requestId: parsed.requestId,
+        model: MODEL,
+        operation: {
+          kind: 'adjust-accepted-course',
+          human,
+          model: this.untrustedModelContext(stored, parsed.projectId),
+          progress: {
+            trust: ONBOARDING_CONTEXT_TRUST.human,
+            practicalAttempts: parsed.progress.practicalAttempts.map(
+              (locator) => ({
+                trust: ONBOARDING_CONTEXT_TRUST.human,
+                kind: 'practical-attempt-locator',
+                attemptId: locator.attemptId,
+                recordedRevision: locator.recordedRevision,
+                remoteStepId: locator.remoteStepId,
+              }),
+            ),
+          },
+          acceptedProposal: parsed.acceptedProposal,
+        },
+      },
+      'accepted-course-adjustment',
+    );
+    if (response.kind === 'result') return response.result;
+    if (response.body.outcome !== 'success') {
+      return this.mapFailure(parsed.requestId, response.body);
+    }
+    if (response.body.scope !== 'accepted-course-adjustment') {
+      return unavailable(parsed.requestId, false);
+    }
+    return this.retainAdjustment(
+      parsed.projectId,
+      parsed.requestId,
+      stored,
+      response.body,
+    );
+  }
+
+  async acceptCourseAdjustment(
+    input: AcceptCourseAdjustmentInput,
+  ): Promise<OnboardingResult<AcceptCourseAdjustmentValue>> {
+    const parsed = validation.parseAcceptCourseAdjustmentInput(input);
+    const duplicate = this.options.records.getAdjustmentByRequest(
+      parsed.requestId,
+    );
+    if (
+      duplicate &&
+      duplicate.projectId === parsed.projectId &&
+      duplicate.stored.acceptedAt
+    ) {
+      const accepted = this.options.records.getAcceptance(parsed.projectId);
+      if (!accepted) return this.staleRevision(parsed.requestId);
+      return {
+        outcome: 'success',
+        requestId: parsed.requestId,
+        value: {
+          adjustment: {
+            id: duplicate.stored.adjustmentId,
+            revision: duplicate.stored.revision,
+          },
+          pathId: accepted.pathId,
+          pathRevision: accepted.pathRevision,
+        },
+      };
+    }
+    const stored = this.options.records.getAdjustment(parsed.projectId);
+    if (
+      !stored ||
+      stored.adjustmentId !== parsed.adjustment.id ||
+      stored.revision !== parsed.adjustment.revision
+    ) {
+      return this.staleRevision(parsed.requestId);
+    }
+    if (stored.projection.acceptance !== 'ready') {
+      return {
+        outcome: 'coverage-pending',
+        requestId: parsed.requestId,
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.coveragePending,
+        retryable: false,
+      };
+    }
+    const accepted = this.options.records.getAcceptance(parsed.projectId);
+    if (!accepted) return this.staleRevision(parsed.requestId);
+    const proposal = this.options.records.getProposal(parsed.projectId);
+    if (!proposal) return this.staleRevision(parsed.requestId);
+    const lessons = proposal.envelope.syllabus.topics.flatMap(
+      (topic) => topic.lessons,
+    );
+    try {
+      for (const patch of stored.envelope.adjustment.patches) {
+        const lesson = lessons.find(
+          (item) => item.stepId === patch.remoteStepId,
+        );
+        if (!lesson || lesson.sourceState === 'ready') {
+          return {
+            outcome: 'conflict',
+            requestId: parsed.requestId,
+            message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.conflict,
+            retryable: false,
+          };
+        }
+        if (patch.field === 'practice') {
+          if (!patch.practice) {
+            return {
+              outcome: 'save-failed',
+              requestId: parsed.requestId,
+              message: 'The adjustment practice brief is missing.',
+              retryable: false,
+            };
+          }
+          const digest = validation.practiceBriefDigest(patch.practice);
+          const updated = this.options.records.updatePendingPractice(
+            parsed.projectId,
+            patch.remoteStepId,
+            patch.practice,
+            digest,
+          );
+          if (!updated) {
+            return {
+              outcome: 'conflict',
+              requestId: parsed.requestId,
+              message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.conflict,
+              retryable: false,
+            };
+          }
+        }
+      }
+      const interview = this.options.records.getInterview(parsed.projectId);
+      const focus = stored.envelope.adjustment.focus;
+      const depth = stored.envelope.adjustment.depth;
+      if (interview && (focus || depth)) {
+        const saved = this.options.records.saveInterview(
+          interview.revision,
+          {
+            ...interview,
+            focus: focus?.after ?? interview.focus,
+            depth: depth?.after ?? interview.depth,
+          },
+          this.options.records.getPastedSource(parsed.projectId),
+        );
+        if (saved.status === 'conflict') {
+          return {
+            outcome: 'conflict',
+            requestId: parsed.requestId,
+            message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.conflict,
+            retryable: false,
+          };
+        }
+      }
+      this.options.records.saveAdjustment(parsed.projectId, {
+        ...stored,
+        acceptedAt: new Date().toISOString(),
+        requestId: parsed.requestId,
+      });
+      return {
+        outcome: 'success',
+        requestId: parsed.requestId,
+        value: {
+          adjustment: {
+            id: stored.adjustmentId,
+            revision: stored.revision,
+          },
+          pathId: accepted.pathId,
+          pathRevision: accepted.pathRevision,
+        },
+      };
+    } catch (error) {
+      return {
+        outcome: 'save-failed',
+        requestId: parsed.requestId,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'The course adjustment could not be saved.',
+        retryable: true,
+      };
+    }
+  }
+
   async cancelLearningOnboarding(input: OnboardingRequest): Promise<void> {
     const parsed = validation.parseOnboardingRequest(input);
     const pending = this.pending.get(parsed.requestId);
@@ -656,6 +894,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     projectId: string,
     interviewRevision: number,
     profileBinding: 'bound' | 'intended-current' = 'bound',
+    extraAnswers: readonly { promptId: string; answer: string }[] = [],
   ): UntrustedHumanLearnerContext | null {
     const interview = this.options.records.getInterview(projectId);
     const profile = this.options.records.getProfileView().profile;
@@ -677,6 +916,16 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         ? { sourceId: version.sourceId, revisionId: version.revisionId }
         : { sourceId: revisionId, revisionId };
     });
+    const answers = [
+      ...interview.answers,
+      ...extraAnswers.filter(
+        (item) =>
+          item.answer.trim() !== '' &&
+          !interview.answers.some(
+            (answer) => answer.promptId === item.promptId,
+          ),
+      ),
+    ].slice(0, LEARNING_ONBOARDING_LIMITS.diagnosticAnswers);
     return {
       trust: ONBOARDING_CONTEXT_TRUST.human,
       goal: interview.goal,
@@ -689,7 +938,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
         learningGoals: profile.learningGoals,
         priorKnowledge: profile.priorKnowledge,
       },
-      answers: interview.answers.map((answer) => ({
+      answers: answers.map((answer) => ({
         trust: ONBOARDING_CONTEXT_TRUST.human,
         promptId: answer.promptId,
         answer: answer.answer,
@@ -702,13 +951,120 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
 
   private untrustedModelContext(
     stored: StoredProposal,
+    projectId?: string,
   ): UntrustedModelSyllabusContext {
+    const syllabus = compactSyllabusFrom(validation, stored.envelope.syllabus);
+    if (!projectId) {
+      return {
+        trust: ONBOARDING_CONTEXT_TRUST.model,
+        priorProposal: { id: stored.proposalId, revision: stored.revision },
+        syllabus,
+        personalization: stored.envelope.personalization,
+      };
+    }
+    const mappings = this.options.records.listMappings(projectId);
     return {
       trust: ONBOARDING_CONTEXT_TRUST.model,
       priorProposal: { id: stored.proposalId, revision: stored.revision },
-      syllabus: compactSyllabusFrom(validation, stored.envelope.syllabus),
+      syllabus: {
+        title: syllabus.title,
+        topics: syllabus.topics.map((topic) => ({
+          ...topic,
+          lessons: topic.lessons.map((lesson) => {
+            if (lesson.sourceState === 'ready') return lesson;
+            const mapping = mappings.find(
+              (row) => row.remoteStepId === lesson.stepId,
+            );
+            if (!mapping || mapping.practiceDigest === lesson.practiceDigest) {
+              return lesson;
+            }
+            return {
+              ...lesson,
+              practiceDigest: mapping.practiceDigest,
+            };
+          }),
+        })),
+      },
       personalization: stored.envelope.personalization,
     };
+  }
+
+  private retainAdjustment(
+    projectId: string,
+    requestId: string,
+    stored: StoredProposal,
+    envelope: AcceptedCourseAdjustmentSuccess,
+  ): OnboardingResult<CourseAdjustmentProposal> {
+    const previous = this.options.records.getAdjustment(projectId);
+    const revision = (previous?.revision ?? 0) + 1;
+    const id = previous?.adjustmentId ?? newOpaqueId();
+    const lessons = stored.envelope.syllabus.topics.flatMap(
+      (topic) => topic.lessons,
+    );
+    const projection = validation.parseCourseAdjustmentProposal({
+      id,
+      revision,
+      projectId,
+      acceptedProposal: envelope.adjustment.acceptedProposal,
+      title: stored.envelope.syllabus.title,
+      summary: envelope.adjustment.summary,
+      focus: envelope.adjustment.focus,
+      depth: envelope.adjustment.depth,
+      patches: envelope.adjustment.patches.map((patch) => {
+        const lesson = lessons.find(
+          (item) => item.stepId === patch.remoteStepId,
+        );
+        return {
+          remoteStepId: patch.remoteStepId,
+          lessonTitle: lesson?.title ?? patch.remoteStepId,
+          sourceState: lesson?.sourceState ?? 'pending',
+          field: patch.field,
+          before: patch.before,
+          after: patch.after,
+        };
+      }),
+      sources: envelope.bibliography,
+      gaps: envelope.gaps,
+      acceptance: envelope.gaps.length > 0 ? 'coverage-pending' : 'ready',
+    });
+    this.options.records.saveAdjustment(projectId, {
+      adjustmentId: id,
+      revision,
+      acceptedProposalId: envelope.adjustment.acceptedProposal.id,
+      acceptedProposalRevision: envelope.adjustment.acceptedProposal.revision,
+      envelope,
+      projection,
+      acceptedAt: null,
+      requestId,
+    });
+    return {
+      outcome: 'success',
+      requestId,
+      value: projection,
+    };
+  }
+
+  private appliedAdjustmentNotes(
+    projectId: string,
+  ): { promptId: string; answer: string }[] {
+    const stored = this.options.records.getAdjustment(projectId);
+    if (!stored?.acceptedAt) return [];
+    const notes: { promptId: string; answer: string }[] = [];
+    const focus = stored.envelope.adjustment.focus;
+    if (focus) {
+      notes.push({
+        promptId: 'adjustment-focus-01',
+        answer: focus.after,
+      });
+    }
+    for (const patch of stored.envelope.adjustment.patches) {
+      if (patch.field === 'practice') continue;
+      notes.push({
+        promptId: `adjust-${patch.field}-${patch.remoteStepId}`,
+        answer: patch.after,
+      });
+    }
+    return notes;
   }
 
   private async remote(
@@ -718,6 +1074,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     expectedScope:
       | CourseProposalSuccess['scope']
       | SelectedLessonSuccess['scope']
+      | AcceptedCourseAdjustmentSuccess['scope']
       | 'interview-prompt',
   ): Promise<
     | { kind: 'body'; body: LearningOnboardingResponse }
