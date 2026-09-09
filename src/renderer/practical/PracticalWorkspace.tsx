@@ -143,8 +143,12 @@ function LoadPracticalWorkspace(
         returnedEvidence={[]}
         registerFlush={props.registerFlush}
         onReturnToLearning={props.onReturnToLearning}
-        availableActivities={props.availableActivities}
-        onSelectActivity={props.onSelectActivity}
+        {...(props.availableActivities
+          ? { availableActivities: props.availableActivities }
+          : {})}
+        {...(props.onSelectActivity
+          ? { onSelectActivity: props.onSelectActivity }
+          : {})}
       />
     );
   if (loaded.status === 'failed')
@@ -195,14 +199,28 @@ function LoadPracticalWorkspace(
       returnedEvidence={attempt?.returnedEvidence ?? []}
       registerFlush={props.registerFlush}
       onReturnToLearning={props.onReturnToLearning}
-      availableActivities={props.availableActivities}
-      onSelectActivity={props.onSelectActivity}
-      onResumeAttempt={props.onResumeAttempt}
-      onStartNewAttempt={props.onStartNewAttempt}
-      tool={props.tool}
-      activityGuidance={props.activityGuidance}
-      companionContext={props.companionContext}
-      onRequestGuidance={props.onRequestGuidance}
+      {...(props.availableActivities
+        ? { availableActivities: props.availableActivities }
+        : {})}
+      {...(props.onSelectActivity
+        ? { onSelectActivity: props.onSelectActivity }
+        : {})}
+      {...(props.onResumeAttempt
+        ? { onResumeAttempt: props.onResumeAttempt }
+        : {})}
+      {...(props.onStartNewAttempt
+        ? { onStartNewAttempt: props.onStartNewAttempt }
+        : {})}
+      {...(props.tool ? { tool: props.tool } : {})}
+      {...(props.activityGuidance
+        ? { activityGuidance: props.activityGuidance }
+        : {})}
+      {...(props.companionContext
+        ? { companionContext: props.companionContext }
+        : {})}
+      {...(props.onRequestGuidance
+        ? { onRequestGuidance: props.onRequestGuidance }
+        : {})}
       journey={journey}
       attempts={loaded.attempts}
       attemptRevisions={attempt?.revisions ?? []}

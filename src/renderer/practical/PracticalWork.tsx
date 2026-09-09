@@ -22,6 +22,7 @@ import type {
   PracticalAttemptRevision,
   PracticalAttemptSummary,
   PracticalFilePreviewResult,
+  PracticalHumanPlan,
   PracticalMilestoneStatus,
 } from '../../contracts/practical-records';
 import {

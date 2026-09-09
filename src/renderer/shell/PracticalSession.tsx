@@ -248,11 +248,21 @@ export function PracticalSession(
         bridge={owner.bridge}
         activity={props.activity}
         attemptId={props.attemptId}
-        attemptSelection={props.attemptSelection}
-        availableActivities={props.availableActivities}
-        onSelectActivity={props.onSelectActivity}
-        onResumeAttempt={props.onResumeAttempt}
-        onStartNewAttempt={props.onStartNewAttempt}
+        {...(props.attemptSelection
+          ? { attemptSelection: props.attemptSelection }
+          : {})}
+        {...(props.availableActivities
+          ? { availableActivities: props.availableActivities }
+          : {})}
+        {...(props.onSelectActivity
+          ? { onSelectActivity: props.onSelectActivity }
+          : {})}
+        {...(props.onResumeAttempt
+          ? { onResumeAttempt: props.onResumeAttempt }
+          : {})}
+        {...(props.onStartNewAttempt
+          ? { onStartNewAttempt: props.onStartNewAttempt }
+          : {})}
         registerFlush={owner.registerFlush}
         onReturnToLearning={props.onReturnToLearning}
         onJourney={(next, attemptId) => {
@@ -288,7 +298,7 @@ export function PracticalSession(
             }
           : {})}
         activityGuidance={owner.guidance}
-        companionContext={companionContext}
+        {...(companionContext ? { companionContext } : {})}
         onRequestGuidance={(request) => {
           setSelectedRequest(request);
           void requester?.session.askOnce(request);

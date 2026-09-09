@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { PracticalActivity } from './practical-work';
 import {
   COURSE_PRACTICE_BRIEF_KIND,
@@ -13,14 +12,14 @@ export function syntheticAcceptedCourseBrief(
   activity: PracticalActivity,
   proposalRevision = 1,
 ): AcceptedCourseBriefSnapshot {
-  const remoteStepId = randomUUID();
+  const remoteStepId = globalThis.crypto.randomUUID();
   return {
     activity,
     binding: {
       mapping: {
         projectId: activity.projectId,
         pathId: activity.origin.path.pathId,
-        acceptedProposalId: randomUUID(),
+        acceptedProposalId: globalThis.crypto.randomUUID(),
         acceptedProposalRevision: proposalRevision,
         remoteStepId,
         localTopicId: activity.origin.path.topicId,

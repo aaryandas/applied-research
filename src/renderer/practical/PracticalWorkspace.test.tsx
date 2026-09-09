@@ -45,7 +45,7 @@ function bridge(): PracticalWorkspaceBridge {
   };
   return practicalWorkspaceMethods({
     loadPracticalAttempt: vi.fn(async () => ({
-      status: 'loaded',
+      status: 'loaded' as const,
       attempt,
     })),
     loadPracticalJourney: vi.fn(async () => loadedJourney(attempt)),
@@ -62,7 +62,9 @@ function bridge(): PracticalWorkspaceBridge {
         changed: true,
       },
     })),
-    selectPracticalFile: vi.fn(async () => ({ status: 'cancelled' })),
+    selectPracticalFile: vi.fn(async () => ({
+      status: 'cancelled' as const,
+    })),
     cancelPracticalFileSelection: vi.fn(async () => {}),
     cancelPracticalExport: vi.fn(async () => {}),
   });
