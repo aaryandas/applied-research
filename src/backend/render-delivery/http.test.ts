@@ -313,4 +313,56 @@ describe('render delivery HTTP', () => {
     ).toBe(400);
     release?.();
   });
+
+  it('rejects renderer paths, missing jobs and oversized bodies', async () => {
+    const file = await sourceFile();
+    const active = await listen(auth, {
+      render: async () => ({
+        status: 'succeeded',
+        jobId: randomUUID(),
+        artifactPath: file.path,
+        artifact: artifact(file.bytes),
+      }),
+      release: async () => undefined,
+      close: async () => undefined,
+    });
+    expect(
+      (
+        await fetch(`${active.origin}/v1/render/jobs/${randomUUID()}`, {
+          headers: { cookie: 'session=user-a' },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await fetch(`${active.origin}/v1/render/jobs/${randomUUID()}/cancel`, {
+          method: 'POST',
+          headers: { cookie: 'session=user-a' },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await fetch(`${active.origin}/v1/render/jobs`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            cookie: 'session=user-a',
+          },
+          body: JSON.stringify({
+            requestId: randomUUID(),
+            recipeJson: recipeJson(),
+            artifactPath: '/tmp/evil.mp4',
+          }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${active.origin}/v1/render/artifacts/${randomUUID()}`, {
+          headers: { cookie: 'session=user-a' },
+        })
+      ).status,
+    ).toBe(404);
+  });
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -142,5 +142,17 @@ describe('account-owned artifact retention', () => {
     expect(await store.readOwned(ACCOUNT, randomUUID())).toBeNull();
     await store.discard(ACCOUNT, record.mediaId);
     expect(await store.openOwned(ACCOUNT, record.mediaId)).toBeNull();
+  });
+
+  it('treats malformed retained records as missing rather than publishing them', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ar-clip-bad-'));
+    roots.push(root);
+    const store = createArtifactStore(root);
+    const mediaId = newMediaId();
+    const directory = join(root, ACCOUNT, mediaId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'record.json'), '[]');
+    expect(await store.readOwned(ACCOUNT, mediaId)).toBeNull();
+    await store.discard('not-a-uuid', mediaId);
   });
 });

@@ -6,6 +6,8 @@ import {
   resolveTrustedRenderRuntime,
   trustedDockerContextName,
 } from './runtime-config.js';
+import { isSha256 } from './identity.js';
+import { createArtifactStore } from './index.js';
 
 const roots: string[] = [];
 
@@ -18,6 +20,8 @@ afterEach(async () => {
 describe('trusted render runtime', () => {
   it('refuses OrbStack and missing context instead of guessing Railway Docker', async () => {
     expect(trustedDockerContextName('desktop-linux')).toBe('desktop-linux');
+    expect(isSha256('c'.repeat(64))).toBe(true);
+    expect(typeof createArtifactStore).toBe('function');
     expect(() => trustedDockerContextName('orbstack; rm')).toThrow('trusted');
     await expect(resolveTrustedRenderRuntime({})).rejects.toThrow(
       'AR_MANIM_DOCKER_CONTEXT',

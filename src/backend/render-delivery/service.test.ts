@@ -475,5 +475,43 @@ describe('render delivery ownership and lifecycle', () => {
     expect((await pending).status).toBe('cancelled');
     await closed;
     release?.();
+    const afterClose = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID(), recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    expect(afterClose.failure?.reason).toBe('closed');
+    expect(
+      (
+        await (
+          await service(engine(async () => ({ status: 'cancelled' })))
+        ).submit(
+          ACCOUNT,
+          { requestId: randomUUID(), recipeJson: recipeJson() },
+          new AbortController().signal,
+        )
+      ).status,
+    ).toBe('cancelled');
+    expect(
+      (
+        await (
+          await service(
+            engine(async () => ({
+              status: 'succeeded',
+              jobId: randomUUID(),
+              artifactPath: file.path,
+              artifact: artifact(file.bytes),
+            })),
+          )
+        ).submit(
+          ACCOUNT,
+          {
+            requestId: randomUUID(),
+            recipeJson: recipeJson({ projectId: PROJECT }),
+          },
+          new AbortController().signal,
+        )
+      ).failure?.reason,
+    ).toBe('invalid-request');
   });
 });

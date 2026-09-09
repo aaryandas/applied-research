@@ -211,8 +211,11 @@ describe('RetainedClipPlayer', () => {
     const region = screen.getByRole('region', {
       name: 'Retained explanation clip',
     });
-    fireEvent.keyDown(region, { key: ' ' });
+    fireEvent.keyDown(region, { key: 'k' });
     expect(screen.getByRole('button', { name: 'Pause' })).toBeVisible();
+    fireEvent.keyDown(region, { key: 'ArrowLeft' });
+    fireEvent.keyDown(region, { key: 'ArrowRight' });
+    expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
     fireEvent.keyDown(region, { key: 'ArrowRight' });
     fireEvent.keyDown(region, { key: 'Home' });
     fireEvent.keyDown(region, { key: 'e' });

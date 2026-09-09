@@ -79,6 +79,10 @@ describe('main retained media', () => {
     expect(store.objectUrl(saved.record.mediaId)).toBe(
       `ar-media://clip/${saved.record.mediaId}`,
     );
+    expect(() => store.objectUrl('not-a-uuid')).toThrow('UUID');
+    expect(await store.readRecord(randomUUID())).toMatchObject({
+      status: 'missing',
+    });
     expect(JSON.stringify(saved.record)).not.toContain(root);
     expect(await store.openPath('../escape')).toBeNull();
     const abort = new AbortController();
@@ -250,6 +254,20 @@ describe('main retained media', () => {
     await expect(
       mismatched.retainReadyClip(
         clip.requestId,
+        ACCOUNT,
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ status: 'corrupt' });
+    const transport = makeRetainedMediaTransport(
+      {
+        sessionCookie: () => 'session=user-a',
+        request: async () => new Response('{}'),
+      },
+      store,
+    );
+    await expect(
+      transport.retainReadyClip(
+        'not-a-uuid',
         ACCOUNT,
         new AbortController().signal,
       ),
