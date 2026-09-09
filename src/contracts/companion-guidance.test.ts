@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COMPANION_GUIDANCE_CANCEL_CHANNEL,
   COMPANION_GUIDANCE_CONTRACT_VERSION,
+  COMPANION_GUIDANCE_REQUEST_CHANNEL,
+  decodeCompanionGuidanceCancelRequest,
   decodeCompanionGuidanceReply,
   decodeCompanionGuidanceRequest,
 } from './companion-guidance';
@@ -20,6 +23,8 @@ function request(overrides: Record<string, unknown> = {}) {
   return {
     contractVersion: COMPANION_GUIDANCE_CONTRACT_VERSION,
     requestId,
+    expectedProjectGeneration: 4,
+    expectedRequestGeneration: 0,
     trigger: 'explicit-action',
     cause: 'ask-once',
     target: {
@@ -239,5 +244,73 @@ describe('serializable companion guidance boundary', () => {
         provenance: { ...provenance, model: 'anthropic/claude' },
       }).reason,
     ).toBe('provenance');
+  });
+
+  it('requires a generation envelope and a cancel that names the same request identity', () => {
+    expect(COMPANION_GUIDANCE_CANCEL_CHANNEL).toBe(
+      'learning:cancel-companion-guidance',
+    );
+    expect(COMPANION_GUIDANCE_REQUEST_CHANNEL).toBe(
+      'learning:request-companion-guidance',
+    );
+    const missingGeneration: Record<string, unknown> = { ...request() };
+    delete missingGeneration.expectedProjectGeneration;
+    expect(decodeCompanionGuidanceRequest(missingGeneration).reason).toBe(
+      'shape',
+    );
+    expect(
+      decodeCompanionGuidanceRequest(request({ expectedProjectGeneration: -1 }))
+        .reason,
+    ).toBe('revision');
+    expect(
+      decodeCompanionGuidanceRequest(
+        request({ expectedRequestGeneration: 1.5 }),
+      ).reason,
+    ).toBe('revision');
+    const cancel = {
+      requestId,
+      expectedProjectGeneration: 4,
+      expectedRequestGeneration: 0,
+    };
+    expect(decodeCompanionGuidanceCancelRequest(cancel)).toEqual({
+      ok: true,
+      value: cancel,
+    });
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        expectedProjectGeneration: 4,
+        expectedRequestGeneration: 0,
+      }).reason,
+    ).toBe('shape');
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        ...cancel,
+        requestId: 'not-a-uuid',
+      }).reason,
+    ).toBe('identity');
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        ...cancel,
+        expectedRequestGeneration: -1,
+      }).reason,
+    ).toBe('revision');
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        ...cancel,
+        url: 'https://guest.example/page',
+      }).reason,
+    ).toBe('authority');
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        ...cancel,
+        observation: { page: true },
+      }).reason,
+    ).toBe('authority');
+    expect(
+      decodeCompanionGuidanceCancelRequest({
+        ...cancel,
+        unexpected: true,
+      }).reason,
+    ).toBe('shape');
   });
 });

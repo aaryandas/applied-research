@@ -22,6 +22,8 @@ import type { AiProvenance } from './learning-api';
 export const COMPANION_GUIDANCE_CONTRACT_VERSION = '2026-09-09';
 export const COMPANION_GUIDANCE_REQUEST_CHANNEL =
   'learning:request-companion-guidance';
+export const COMPANION_GUIDANCE_CANCEL_CHANNEL =
+  'learning:cancel-companion-guidance';
 export const COMPANION_ANSWER_LIMIT = 24_000;
 
 export type CompanionGuidanceCause = 'ask-once' | 'activity-start';
@@ -69,12 +71,20 @@ export type CompanionEvidenceReference =
 export interface CompanionGuidanceRequest {
   contractVersion: typeof COMPANION_GUIDANCE_CONTRACT_VERSION;
   requestId: string;
+  expectedProjectGeneration: number;
+  expectedRequestGeneration: number;
   trigger: 'explicit-action';
   cause: CompanionGuidanceCause;
   target: CompanionSelectedTarget;
   utterance: CompanionHumanUtterance;
   selectedEvidence: CompanionEvidenceReference;
   pageAccess: 'none';
+}
+
+export interface CompanionGuidanceCancelRequest {
+  requestId: string;
+  expectedProjectGeneration: number;
+  expectedRequestGeneration: number;
 }
 
 export type CompanionGuidanceFailureOutcome =
@@ -401,6 +411,8 @@ export function decodeCompanionGuidanceRequest(
     [
       'contractVersion',
       'requestId',
+      'expectedProjectGeneration',
+      'expectedRequestGeneration',
       'trigger',
       'cause',
       'target',
@@ -416,6 +428,12 @@ export function decodeCompanionGuidanceRequest(
     return failed('revision');
   }
   if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+  if (
+    !isContractGeneration(decoded.value.expectedProjectGeneration) ||
+    !isContractGeneration(decoded.value.expectedRequestGeneration)
+  ) {
+    return failed('revision');
+  }
   if (decoded.value.trigger !== 'explicit-action') return failed('unsupported');
   if (!includes(CAUSES, decoded.value.cause)) return failed('unsupported');
   if (decoded.value.pageAccess !== 'none') return failed('authority');
@@ -430,6 +448,8 @@ export function decodeCompanionGuidanceRequest(
     value: {
       contractVersion: COMPANION_GUIDANCE_CONTRACT_VERSION,
       requestId: decoded.value.requestId,
+      expectedProjectGeneration: decoded.value.expectedProjectGeneration,
+      expectedRequestGeneration: decoded.value.expectedRequestGeneration,
       trigger: 'explicit-action',
       cause: decoded.value.cause,
       target: target.value,
@@ -444,6 +464,33 @@ export function isCompanionGuidanceRequest(
   value: unknown,
 ): value is CompanionGuidanceRequest {
   return decodeCompanionGuidanceRequest(value).ok;
+}
+
+export function decodeCompanionGuidanceCancelRequest(
+  value: unknown,
+): ContractDecode<CompanionGuidanceCancelRequest> {
+  const decoded = decodeExactRecord(
+    value,
+    ['requestId', 'expectedProjectGeneration', 'expectedRequestGeneration'],
+    [],
+    REQUEST_AUTHORITY_KEYS,
+  );
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+  if (
+    !isContractGeneration(decoded.value.expectedProjectGeneration) ||
+    !isContractGeneration(decoded.value.expectedRequestGeneration)
+  ) {
+    return failed('revision');
+  }
+  return {
+    ok: true,
+    value: {
+      requestId: decoded.value.requestId,
+      expectedProjectGeneration: decoded.value.expectedProjectGeneration,
+      expectedRequestGeneration: decoded.value.expectedRequestGeneration,
+    },
+  };
 }
 
 export function decodeCompanionGuidanceReply(
