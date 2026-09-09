@@ -21,6 +21,7 @@ test-results/
 .gstack/
 .impeccable/
 .lavish/
+.dispatch/
 .scratch/
 # Historical research and comparison captures belong in the external knowledge base.
 /docs/archive/

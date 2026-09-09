@@ -11,6 +11,7 @@ context/design-system/
 .scratch/
 .impeccable/
 .lavish/
+.dispatch/
 context/repos/
 
 # Generated Archify artifacts retain the byte identity recorded in their receipts.

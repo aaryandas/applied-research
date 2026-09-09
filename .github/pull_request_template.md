@@ -2,6 +2,8 @@
 
 Linear: AR-___ · Label this PR `lane:<name>` (see `.github/lanes.json`). Base branch: the current integration branch.
 
+PR title and every commit subject must use `type(scope): AR-NN description`, for example `fix(ci): AR-41 make platform checks portable`.
+
 ## Change
 
 What behavior changes, and why? Name any contract this touches.

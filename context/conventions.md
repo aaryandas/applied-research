@@ -10,6 +10,10 @@ Read `context/product.md`, `context/domain.md`, and `context/architecture.md` be
 - Historical plans, research, decision transcripts, and comparison captures live in Obsidian; see `context/knowledge-base.md`. Consult them only when the task needs that context. They are not build dependencies or current instructions.
 - Keep this repository focused on implementation and current engineering decisions. Put new research notes and design exploration in the knowledge base. Verify dated external findings before relying on them, and never import third-party comparison material as application assets.
 
+## Git metadata
+
+Every commit subject and pull-request title uses Conventional Commits with the owning Linear ticket: `type(scope): AR-NN description`. Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. The CI metadata check rejects titles or subjects that omit the ticket or use an unrecognized type.
+
 ## Implementation
 
 - Node 24 LTS, npm with `npm ci`, exact dependencies and committed lockfile.
