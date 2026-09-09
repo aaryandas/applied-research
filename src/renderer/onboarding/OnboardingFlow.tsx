@@ -122,6 +122,7 @@ export function OnboardingFlow({
   const [error, setError] = useState<string | undefined>();
   const [retryable, setRetryable] = useState(false);
   const submitting = useRef(false);
+  const ignoreRemote = useRef(false);
   const requestId = useRef(newRequestId());
   const acceptRequestId = useRef<string | undefined>(undefined);
   const interviewRevision = useRef(0);
@@ -158,6 +159,10 @@ export function OnboardingFlow({
     result: OnboardingResult<T>,
     onReady: (value: T) => void,
   ): boolean => {
+    if (ignoreRemote.current) {
+      setBusy(false);
+      return false;
+    }
     if (result.outcome === 'success') {
       setBusy(false);
       setStatus(undefined);
@@ -256,12 +261,13 @@ export function OnboardingFlow({
   const submitInterview = async (): Promise<void> => {
     if (submitting.current || busy) return;
     submitting.current = true;
+    ignoreRemote.current = false;
     setBusy(true);
     setError(undefined);
     setStatus('Saving your answers…');
     try {
       const interview = await persistInterview();
-      if (!interview) return;
+      if (!interview || ignoreRemote.current) return;
       requestId.current = newRequestId();
       setStatus('Planning a sourced course from your answers…');
       const proposed = await bridge.proposeCourse({
@@ -291,12 +297,13 @@ export function OnboardingFlow({
   const revisePlan = async (): Promise<void> => {
     if (submitting.current || busy || proposal === null) return;
     submitting.current = true;
+    ignoreRemote.current = false;
     setBusy(true);
     setError(undefined);
     setStatus('Revising the plan from your focus notes…');
     try {
       const interview = await persistInterview();
-      if (!interview) return;
+      if (!interview || ignoreRemote.current) return;
       requestId.current = newRequestId();
       const revised = await bridge.reviseCourse({
         projectId,
@@ -326,11 +333,13 @@ export function OnboardingFlow({
   const acceptPlan = async (): Promise<void> => {
     if (submitting.current || busy || proposal === null) return;
     submitting.current = true;
+    ignoreRemote.current = false;
     setBusy(true);
     setError(undefined);
     setStatus('Creating the course and opening the first lesson…');
     try {
       acceptRequestId.current ??= newRequestId();
+      if (ignoreRemote.current) return;
       const accepted = await bridge.acceptCourse({
         projectId,
         requestId: acceptRequestId.current,
@@ -352,6 +361,7 @@ export function OnboardingFlow({
   };
 
   const cancelRemote = async (): Promise<void> => {
+    ignoreRemote.current = true;
     await bridge.cancelLearningOnboarding({
       projectId,
       requestId: requestId.current,
