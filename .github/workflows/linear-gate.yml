@@ -16,6 +16,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  issues: read
   statuses: write
   actions: read
 
@@ -40,6 +41,7 @@ jobs:
       - name: Publish exact-head Linear gate statuses
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          CURSOR_LINEAR_USER_ID: ${{ vars.CURSOR_LINEAR_USER_ID }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/linear-gate.mjs
       - name: Preserve trusted gate receipts

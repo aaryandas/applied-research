@@ -28,7 +28,7 @@ async function checkPull(pr) {
       description: 'Missing branch ticket or explicit Linear: AR-N line',
     };
   const { issue } = await linear(
-    'query($id: String!) { issue(id: $id) { id state { name } comments(last: 100) { nodes { body } } attachments { nodes { url } } } }',
+    'query($id: String!) { issue(id: $id) { id state { name } comments(last: 100) { nodes { body user { id } } } attachments { nodes { url } } } }',
     { id: identifier },
   );
   if (!issue) throw new Error(`${identifier} not found`);
@@ -43,22 +43,28 @@ async function checkPull(pr) {
     );
   }
   const files = await paginate(`pulls/${pr.number}/files`);
+  const attestations = (
+    await Promise.all([
+      paginate(`issues/${pr.number}/comments`),
+      paginate(`pulls/${pr.number}/reviews`),
+    ])
+  ).flat();
   const passed =
     !pr.draft &&
-    verificationPassed(
-      issue,
-      pr.head.sha,
-      files.flatMap((file) =>
+    verificationPassed(issue, pr.head.sha, {
+      files: files.flatMap((file) =>
         file.previous_filename
           ? [file.filename, file.previous_filename]
           : [file.filename],
       ),
-    );
+      attestations,
+      linearUserId: process.env.CURSOR_LINEAR_USER_ID,
+    });
   return {
     state: passed ? 'success' : 'failure',
     description: passed
       ? `${identifier}: exact-head cloud verification passed`
-      : `${identifier}: needs In Review and exact-head PASS/video evidence`,
+      : `${identifier}: needs In Review, Cursor bot attestation and matching video`,
   };
 }
 
