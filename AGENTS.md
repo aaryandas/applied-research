@@ -51,12 +51,12 @@ Before choosing or replacing technology, read the [decision audit](context/decis
 npm ci
 npm run dev
 npm run check          # formatting, lint, types, unit coverage, build
-npm run test:e2e       # built Electron smoke tests
+npm run test:e2e       # Cursor cloud / GitHub CI only; never run locally
 npm run package
-npm run test:packaged
+npm run test:packaged  # Cursor cloud / GitHub CI only; never run locally
 npm run dist          # unsigned installer candidates
 ```
 
-Run `check` for code/config changes, Electron smoke tests for main/preload/renderer changes, and packaging plus packaged smoke tests for packaging changes. Linux desktop checks need a display or `xvfb-run --auto-servernum`. Test observable behavior and real risk; never weaken gates to get green CI.
+The founder’s current disk-saving instruction supersedes earlier requirements to run desktop tests locally. Run focused TDD/unit tests and `npm run check` locally for code/config changes. Do not run local Playwright, `npm run test:e2e`, or the Playwright-backed `npm run test:packaged`; do not create local test traces or videos. Continue authoring required desktop tests, then have Cursor cloud run the targeted Playwright scenarios and record a hands-on acceptance walkthrough at the exact PR revision. GitHub CI on macOS remains the blocking full suite, including applicable Electron and packaged tests. In cloud Linux environments, desktop checks need a display or `xvfb-run --auto-servernum`. A PR may be ready after permitted local checks pass; list cloud/CI checks as pending until results arrive, not failed or waived. Do not remove or disable tests, change package commands, or weaken gates to comply with this execution-placement policy.
 
 Actions use full commit pins. PR code receives no provider, signing, or Sonar secrets. Releases remain unsigned draft candidates until signing/distribution is configured. Detailed conventions and operational limitations remain in the linked context pages.
