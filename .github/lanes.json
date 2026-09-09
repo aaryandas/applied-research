@@ -45,7 +45,11 @@
       "src/renderer/explanations/**",
       "src/render-worker/**",
       "src/backend/render-delivery/**",
-      "src/main/retained-media-*.ts"
+      "src/main/retained-media-*.ts",
+      "src/main/contextual-help-*.ts",
+      "src/main/explanation-*.ts",
+      "src/backend/explanations/**",
+      "drizzle/0006_contextual_retention.sql"
     ],
     "opening": [
       "src/renderer/Opening.tsx",
