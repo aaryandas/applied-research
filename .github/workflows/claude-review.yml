@@ -1,58 +1,57 @@
-name: Independent review (Claude)
+name: Independent review
 
-# Standards and spec review on every PR by the pinned independent model. Replaces
-# reviewer terminals whose logins expire and whose prompts can sit unsubmitted.
-# Runs on the founder's Claude subscription via a long-lived OAuth token from `claude setup-token`,
-# stored as the CLAUDE_CODE_OAUTH_TOKEN repository secret. No Anthropic API key is used.
+# Exact-head standards/spec review by Cursor Cloud Grok 4.6 Extra High.
+# This file replaces the previous Fable/Claude Code invocation. New PRs must
+# not call claude-fable-5-1. Proof is authenticated GET https://api.cursor.com/v1
+# agent/run payloads, never forged cursor[bot] comments or marker strings.
+# CURSOR_API_KEY is not yet a repository secret: missing/empty keys fail closed
+# with a concrete setup dependency instead of fake enabled automation.
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
-  issue_comment:
-    types: [created]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to re-evaluate
+        required: true
+        type: string
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: independent-review-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
   review:
+    name: Cursor Cloud Grok 4.6 Extra High
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          fetch-depth: 0
-      - name: Install Claude Code from npm (pinned)
-        # The action's native installer produced a broken launcher on ubuntu-24.04 images on 2026-09-08.
-        id: claude
-        run: |
-          npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.265
-          echo "path=$(npm prefix -g)/bin/claude" >> "$GITHUB_OUTPUT"
-          "$(npm prefix -g)/bin/claude" --version
-      - uses: anthropics/claude-code-action@0d0e0876d3eaa933f45dc692f7a4312c83caf36f # v1 main 2026-09-08
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The workflow token posts the review comment; no Claude GitHub App install is needed.
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          path_to_claude_code_executable: ${{ steps.claude.outputs.path }}
-          # The allowlist lets Claude read the PR and post its verdict with gh.
-          claude_args: >-
-            --model claude-fable-5-1 --max-turns 80 --setting-sources user
-            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
-          prompt: |
-            You are the independent critic for this repository. Review this pull request on two axes and post one comment.
-            Standards: context/design-handoff/GAUNTLET-PROMPT.md "TypeScript and Effect standards", context/conventions.md, context/architecture.md (process boundaries, bridge exposure, credential handling).
-            Spec: the Linear ticket named in the PR body, context/design-handoff/DESIGN-CONTRACT.md for visual criteria, and the lane's contract page under context/.
-            Read the changed modules and their callers, not just the diff. Cite file:line for every finding and name the rule it breaks.
-            Report material findings only, each with severity and the required fix. Then a verdict per axis: PASS, PASS with required fixes, or FAIL.
-            Do not approve on coverage numbers or the author's summary alone. Do not edit files.
+          node-version-file: .node-version
+      - name: Evaluate authentic exact-head review
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_REVIEW_LAUNCH: ${{ vars.CURSOR_REVIEW_LAUNCH }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
+          VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
+          RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}
+        run: node scripts/delivery-review.mjs

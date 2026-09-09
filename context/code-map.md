@@ -98,4 +98,4 @@ Window/guest/credential lifecycle and IPC registration live in `src/main/index.t
 
 ## Delivery workflow
 
-`.github/lanes.json` maps lane labels to owned paths and `scripts/lane-guard.mjs` (run by `lane-guard.yml`) enforces it on pull requests. `claude-review.yml` posts the pinned independent review. `scripts/linear-seed.mjs` creates the tickets in `.github/next-run-tickets.json`. `context/next-run.md` describes roles, gates and the cloud verification prompt.
+`.github/lanes.json` maps lane labels to owned paths and `scripts/lane-guard.mjs` (run by `lane-guard.yml`) enforces it on pull requests. `claude-review.yml` now evaluates Cursor Cloud Grok 4.6 Extra High via `scripts/delivery-review.mjs` and consumes no Fable. `scripts/delivery-queue.mjs` serializes merge eligibility with activation off. `npm run test:delivery` runs those helpers. Hosted Sonar stays in `.github/workflows/sonar.yml` on the AR-45 branch; do not overlap it here. See [orchestration](design-handoff/ORCHESTRATION.md) and [next-run](next-run.md).

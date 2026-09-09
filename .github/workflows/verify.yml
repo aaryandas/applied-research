@@ -23,6 +23,8 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Delivery orchestration tests
+        run: node --test scripts/delivery-review.test.mjs scripts/delivery-queue.test.mjs scripts/delivery-cursor-api.test.mjs
       - run: npm ci
       - name: Check formatting
         run: npm run format:check
