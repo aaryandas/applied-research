@@ -107,3 +107,14 @@ Before domain implementation, design stable source/artifact identities, human-au
   GitHub or Railway evidence.
 - The same smoke test runs against the unpacked application, catching missing preload/renderer files and packaging mistakes.
 - CI runs on Linux, Windows, and macOS. This is a scaffold verification floor; live provider/learning-quality evaluations and production capacity checks remain outstanding.
+
+## Sourced learning integration seam — AR-36
+
+The additive [sourced learning backend](sourced-learning.md) retrieves and
+validates immutable evidence before using the existing authenticated learning
+service for path generation, lesson generation and separate semantic support
+checks. It returns supported work with explicit coverage gaps, exact source
+origins, generated lesson identity and backend phase timings. It does not register
+new HTTP/IPC operations or save local records. AR-35 producer composition and
+AR-37/AR-26 trusted desktop adoption remain pending; fixture success is not live
+curriculum, persistence or latency acceptance.
