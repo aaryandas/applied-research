@@ -108,6 +108,40 @@ export class LearningOnboardingValidationError extends Error {
   }
 }
 
+export type BoundedJsonWireResult =
+  | { status: 'decoded'; value: unknown; byteLength: number }
+  | { status: 'oversize'; byteLength: number; limit: number }
+  | { status: 'invalid' };
+
+/**
+ * UTF-8 wire admission. Call this on the raw HTTP/fetch body before object
+ * validation. Decoded-object parsers do not reconstruct or bound raw bytes.
+ */
+export function decodeBoundedJsonWire(
+  raw: string | Uint8Array,
+  limit: number,
+): BoundedJsonWireResult {
+  const bytes = typeof raw === 'string' ? new TextEncoder().encode(raw) : raw;
+  if (bytes.byteLength > limit) {
+    return {
+      status: 'oversize',
+      byteLength: bytes.byteLength,
+      limit,
+    };
+  }
+  try {
+    return {
+      status: 'decoded',
+      value: JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+      ),
+      byteLength: bytes.byteLength,
+    };
+  } catch {
+    return { status: 'invalid' };
+  }
+}
+
 const SOURCE_ACCESS = [
   'public',
   'registration-required',
@@ -138,10 +172,21 @@ export interface LearningOnboardingValidation {
   parseOnboardingRequest(value: unknown): OnboardingRequest;
   parseCourseProposal(value: unknown): CourseProposal;
   parseAcceptedStepMapping(value: unknown): AcceptedStepMapping;
-  parseAcceptedStepMappings(value: unknown): AcceptedStepMapping[];
+  parseAcceptedStepMappings(
+    value: unknown,
+    syllabus: OnboardingSyllabus,
+  ): AcceptedStepMapping[];
+  practiceBriefDigest(brief: CoursePracticeBrief): string;
   parseLearningOnboardingRequest(value: unknown): LearningOnboardingRequest;
+  parseLearningOnboardingRequestWire(
+    raw: string | Uint8Array,
+  ): LearningOnboardingRequest;
   parseLearningOnboardingResponse(
     value: unknown,
+    request: LearningOnboardingRequest,
+  ): LearningOnboardingResponse;
+  parseLearningOnboardingResponseWire(
+    raw: string | Uint8Array,
     request: LearningOnboardingRequest,
   ): LearningOnboardingResponse;
   parseRevisionWrite<T>(
@@ -241,11 +286,19 @@ export function createLearningOnboardingValidation(
     return parsed;
   }
 
-  function assertRequestBudget(parsed: unknown): void {
-    const bytes = new TextEncoder().encode(JSON.stringify(parsed)).length;
-    if (bytes > LIMITS.requestBytes) {
-      invalid('The onboarding request exceeds the 64 KiB admission limit.');
+  function decodeWire(raw: string | Uint8Array, limit: number): unknown {
+    const decoded = decodeBoundedJsonWire(raw, limit);
+    if (decoded.status === 'oversize') {
+      invalid(
+        limit === LIMITS.requestBytes
+          ? 'The onboarding request exceeds the 64 KiB admission limit.'
+          : 'The onboarding response exceeds the 4 MiB admission limit.',
+      );
     }
+    if (decoded.status === 'invalid') {
+      invalid('The onboarding payload is invalid.');
+    }
+    return decoded.value;
   }
 
   function depth(value: unknown): LessonDepth {
@@ -269,6 +322,46 @@ export function createLearningOnboardingValidation(
 
   function isPracticeRole(value: LessonRole): boolean {
     return value === 'practice' || value === 'capstone';
+  }
+
+  function assertListedTopology(
+    ids: readonly string[],
+    prerequisitesOf: (id: string) => readonly string[],
+    message: string,
+  ): void {
+    const index = new Map(ids.map((id, offset) => [id, offset]));
+    for (const [offset, id] of ids.entries()) {
+      for (const prerequisite of prerequisitesOf(id)) {
+        const prerequisiteIndex = index.get(prerequisite);
+        if (prerequisiteIndex === undefined || prerequisiteIndex >= offset) {
+          invalid(message);
+        }
+      }
+    }
+  }
+
+  function practiceBriefDigest(brief: CoursePracticeBrief): string {
+    const tool =
+      brief.tool.kind === 'app-hosted-catalog'
+        ? `app-hosted-catalog\0${brief.tool.toolId}`
+        : `learner-external\0${brief.tool.toolName}\0${brief.tool.intendedUse}`;
+    return validateSha256(
+      sha256Text(
+        [
+          brief.kind,
+          brief.author,
+          String(brief.masteryEstablished),
+          brief.intendedOutcome,
+          brief.setup,
+          tool,
+          brief.instructions,
+          brief.observableCheckpoints.join('\n'),
+          brief.expectedArtifact,
+          brief.reflectionPrompt,
+          brief.sourceIds.join('\n'),
+        ].join('\0'),
+      ),
+    );
   }
 
   function practiceTool(value: unknown): CoursePracticeToolChoice {
@@ -1226,7 +1319,47 @@ export function createLearningOnboardingValidation(
     if (lessons.filter((lesson) => lesson.role === 'capstone').length > 1) {
       invalid('A syllabus may include at most one capstone.');
     }
+    assertListedTopology(
+      topics.map((topic) => topic.topicId),
+      (id) =>
+        topics.find((topic) => topic.topicId === id)?.prerequisiteTopicIds ??
+        [],
+      'Topic prerequisites must be acyclic and listed in topological order.',
+    );
+    assertListedTopology(
+      lessons.map((lesson) => lesson.stepId),
+      (id) =>
+        lessons.find((lesson) => lesson.stepId === id)?.prerequisiteStepIds ??
+        [],
+      'Lesson prerequisites must be acyclic and listed in topological order.',
+    );
+    const opening = topics[0]?.lessons[0];
+    if (
+      opening &&
+      (opening.prerequisiteStepIds.length > 0 ||
+        (topics[0]?.prerequisiteTopicIds.length ?? 0) > 0)
+    ) {
+      invalid('The first listed lesson must be a graph source.');
+    }
     return topics;
+  }
+
+  function bibliographyClosure(
+    lessons: readonly { stepId: string; sourceIds: readonly string[] }[],
+    listed: readonly ProposalSource[],
+  ): void {
+    const stepIds = new Set(lessons.map((lesson) => lesson.stepId));
+    const sourceIds = new Set(listed.map((source) => source.sourceId));
+    for (const lesson of lessons) {
+      if (lesson.sourceIds.some((sourceId) => !sourceIds.has(sourceId))) {
+        invalid('Lesson sources must appear in the bibliography.');
+      }
+    }
+    for (const source of listed) {
+      if (source.lessonStepIds.some((stepId) => !stepIds.has(stepId))) {
+        invalid('Bibliography lesson ids must exist in the syllabus.');
+      }
+    }
   }
 
   function sourceCoverageMatches(
@@ -1287,6 +1420,10 @@ export function createLearningOnboardingValidation(
       }
       return input.sources.map(proposalSource);
     })();
+    bibliographyClosure(
+      topics.flatMap((topic) => topic.lessons),
+      sources,
+    );
     const reportedGaps = gaps(input.gaps);
     const sourceCoverage = coverage(input.sourceCoverage);
     sourceCoverageMatches(
@@ -1331,9 +1468,13 @@ export function createLearningOnboardingValidation(
         firstStep === undefined ||
         first.stepId !== firstStep.stepId ||
         first.title !== firstStep.title ||
-        firstStep.sourceState !== 'ready'
+        firstStep.sourceState !== 'ready' ||
+        firstStep.prerequisiteStepIds.length > 0 ||
+        (topics[0]?.prerequisiteTopicIds.length ?? 0) > 0
       ) {
-        invalid('A ready proposal requires a matching first lesson.');
+        invalid(
+          'A ready proposal requires a matching first-lesson graph source.',
+        );
       }
     }
     return {
@@ -1390,7 +1531,10 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function parseAcceptedStepMappings(value: unknown): AcceptedStepMapping[] {
+  function parseAcceptedStepMappings(
+    value: unknown,
+    syllabus: OnboardingSyllabus,
+  ): AcceptedStepMapping[] {
     if (
       !isDenseArray(value) ||
       value.length < 1 ||
@@ -1416,6 +1560,40 @@ export function createLearningOnboardingValidation(
       )
     ) {
       invalid('Step mappings must share one accepted path identity.');
+    }
+    const lessons = syllabus.topics.flatMap((topic) =>
+      topic.lessons.map((lesson) => ({
+        stepId: lesson.stepId,
+        topicId: topic.topicId,
+      })),
+    );
+    if (parsed.length !== lessons.length) {
+      invalid('Step mappings must cover the complete accepted syllabus.');
+    }
+    const byRemote = new Map(parsed.map((item) => [item.remoteStepId, item]));
+    const localIdByTopic = new Map<string, string>();
+    const topicByLocalId = new Map<string, string>();
+    for (const lesson of lessons) {
+      const mapped = byRemote.get(lesson.stepId);
+      if (mapped === undefined) {
+        invalid('Step mappings must cover the complete accepted syllabus.');
+      }
+      const existingLocal = localIdByTopic.get(lesson.topicId);
+      if (existingLocal === undefined) {
+        localIdByTopic.set(lesson.topicId, mapped.localTopicId);
+      } else if (existingLocal !== mapped.localTopicId) {
+        invalid(
+          'Step mappings must keep one local topic id per syllabus topic.',
+        );
+      }
+      const existingTopic = topicByLocalId.get(mapped.localTopicId);
+      if (existingTopic === undefined) {
+        topicByLocalId.set(mapped.localTopicId, lesson.topicId);
+      } else if (existingTopic !== lesson.topicId) {
+        invalid(
+          'Step mappings must not reuse a local topic id across syllabus topics.',
+        );
+      }
     }
     return parsed;
   }
@@ -1609,7 +1787,24 @@ export function createLearningOnboardingValidation(
             'title',
             'role',
             'sourceState',
+            'sourceIds',
+            'practiceDigest',
           ]);
+          const parsedRole = role(lesson.role);
+          const sourceIds = identifiers(
+            lesson.sourceIds,
+            LIMITS.sourceRefsPerLesson,
+            'Source id',
+          );
+          const digest =
+            lesson.practiceDigest === null
+              ? null
+              : validateSha256(lesson.practiceDigest);
+          if (isPracticeRole(parsedRole) !== (digest !== null)) {
+            invalid(
+              'Compact practice digest must be present exactly for practice and capstone steps.',
+            );
+          }
           return {
             stepId: identifier(lesson.stepId, 'Step id'),
             title: boundedText(
@@ -1617,8 +1812,10 @@ export function createLearningOnboardingValidation(
               LIMITS.titleCharacters,
               'Lesson title',
             ),
-            role: role(lesson.role),
+            role: parsedRole,
             sourceState: sourceState(lesson.sourceState),
+            sourceIds,
+            practiceDigest: digest,
           };
         }),
       };
@@ -1722,13 +1919,41 @@ export function createLearningOnboardingValidation(
     if (!isPracticeRole(compact.role) && target.practice !== null) {
       invalid('Concept and setup targets cannot include a practice brief.');
     }
+    const acceptedProposal = opaqueRef(target.acceptedProposal);
+    if (
+      acceptedProposal.id !== model.priorProposal.id ||
+      acceptedProposal.revision !== model.priorProposal.revision
+    ) {
+      invalid(
+        'Selected lesson proposal identity does not match the retained syllabus.',
+      );
+    }
+    if (isPracticeRole(compact.role)) {
+      if (targetPractice === null || compact.practiceDigest === null) {
+        invalid('Practice and capstone targets require a retained brief.');
+      }
+      if (practiceBriefDigest(targetPractice) !== compact.practiceDigest) {
+        invalid(
+          'Selected lesson practice brief does not match the retained step.',
+        );
+      }
+      if (
+        targetPractice.sourceIds.some(
+          (sourceId) => !compact.sourceIds.includes(sourceId),
+        )
+      ) {
+        invalid(
+          'Selected lesson practice sources are not bound to the retained step.',
+        );
+      }
+    }
     const selected: GenerateSelectedLessonOperation = {
       kind: 'generate-selected-lesson',
       human,
       model,
       target: {
         remoteStepId,
-        acceptedProposal: opaqueRef(target.acceptedProposal),
+        acceptedProposal,
         practice: targetPractice,
       },
     };
@@ -1759,8 +1984,13 @@ export function createLearningOnboardingValidation(
       model: input.model,
       operation: operation(input.operation),
     };
-    assertRequestBudget(parsed);
     return parsed;
+  }
+
+  function parseLearningOnboardingRequestWire(
+    raw: string | Uint8Array,
+  ): LearningOnboardingRequest {
+    return parseLearningOnboardingRequest(decodeWire(raw, LIMITS.requestBytes));
   }
 
   function quota(value: unknown): MonthlyQuota {
@@ -1960,7 +2190,16 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function evidenceItem(value: unknown): RetrievalEvidence {
+  function evidenceItem(
+    value: unknown,
+    originals: readonly {
+      sourceId: string;
+      revisionId: string;
+      canonicalText: string;
+      sha256: string;
+      canonicalizationVersion: string;
+    }[],
+  ): RetrievalEvidence {
     const input = strictRecord(value, [
       'evidenceId',
       'locator',
@@ -2029,6 +2268,19 @@ export function createLearningOnboardingValidation(
     ) {
       invalid('Evidence locator does not match its source version.');
     }
+    const original = originals.find(
+      (item) =>
+        item.sourceId === locator.sourceId &&
+        item.revisionId === locator.revisionId,
+    );
+    if (
+      original === undefined ||
+      original.canonicalText.slice(start, end) !== quote ||
+      original.sha256 !== sourceVersion.sha256 ||
+      original.canonicalizationVersion !== sourceVersion.canonicalizationVersion
+    ) {
+      invalid('Evidence quote does not match backend-owned source text.');
+    }
     if (
       typeof input.retrieverScore !== 'number' ||
       !Number.isFinite(input.retrieverScore) ||
@@ -2077,7 +2329,16 @@ export function createLearningOnboardingValidation(
     };
   }
 
-  function evidenceList(value: unknown): RetrievalEvidence[] {
+  function evidenceList(
+    value: unknown,
+    originals: readonly {
+      sourceId: string;
+      revisionId: string;
+      canonicalText: string;
+      sha256: string;
+      canonicalizationVersion: string;
+    }[],
+  ): RetrievalEvidence[] {
     if (
       !isDenseArray(value) ||
       value.length < 1 ||
@@ -2085,7 +2346,7 @@ export function createLearningOnboardingValidation(
     ) {
       invalid('Retrieval evidence is invalid.');
     }
-    return value.map(evidenceItem);
+    return value.map((item) => evidenceItem(item, originals));
   }
 
   function generatedPracticeBrief(
@@ -2318,6 +2579,8 @@ export function createLearningOnboardingValidation(
       sourceId: source.content.revision.sourceId,
       revisionId: source.content.revision.revisionId,
       canonicalText: source.content.revision.canonicalText,
+      sha256: source.content.revision.sha256,
+      canonicalizationVersion: source.content.revision.canonicalizationVersion,
     }));
     const firstLesson = generatedLesson(input.firstLesson, originals, {
       stepId: firstStep.stepId,
@@ -2327,6 +2590,10 @@ export function createLearningOnboardingValidation(
     });
     const reportedGaps = input.gaps === undefined ? [] : gaps(input.gaps);
     const listedBibliography = bibliography(input.bibliography);
+    bibliographyClosure(
+      syllabus.topics.flatMap((topic) => topic.lessons),
+      listedBibliography,
+    );
     const sourceCoverage = coverage(input.sourceCoverage);
     sourceCoverageMatches(
       syllabus.topics,
@@ -2334,8 +2601,12 @@ export function createLearningOnboardingValidation(
       listedBibliography.length,
       reportedGaps.length,
     );
-    if (firstStep.sourceState !== 'ready') {
-      invalid('The first syllabus lesson must be ready.');
+    if (
+      firstStep.sourceState !== 'ready' ||
+      firstStep.prerequisiteStepIds.length > 0 ||
+      (syllabus.topics[0]?.prerequisiteTopicIds.length ?? 0) > 0
+    ) {
+      invalid('The first syllabus lesson must be a ready graph source.');
     }
     if (
       !isDenseArray(input.provenance) ||
@@ -2352,7 +2623,7 @@ export function createLearningOnboardingValidation(
       firstLesson,
       sources,
       bibliography: listedBibliography,
-      evidence: evidenceList(input.evidence),
+      evidence: evidenceList(input.evidence, originals),
       gaps: reportedGaps,
       sourceCoverage,
       personalization: personalization(input.personalization),
@@ -2379,6 +2650,8 @@ export function createLearningOnboardingValidation(
       sourceId: source.content.revision.sourceId,
       revisionId: source.content.revision.revisionId,
       canonicalText: source.content.revision.canonicalText,
+      sha256: source.content.revision.sha256,
+      canonicalizationVersion: source.content.revision.canonicalizationVersion,
     }));
     if (input.syllabus !== undefined) {
       invalid(
@@ -2414,14 +2687,19 @@ export function createLearningOnboardingValidation(
     ) {
       invalid('AI provenance receipts are invalid.');
     }
+    const listedBibliography = bibliography(input.bibliography);
+    bibliographyClosure(
+      request.operation.model.syllabus.topics.flatMap((topic) => topic.lessons),
+      listedBibliography,
+    );
     return {
       outcome: 'success',
       requestId: identifier(input.requestId, 'Request id'),
       scope: 'selected-existing-lesson',
       lesson,
       sources,
-      bibliography: bibliography(input.bibliography),
-      evidence: evidenceList(input.evidence),
+      bibliography: listedBibliography,
+      evidence: evidenceList(input.evidence, originals),
       gaps: input.gaps === undefined ? [] : gaps(input.gaps),
       provenance: input.provenance.map(provenance),
       quota: quota(input.quota),
@@ -2481,7 +2759,23 @@ export function createLearningOnboardingValidation(
           retryable: false,
           accounting: input.accounting,
         };
-      case 'unavailable':
+      case 'unavailable': {
+        const retryable = booleanField(input.retryable, 'Retryable');
+        const accounting =
+          input.accounting === 'none' ||
+          input.accounting === 'released' ||
+          input.accounting === 'charged' ||
+          input.accounting === 'reservation-retained'
+            ? input.accounting
+            : invalid('Unavailable accounting is invalid.');
+        if (
+          (accounting === 'charged' || accounting === 'reservation-retained') &&
+          retryable
+        ) {
+          invalid(
+            'Charged or uncertain unavailable outcomes cannot authorize a paid retry.',
+          );
+        }
         return {
           outcome: input.outcome,
           requestId:
@@ -2489,15 +2783,10 @@ export function createLearningOnboardingValidation(
               ? null
               : identifier(input.requestId, 'Request id'),
           message: publicMessage(input.message, MESSAGES.unavailable),
-          retryable: booleanField(input.retryable, 'Retryable'),
-          accounting:
-            input.accounting === 'none' ||
-            input.accounting === 'released' ||
-            input.accounting === 'charged' ||
-            input.accounting === 'reservation-retained'
-              ? input.accounting
-              : invalid('Unavailable accounting is invalid.'),
+          retryable,
+          accounting,
         };
+      }
       case 'coverage-pending':
         if (input.retryable !== false)
           invalid('Coverage-pending cannot authorize a paid retry.');
@@ -2549,11 +2838,14 @@ export function createLearningOnboardingValidation(
           retryable: false,
         };
       case 'quota-exceeded':
+        if (input.retryable !== false)
+          invalid('Quota-exceeded cannot authorize a paid retry.');
         return {
           outcome: input.outcome,
           requestId: identifier(input.requestId, 'Request id'),
           message: publicMessage(input.message, MESSAGES.quotaExceeded),
           quota: quota(input.quota),
+          retryable: false,
         };
       default:
         return invalid('Onboarding outcome is invalid.');
@@ -2590,6 +2882,16 @@ export function createLearningOnboardingValidation(
     return selectedSuccess(input, request);
   }
 
+  function parseLearningOnboardingResponseWire(
+    raw: string | Uint8Array,
+    request: LearningOnboardingRequest,
+  ): LearningOnboardingResponse {
+    return parseLearningOnboardingResponse(
+      decodeWire(raw, LIMITS.responseBytes),
+      request,
+    );
+  }
+
   return {
     parseSaveLearnerProfileInput,
     parseLearnerProfile,
@@ -2606,8 +2908,11 @@ export function createLearningOnboardingValidation(
     parseCourseProposal,
     parseAcceptedStepMapping,
     parseAcceptedStepMappings,
+    practiceBriefDigest,
     parseLearningOnboardingRequest,
+    parseLearningOnboardingRequestWire,
     parseLearningOnboardingResponse,
+    parseLearningOnboardingResponseWire,
     parseRevisionWrite,
   };
 }

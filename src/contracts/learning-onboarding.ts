@@ -7,8 +7,6 @@ import type {
   CoursePracticeToolChoice,
   GeneratedCoursePracticeBrief,
   LessonDepth,
-  LearningOnboardingRequest,
-  LearningOnboardingResponse,
   OpaqueRevisionRef,
   OnboardingCoverageGap,
   OnboardingPersonalization,
@@ -133,19 +131,25 @@ export type RevisionWrite<T> =
       currentRevision: number;
     };
 
+export type OnboardingNonRetryableFailure =
+  'cancelled' | 'stale-revision' | 'conflict' | 'coverage-pending';
+
+export type OnboardingMaybeRetryableFailure =
+  'unavailable' | 'stale-project' | 'save-failed';
+
 export type OnboardingFailureOutcome =
-  | 'cancelled'
-  | 'stale-project'
-  | 'stale-revision'
-  | 'conflict'
-  | 'unavailable'
-  | 'coverage-pending'
-  | 'save-failed';
+  OnboardingNonRetryableFailure | OnboardingMaybeRetryableFailure;
 
 export type OnboardingResult<T> =
   | { outcome: 'success'; requestId: string; value: T }
   | {
-      outcome: OnboardingFailureOutcome;
+      outcome: OnboardingNonRetryableFailure;
+      requestId: string;
+      message: string;
+      retryable: false;
+    }
+  | {
+      outcome: OnboardingMaybeRetryableFailure;
       requestId: string;
       message: string;
       retryable: boolean;
@@ -250,8 +254,6 @@ export type {
   CoursePracticeBrief,
   CoursePracticeToolChoice,
   GeneratedCoursePracticeBrief,
-  LearningOnboardingRequest,
-  LearningOnboardingResponse,
   OnboardingSyllabus,
   OpaqueRevisionRef,
 };

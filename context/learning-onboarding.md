@@ -27,9 +27,10 @@ not a preview and must not replace an accepted course on every chapter.
 | `src/contracts/learning-onboarding-validation.ts` | Strict bounded decoding for renderer inputs, projections and trusted backend envelopes    |
 | `src/contracts/learning-onboarding.test.ts`       | Forged-authority, malformed/oversize, revision/target, compatibility and roundtrip proofs |
 
-Renderer TypeScript may import desktop projection types. It must not import or
-submit trusted backend envelopes. Main validates the backend response, retains
-it under an opaque proposal id+revision, and projects `CourseProposal`.
+Renderer TypeScript may import desktop projection types. It must not import
+`learning-onboarding-api.ts` or trusted backend envelopes. Main validates the
+backend response, retains it under an opaque proposal id+revision, and
+projects `CourseProposal`.
 
 ## Authority
 
@@ -44,17 +45,31 @@ it under an opaque proposal id+revision, and projects `CourseProposal`.
 - `acceptCourse` / `ensureLesson` accept only opaque identity and a stored
   `PathOrigin` target. Canonical lesson/source/provenance JSON is rejected.
 - Cancelled, coverage-pending, conflict, stale-revision and quota-exceeded
-  outcomes set `retryable: false` except unavailable, which may be retryable
-  when no reservation was taken. Callers cannot request a paid retry.
+  outcomes set `retryable: false`. Unavailable may be retryable only when
+  accounting is `none` or `released`. `charged` and `reservation-retained`
+  unavailable outcomes are not retryable. Callers cannot request a paid retry.
 
 ## Bounds
 
 16 topics and 160 lessons are the **maximum envelope**, not a target course
 length. Existing admission remains: 64 KiB request, four acquired generation
 sources, 48,000 canonical generation characters, 12 retrieval passages,
-`google/gemini-3.8-flash` allowlist, US$20 monthly quota accounting. Desktop
-transport already allows a 4 MiB response; this contract documents that ceiling
-without changing it.
+`google/gemini-3.8-flash` allowlist, US$20 monthly quota accounting.
+
+`requestBytes` and `responseBytes` are UTF-8 **wire** ceilings. AR-47/AR-48
+must call `parseLearningOnboardingRequestWire` /
+`parseLearningOnboardingResponseWire` (or `decodeBoundedJsonWire`) on the raw
+HTTP/fetch body. Decoded-object parsers do not reconstruct original raw bytes
+and must not be described as a 64 KiB/4 MiB wire bound.
+
+Topic and lesson prerequisite graphs must be DAGs listed in topological order.
+The first listed topic/lesson is the graph source used as the opening lesson.
+Lesson `sourceIds` must appear in the bibliography; bibliography `lessonStepIds`
+must exist in the syllabus. Retrieval evidence quotes must equal the acquired
+canonical slice. Selected-lesson `priorProposal` must equal `acceptedProposal`,
+and `target.practice` must match the compact step's `practiceDigest` and
+`sourceIds`. `AcceptedStepMapping` rows must cover every syllabus step and keep
+one local topic id per remote topic.
 
 ## Practice brief and capstone (AR-50)
 
@@ -91,12 +106,14 @@ retain validated `LearningOnboardingResponse` success envelopes; project
 never call `acceptSourcedLearning` / `generateSourcedLearning` for this flow.
 
 **Backend / AR-48:** add sibling `POST /v1/learning/onboarding` using
-`parseLearningOnboardingRequest` / `parseLearningOnboardingResponse`. Keep
-`/v1/learning/sourced` and its expected-red route-security tests unchanged.
-Do not change installed foundations, model, spend policy or dependencies.
-Importing the new API module from `src/backend` is enough for
-`tsconfig.backend.json` (include currently lists `learning-api.ts` only;
-the import graph pulls additional contracts).
+`parseLearningOnboardingRequestWire` / `parseLearningOnboardingResponseWire` on
+the raw body, then the object parsers. Keep `/v1/learning/sourced` and its
+expected-red route-security tests unchanged. Do not change installed
+foundations, model, spend policy or dependencies. Importing the new API module
+from `src/backend` is enough for `tsconfig.backend.json` (include currently
+lists `learning-api.ts` only; the import graph pulls additional contracts).
+Separately recorded vector-index configuration proof on the candidate is not
+app acceptance.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

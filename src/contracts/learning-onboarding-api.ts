@@ -124,7 +124,12 @@ export const ONBOARDING_CONTEXT_TRUST = {
   model: 'untrusted-model-context',
 } as const;
 
-/** Maximum envelope, not a target course length. Preserve existing admission. */
+/**
+ * Maximum envelope, not a target course length. Preserve existing admission.
+ * `requestBytes` / `responseBytes` are UTF-8 **wire** ceilings. Only
+ * `decodeBoundedJsonWire` / `parseLearningOnboarding*Wire` may enforce them.
+ * Decoded-object parsers do not measure original raw bytes.
+ */
 export const LEARNING_ONBOARDING_LIMITS = {
   requestBytes: 64 * 1024,
   responseBytes: 4 * 1024 * 1024,
@@ -244,6 +249,9 @@ export type CompactSyllabusLesson = {
   title: string;
   role: LessonRole;
   sourceState: PathSourceState;
+  sourceIds: string[];
+  /** sha256 of the retained practice brief; null for concept/setup. */
+  practiceDigest: string | null;
 };
 
 export type CompactSyllabusTopic = {
@@ -496,6 +504,7 @@ export type OnboardingQuotaExceeded = {
   requestId: string;
   message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.quotaExceeded;
   quota: MonthlyQuota;
+  retryable: false;
 };
 
 export type LearningOnboardingFailure =

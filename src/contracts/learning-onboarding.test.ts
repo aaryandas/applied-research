@@ -20,6 +20,7 @@ import { SOURCE_CHANNELS } from './source-desktop.js';
 import {
   LearningOnboardingValidationError,
   createLearningOnboardingValidation,
+  decodeBoundedJsonWire,
 } from './learning-onboarding-validation.js';
 
 const HELLO = 'hello';
@@ -35,7 +36,14 @@ const HASHES: Record<string, string> = {
 };
 
 function sha256Text(value: string): string {
-  return HASHES[value] ?? 'ab'.repeat(32);
+  if (HASHES[value] !== undefined) return HASHES[value];
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const hex = (hash >>> 0).toString(16).padStart(8, '0');
+  return hex.repeat(8).slice(0, 64);
 }
 
 const validation = createLearningOnboardingValidation(sha256Text);
@@ -441,6 +449,41 @@ const proposal = {
   acceptance: 'ready' as const,
 };
 
+function compactFromSyllabus() {
+  return {
+    title: syllabus.title,
+    topics: syllabus.topics.map((topic) => ({
+      topicId: topic.topicId,
+      title: topic.title,
+      lessons: topic.lessons.map((lesson) => ({
+        stepId: lesson.stepId,
+        title: lesson.title,
+        role: lesson.role,
+        sourceState: lesson.sourceState,
+        sourceIds: lesson.sourceIds,
+        practiceDigest:
+          lesson.practice === null
+            ? null
+            : validation.practiceBriefDigest(lesson.practice),
+      })),
+    })),
+  };
+}
+
+function completeMappings() {
+  return syllabus.topics.flatMap((topic) =>
+    topic.lessons.map((lesson, index) => ({
+      projectId,
+      pathId: 'path-001a',
+      acceptedProposalId: 'proposal-01',
+      acceptedProposalRevision: 1,
+      remoteStepId: lesson.stepId,
+      localTopicId: topic.topicId,
+      localLessonId: `lesson-0${String(index + 1)}`,
+    })),
+  );
+}
+
 const selectedLessonRequest: LearningOnboardingRequest = {
   apiVersion: LEARNING_ONBOARDING_API_VERSION,
   requestId: 'request-02',
@@ -451,21 +494,7 @@ const selectedLessonRequest: LearningOnboardingRequest = {
     model: {
       trust: ONBOARDING_CONTEXT_TRUST.model,
       priorProposal: { id: 'proposal-01', revision: 1 },
-      syllabus: {
-        title: syllabus.title,
-        topics: [
-          {
-            topicId: 'topic-01',
-            title: 'Foundations',
-            lessons: syllabus.topics[0]!.lessons.map((lesson) => ({
-              stepId: lesson.stepId,
-              title: lesson.title,
-              role: lesson.role,
-              sourceState: lesson.sourceState,
-            })),
-          },
-        ],
-      },
+      syllabus: compactFromSyllabus(),
       personalization: null,
     },
     target: {
@@ -485,6 +514,7 @@ describe('learning onboarding contracts', () => {
     expect(LEARNING_ONBOARDING_LIMITS.topics).toBe(16);
     expect(LEARNING_ONBOARDING_LIMITS.lessons).toBe(160);
     expect(LEARNING_ONBOARDING_LIMITS.requestBytes).toBe(64 * 1024);
+    expect(LEARNING_ONBOARDING_LIMITS.responseBytes).toBe(4 * 1024 * 1024);
     expect(LEARNING_ONBOARDING_LIMITS.generationEvidenceSources).toBe(4);
     expect(LEARNING_ONBOARDING_LIMITS.generationEvidenceCharacters).toBe(
       48_000,
@@ -547,27 +577,10 @@ describe('learning onboarding contracts', () => {
     };
     expect(validation.parseInterviewRecord(interview)).toEqual(interview);
     expect(validation.parseCourseProposal(proposal)).toEqual(proposal);
-    const mapping = [
-      {
-        projectId,
-        pathId: 'path-001a',
-        acceptedProposalId: 'proposal-01',
-        acceptedProposalRevision: 1,
-        remoteStepId: 'step-001',
-        localTopicId: 'topic-01',
-        localLessonId: 'lesson-01',
-      },
-      {
-        projectId,
-        pathId: 'path-001a',
-        acceptedProposalId: 'proposal-01',
-        acceptedProposalRevision: 1,
-        remoteStepId: 'step-002',
-        localTopicId: 'topic-01',
-        localLessonId: 'lesson-02',
-      },
-    ];
-    expect(validation.parseAcceptedStepMappings(mapping)).toEqual(mapping);
+    const mapping = completeMappings();
+    expect(validation.parseAcceptedStepMappings(mapping, syllabus)).toEqual(
+      mapping,
+    );
   });
 
   it('roundtrips the sibling onboarding request and trusted course success', () => {
@@ -868,7 +881,7 @@ describe('learning onboarding contracts', () => {
           localLessonId: 'lesson-02',
         },
       ],
-      validation.parseAcceptedStepMappings,
+      (value) => validation.parseAcceptedStepMappings(value, syllabus),
     );
   });
 
@@ -1037,6 +1050,265 @@ describe('learning onboarding contracts', () => {
         },
       },
       validation.parseLearningOnboardingRequest,
+    );
+  });
+
+  it('rejects cyclic topic and lesson graphs and a first listed lesson that depends on a later step', () => {
+    expectRejected(
+      {
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            topicId: 'topic-01',
+            prerequisiteTopicIds: ['topic-02'],
+            lessons: [syllabus.topics[0]!.lessons[0]!],
+          },
+          {
+            ...syllabus.topics[0]!,
+            topicId: 'topic-02',
+            title: 'Later foundations',
+            prerequisiteTopicIds: ['topic-01'],
+            lessons: [
+              {
+                ...syllabus.topics[0]!.lessons[1]!,
+                prerequisiteStepIds: [],
+              },
+            ],
+          },
+        ],
+        capstone: null,
+        sourceCoverage: {
+          ...proposal.sourceCoverage,
+          readyLessons: 1,
+          pendingLessons: 1,
+        },
+      },
+      validation.parseCourseProposal,
+    );
+    expectRejected(
+      {
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            lessons: [
+              {
+                ...syllabus.topics[0]!.lessons[0]!,
+                prerequisiteStepIds: ['step-002'],
+              },
+              {
+                ...syllabus.topics[0]!.lessons[1]!,
+                prerequisiteStepIds: ['step-001'],
+              },
+              syllabus.topics[0]!.lessons[2]!,
+            ],
+          },
+        ],
+      },
+      validation.parseCourseProposal,
+    );
+    expectRejected(
+      {
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            lessons: [
+              {
+                ...syllabus.topics[0]!.lessons[0]!,
+                prerequisiteStepIds: ['step-002'],
+              },
+              {
+                ...syllabus.topics[0]!.lessons[1]!,
+                prerequisiteStepIds: [],
+              },
+              syllabus.topics[0]!.lessons[2]!,
+            ],
+          },
+        ],
+      },
+      validation.parseCourseProposal,
+    );
+  });
+
+  it('rejects swapped selected-lesson briefs and mismatched proposal identity', () => {
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          ...selectedLessonRequest.operation,
+          target: {
+            remoteStepId: 'step-002',
+            acceptedProposal: { id: 'proposal-01', revision: 1 },
+            practice: capstoneBrief,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+    expectRejected(
+      {
+        ...selectedLessonRequest,
+        operation: {
+          ...selectedLessonRequest.operation,
+          target: {
+            remoteStepId: 'step-002',
+            acceptedProposal: { id: 'proposal-99', revision: 1 },
+            practice: tokenizerBrief,
+          },
+        },
+      },
+      validation.parseLearningOnboardingRequest,
+    );
+  });
+
+  it('rejects source bibliography that is not closed over lesson and step identity', () => {
+    expectRejected(
+      {
+        ...proposal,
+        topics: [
+          {
+            ...syllabus.topics[0]!,
+            lessons: [
+              {
+                ...syllabus.topics[0]!.lessons[0]!,
+                sourceIds: ['openalex_W99'],
+              },
+              syllabus.topics[0]!.lessons[1]!,
+              syllabus.topics[0]!.lessons[2]!,
+            ],
+          },
+        ],
+      },
+      validation.parseCourseProposal,
+    );
+    expectRejected(
+      {
+        ...proposal,
+        sources: [{ ...bibliographySource, lessonStepIds: ['step-999'] }],
+      },
+      validation.parseCourseProposal,
+    );
+  });
+
+  it('rejects retrieval evidence whose quote is not the acquired canonical slice', () => {
+    expectRejected(
+      {
+        ...courseSuccess,
+        evidence: [
+          {
+            ...evidence,
+            locator: { ...evidence.locator, quote: 'XXXXX' },
+          },
+        ],
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, proposeRequest),
+    );
+  });
+
+  it('rejects charged or uncertain retryable unavailable and quota retryable true', () => {
+    expectRejected(
+      {
+        outcome: 'unavailable',
+        requestId,
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable,
+        retryable: true,
+        accounting: 'charged',
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, proposeRequest),
+    );
+    expectRejected(
+      {
+        outcome: 'unavailable',
+        requestId,
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable,
+        retryable: true,
+        accounting: 'reservation-retained',
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, proposeRequest),
+    );
+    expect(
+      validation.parseLearningOnboardingResponse(
+        {
+          outcome: 'unavailable',
+          requestId,
+          message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable,
+          retryable: true,
+          accounting: 'released',
+        },
+        proposeRequest,
+      ),
+    ).toMatchObject({ retryable: true, accounting: 'released' });
+    expectRejected(
+      {
+        outcome: 'quota-exceeded',
+        requestId,
+        message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.quotaExceeded,
+        quota,
+        retryable: true,
+      },
+      (value) =>
+        validation.parseLearningOnboardingResponse(value, proposeRequest),
+    );
+    expect(
+      validation.parseLearningOnboardingResponse(
+        {
+          outcome: 'quota-exceeded',
+          requestId,
+          message: LEARNING_ONBOARDING_PUBLIC_MESSAGES.quotaExceeded,
+          quota,
+          retryable: false,
+        },
+        proposeRequest,
+      ),
+    ).toMatchObject({ retryable: false });
+  });
+
+  it('bounds raw request and response bytes on the wire adapter only', () => {
+    const raw = `${JSON.stringify(proposeRequest)}${' '.repeat(70_000)}`;
+    expect(new TextEncoder().encode(raw).byteLength).toBeGreaterThan(
+      LEARNING_ONBOARDING_LIMITS.requestBytes,
+    );
+    expect(JSON.stringify(proposeRequest).length).toBeLessThan(
+      LEARNING_ONBOARDING_LIMITS.requestBytes,
+    );
+    expect(
+      decodeBoundedJsonWire(raw, LEARNING_ONBOARDING_LIMITS.requestBytes),
+    ).toEqual(expect.objectContaining({ status: 'oversize' }));
+    expect(() => validation.parseLearningOnboardingRequestWire(raw)).toThrow(
+      LearningOnboardingValidationError,
+    );
+    expect(validation.parseLearningOnboardingRequest(JSON.parse(raw))).toEqual(
+      proposeRequest,
+    );
+    const paddedResponse = `${JSON.stringify(courseSuccess)}${' '.repeat(4 * 1024 * 1024)}`;
+    expect(() =>
+      validation.parseLearningOnboardingResponseWire(
+        paddedResponse,
+        proposeRequest,
+      ),
+    ).toThrow(LearningOnboardingValidationError);
+    expect(
+      validation.parseLearningOnboardingResponse(courseSuccess, proposeRequest),
+    ).toEqual(courseSuccess);
+  });
+
+  it('rejects mappings that miss syllabus steps or split a topic local id', () => {
+    const mapping = completeMappings();
+    expectRejected(mapping.slice(0, 2), (value) =>
+      validation.parseAcceptedStepMappings(value, syllabus),
+    );
+    expectRejected(
+      mapping.map((item) =>
+        item.remoteStepId === 'step-002'
+          ? { ...item, localTopicId: 'topic-99' }
+          : item,
+      ),
+      (value) => validation.parseAcceptedStepMappings(value, syllabus),
     );
   });
 });
