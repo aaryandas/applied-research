@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { REVIEW_CHECK_NAME } from './delivery-constants.mjs';
+import {
+  REVIEW_CHECK_NAME,
+  TRUSTED_GITHUB_ENVIRONMENT,
+} from './delivery-constants.mjs';
 
 const untrusted = readFileSync('.github/workflows/claude-review.yml', 'utf8');
 const trusted = readFileSync(
@@ -19,10 +22,17 @@ test('F1: untrusted pull_request workflow never references CURSOR_API_KEY', () =
   assert.equal(untrusted.includes('anthropics/claude-code-action'), false);
   assert.equal(untrusted.includes('claude-fable-5-1'), false);
   assert.equal(untrusted.includes('allowed_bots'), false);
+  assert.match(untrusted, /workflow id 353522718/);
+  assert.match(untrusted, /disabled_manually/);
 });
 
 test('trusted evaluator checks out the default branch only and pins starting evaluation', () => {
-  assert.match(trusted, /environment: trusted-cursor/);
+  assert.equal(TRUSTED_GITHUB_ENVIRONMENT, 'trusted-main');
+  assert.match(trusted, /environment: trusted-main/);
+  assert.equal(trusted.includes('trusted-cursor'), false);
+  assert.match(trusted, /workflow id 353522718/);
+  assert.match(trusted, /disabled_manually/);
+  assert.match(trusted, /Do not create a new secret or environment/);
   assert.match(
     trusted,
     /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/,
@@ -67,4 +77,17 @@ test('review check name stays the exact-head gate name', () => {
   );
   assert.match(trusted, /name: Independent review\n/);
   assert.match(trusted, /name: Cursor Cloud Grok 4\.6 Extra High/);
+});
+
+test('linear gate receives PR draft/state and does not claim to move Linear', () => {
+  const gate = readFileSync('.github/workflows/linear-gate.yml', 'utf8');
+  assert.equal(
+    gate.includes('PR_DRAFT: ${{ github.event.pull_request.draft }}'),
+    true,
+  );
+  assert.equal(
+    gate.includes('PR_STATE: ${{ github.event.pull_request.state }}'),
+    true,
+  );
+  assert.match(gate, /does not move Linear status/);
 });

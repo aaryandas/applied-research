@@ -6,8 +6,18 @@ name: Independent review
 # PR number and SHA are data. CURSOR_API_KEY must not be referenced from
 # pull_request workflows. Launch stays off until this orchestration is
 # independently reviewed (CURSOR_REVIEW_LAUNCH).
-# Repo settings currently mark claude-review.yml disabled_manually (legacy
-# Fable name Independent review (Claude)). workflow_run therefore also
+#
+# Existing GitHub Environment trusted-main already holds the authorized
+# Cursor key. Deployment branch policy: type=branch, name=main. The
+# repository-level CURSOR_API_KEY was removed after that protected copy
+# was verified. Do not create a new secret or environment.
+#
+# Legacy Fable workflow .github/workflows/claude-review.yml (Actions name
+# Independent review (Claude), workflow id 353522718) is disabled_manually
+# at repository level to stop Fable. Keep activation off until this trusted
+# replacement is independently reviewed, merged to the default branch, and a
+# human explicitly re-enables the appropriate workflow. Do not re-enable
+# 353522718 while main still contains Fable. workflow_run therefore also
 # listens to CI pull_request completions so evaluation is not dormant.
 
 on:
@@ -52,7 +62,7 @@ jobs:
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: trusted-cursor
+    environment: trusted-main
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

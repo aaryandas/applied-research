@@ -57,6 +57,25 @@ export const TRUSTED_WORKFLOW_FILE =
   '.github/workflows/independent-review-trusted.yml';
 export const UNTRUSTED_REVIEW_WORKFLOW_NAME =
   'Independent review (untrusted pending)';
+export const TRUSTED_GITHUB_ENVIRONMENT = 'trusted-main';
+export const TRUSTED_ENVIRONMENT_BRANCH_POLICY = Object.freeze({
+  type: 'branch',
+  name: 'main',
+});
+export const LEGACY_FABLE_WORKFLOW = Object.freeze({
+  path: '.github/workflows/claude-review.yml',
+  id: 353522718,
+  actionsName: 'Independent review (Claude)',
+  state: 'disabled_manually',
+});
+export const LINEAR_MERGE_STATE = 'In Review';
+export const LINEAR_DRAFT_PR_STATE = 'In Development';
+export const LINEAR_READY_PR_STATE = 'In Testing';
+export const LINEAR_STATUS_AUTOMATION_GAP = [
+  'GitHub↔Linear status automation gap: next-run.md documents Linear GitHub integration PR opened → In Development and ready → In Testing, but that did not fire when GitHub PR #45 (AR-52) and PR #46 (AR-53) opened as drafts against the walkthrough candidate.',
+  'Both tickets remained Backlog with the PR URL attached (startedAt null) after those PRs existed.',
+  'Owned delivery mapping does not treat Backlog as In Review and does not move Linear status.',
+].join(' ');
 
 export const UNTRUSTED_CURSOR_CREDENTIAL = [
   'This GitHub event is untrusted pull-request code and must not receive or use CURSOR_API_KEY.',
@@ -78,8 +97,9 @@ export const MISSING_ISOLATION_VARS = [
 
 export const MISSING_CURSOR_API_KEY = [
   'Trusted default-branch evaluation has no CURSOR_API_KEY in this job environment.',
-  `Move the Cursor API key from ${CURSOR_API_KEYS_URL} into GitHub Environment trusted-cursor (deployment branch: default branch only) and delete the repository secret so pull_request workflows cannot inject it.`,
-  'Until the trusted job can authenticate, independent review stays fail-closed.',
+  `The authorized key already lives on existing GitHub Environment ${TRUSTED_GITHUB_ENVIRONMENT} (deployment branch policy: type=${TRUSTED_ENVIRONMENT_BRANCH_POLICY.type}, name=${TRUSTED_ENVIRONMENT_BRANCH_POLICY.name}).`,
+  'The repository-level CURSOR_API_KEY was removed after that protected copy was verified. Do not create a new secret or environment.',
+  `This job must bind environment: ${TRUSTED_GITHUB_ENVIRONMENT} on an allowed default-branch ref. Until it can authenticate, independent review stays fail-closed.`,
   'Do not treat GitHub comments, cursor[bot] text, or self-authored marker strings as a PASS.',
 ].join(' ');
 
@@ -110,6 +130,34 @@ export function ticketFromBranchOrBody(branch = '', body = '') {
     String(branch).match(/\bar-(\d+)\b/i) ??
     String(body).match(/^Linear:\s*AR-(\d+)\s*$/im);
   return match ? `AR-${match[1]}` : null;
+}
+
+export function expectedLinearStateFromPr(pr) {
+  if (!pr || String(pr.state).toUpperCase() !== 'OPEN') return null;
+  return pr.isDraft ? LINEAR_DRAFT_PR_STATE : LINEAR_READY_PR_STATE;
+}
+
+export function explainLinearLifecycleGap({ pr, linear, ticket } = {}) {
+  const actual = linear?.state ?? 'unknown';
+  if (actual === LINEAR_MERGE_STATE) return null;
+  const identifier = ticket ?? linear?.identifier ?? 'the ticket';
+  const expected = expectedLinearStateFromPr(pr);
+  const parts = [
+    `Linear ${identifier} must be ${LINEAR_MERGE_STATE} (current: ${actual}).`,
+  ];
+  if (expected) {
+    parts.push(
+      `Owned mapping from this GitHub PR: ${expected} (open draft → ${LINEAR_DRAFT_PR_STATE}; open ready → ${LINEAR_READY_PR_STATE}).`,
+    );
+  }
+  if (actual === 'Backlog' && expected) {
+    parts.push(LINEAR_STATUS_AUTOMATION_GAP);
+  } else {
+    parts.push(
+      'Do not treat this Linear state as In Review. This workflow does not move Linear status.',
+    );
+  }
+  return parts.join(' ');
 }
 
 export function redactSecrets(value) {

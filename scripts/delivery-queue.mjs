@@ -21,6 +21,7 @@ import {
   redactSecrets,
   ticketFromBranchOrBody,
   touchesApplication,
+  explainLinearLifecycleGap,
 } from './delivery-constants.mjs';
 import {
   fetchCommitCheckRuns,
@@ -223,7 +224,8 @@ export function assessCandidate({
   }
   if (linear?.state !== 'In Review') {
     return refuse(
-      `Linear ${ticket} must be In Review (current: ${linear?.state ?? 'unknown'})`,
+      explainLinearLifecycleGap({ pr, linear, ticket }) ??
+        `Linear ${ticket} must be In Review (current: ${linear?.state ?? 'unknown'})`,
     );
   }
   if (pr.reviewThreads?.nodes?.some((thread) => !thread.isResolved)) {

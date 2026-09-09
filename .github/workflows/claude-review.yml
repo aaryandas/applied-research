@@ -4,6 +4,12 @@ name: Independent review (untrusted pending)
 # Must never pass the Cursor Admin credential into this job. Independent
 # review evaluation runs in independent-review-trusted.yml from the default
 # branch only.
+#
+# Repository settings currently mark this file's workflow id 353522718
+# (Actions name Independent review (Claude)) disabled_manually to stop
+# Fable. Keep that setting off until the reviewed trusted replacement is
+# merged to the default branch and a human explicitly re-enables the
+# appropriate workflow. This PR does not re-enable it.
 
 on:
   pull_request:

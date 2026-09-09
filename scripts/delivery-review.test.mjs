@@ -175,7 +175,14 @@ test('missing Cursor API key stays pending, never PASS', () => {
     MISSING_CURSOR_API_KEY.includes('https://api.cursor.com/v1/agents'),
     false,
   );
-  assert.match(result.setupDependency, /trusted-cursor/);
+  assert.match(result.setupDependency, /trusted-main/);
+  assert.equal(result.setupDependency.includes('trusted-cursor'), false);
+  assert.match(MISSING_CURSOR_API_KEY, /trusted-main/);
+  assert.match(
+    MISSING_CURSOR_API_KEY,
+    /Do not create a new secret or environment/,
+  );
+  assert.equal(MISSING_CURSOR_API_KEY.includes('trusted-cursor'), false);
 });
 
 test('stale SHA fails closed', () => {

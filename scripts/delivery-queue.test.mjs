@@ -302,6 +302,66 @@ test('merge_group events are not reviewed-head proof', () => {
   assert.match(decision.reason, /merge-group/);
 });
 
+test('Backlog with a linked open PR is an automation gap, not In Review', () => {
+  const decision = assessCandidate({
+    pr: readyPr(),
+    checks: passingChecks(),
+    linear: { identifier: 'AR-41', state: 'Backlog' },
+    review: readyReview(),
+    acceptance: { ok: true },
+    sonar: { ok: true },
+    liveMainSha: MAIN,
+    activation: true,
+  });
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.merge, false);
+  assert.match(decision.reason, /must be In Review \(current: Backlog\)/);
+  assert.match(decision.reason, /status automation gap/);
+  assert.match(decision.reason, /PR #45/);
+});
+
+test('ready-mapped In Development is not merge-eligible In Review', () => {
+  const decision = assessCandidate({
+    pr: readyPr(),
+    checks: passingChecks(),
+    linear: { identifier: 'AR-41', state: 'In Development' },
+    review: readyReview(),
+    acceptance: { ok: true },
+    sonar: { ok: true },
+    liveMainSha: MAIN,
+    activation: true,
+  });
+  assert.equal(decision.eligible, false);
+  assert.match(
+    decision.reason,
+    /must be In Review \(current: In Development\)/,
+  );
+  assert.match(
+    decision.reason,
+    /Owned mapping from this GitHub PR: In Testing/,
+  );
+  assert.match(decision.reason, /does not move Linear status/);
+});
+
+test('ready-mapped In Testing is not merge-eligible In Review', () => {
+  const decision = assessCandidate({
+    pr: readyPr({ isDraft: false }),
+    checks: passingChecks(),
+    linear: { identifier: 'AR-41', state: 'In Testing' },
+    review: readyReview(),
+    acceptance: { ok: true },
+    sonar: { ok: true },
+    liveMainSha: MAIN,
+    activation: true,
+  });
+  assert.equal(decision.eligible, false);
+  assert.match(decision.reason, /must be In Review \(current: In Testing\)/);
+  assert.match(
+    decision.reason,
+    /Owned mapping from this GitHub PR: In Testing/,
+  );
+});
+
 test('retrospective requires a real failure, cause, and bounded fix', () => {
   const note = captureRetrospective({
     sha: MAIN,

@@ -3,6 +3,8 @@ name: Linear gate
 # A PR may merge only when its ticket is In Review, i.e. the cloud verifier walked the
 # frozen revision and passed it. Runs on every PR event so the check re-evaluates as
 # the ticket moves; re-run it from the Checks tab after a status change.
+# Draft PRs map to expected Linear In Development and ready PRs to In Testing;
+# those states are not In Review. This job does not move Linear status.
 
 on:
   pull_request:
@@ -29,5 +31,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: node scripts/linear-gate.mjs

@@ -1,9 +1,14 @@
 // Required PR check: the PR's Linear ticket must be In Review before the PR can merge.
 // Ticket id comes from the head branch (…/ar-17-…) or a `Linear: AR-17` line in the PR body.
-// Also links the PR on the ticket.
-// Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE.
+// Also links the PR on the ticket. Does not move Linear status.
+// Env: LINEAR_API_KEY (read + attachment write), HEAD_REF, PR_BODY, PR_URL, PR_TITLE,
+// PR_STATE, PR_DRAFT.
+import {
+  LINEAR_MERGE_STATE,
+  explainLinearLifecycleGap,
+} from './delivery-constants.mjs';
+
 const key = process.env.LINEAR_API_KEY;
-const ALLOWED = new Set(['In Review']);
 const EXEMPT_LANES = new Set(['integration']); // coordinator merges of the branch itself
 
 const branch = process.env.HEAD_REF ?? '';
@@ -60,9 +65,20 @@ if (prUrl && !issue.attachments.nodes.some((a) => a.url === prUrl)) {
   console.log(`linked ${prUrl} on ${identifier}`);
 }
 console.log(`${identifier} is "${issue.state.name}"`);
-if (!ALLOWED.has(issue.state.name)) {
+const pr = {
+  state:
+    String(process.env.PR_STATE ?? 'open').toLowerCase() === 'closed'
+      ? 'CLOSED'
+      : 'OPEN',
+  isDraft: process.env.PR_DRAFT === 'true',
+};
+if (issue.state.name !== LINEAR_MERGE_STATE) {
   console.error(
-    `Merge blocked: ${identifier} must be In Review (cloud verification passed). Current: ${issue.state.name}.`,
+    explainLinearLifecycleGap({
+      pr,
+      linear: { identifier, state: issue.state.name },
+      ticket: identifier,
+    }),
   );
   process.exit(1);
 }

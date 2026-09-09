@@ -367,7 +367,8 @@ export function missingKeyResult() {
     passed: false,
     status: 'PENDING',
     failures: [MISSING_CURSOR_API_KEY],
-    setupDependency: 'GitHub Environment trusted-cursor CURSOR_API_KEY',
+    setupDependency:
+      'GitHub Environment trusted-main CURSOR_API_KEY (existing; default-branch deployment policy only)',
     evidence: null,
   };
 }
