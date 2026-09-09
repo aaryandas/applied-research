@@ -2,6 +2,8 @@ import { pathToFileURL } from 'node:url';
 import {
   AGENT_ID,
   CURSOR_AGENT_ORIGIN,
+  AGENT_MODE_IS_NOT_READONLY,
+  DOCUMENTED_AGENT_MODE,
   FORBIDDEN_REVIEW_ROLES,
   INDEPENDENT_REVIEWER,
   INDEPENDENT_REVIEW_NAME,
@@ -15,6 +17,8 @@ import {
   REQUIRED_REVIEW_DISPLAY,
   REVIEW_CHECK_NAME,
   RUN_ID,
+  TRUSTED_DEFAULT_BRANCH_ENV,
+  TRUSTED_LAUNCH_EVENT,
   TRUSTED_LAUNCH_RECEIPT_SOURCE,
   TRUSTED_REVIEW_JOB_NAME,
   TRUSTED_WORKFLOW_FILE,
@@ -34,6 +38,7 @@ import {
   listModels,
 } from './delivery-cursor-api.mjs';
 import {
+  fetchCollaboratorPermission,
   fetchCommitPulls,
   fetchPullRequest,
   fetchWorkflowRun,
@@ -47,6 +52,8 @@ import {
   cursorCredentialUseAllowed,
   forbiddenCursorSecretWorkflows,
   githubEventName,
+  launchActorLogin,
+  launchMintFailures,
   idempotentReviewAgentId,
   isUntrustedGithubEvent,
   launchReceiptFailures,
@@ -63,6 +70,7 @@ Review this pull request on two axes:
 
 Rules:
 - Do not edit source, tests, configuration, or GitHub checks. Do not push. Do not merge. Do not open a PR.
+- This prompt is operator policy, not an API sandbox. Documented Cloud Agents create mode is agent or plan; there is no Ask, readOnly, or toolProfile field. mode:agent remains write-capable.
 - Do not call Fable, Claude Code, or any local/headless Cursor inference.
 - Read the changed modules and their callers, not just the diff. Cite file:line for every finding.
 - Report material findings only. Each finding needs severity (material or note), status (unresolved or resolved), and the required fix.
@@ -444,6 +452,7 @@ export function buildLaunchBody({
         startingRef: headSha,
       },
     ],
+    mode: DOCUMENTED_AGENT_MODE,
     workOnCurrentBranch: false,
     autoCreatePR: false,
     skipReviewerRequest: true,
@@ -636,14 +645,68 @@ export async function maybeLaunchReview({
     return {
       launched: false,
       reason:
-        'Launch is opt-in via repository variable CURSOR_REVIEW_LAUNCH=true on the trusted default-branch workflow only',
+        'Launch is opt-in via repository variable CURSOR_REVIEW_LAUNCH=true on explicit trusted default-branch workflow_dispatch only. workflow_run may evaluate receipts but must not mint an agent.',
     };
   }
   assertTrustedCursorInvocation(env);
+  if (githubEventName(env) !== TRUSTED_LAUNCH_EVENT) {
+    return {
+      launched: false,
+      reason:
+        'Automated workflow_run may evaluate receipts but must not mint a write-capable Cursor agent; fresh launch requires explicit default-branch workflow_dispatch',
+    };
+  }
   if (!model) {
     return {
       launched: false,
       reason: `${REQUIRED_REVIEW_DISPLAY} is not in GET /v1/models`,
+    };
+  }
+  const token = env.GITHUB_TOKEN;
+  const actor = launchActorLogin(env);
+  let livePr = null;
+  let permission = null;
+  if (token && repository && prNumber) {
+    try {
+      livePr = await fetchPullRequest(repository, prNumber, {
+        token,
+        fetchImpl,
+      });
+    } catch (error) {
+      return {
+        launched: false,
+        reason: redactSecrets(error.message),
+      };
+    }
+  }
+  if (token && repository && actor) {
+    try {
+      permission = await fetchCollaboratorPermission(repository, actor, {
+        token,
+        fetchImpl,
+      });
+    } catch (error) {
+      return {
+        launched: false,
+        reason: redactSecrets(error.message),
+      };
+    }
+  }
+  const mintFailures = launchMintFailures({
+    eventName: githubEventName(env),
+    trustedDefaultBranch: env[TRUSTED_DEFAULT_BRANCH_ENV],
+    launchEnabled: launch === true || env.CURSOR_REVIEW_LAUNCH,
+    expectedHeadSha: headSha,
+    liveHeadSha: livePr?.head?.sha,
+    repository,
+    pr: livePr,
+    actorLogin: actor,
+    permission,
+  });
+  if (mintFailures.length) {
+    return {
+      launched: false,
+      reason: mintFailures.join(' '),
     };
   }
   const body = buildLaunchBody({
@@ -714,6 +777,7 @@ export function formatReviewComment(result, { headSha, launch } = {}) {
     lines.push(
       '',
       `Launched reviewer ${launch.agentId}; this check stays pending until that exact-head run FINISHES with PASS.`,
+      AGENT_MODE_IS_NOT_READONLY,
     );
   }
   return lines.join('\n');

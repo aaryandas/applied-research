@@ -9,6 +9,7 @@ import {
 import {
   enrichCheckPublisher,
   parseActionsRunJob,
+  fetchCollaboratorPermission,
 } from './delivery-github.mjs';
 
 test('parseActionsRunJob keeps GitHub Actions run/job ids from html_url', () => {
@@ -70,4 +71,22 @@ test('enrichCheckPublisher requires GET run path and job name', async () => {
   assert.equal(enriched.publisher.jobName, TRUSTED_REVIEW_JOB_NAME);
   assert.equal(enriched.publisher.runId, '1');
   assert.equal(enriched.publisher.event, 'workflow_run');
+});
+
+test('collaborator permission 404 is none, not write', async () => {
+  const none = await fetchCollaboratorPermission(
+    'aaryandas/applied-research',
+    'stranger',
+    {
+      token: 'ghs_test',
+      fetchImpl: async () => ({
+        ok: false,
+        status: 404,
+        async json() {
+          return { message: 'Not Found' };
+        },
+      }),
+    },
+  );
+  assert.equal(none.permission, 'none');
 });

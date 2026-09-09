@@ -1,15 +1,18 @@
 import { createHash } from 'node:crypto';
 import {
   AGENT_ID,
+  AUTOMATED_LAUNCH_ACTOR,
   COORDINATOR_DISPATCH_RECEIPT_SOURCE,
   LAUNCH_RECEIPT_KIND,
   LAUNCH_RECEIPT_SCHEMA_VERSION,
+  LAUNCH_REPO_PERMISSIONS,
   MISSING_ISOLATION_VARS,
   REQUIRED_MODEL_ID,
   REQUIRED_MODEL_PARAMS,
   RUN_ID,
   TRUSTED_DEFAULT_BRANCH_ENV,
   TRUSTED_GITHUB_EVENTS,
+  TRUSTED_LAUNCH_EVENT,
   TRUSTED_LAUNCH_RECEIPT_SOURCE,
   TRUSTED_WORKFLOW_FILE,
   UNTRUSTED_CURSOR_CREDENTIAL,
@@ -111,6 +114,88 @@ export function untrustedEnvLaunchReceipt(raw) {
     ...parsed,
     source: COORDINATOR_DISPATCH_RECEIPT_SOURCE,
   };
+}
+
+export function launchActorLogin(env = {}) {
+  return (
+    String(env.GITHUB_TRIGGERING_ACTOR ?? '').trim() ||
+    String(env.GITHUB_ACTOR ?? '').trim()
+  );
+}
+
+export function launchMintFailures({
+  eventName,
+  trustedDefaultBranch,
+  launchEnabled,
+  expectedHeadSha,
+  liveHeadSha,
+  repository,
+  pr,
+  actorLogin,
+  permission,
+} = {}) {
+  const failures = [];
+  const fail = (reason) => failures.push(reason);
+  if (launchEnabled !== true && launchEnabled !== 'true') {
+    fail(
+      'CURSOR_REVIEW_LAUNCH must be true on an explicit trusted default-branch workflow_dispatch',
+    );
+  }
+  if (trustedDefaultBranch !== 'true') {
+    fail('Launch requires TRUSTED_DEFAULT_BRANCH=true');
+  }
+  if (eventName !== TRUSTED_LAUNCH_EVENT) {
+    fail(
+      'Automated workflow_run may evaluate receipts but must not mint a write-capable Cursor agent; fresh launch requires explicit default-branch workflow_dispatch for one PR number and expected SHA',
+    );
+  }
+  const login = String(actorLogin ?? '').trim();
+  if (!login || login === AUTOMATED_LAUNCH_ACTOR) {
+    fail(
+      'Launch requires an authenticated dispatch actor with repository write access, not github-actions[bot]',
+    );
+  }
+  const granted = permission?.permission ?? permission;
+  if (!LAUNCH_REPO_PERMISSIONS.includes(granted)) {
+    fail(
+      `Dispatch actor ${login || '(missing)'} must have repository write, maintain, or admin permission (saw ${granted ?? 'missing'})`,
+    );
+  }
+  if (!pr) {
+    fail('Launch requires a live GitHub pull request for that number');
+    return failures;
+  }
+  const state = String(pr.state ?? '').toLowerCase();
+  if (state !== 'open') {
+    fail(
+      `Launch rejects closed or missing PRs (state ${pr.state ?? 'missing'})`,
+    );
+  }
+  if (pr.draft === true || pr.isDraft === true) {
+    fail('Launch rejects draft PRs; mark ready then dispatch the frozen SHA');
+  }
+  const headRepo = pr.head?.repo?.full_name;
+  const baseRepo = pr.base?.repo?.full_name;
+  if (!headRepo || !baseRepo || headRepo !== baseRepo) {
+    fail('Launch rejects fork or foreign-repository PRs');
+  } else if (repository && baseRepo !== repository) {
+    fail(
+      `Launch rejects PRs whose base repository ${baseRepo} is not ${repository}`,
+    );
+  }
+  const prHead = pr.head?.sha;
+  if (!isFullSha(expectedHeadSha)) {
+    fail('Launch requires the exact 40-character frozen head SHA');
+  } else if (isFullSha(liveHeadSha) && expectedHeadSha !== liveHeadSha) {
+    fail(
+      `Frozen head ${expectedHeadSha} does not match live PR head ${liveHeadSha}; recheck before launch`,
+    );
+  } else if (isFullSha(prHead) && prHead !== expectedHeadSha) {
+    fail(`Live PR head ${prHead} does not match frozen SHA ${expectedHeadSha}`);
+  } else if (!isFullSha(liveHeadSha) && !isFullSha(prHead)) {
+    fail('Launch requires a rechecked live PR head SHA');
+  }
+  return failures;
 }
 
 export function launchReceiptFailures(

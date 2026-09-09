@@ -30,6 +30,35 @@ export async function fetchPullRequest(repository, prNumber, options) {
   return githubJson(`repos/${repository}/pulls/${prNumber}`, options);
 }
 
+export async function fetchCollaboratorPermission(
+  repository,
+  username,
+  options,
+) {
+  const login = String(username ?? '').trim();
+  if (!login) return { permission: 'none' };
+  const path = `repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`;
+  const response = await (options.fetchImpl ?? fetch)(
+    `https://api.github.com/${path}`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${options.token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    },
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 404) return { permission: 'none' };
+  if (!response.ok) {
+    throw new Error(
+      redactSecrets(`GitHub GET ${path} returned ${response.status}`),
+    );
+  }
+  return payload;
+}
+
 export async function fetchPullFiles(repository, prNumber, options) {
   const files = [];
   let page = 1;

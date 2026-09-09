@@ -14,6 +14,7 @@ import {
   forbiddenCursorSecretWorkflows,
   idempotentReviewAgentId,
   launchReceiptFailures,
+  launchMintFailures,
   parseLaunchReceipt,
   requiredIsolationIds,
   reviewIdempotencyKey,
@@ -251,4 +252,64 @@ test('only the trusted workflow file may mention secrets.CURSOR_API_KEY', () => 
   ]);
   assert.equal(forbidden.length, 1);
   assert.equal(forbidden[0].path, '.github/workflows/steal.yml');
+});
+
+test('launch mint fails closed on automated, fork, closed, draft, stale, and low-permission actors', () => {
+  const pr = {
+    state: 'open',
+    draft: false,
+    head: {
+      sha: HEAD,
+      repo: { full_name: 'aaryandas/applied-research' },
+    },
+    base: { repo: { full_name: 'aaryandas/applied-research' } },
+  };
+  const ok = {
+    eventName: 'workflow_dispatch',
+    trustedDefaultBranch: 'true',
+    launchEnabled: true,
+    expectedHeadSha: HEAD,
+    liveHeadSha: HEAD,
+    repository: 'aaryandas/applied-research',
+    pr,
+    actorLogin: 'aaryandas',
+    permission: { permission: 'admin' },
+  };
+  assert.deepEqual(launchMintFailures(ok), []);
+  assert.match(
+    launchMintFailures({ ...ok, eventName: 'workflow_run' }).join('\n'),
+    /must not mint/,
+  );
+  assert.match(
+    launchMintFailures({ ...ok, actorLogin: 'github-actions[bot]' }).join('\n'),
+    /github-actions\[bot\]/,
+  );
+  assert.match(
+    launchMintFailures({ ...ok, permission: { permission: 'triage' } }).join(
+      '\n',
+    ),
+    /write, maintain, or admin/,
+  );
+  assert.match(
+    launchMintFailures({ ...ok, pr: { ...pr, state: 'closed' } }).join('\n'),
+    /closed or missing/,
+  );
+  assert.match(
+    launchMintFailures({ ...ok, pr: { ...pr, draft: true } }).join('\n'),
+    /draft/,
+  );
+  assert.match(
+    launchMintFailures({
+      ...ok,
+      pr: {
+        ...pr,
+        head: { ...pr.head, repo: { full_name: 'other/fork' } },
+      },
+    }).join('\n'),
+    /fork or foreign/,
+  );
+  assert.match(
+    launchMintFailures({ ...ok, liveHeadSha: 'b'.repeat(40) }).join('\n'),
+    /recheck before launch/,
+  );
 });

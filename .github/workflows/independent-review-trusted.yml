@@ -5,8 +5,14 @@ name: Independent review
 # ref is the default branch. Executable checkout is the default branch only;
 # PR number and SHA are data. CURSOR_API_KEY must not be referenced from
 # pull_request workflows. Launch stays off until this orchestration is
-# independently reviewed (CURSOR_REVIEW_LAUNCH). workflow_dispatch input
-# launch_receipt_json is ignored; coordinator JSON is not model proof.
+# independently reviewed, then a human observes the first explicit
+# default-branch workflow_dispatch launch (CURSOR_REVIEW_LAUNCH).
+# workflow_run may evaluate receipts but must not mint an agent.
+# workflow_dispatch input launch_receipt_json is ignored; coordinator JSON
+# is not model proof. Fresh launch requires one PR number + expected SHA,
+# a live open same-repo non-draft PR, and a dispatch actor with
+# write/maintain/admin. Documented API mode is agent; prompt policy is not
+# a read-only sandbox.
 #
 # Existing GitHub Environment trusted-main already holds the authorized
 # Cursor key. Deployment branch policy: type=branch, name=main. The
@@ -88,6 +94,8 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           IMPLEMENTER_AGENT_ID: ${{ vars.IMPLEMENTER_AGENT_ID }}
           VERIFIER_AGENT_ID: ${{ vars.VERIFIER_AGENT_ID }}
           RECORDER_AGENT_ID: ${{ vars.RECORDER_AGENT_ID }}

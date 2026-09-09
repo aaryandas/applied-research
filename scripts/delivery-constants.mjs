@@ -59,6 +59,20 @@ export const UNTRUSTED_REVIEW_WORKFLOW_NAME =
   'Independent review (untrusted pending)';
 export const TRUSTED_REVIEW_JOB_NAME = 'Cursor Cloud Grok 4.6 Extra High';
 export const TRUSTED_LAUNCH_RECEIPT_SOURCE = 'trusted-launch-job';
+export const TRUSTED_LAUNCH_EVENT = 'workflow_dispatch';
+export const DOCUMENTED_AGENT_MODE = 'agent';
+export const LAUNCH_REPO_PERMISSIONS = Object.freeze([
+  'admin',
+  'maintain',
+  'write',
+]);
+export const AUTOMATED_LAUNCH_ACTOR = 'github-actions[bot]';
+export const AGENT_MODE_IS_NOT_READONLY = [
+  'Documented Cloud Agents API mode is agent or plan (default agent).',
+  'autoCreatePR:false and workOnCurrentBranch:false do not pin a read-only tool profile;',
+  'workOnCurrentBranch:false still pushes a new cursor/ branch under the Cursor GitHub App.',
+  'There is no documented Ask, readOnly, or toolProfile field; plan mode is not a security sandbox.',
+].join(' ');
 export const COORDINATOR_DISPATCH_RECEIPT_SOURCE = 'coordinator-dispatch-input';
 export const GITHUB_ACTIONS_APP_SLUG = 'github-actions';
 export const GITHUB_ACTIONS_APP_ID = 15368;

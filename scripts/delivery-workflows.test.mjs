@@ -51,6 +51,8 @@ test('trusted evaluator checks out the default branch only and pins starting eva
   );
   assert.equal(trusted.includes('claude-fable-5-1'), false);
   assert.equal(trusted.includes('GITHUB_RUN_ID: ${{ github.run_id }}'), true);
+  assert.equal(trusted.includes('GITHUB_TRIGGERING_ACTOR'), true);
+  assert.match(trusted, /must not mint an agent/);
   assert.equal(trusted.includes('CURSOR_LAUNCH_RECEIPT_JSON'), false);
   assert.match(trusted, /Coordinator JSON is not model proof/);
 });

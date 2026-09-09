@@ -55,13 +55,16 @@ GitHub comments, `cursor[bot]` text, and marker strings are **not** proof. The t
 
 ### Launch (opt-in, still off)
 
-`CURSOR_REVIEW_LAUNCH` defaults unset/false. When a trusted job sets it to `true` after independent review of this orchestration:
+`CURSOR_REVIEW_LAUNCH` defaults unset/false. Keep it unset until a human observes the first **explicit** trusted default-branch `workflow_dispatch` launch after this file exists on `main`.
 
-- POST `/v1/agents` with `model.id=grok-4.6`, `params: [{id:"effort",value:"xhigh"},{id:"fast",value:"false"}]`, `env.type=cloud`, `repos[0].startingRef=<exact head SHA>`, `workOnCurrentBranch=false`, `autoCreatePR=false`, client-supplied `agentId` (UUID v5) and header `Idempotency-Key: independent-review:{repo}:{pr}:{sha}`.
-- **Create body omits `repos[].prUrl`.** Documented `prUrl` ignores `startingRef` and bases `workOnCurrentBranch=false` on the PR **base**. PR URL is bound on the receipt and in the prompt. Evaluation fails if GET `startingRef` ≠ live head.
+- **`workflow_run` evaluates receipts only.** It must not POST `/v1/agents`. Completed untrusted/CI `pull_request` workflows, including forks, cannot mint a critic.
+- **Fresh launch** is explicit default-branch `workflow_dispatch` for one `pr_number` + `expected_sha`. Before POST the job rechecks the live GitHub PR: `open`, non-draft, `head.repo.full_name === base.repo.full_name ===` this repository, `head.sha === expected_sha`, and `GET /repos/.../collaborators/{actor}/permission` is `admin`, `maintain`, or `write`. `github-actions[bot]` and missing permission fail closed. Reject those cases before any Cursor POST.
+- POST `/v1/agents` uses the documented create body: `model.id=grok-4.6`, `params: [{id:"effort",value:"xhigh"},{id:"fast",value:"false"}]`, `env.type=cloud`, `repos[0].startingRef=<exact head SHA>` (no `prUrl`), **`mode: agent`**, `workOnCurrentBranch=false`, `autoCreatePR=false`, client-supplied `agentId` (UUID v5) and header `Idempotency-Key: independent-review:{repo}:{pr}:{sha}`.
+- **Honesty:** documented Cloud Agents `mode` is only `agent` or `plan`. There is no Ask, `readOnly`, or `toolProfile` field. `autoCreatePR:false` / `workOnCurrentBranch:false` do **not** make the agent read-only; `workOnCurrentBranch:false` still pushes a new `cursor/…` branch under the Cursor GitHub App. `plan` is not a security sandbox. Explicit dispatch is an authorized cloud review session using existing project write access, not a least-privilege sandbox.
+- **Create body omits `repos[].prUrl`.** Documented `prUrl` ignores `startingRef`. Evaluation fails if GET `startingRef` ≠ live head.
 - 409 on the client-supplied id GETs the existing agent (bounded idempotent dispatch).
 
-A coordinator-controlled dispatch input is **not** model proof. PASS requires a `trusted-launch-job` receipt whose `githubRunId` authenticates via `GET /repos/.../actions/runs/{id}` to `.github/workflows/independent-review-trusted.yml` on `workflow_run` or default-branch `workflow_dispatch`. Missing GET model fields do not authorize self-authored `modelId` JSON. If no such receipt exists, the gate stays PENDING/FAIL.
+A coordinator-controlled dispatch input is **not** model proof. PASS requires a `trusted-launch-job` receipt whose `githubRunId` authenticates via `GET /repos/.../actions/runs/{id}` to `.github/workflows/independent-review-trusted.yml` on `workflow_run` (evaluate) or default-branch `workflow_dispatch` (launch or evaluate). Missing GET model fields do not authorize self-authored `modelId` JSON. If no such receipt exists, the gate stays PENDING/FAIL.
 
 Documented API only: `https://api.cursor.com/v1/*` with Basic auth as in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints).
 
@@ -97,7 +100,7 @@ Product PRs still need a nonempty MP4 from [linear-demo-record](../../.cursor/sk
 
 1. GitHub Environment `trusted-main` already holds the authorized Cursor key. Deployment branch policy: type=`branch`, name=`main`. The repository-level `CURSOR_API_KEY` was removed after that protected copy was verified. The trusted job binds `environment: trusted-main`. Do not create a new secret or environment.
 2. Repository variables (required for PASS): `IMPLEMENTER_AGENT_ID=bc-3fdd5333-ab18-489b-9451-d54173ecce33` (this PR's implementer), `VERIFIER_AGENT_ID=bc-ff6622d1-cb38-4688-8562-028b9761e3e0` (existing cloud verifier), `RECORDER_AGENT_ID` set to the recorder agent's `bc-` UUID when known.
-3. Keep `CURSOR_REVIEW_LAUNCH` unset until this orchestration is independently reviewed.
+3. Keep `CURSOR_REVIEW_LAUNCH` unset until a human observes the first explicit trusted default-branch `workflow_dispatch` launch. `workflow_run` must not mint agents.
 4. After that PASS, merge, and explicit human re-enable of the appropriate Actions workflow, decide whether to require the `Independent review / Cursor Cloud Grok 4.6 Extra High` check on `main`. Only then consider `DELIVERY_MERGE_ACTIVATION=true` on default-branch dispatch.
 5. Hosted Sonar remains AR-45. Do not copy `cursor/enable-hosted-sonar-main-acd0`. Do not self-merge or deploy from this work.
 
@@ -108,8 +111,8 @@ Keep launch and merge activation off until all of the following happen, in order
 1. Independent review PASS of this orchestration at the exact head (`trusted-launch-job` receipt bound to authenticated agent/run/`startingRef` and `GET` `/actions/runs/{githubRunId}`). Coordinator dispatch JSON is not that proof.
 2. Merge this trusted replacement onto the default branch so `independent-review-trusted.yml` exists for `workflow_run` and untrusted `claude-review.yml` is no longer Fable.
 3. A human **explicitly re-enables** the appropriate Actions workflow after that merge. Workflow id `353522718` stays `disabled_manually` until then. Do not re-enable it while `main` still contains Fable.
-4. Keep `CURSOR_REVIEW_LAUNCH` unset until step 1.
-5. Only after steps 1–3, consider requiring the review check and `DELIVERY_MERGE_ACTIVATION`.
+4. Keep `CURSOR_REVIEW_LAUNCH` unset until a human observes the first explicit trusted default-branch `workflow_dispatch` launch (open same-repo ready PR, matching SHA, write/maintain/admin actor). `workflow_run` must not mint agents.
+5. Only after steps 1–4, consider requiring the review check and `DELIVERY_MERGE_ACTIVATION`.
 
 ## Checks
 

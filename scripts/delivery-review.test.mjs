@@ -17,6 +17,7 @@ import {
   evaluateFromCursor,
   evaluateIndependentReview,
   main,
+  maybeLaunchReview,
   missingKeyResult,
   parseReviewVerdict,
   resolveReviewModel,
@@ -274,6 +275,25 @@ test('F3: launch body pins startingRef SHA, omits prUrl, sends grok-4.6 params a
   assert.deepEqual(body.model.params, [...REQUIRED_MODEL_PARAMS]);
   assert.equal(body.workOnCurrentBranch, false);
   assert.equal(body.autoCreatePR, false);
+  assert.equal(body.mode, 'agent');
+  assert.equal(Object.hasOwn(body, 'readOnly'), false);
+  assert.equal(Object.hasOwn(body, 'toolProfile'), false);
+  assert.equal(Object.hasOwn(body, 'ask'), false);
+  assert.deepEqual(
+    Object.keys(body).sort(),
+    [
+      'agentId',
+      'autoCreatePR',
+      'env',
+      'mode',
+      'model',
+      'name',
+      'prompt',
+      'repos',
+      'skipReviewerRequest',
+      'workOnCurrentBranch',
+    ].sort(),
+  );
   assert.equal(body.env.type, 'cloud');
   assert.match(body.agentId, AGENT_ID);
   assert.match(body.name, /^Independent review\b/);
@@ -662,4 +682,247 @@ test('evaluateFromCursor binds GET Actions run; missing token is not model proof
   });
   assert.equal(noToken.passed, false);
   assert.match(noToken.failures.join('\n'), /GITHUB_TOKEN/);
+});
+
+function launchPr(overrides = {}) {
+  return {
+    state: 'open',
+    draft: false,
+    html_url: PR_URL,
+    head: {
+      sha: HEAD,
+      repo: { full_name: 'aaryandas/applied-research' },
+    },
+    base: {
+      ref: 'main',
+      repo: { full_name: 'aaryandas/applied-research' },
+    },
+    ...overrides,
+  };
+}
+
+function dispatchLaunchEnv(overrides = {}) {
+  return {
+    TRUSTED_DEFAULT_BRANCH: 'true',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_DEFAULT_BRANCH: 'main',
+    CURSOR_REVIEW_LAUNCH: 'true',
+    GITHUB_TOKEN: 'ghs_test',
+    GITHUB_ACTOR: 'aaryandas',
+    GITHUB_TRIGGERING_ACTOR: 'aaryandas',
+    GITHUB_RUN_ID: '1',
+    GITHUB_SHA: HEAD,
+    REPOSITORY: 'aaryandas/applied-research',
+    ...overrides,
+  };
+}
+
+test('workflow_run evaluates only and never POSTs a Cursor agent', async () => {
+  let fetched = false;
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv({
+      GITHUB_EVENT_NAME: 'workflow_run',
+      EVENT_NAME: 'workflow_run',
+    }),
+    fetchImpl: async () => {
+      fetched = true;
+      throw new Error('must not fetch');
+    },
+  });
+  assert.equal(result.launched, false);
+  assert.equal(fetched, false);
+  assert.match(result.reason, /must not mint/);
+});
+
+test('launch mint rejects fork, closed, draft, stale SHA, and missing write permission before POST', async () => {
+  const cases = [
+    {
+      pr: launchPr({
+        head: {
+          sha: HEAD,
+          repo: { full_name: 'fork/applied-research' },
+        },
+      }),
+      pattern: /fork or foreign/,
+    },
+    {
+      pr: launchPr({ state: 'closed' }),
+      pattern: /closed or missing/,
+    },
+    {
+      pr: launchPr({ draft: true }),
+      pattern: /draft/,
+    },
+    {
+      pr: launchPr({
+        head: {
+          sha: STALE,
+          repo: { full_name: 'aaryandas/applied-research' },
+        },
+      }),
+      pattern: /does not match live PR head/,
+    },
+  ];
+  for (const fixture of cases) {
+    let posted = false;
+    const result = await maybeLaunchReview({
+      apiKey: 'cursor_test-key',
+      launch: true,
+      model: resolveReviewModel(catalog),
+      prUrl: PR_URL,
+      repoUrl: 'https://github.com/aaryandas/applied-research',
+      headSha: HEAD,
+      ticket: 'AR-41',
+      repository: 'aaryandas/applied-research',
+      prNumber: 99,
+      env: dispatchLaunchEnv(),
+      fetchImpl: async (url, init) => {
+        const href = String(url);
+        if (href.includes('/collaborators/')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { permission: 'admin' };
+            },
+          };
+        }
+        if (href.includes('/pulls/99')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return fixture.pr;
+            },
+          };
+        }
+        if (init?.method === 'POST') {
+          posted = true;
+          throw new Error('must not POST Cursor');
+        }
+        throw new Error(`unexpected fetch ${href}`);
+      },
+    });
+    assert.equal(result.launched, false, fixture.pattern);
+    assert.equal(posted, false, fixture.pattern);
+    assert.match(result.reason, fixture.pattern);
+  }
+
+  let posted = false;
+  const noWrite = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv(),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { permission: 'read' };
+          },
+        };
+      }
+      if (href.includes('/pulls/99')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return launchPr();
+          },
+        };
+      }
+      if (init?.method === 'POST') {
+        posted = true;
+        throw new Error('must not POST Cursor');
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(noWrite.launched, false);
+  assert.equal(posted, false);
+  assert.match(noWrite.reason, /write, maintain, or admin/);
+});
+
+test('authorized dispatch launch POSTs the documented mode:agent create schema', async () => {
+  let posted;
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv(),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/aaryandas/permission')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { permission: 'maintain' };
+          },
+        };
+      }
+      if (href.includes('/pulls/99')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return launchPr();
+          },
+        };
+      }
+      if (href.includes('/v1/agents') && init?.method === 'POST') {
+        posted = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              agent: { id: AGENT, url: `https://cursor.com/agents/${AGENT}` },
+              run: { id: RUN },
+            });
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.launched, true);
+  assert.equal(result.agentId, AGENT);
+  assert.equal(posted.mode, 'agent');
+  assert.equal(posted.model.id, REQUIRED_MODEL_ID);
+  assert.deepEqual(posted.model.params, [...REQUIRED_MODEL_PARAMS]);
+  assert.equal(posted.repos[0].startingRef, HEAD);
+  assert.equal(Object.hasOwn(posted.repos[0], 'prUrl'), false);
+  assert.equal(posted.autoCreatePR, false);
+  assert.equal(posted.workOnCurrentBranch, false);
+  assert.equal(Object.hasOwn(posted, 'readOnly'), false);
+  assert.equal(Object.hasOwn(posted, 'toolProfile'), false);
+  assert.equal(result.receipt.source, TRUSTED_LAUNCH_RECEIPT_SOURCE);
+  assert.equal(result.receipt.githubEvent, 'workflow_dispatch');
 });
