@@ -4,11 +4,11 @@ Coordinator-owned `lane:integration` checkpoint. Execution: Cursor Cloud Grok 4.
 
 ## Frozen revisions
 
-| Role             | SHA                                                         | Notes                                                         |
-| ---------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
-| Integration base | `8d0a8154ade3ede7302f6595789aea1e31663707`                  | `codex/ar-walkthrough-integration` at dispatch                |
-| This checkpoint  | `dca9dc7` plus this handoff on `codex/ar-56-integration-ci` | Lifecycle fix `dca9dc7`; PR head after this page is published |
-| PR base          | `codex/ar-walkthrough-integration`                          | Draft only; no merge to `main`, no deployment                 |
+| Role             | SHA                                        | Notes                                                         |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------- |
+| Integration base | `8d0a8154ade3ede7302f6595789aea1e31663707` | `codex/ar-walkthrough-integration` at dispatch                |
+| This checkpoint  | `b53fafd78fb2f1bd9f25c55aec799857be7be8f0` | Observed `npm run check` at this SHA; lifecycle fix `dca9dc7` |
+| PR base          | `codex/ar-walkthrough-integration`         | Draft only; no merge to `main`, no deployment                 |
 
 Root independently reviews this SHA, then propagates the shared lifecycle fix into producer branches. Do not treat this page as permission to integrate unreviewed AR47–AR55 patches.
 
@@ -33,11 +33,49 @@ Shell `go()` no longer runs the combined view barrier for same-project destinati
 
 ## Checks on this checkpoint
 
-Run on Node 24 with the committed lockfile. Record exact commands and outcomes on the PR.
+Observed on Node 24 at `b53fafd78fb2f1bd9f25c55aec799857be7be8f0`. GitHub PR create returned 403 from this cloud token; root opens the draft PR from `codex/ar-56-integration-ci`.
 
-- Focused green: `src/renderer/App.test.tsx`, `Reader.walkthrough.test.tsx`, `Shell.integration.test.tsx`, `useWorkspaceFlush.test.tsx`.
-- Prescribed: `npm run format:check`, `npm run lint`, `npm run typecheck`, then `npm run check`.
-- This family must be reported green separately. Remaining `npm run check` failures belong to other leased workers; list them by exact test name and count. Do not wait on macOS Electron/packaged CI, Cloud desktop recordings, or hosted-main Sonar, and do not claim those succeeded from this machine.
+**This family green (separately proved):**
+
+- `npx vitest run --project renderer src/renderer/App.test.tsx src/renderer/reader/Reader.walkthrough.test.tsx src/renderer/shell/Shell.integration.test.tsx src/renderer/useWorkspaceFlush.test.tsx` — 4 files, 29 passed, including both rewritten App lifecycle tests and `shares saved Reader questions with both Canvas modes and restores the outline`.
+- Repeat App + Reader.walkthrough after the `goRef` effect: 17 passed.
+- `npm run format:check`, `npm run lint`, `npm run typecheck` — passed.
+- Coverage run included `src/renderer/App.test.tsx` 12 passed (both lifecycle tests named above).
+
+**`npm run check` is not green.** format/lint/types passed; `npm run test:coverage` stopped with 47 failed / 1292 passed / 111 files (2 failed). Build did not run. Do not treat full check as success.
+
+AR50 family — `src/main/practical-records.test.ts`, **40 failed**, all `SqliteError: table practical_attempts already exists` while `setup` execs `context/practical-work-migration.sql` after `WorkspaceStore` already applies that table:
+
+- `refuses unsupported evidence and rolls back its provisional attempt %#` (11 cases)
+- `retains supported inert {displayName} evidence with its declared format` (5 cases: notes.txt, trial.json, image.PNG, image.jpg, output.pdf)
+- `bounds imported file count and total bytes without losing already retained evidence`
+- `fails safely on unavailable storage and malformed read/commit requests`
+- `settles a stalled dialog at the fixed limit and accepts native cancellation without a save`
+- `acknowledges exact human work only after durability and reopens the activity result offline`
+- `replays an ambiguous save without duplication and rejects stale different writing`
+- `refuses a forged activity %s without saving any work` (9 cases: title, instructions, objective, path, topic, lesson, revision, source, highlight)
+- `compares semantic input independently of object property order`
+- `rejects a renderer-supplied evidence reference that no trusted producer owns`
+- `imports selected bytes once, preserves them on reopen, and binds evidence to its attempt`
+- `returns only opaque metadata after a real selected file has been copied into local records`
+- `settles cancelled selection promptly and never imports a late native dialog result`
+- `releases a failed native dialog slot so the learner can retry`
+- `the migration prevents another SQL writer from orphaning saved origins or current revisions`
+- `reopens the attempt most recently used to return a file`
+- `retains a real lesson/source/highlight origin while keeping reported results separately attributed`
+- `fails closed when retained file bytes no longer match their stored hash`
+
+AR48 family — `src/backend/source-routes.test.ts`, **7 failed**, describe `authenticated source route boundaries`:
+
+- `requires a real session at '/v1/sources/discover' even when no source producer is configured`
+- `requires a real session at '/v1/sources/acquire' even when no source producer is configured`
+- `requires a real session at '/v1/learning/sourced' even when no source producer is configured`
+- `rejects caller-supplied account ownership at '/v1/sources/discover' before dispatch`
+- `rejects caller-supplied account ownership at '/v1/sources/acquire' before dispatch`
+- `rejects caller-supplied account ownership at '/v1/learning/sourced' before dispatch`
+- `rejects caller-supplied evidence authority at the sourced-learning endpoint`
+
+Not run here: macOS Electron/packaged CI, Cloud desktop recordings, hosted-main Sonar. Deterministic lifecycle tests are the evidence for this checkpoint.
 
 Known parallel families **not** owned here:
 
