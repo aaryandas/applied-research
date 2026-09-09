@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -216,7 +217,8 @@ function ActivityWork(
   } = props;
   const stopGuidance = activityGuidance?.stop;
   const { companionContext, attemptId } = props;
-  useEffect(() => {
+  const [resolverBound, setResolverBound] = useState(false);
+  useLayoutEffect(() => {
     if (!companionContext) return;
     const resolver = createPracticalContextResolver({
       ...companionContext,
@@ -226,7 +228,9 @@ function ActivityWork(
     const unregister = companionContext.registerResolver(
       resolver.resolveTarget,
     );
+    setResolverBound(true);
     return () => {
+      setResolverBound(false);
       resolver.dispose();
       unregister();
     };
@@ -309,11 +313,16 @@ function ActivityWork(
     target: PracticalGuidanceRequest['target']['target'],
   ): ReactNode {
     if (!props.onRequestGuidance) return null;
+    const askReady = !companionContext || resolverBound;
     return (
       <button
         type="button"
         className="practical-button practical-guidance"
-        onClick={() => props.onRequestGuidance?.(guidanceRequest(target))}
+        disabled={!askReady}
+        onClick={() => {
+          if (!askReady) return;
+          props.onRequestGuidance?.(guidanceRequest(target));
+        }}
       >
         {GUIDANCE_LABELS[target]}
       </button>

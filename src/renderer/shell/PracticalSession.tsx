@@ -73,6 +73,8 @@ export function PracticalSession(
   const [requester, setRequester] = useState<CompanionRequester | null>(null);
   const [state, setState] = useState<CompanionState | null>(null);
   const [surface, setSurface] = useState<HTMLElement | null>(null);
+  const requesterRef = useRef(requester);
+  requesterRef.current = requester;
   const registerRevocationRef = useRef(props.registerRevocation);
   const [resolvedAttemptId, setResolvedAttemptId] = useState(props.attemptId);
   const [owner] = useState(
@@ -302,10 +304,14 @@ export function PracticalSession(
           : {})}
         activityGuidance={owner.guidance}
         {...(companionContext ? { companionContext } : {})}
-        onRequestGuidance={(request) => {
-          setSelectedRequest(request);
-          void requester?.session.askOnce(request);
-        }}
+        {...(requester
+          ? {
+              onRequestGuidance: (request: PracticalGuidanceRequest) => {
+                setSelectedRequest(request);
+                void requesterRef.current?.session.askOnce(request);
+              },
+            }
+          : {})}
       />
       {requester && state && (
         <Companion
