@@ -643,17 +643,8 @@ it('saves the last-reading anchor from native Cmd+S without claiming Home succes
   expect(onHome).not.toHaveBeenCalled();
 });
 
-it('keeps a pending later lesson visible when ensureLesson is unavailable', async () => {
-  const workspace = createCanvasFixture();
-  workspace.paths[0]!.current.topics[0]!.lessons.push({
-    id: 'later',
-    title: 'Later chapter',
-    objective: 'Continue',
-    activity: '',
-    sourceState: 'pending',
-    sourceRevisionId: null,
-    citations: [],
-  });
+it('keeps a pending later lesson visible and shows an honest retry when ensureLesson is unavailable', async () => {
+  const workspace = withPendingLater(createCanvasFixture());
   const activate = vi.fn(async () => ({
     projectGeneration: 1,
     requestGeneration: 0,
@@ -679,6 +670,354 @@ it('keeps a pending later lesson visible when ensureLesson is unavailable', asyn
   await waitFor(() => expect(ensureLesson).toHaveBeenCalled());
   expect(onWorkspace).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: /Later chapter/ })).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'This lesson is not ready yet.',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(ensureLesson).toHaveBeenCalledTimes(2));
+  expect(ensureLesson.mock.calls[0]![0]!.requestId).not.toBe(
+    ensureLesson.mock.calls[1]![0]!.requestId,
+  );
+  expect(onWorkspace).not.toHaveBeenCalled();
+});
+
+const GENERATED_LATER_TEXT =
+  'Canonical generated later-lesson source: elbow torque is independent of the first-link length.';
+
+function withPendingLater(workspace: LearningWorkspace): LearningWorkspace {
+  const next = structuredClone(workspace);
+  next.paths[0]!.current.topics[0]!.lessons.push({
+    id: 'later',
+    title: 'Later chapter',
+    objective: 'Continue',
+    activity: '',
+    sourceState: 'pending',
+    sourceRevisionId: null,
+    citations: [],
+  });
+  return next;
+}
+
+function generatedLaterWorkspace(pending: LearningWorkspace): {
+  workspace: LearningWorkspace;
+  lesson: {
+    pathId: string;
+    pathRevision: number;
+    topicId: string;
+    lessonId: string;
+  };
+} {
+  const workspace = structuredClone(pending);
+  const version = {
+    revisionId: 'source-later-v2',
+    sourceId: 'source-later',
+    revision: 2,
+    title: 'Generated later chapter',
+    canonicalText: GENERATED_LATER_TEXT,
+    sha256: 'generated-later',
+    format: 'plain-text' as const,
+    canonicalizationVersion: '1' as const,
+    acquiredAt: '2026-09-09T15:00:00Z',
+    provenance: {
+      kind: 'generated' as const,
+      locator: null,
+      remoteSourceId: 'remote-later',
+      remoteRevisionId: 'remote-later-rev',
+      requestId: 'ensure-later',
+      generation: {
+        author: 'ai' as const,
+        provider: 'openrouter',
+        providerRequestId: 'prv-later',
+        model: 'google/gemini-3.8-flash',
+        requestVersion: '2026-09-09',
+        promptVersion: '1',
+        createdAt: '2026-09-09T15:00:00Z',
+        sourceRevisions: [],
+      },
+      citations: [],
+    },
+  };
+  const path = workspace.paths[0]!;
+  const generatedPath = structuredClone(path.current);
+  generatedPath.revision = 2;
+  const later = generatedPath.topics[0]!.lessons.find(
+    (item) => item.id === 'later',
+  )!;
+  later.sourceState = 'ready';
+  later.sourceRevisionId = version.revisionId;
+  path.currentRevision = 2;
+  path.current = generatedPath;
+  path.revisions = [...path.revisions, generatedPath];
+  workspace.sources = [
+    ...workspace.sources,
+    {
+      id: 'source-later',
+      projectId: workspace.project.id,
+      currentRevision: 2,
+      currentVersionId: version.revisionId,
+      currentVersion: version,
+      versions: [version],
+      createdAt: version.acquiredAt,
+    },
+  ];
+  return {
+    workspace,
+    lesson: {
+      pathId: path.id,
+      pathRevision: 2,
+      topicId: 'topic',
+      lessonId: 'later',
+    },
+  };
+}
+
+it('shows the generated canonical text after one pending-lesson click', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson.mockImplementation(async (input) => ({
+    outcome: 'success',
+    requestId: input.requestId,
+    value: generated,
+  }));
+  function Host() {
+    const [value, setValue] = useState(pending);
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={vi.fn()}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      GENERATED_LATER_TEXT,
+    ),
+  );
+  expect(ensureLesson).toHaveBeenCalledTimes(1);
+  expect(screen.queryByLabelText('Source text')).not.toHaveTextContent(
+    pending.sources[0]!.currentVersion.canonicalText,
+  );
+});
+
+it('rejects a deferred pending lesson after Home and keeps the home surface', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  let resolveEnsure:
+    | ((value: Awaited<ReturnType<OnboardingBridge['ensureLesson']>>) => void)
+    | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveEnsure = resolve;
+      }),
+  );
+  function Host() {
+    const [value, setValue] = useState(pending);
+    const [home, setHome] = useState(false);
+    if (home) return <p>Home screen</p>;
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={() => setHome(true)}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() => expect(ensureLesson).toHaveBeenCalled());
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  await waitFor(() => expect(screen.getByText('Home screen')).toBeVisible());
+  await act(async () => {
+    resolveEnsure?.({
+      outcome: 'success',
+      requestId: ensureLesson.mock.calls[0]![0]!.requestId,
+      value: generated,
+    });
+  });
+  expect(screen.getByText('Home screen')).toBeVisible();
+  expect(screen.queryByText(GENERATED_LATER_TEXT)).toBeNull();
+});
+
+it('rejects a deferred pending lesson after a genuine project switch', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  const projectB = structuredClone(createCanvasFixture());
+  projectB.project = {
+    ...projectB.project,
+    id: 'project-b',
+    goal: 'Second space',
+  };
+  projectB.sources[0]!.currentVersion.canonicalText =
+    'Project B source is a different canonical passage.';
+  projectB.sources[0]!.versions[0]!.canonicalText =
+    projectB.sources[0]!.currentVersion.canonicalText;
+  let resolveEnsure:
+    | ((value: Awaited<ReturnType<OnboardingBridge['ensureLesson']>>) => void)
+    | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 2,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveEnsure = resolve;
+      }),
+  );
+  const onWorkspace = vi.fn();
+  const view = render(
+    <Shell
+      bridge={bridge}
+      workspace={pending}
+      onWorkspace={onWorkspace}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() => expect(ensureLesson).toHaveBeenCalled());
+  view.rerender(
+    <Shell
+      bridge={bridge}
+      workspace={projectB}
+      onWorkspace={onWorkspace}
+      onHome={vi.fn()}
+      appearance={{ value: 'light', onChange: async () => {} }}
+    />,
+  );
+  await act(async () => {
+    resolveEnsure?.({
+      outcome: 'success',
+      requestId: ensureLesson.mock.calls[0]![0]!.requestId,
+      value: generated,
+    });
+  });
+  expect(onWorkspace).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Source text')).toHaveTextContent(
+    'Project B source is a different canonical passage.',
+  );
+  expect(screen.queryByText(GENERATED_LATER_TEXT)).toBeNull();
+});
+
+it('rejects a deferred pending lesson after selecting a ready lesson', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  let resolveEnsure:
+    | ((value: Awaited<ReturnType<OnboardingBridge['ensureLesson']>>) => void)
+    | undefined;
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveEnsure = resolve;
+      }),
+  );
+  function Host() {
+    const [value, setValue] = useState(pending);
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={vi.fn()}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() => expect(ensureLesson).toHaveBeenCalled());
+  fireEvent.click(
+    screen.getByRole('button', { name: /Joint angles and hand position/ }),
+  );
+  await act(async () => {
+    resolveEnsure?.({
+      outcome: 'success',
+      requestId: ensureLesson.mock.calls[0]![0]!.requestId,
+      value: generated,
+    });
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      pending.sources[0]!.currentVersion.canonicalText,
+    ),
+  );
+  expect(screen.queryByText(GENERATED_LATER_TEXT)).toBeNull();
+  expect(ensureLesson).toHaveBeenCalledTimes(1);
+});
+
+it('retries a rejected pending lesson and then shows the new canonical text', async () => {
+  const pending = withPendingLater(createCanvasFixture());
+  const generated = generatedLaterWorkspace(pending);
+  const activate = vi.fn(async () => ({
+    projectGeneration: 1,
+    requestGeneration: 0,
+  }));
+  const { bridge, ensureLesson } = await shellBridge(pending, activate);
+  ensureLesson
+    .mockImplementationOnce(async (input) => ({
+      outcome: 'unavailable',
+      requestId: input.requestId,
+      message: 'Remote lesson generation is temporarily unavailable.',
+      retryable: true,
+    }))
+    .mockImplementationOnce(async (input) => ({
+      outcome: 'success',
+      requestId: input.requestId,
+      value: generated,
+    }));
+  function Host() {
+    const [value, setValue] = useState(pending);
+    return (
+      <Shell
+        bridge={bridge}
+        workspace={value}
+        onWorkspace={setValue}
+        onHome={vi.fn()}
+        appearance={{ value: 'light', onChange: async () => {} }}
+      />
+    );
+  }
+  render(<Host />);
+  fireEvent.click(screen.getByRole('button', { name: /Later chapter/ }));
+  await waitFor(() =>
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Remote lesson generation is temporarily unavailable.',
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Source text')).toHaveTextContent(
+      GENERATED_LATER_TEXT,
+    ),
+  );
+  expect(ensureLesson).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('alert')).toBeNull();
 });
 
 it('opens Settings, Find empty, topic, and Research from the connected shell', async () => {

@@ -118,6 +118,18 @@ export function Shell({
   );
   const viewMoving = useRef(false);
   const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const lessonRequestEpoch = useRef(0);
+  const selectedLessonRef = useRef<PathOrigin | null>(null);
+  const pendingGeneratedOpen = useRef<
+    (PathOrigin & { lessonId: string }) | null
+  >(null);
+  const [lessonEnsureFailure, setLessonEnsureFailure] = useState<{
+    path: PathOrigin & { lessonId: string };
+    message: string;
+    retryable: boolean;
+  } | null>(null);
   const {
     registerReaderFlush,
     registerReaderViewFlush,
@@ -160,6 +172,34 @@ export function Shell({
     });
     return () => registerReaderViewFlush(null);
   }, [registerReaderViewFlush]);
+  useEffect(() => {
+    return () => {
+      lessonRequestEpoch.current += 1;
+      pendingGeneratedOpen.current = null;
+    };
+  }, []);
+  const mountedProjectId = useRef(workspace.project.id);
+  if (mountedProjectId.current !== workspace.project.id) {
+    mountedProjectId.current = workspace.project.id;
+    lessonRequestEpoch.current += 1;
+    pendingGeneratedOpen.current = null;
+    selectedLessonRef.current = null;
+    if (lessonEnsureFailure) setLessonEnsureFailure(null);
+  }
+  useEffect(() => {
+    const pending = pendingGeneratedOpen.current;
+    if (!pending) return;
+    const lesson = lessonRecord(workspace, pending);
+    const source = lesson?.sourceRevisionId
+      ? workspace.sources
+          .flatMap((item) => item.versions)
+          .find((item) => item.revisionId === lesson.sourceRevisionId)
+      : undefined;
+    if (lesson?.sourceState === 'ready' && source) {
+      pendingGeneratedOpen.current = null;
+      reader.current?.openOrigin({ path: pending });
+    }
+  }, [workspace]);
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
     const applyActivation = (projectId: string | null): void => {
@@ -328,6 +368,9 @@ export function Shell({
 
   function go(next: WorkspaceDestination): void {
     if (next === 'home') {
+      lessonRequestEpoch.current += 1;
+      pendingGeneratedOpen.current = null;
+      selectedLessonRef.current = null;
       stopNativePractical();
       void navigate(() => {
         setResearchVisible(false);
@@ -394,26 +437,54 @@ export function Shell({
     }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
+    const requestEpoch = ++lessonRequestEpoch.current;
+    selectedLessonRef.current = path;
+    pendingGeneratedOpen.current = null;
+    setLessonEnsureFailure(null);
     stopNativePractical();
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
-      void ensurePendingLesson(path);
+      void ensurePendingLesson(path, requestEpoch);
     }, 'view');
   }
-  async function ensurePendingLesson(path: PathOrigin): Promise<void> {
+  function lessonSelectionMatches(path: PathOrigin): boolean {
+    const selected = selectedLessonRef.current;
+    return (
+      selected?.pathId === path.pathId &&
+      selected?.pathRevision === path.pathRevision &&
+      selected?.topicId === path.topicId &&
+      selected?.lessonId === path.lessonId
+    );
+  }
+  async function ensurePendingLesson(
+    path: PathOrigin,
+    requestEpoch: number,
+  ): Promise<void> {
     if (!path.lessonId || typeof bridge.ensureLesson !== 'function') return;
-    const lesson = lessonRecord(workspace, path);
+    const current = workspaceRef.current;
+    const lesson = lessonRecord(current, path);
     if (lesson?.sourceState !== 'pending') return;
+    const projectId = current.project.id;
     const result = await bridge.ensureLesson({
-      projectId: workspace.project.id,
+      projectId,
       requestId: crypto.randomUUID(),
       target: { ...path, lessonId: path.lessonId },
       consent: 'acquire-learning-evidence',
     });
-    if (result.outcome !== 'success') return;
+    if (requestEpoch !== lessonRequestEpoch.current) return;
+    if (workspaceRef.current.project.id !== projectId) return;
+    if (!lessonSelectionMatches(path)) return;
+    if (result.outcome !== 'success') {
+      setLessonEnsureFailure({
+        path: { ...path, lessonId: path.lessonId },
+        message: result.message,
+        retryable: result.retryable,
+      });
+      return;
+    }
+    pendingGeneratedOpen.current = result.value.lesson;
     onWorkspace(result.value.workspace);
-    reader.current?.openOrigin({ path: result.value.lesson });
   }
   function revealEntry(reference: EntryRevisionReference): void {
     stopNativePractical();
@@ -549,6 +620,19 @@ export function Shell({
         {message && (
           <div className="shell-save-status" role="status">
             {message}
+          </div>
+        )}
+        {lessonEnsureFailure && (
+          <div className="shell-save-status" role="alert">
+            <p>{lessonEnsureFailure.message}</p>
+            {lessonEnsureFailure.retryable ? (
+              <button
+                type="button"
+                onClick={() => selectLesson(lessonEnsureFailure.path)}
+              >
+                Retry
+              </button>
+            ) : null}
           </div>
         )}
         <div
