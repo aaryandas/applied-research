@@ -249,6 +249,31 @@ it('flush awaits pending file selection and preserves intervening writing', asyn
   expect(unregister).toHaveBeenCalledTimes(1);
 });
 
+it('does not deliver companion Ask until the producer resolver is bound', () => {
+  const options = props();
+  const onRequestGuidance = vi.fn();
+  const registerResolver = vi.fn(() => () => {});
+  render(
+    <PracticalWork
+      {...options}
+      companionContext={{ registerResolver }}
+      onRequestGuidance={onRequestGuidance}
+    />,
+  );
+  expect(registerResolver).toHaveBeenCalledTimes(1);
+  const ask = screen.getByRole('button', { name: 'Ask about my reflection' });
+  expect(ask).toBeEnabled();
+  fireEvent.click(ask);
+  expect(onRequestGuidance).toHaveBeenCalledTimes(1);
+  expect(onRequestGuidance.mock.calls[0]?.[0]).toMatchObject({
+    trigger: 'explicit-action',
+    target: {
+      attemptId: options.attemptId,
+      target: 'reflection',
+    },
+  });
+});
+
 it('distinguishes activity loading, empty state, evidence loading, and stale selections', async () => {
   const options = props();
   const initialDraft = {
@@ -773,6 +798,31 @@ it('registers the mounted producer resolver and exposes current writing, then re
   expect(
     await resolveTarget(target, new AbortController().signal),
   ).toMatchObject({ status: 'cancelled' });
+});
+
+it('does not deliver companion Ask until the producer resolver is bound', () => {
+  const options = props();
+  const onRequestGuidance = vi.fn();
+  const registerResolver = vi.fn(() => () => {});
+  render(
+    <PracticalWork
+      {...options}
+      companionContext={{ registerResolver }}
+      onRequestGuidance={onRequestGuidance}
+    />,
+  );
+  expect(registerResolver).toHaveBeenCalledTimes(1);
+  const ask = screen.getByRole('button', { name: 'Ask about my reflection' });
+  expect(ask).toBeEnabled();
+  fireEvent.click(ask);
+  expect(onRequestGuidance).toHaveBeenCalledTimes(1);
+  expect(onRequestGuidance.mock.calls[0]?.[0]).toMatchObject({
+    trigger: 'explicit-action',
+    target: {
+      attemptId: options.attemptId,
+      target: 'reflection',
+    },
+  });
 });
 
 function retainedBriefJourney(
