@@ -53,7 +53,7 @@
 
 .ui-button--primary {
   padding-inline: var(--space-6);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   background: var(--ink);
   color: var(--paper);
   font-weight: 500;
@@ -69,7 +69,7 @@
 .ui-button--secondary {
   padding-inline: var(--space-4);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
 }
 
 /* README calls this variant --text; this lane's brief calls it --quiet. Same rule under

@@ -42,11 +42,13 @@ one of them.
    and nowhere else. No hardcoded hex, no `rgba()` literal, no magic `12px` gap where
    `var(--space-3)` exists. The available tokens are `--space-1..24`, `--radius-control`,
    `--radius-group`, `--radius-panel`, `--radius-pill`, `--duration-press`, `--duration-reveal`,
-   `--duration-arrive`, `--ease-out`, `--reading-measure`, `--text-xs|sm|base|reading`, the font
-   stacks, and the palette roles (`--paper`, `--surface`, `--surface-subtle`, `--ink`, `--muted`,
-   `--line`, `--line-strong`, `--accent`, `--accent-soft`, `--human`, `--human-soft`, `--success`,
-   `--danger`, `--focus`, `--shadow`). If a value you need has no token, add the token to
-   `tokens.css` in **both** blocks — do not inline the literal.
+   `--duration-arrive`, `--ease-out`, `--reading-measure`, `--text-xs|sm|base|reading`,
+   `--text-heading`, `--text-title`, `--icon-lg`, `--dot`, `--focus-ring`, `--focus-offset`, the
+   font stacks, and the palette roles (`--paper`, `--surface`, `--surface-subtle`, `--ink`,
+   `--muted`, `--line`, `--line-strong`, `--accent`, `--accent-soft`, `--human`, `--human-soft`,
+   `--success`, `--danger`, `--focus`, `--shadow`). If a value you need has no token, add the
+   token to `tokens.css` — palette roles in **both** blocks, sizes in `:root` — do not inline
+   the literal.
 
    Border widths, `1px` hairlines and `%`/`fr` layout values are not tokenised and are fine as
    literals.
@@ -60,9 +62,10 @@ one of them.
    from a file no surface opted into. Always anchor on a `.ui-` class
    (`.ui-toolbar__group > button` is fine; `button` alone is not).
 
-7. **No `!important`.** This layer sits at the bottom of the cascade on purpose. If a rule is
-   losing, the selector is wrong or the surface is overriding it deliberately — both are better
-   answers than raising the stakes.
+7. **No `!important`.** This directory is the `ui` cascade layer, below every unlayered surface
+   rule on purpose: a surface overrides it regardless of specificity. If a rule is losing to
+   another `.ui-*` rule, the selector is wrong; if it is losing to a surface, the surface is
+   overriding it deliberately — both are better answers than raising the stakes.
 
 8. **Never redefine a name a surface already uses.** `styles.css` and the per-surface stylesheets
    own their own class names; this layer does not touch them. Note that `.ui-icon` in
@@ -71,9 +74,13 @@ one of them.
 
 ## Additive until adopted
 
-This layer is wired into `src/renderer/styles.css` by a single `@import` placed at the very top of
-that file, which gives every `.ui-*` rule **lower** cascade priority than everything already
-written there.
+This layer is wired into `src/renderer/styles.css` by a single
+`@import './shell/ui/ui.css' layer(ui);` at the top of that file. `styles.css` declares the order
+`@layer reset, ui;` and keeps its own element resets (`body`, `button`, `a`, …) in the `reset`
+layer, so the cascade is reset → ui → every unlayered surface rule. Unlayered author styles beat
+layered ones regardless of specificity (Electron 44 supports cascade layers), so `.secondary:hover`
+in `styles.css` overrides `.ui-button…:hover` from this layer without escalating its selector,
+and this layer's own rules still win over the element resets.
 
 No shipping surface references a `.ui-*` class from this directory yet. That is deliberate: the
 foundation lands with **zero visual change** to the app, and each surface adopts it in its own

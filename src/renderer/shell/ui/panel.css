@@ -12,11 +12,11 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  /* clip, not hidden: the shared focus ring sits 4px outside its control (base.css), so a
-     .ui-focusable row in a --flush body would have its ring cut off by the panel edge.
-     overflow-clip-margin covers 4px offset + 2px ring. */
+  /* clip, not hidden: the shared focus ring sits --focus-offset outside its control
+     (base.css), so a .ui-focusable row in a --flush body would have its ring cut off by
+     the panel edge. overflow-clip-margin covers offset + ring. */
   overflow: clip;
-  overflow-clip-margin: 6px;
+  overflow-clip-margin: calc(var(--focus-offset) + var(--focus-ring));
 }
 
 /* Lifted off the page: dragged cards, floating bars, dialogs. */

@@ -19,8 +19,8 @@
 /* .local-status i, .connection-status i (styles.css:555). currentColor so the variants
    can tint dot and label together, as the prototype's .guide-status:before does. */
 .ui-status__dot {
-  width: 6px;
-  height: 6px;
+  width: var(--dot);
+  height: var(--dot);
   flex-shrink: 0;
   display: inline-block;
   border-radius: 50%;

@@ -1,88 +1,95 @@
-@import './shell/ui/ui.css';
+/* Cascade order: element resets, then the shared .ui-* layer, then every unlayered
+   surface rule in this file and the per-surface stylesheets. Unlayered rules win over
+   layered ones regardless of specificity, so a surface overrides the layer without
+   escalating its selector. */
+@layer reset, ui;
+@import './shell/ui/ui.css' layer(ui);
 @import './fonts.css';
 @import './tokens.css';
 
-* {
-  box-sizing: border-box;
-}
-:root {
-  font-synthesis: none;
-  font-optical-sizing: auto;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  scrollbar-color: var(--line) transparent;
-  scrollbar-width: thin;
-}
-body {
-  margin: 0;
-  color: var(--ink);
-  background: var(--paper);
-  font: 400 var(--text-base)/1.5 var(--font-ui);
-}
-button,
-input,
-textarea {
-  font: inherit;
-}
-button,
-a {
-  touch-action: manipulation;
-}
-button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-button,
-a {
-  transition:
-    background-color var(--duration-press),
-    color var(--duration-press),
-    border-color var(--duration-press);
-}
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-button:not(:disabled):active {
-  transform: translateY(1px);
-}
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
-}
-::selection {
-  background: var(--human-soft);
-  color: var(--ink);
-}
-input,
-textarea {
-  caret-color: var(--human);
-  color: var(--ink);
-}
-input::placeholder,
-textarea::placeholder {
-  color: var(--muted);
-  opacity: 1;
-}
-a {
-  color: var(--accent);
-  text-underline-offset: 4px;
-  text-decoration-thickness: 1px;
-}
-h1,
-h2,
-p {
-  margin: 0;
-}
-h1,
-h2 {
-  font-family: var(--font-reading);
-  font-weight: 400;
-}
-svg {
-  flex-shrink: 0;
+@layer reset {
+  * {
+    box-sizing: border-box;
+  }
+  :root {
+    font-synthesis: none;
+    font-optical-sizing: auto;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-color: var(--line) transparent;
+    scrollbar-width: thin;
+  }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--paper);
+    font: 400 var(--text-base) / 1.5 var(--font-ui);
+  }
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+  button,
+  a {
+    touch-action: manipulation;
+  }
+  button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  button,
+  a {
+    transition:
+      background-color var(--duration-press),
+      color var(--duration-press),
+      border-color var(--duration-press);
+  }
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 4px;
+  }
+  ::selection {
+    background: var(--human-soft);
+    color: var(--ink);
+  }
+  input,
+  textarea {
+    caret-color: var(--human);
+    color: var(--ink);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  a {
+    color: var(--accent);
+    text-underline-offset: 4px;
+    text-decoration-thickness: 1px;
+  }
+  h1,
+  h2,
+  p {
+    margin: 0;
+  }
+  h1,
+  h2 {
+    font-family: var(--font-reading);
+    font-weight: 400;
+  }
+  svg {
+    flex-shrink: 0;
+  }
 }
 .ui-icon {
   width: 16px;
