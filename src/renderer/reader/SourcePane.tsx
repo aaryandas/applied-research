@@ -1,9 +1,20 @@
-import { useEffect, useRef, type ReactElement } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import type {
   SourceRecord,
   SourceVersion,
 } from '../../contracts/learning-records';
 import { readSelection, type TextSpan } from './reading-location';
+import {
+  positionSelectionActions,
+  selectionFocusPoint,
+  type SelectionPoint,
+} from './selection-position';
 
 interface SourcePaneProps {
   version: SourceVersion;
@@ -16,6 +27,8 @@ interface SourcePaneProps {
   onUpdate: (source: SourceRecord) => void;
   onNote: () => void;
   onQuestion: () => void;
+  onExplainText?: () => void;
+  onExplainVisual?: () => void;
 }
 
 export function SourcePane({
@@ -29,22 +42,57 @@ export function SourcePane({
   onUpdate,
   onNote,
   onQuestion,
+  onExplainText,
+  onExplainVisual,
 }: Readonly<SourcePaneProps>): ReactElement {
   const prose = useRef<HTMLDivElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<SelectionPoint | null>(null);
+  const [position, setPosition] = useState<
+    { left: number; top: number } | undefined
+  >();
   useEffect(() => {
-    const capture = () =>
-      onSelection(
-        prose.current
-          ? readSelection(
-              prose.current,
-              version.canonicalText,
-              document.getSelection(),
-            )
+    const capture = (event?: PointerEvent): void => {
+      if (
+        event?.target instanceof Node &&
+        actions.current?.contains(event.target)
+      )
+        return;
+      const selection = document.getSelection();
+      const next = prose.current
+        ? readSelection(prose.current, version.canonicalText, selection)
+        : null;
+      onSelection(next);
+      setAnchor(
+        next && selection
+          ? event
+            ? { x: event.clientX, y: event.clientY }
+            : selectionFocusPoint(selection)
           : null,
       );
-    document.addEventListener('selectionchange', capture);
-    return () => document.removeEventListener('selectionchange', capture);
+    };
+    const selectionChanged = (): void => capture();
+    document.addEventListener('selectionchange', selectionChanged);
+    document.addEventListener('pointerup', capture);
+    window.addEventListener('scroll', selectionChanged, true);
+    window.addEventListener('resize', selectionChanged);
+    return () => {
+      document.removeEventListener('selectionchange', selectionChanged);
+      document.removeEventListener('pointerup', capture);
+      window.removeEventListener('scroll', selectionChanged, true);
+      window.removeEventListener('resize', selectionChanged);
+    };
   }, [version.canonicalText, onSelection]);
+  useLayoutEffect(() => {
+    if (!anchor || !span || !actions.current) return;
+    setPosition(
+      positionSelectionActions({
+        anchor,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        toolbar: actions.current.getBoundingClientRect(),
+      }),
+    );
+  }, [anchor, span, busy, onExplainText, onExplainVisual]);
   useEffect(() => {
     if (!reveal) return;
     prose.current?.focus({ preventScroll: true });
@@ -108,7 +156,32 @@ export function SourcePane({
           version.canonicalText
         )}
       </div>
-      <div className="ui-action-row reader-selection-actions">
+      <div
+        ref={actions}
+        role="group"
+        aria-label={span ? 'Selected passage actions' : 'Reading actions'}
+        className={`ui-action-row reader-selection-actions${span && anchor ? ' reader-selection-actions--floating' : ''}`}
+        style={span && anchor ? position : undefined}
+        onPointerDown={(event) => event.preventDefault()}
+      >
+        {onExplainText && (
+          <button
+            className="ui-button"
+            disabled={!span || busy}
+            onClick={onExplainText}
+          >
+            Ask about this
+          </button>
+        )}
+        {onExplainVisual && (
+          <button
+            className="ui-button"
+            disabled={!span || busy}
+            onClick={onExplainVisual}
+          >
+            Visual explanation
+          </button>
+        )}
         <button className="ui-button" disabled={!span || busy} onClick={onNote}>
           {busy ? 'Retaining selection…' : 'Note'}
         </button>

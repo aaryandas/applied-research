@@ -153,14 +153,15 @@ describe('Fable Reader regression batch', () => {
     for (const checkbox of screen.getAllByRole('checkbox'))
       expect(checkbox).not.toBeChecked();
   });
-  it('keeps the first status region mounted when a navigation guard reports its first message', async () => {
+  it('allows an untouched source import to leave without a false unsaved-work warning', async () => {
     const { bridge, workspace } = fixture();
+    const onNavigate = vi.fn();
     render(
       <Reader
         bridge={bridge}
         workspace={workspace}
         onWorkspace={vi.fn()}
-        onNavigate={vi.fn()}
+        onNavigate={onNavigate}
         registerFlush={vi.fn()}
       />,
     );
@@ -170,6 +171,8 @@ describe('Fable Reader regression batch', () => {
     await screen.findByLabelText('Exact source text');
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('.reader-main > output')).toBe(region);
-    expect(region).toHaveTextContent('Finish or discard');
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('canvas'));
+    expect(region).not.toHaveTextContent('Finish or discard');
+    expect(screen.getByLabelText('Exact source text')).toHaveValue('');
   });
 });

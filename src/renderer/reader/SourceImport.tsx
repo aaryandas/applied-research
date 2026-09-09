@@ -1,8 +1,13 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import type {
   LearningRecordsBridge,
   SourceRecord,
 } from '../../contracts/learning-records';
+
+export interface SourceImportState {
+  dirty: boolean;
+  saving: boolean;
+}
 
 export function SourceImport({
   bridge,
@@ -10,12 +15,16 @@ export function SourceImport({
   source,
   onImported,
   onCancel,
+  onClose,
+  onStateChange,
 }: Readonly<{
   bridge: LearningRecordsBridge;
   projectId: string;
   source?: SourceRecord | undefined;
   onImported: (source: SourceRecord) => void;
   onCancel: () => void;
+  onClose?: () => void;
+  onStateChange?: (state: SourceImportState) => void;
 }>): ReactElement {
   const [attempt] = useState(() => ({
     sourceId: source?.id ?? crypto.randomUUID(),
@@ -33,6 +42,13 @@ export function SourceImport({
   );
   const [conflictRevision, setConflictRevision] = useState<number | null>(null);
   const [latestSource, setLatestSource] = useState<SourceRecord | null>(null);
+  const dirty =
+    title !== (source?.currentVersion.title ?? '') ||
+    text !== (source?.currentVersion.canonicalText ?? '') ||
+    locator !== (source?.currentVersion.provenance.locator ?? '');
+  useEffect(() => {
+    onStateChange?.({ dirty, saving });
+  }, [dirty, saving, onStateChange]);
   async function save(): Promise<void> {
     if (saving || conflictRevision !== null) return;
     if (locator) {
@@ -80,7 +96,18 @@ export function SourceImport({
         void save();
       }}
     >
-      <h2>{source ? 'Update source' : 'Add a source'}</h2>
+      <div className="reader-import-heading">
+        <h2>{source ? 'Update source' : 'Add a source'}</h2>
+        {onClose && (
+          <button
+            className="ui-button ui-button--text"
+            type="button"
+            onClick={onClose}
+          >
+            Back to reading
+          </button>
+        )}
+      </div>
       <label className="ui-field">
         <span className="ui-field__label">Source title</span>
         <input
