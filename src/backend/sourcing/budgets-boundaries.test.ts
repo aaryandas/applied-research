@@ -14,6 +14,8 @@ import {
 } from '../schema.js';
 import { OpenAlexBudgetFailure } from './openalex/budget.js';
 import {
+  makeMemoryEmbeddingBudget,
+  makeMemoryOpenAlexBudget,
   makePostgresEmbeddingBudget,
   makePostgresOpenAlexBudget,
 } from './budgets.js';
@@ -743,5 +745,126 @@ describe('PostgreSQL embedding evaluation budget boundaries', () => {
     fake.state.sharedLedgers = [];
     await run(decision.reservation.release());
     expect(fake.state.sharedRequests[0]).toMatchObject({ state: 'reserved' });
+  });
+});
+
+describe('exported memory budget adapters', () => {
+  it('reserves OpenAlex spend, restores it on release, and refunds unused settle', async () => {
+    const exhausted = makeMemoryOpenAlexBudget(5);
+    expect(
+      await run(
+        exhausted.refreshAndReserve({
+          accountId: ACCOUNT,
+          requestId: 'memory-openalex-01',
+          maximumChargeMicrousd: CHARGE,
+        }),
+      ),
+    ).toEqual({ kind: 'budget-exhausted' });
+    const budget = makeMemoryOpenAlexBudget(100);
+    const reserved = await run(
+      budget.refreshAndReserve({
+        accountId: ACCOUNT,
+        requestId: 'memory-openalex-02',
+        maximumChargeMicrousd: CHARGE,
+      }),
+    );
+    expect(reserved.kind).toBe('reserved');
+    if (reserved.kind !== 'reserved') throw new Error('expected reservation');
+    await run(reserved.reservation.release());
+    const again = await run(
+      budget.refreshAndReserve({
+        accountId: ACCOUNT,
+        requestId: 'memory-openalex-03',
+        maximumChargeMicrousd: CHARGE,
+      }),
+    );
+    expect(again.kind).toBe('reserved');
+    if (again.kind !== 'reserved') throw new Error('expected reservation');
+    await run(again.reservation.settle(3));
+    expect(
+      await run(
+        budget.refreshAndReserve({
+          accountId: ACCOUNT,
+          requestId: 'memory-openalex-04',
+          maximumChargeMicrousd: 98,
+        }),
+      ),
+    ).toEqual({ kind: 'budget-exhausted' });
+  });
+
+  it('replays embedding hash conflict, in-progress retain, and settled exhaustion', async () => {
+    const budget = makeMemoryEmbeddingBudget(100, {
+      committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD,
+      limitMicrousd: EMBEDDING_EVAL_LIMIT_MICROUSD,
+    });
+    expect(await run(budget.inspect())).toEqual({
+      committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD,
+      reservedMicrousd: 0,
+      limitMicrousd: EMBEDDING_EVAL_LIMIT_MICROUSD,
+    });
+    const reserved = await run(
+      budget.refreshAndReserve({
+        requestId: 'memory-embed-01',
+        inputHash: HASH_A,
+        maximumChargeMicrousd: CHARGE,
+        now: new Date('2026-09-09T00:00:00.000Z'),
+      }),
+    );
+    expect(reserved.kind).toBe('reserved');
+    if (reserved.kind !== 'reserved') throw new Error('expected reservation');
+    expect(
+      await run(
+        budget.refreshAndReserve({
+          requestId: 'memory-embed-01',
+          inputHash: HASH_B,
+          maximumChargeMicrousd: CHARGE,
+          now: new Date('2026-09-09T00:00:00.000Z'),
+        }),
+      ),
+    ).toEqual({ kind: 'conflict' });
+    expect(
+      await run(
+        budget.refreshAndReserve({
+          requestId: 'memory-embed-01',
+          inputHash: HASH_A,
+          maximumChargeMicrousd: CHARGE,
+          now: new Date('2026-09-09T00:00:00.000Z'),
+        }),
+      ),
+    ).toEqual({ kind: 'in-progress' });
+    await run(reserved.reservation.retain());
+    expect(
+      await run(
+        budget.refreshAndReserve({
+          requestId: 'memory-embed-01',
+          inputHash: HASH_A,
+          maximumChargeMicrousd: CHARGE,
+          now: new Date('2026-09-09T00:00:00.000Z'),
+        }),
+      ),
+    ).toEqual({ kind: 'in-progress' });
+    const second = await run(
+      budget.refreshAndReserve({
+        requestId: 'memory-embed-02',
+        inputHash: HASH_A,
+        maximumChargeMicrousd: CHARGE,
+        now: new Date('2026-09-09T00:00:00.000Z'),
+      }),
+    );
+    if (second.kind !== 'reserved') throw new Error('expected reservation');
+    await run(second.reservation.settle(3));
+    expect(await run(budget.inspect())).toMatchObject({
+      committedMicrousd: EMBEDDING_EVAL_PRIOR_SETTLED_MICROUSD + 3,
+    });
+    expect(
+      await run(
+        budget.refreshAndReserve({
+          requestId: 'memory-embed-02',
+          inputHash: HASH_A,
+          maximumChargeMicrousd: CHARGE,
+          now: new Date('2026-09-09T00:00:00.000Z'),
+        }),
+      ),
+    ).toEqual({ kind: 'budget-exhausted' });
   });
 });

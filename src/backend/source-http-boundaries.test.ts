@@ -19,7 +19,11 @@ import { SOURCING_PUBLIC_MESSAGES } from '../contracts/sourcing.js';
 import type { AuthService } from './auth.js';
 import { makeDiagnostics, type DiagnosticRecord } from './diagnostics.js';
 import type { HttpDependencies } from './http.js';
-import { MAX_REQUEST_BYTES, SOURCE_ROUTE_TIMEOUT_MS } from './policy.js';
+import {
+  MAX_REQUEST_BYTES,
+  SOURCE_ROUTE_TIMEOUT_MS,
+  SOURCED_ROUTE_TIMEOUT_MS,
+} from './policy.js';
 import { startHttpServer } from './runtime.js';
 import { STARTER_CATALOG_SOURCES } from './sourcing/catalog.js';
 import { emptyTimings } from './sourced-learning/timing.js';
@@ -129,6 +133,57 @@ function jsonRequest(body: unknown, method = 'POST'): IncomingMessage {
     'content-length': String(payload.byteLength),
   };
   return request;
+}
+
+function failingBodyRequest(): IncomingMessage {
+  const request = new Readable({
+    read() {
+      this.destroy(new Error('socket reset secret'));
+    },
+  }) as IncomingMessage;
+  request.method = 'POST';
+  request.headers = {
+    'content-type': 'application/json',
+    'content-length': '2',
+  };
+  return request;
+}
+
+function gatedJsonRequest(body: unknown): {
+  request: IncomingMessage;
+  release: () => void;
+} {
+  const payload = Buffer.from(JSON.stringify(body));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const request = Readable.from(
+    (async function* delayed() {
+      await gate;
+      yield payload;
+    })(),
+  ) as IncomingMessage;
+  request.method = 'POST';
+  request.headers = {
+    'content-type': 'application/json',
+    'content-length': String(payload.byteLength),
+  };
+  return { request, release };
+}
+
+function routeDependencies(
+  overrides: Partial<Parameters<typeof handleSourceRoute>[3]> = {},
+): Parameters<typeof handleSourceRoute>[3] {
+  return {
+    auth: {
+      authenticate: async () => account,
+      handle: async () => undefined,
+    },
+    sourcing: unusedSourcing(),
+    runEffect: (effect) => Effect.runPromise(effect),
+    ...overrides,
+  };
 }
 
 function captureResponse(): {
@@ -1010,44 +1065,57 @@ describe('source HTTP response matrix', () => {
     vi.useFakeTimers();
     try {
       const discoverCandidates = vi.fn(unusedSourcing().discoverCandidates);
-      const payload = Buffer.from(JSON.stringify(discovery));
-      let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const request = Readable.from(
-        (async function* delayed() {
-          await gate;
-          yield payload;
-        })(),
-      ) as IncomingMessage;
-      request.method = 'POST';
-      request.headers = {
-        'content-type': 'application/json',
-        'content-length': String(payload.byteLength),
-      };
-      const captured = captureResponse();
-      const pending = handleSourceRoute(
+      const acquireCanonicalSource = vi.fn(
+        unusedSourcing().acquireCanonicalSource,
+      );
+      const sourcedRequest = vi.fn(() => Effect.die('unexpected sourced'));
+      const discoverGate = gatedJsonRequest(discovery);
+      const acquireGate = gatedJsonRequest(acquisition);
+      const sourcedGate = gatedJsonRequest(generation);
+      const discovered = captureResponse();
+      const acquired = captureResponse();
+      const sourced = captureResponse();
+      const pendingDiscover = handleSourceRoute(
         '/v1/sources/discover',
-        request,
-        captured.response,
-        {
-          auth: {
-            authenticate: async () => account,
-            handle: async () => undefined,
-          },
+        discoverGate.request,
+        discovered.response,
+        routeDependencies({
           sourcing: {
             ...unusedSourcing(),
             discoverCandidates,
+            acquireCanonicalSource,
           },
-          runEffect: (effect) => Effect.runPromise(effect),
-        },
+        }),
+        new AbortController().signal,
+      );
+      const pendingAcquire = handleSourceRoute(
+        '/v1/sources/acquire',
+        acquireGate.request,
+        acquired.response,
+        routeDependencies({
+          sourcing: {
+            ...unusedSourcing(),
+            discoverCandidates,
+            acquireCanonicalSource,
+          },
+        }),
+        new AbortController().signal,
+      );
+      const pendingSourced = handleSourceRoute(
+        '/v1/learning/sourced',
+        sourcedGate.request,
+        sourced.response,
+        routeDependencies({
+          sourcedLearning: { request: sourcedRequest },
+        }),
         new AbortController().signal,
       );
       await vi.advanceTimersByTimeAsync(SOURCE_ROUTE_TIMEOUT_MS);
-      release();
-      await pending;
-      expect(captured.result()).toMatchObject({
+      discoverGate.release();
+      acquireGate.release();
+      await pendingDiscover;
+      await pendingAcquire;
+      expect(discovered.result()).toMatchObject({
         status: 504,
         headers: { 'cache-control': 'no-store' },
         body: {
@@ -1057,9 +1125,173 @@ describe('source HTTP response matrix', () => {
           retryable: true,
         },
       });
+      expect(acquired.result()).toMatchObject({
+        status: 504,
+        body: {
+          outcome: 'timed-out',
+          requestId: acquisition.requestId,
+          retryable: true,
+        },
+      });
+      await vi.advanceTimersByTimeAsync(
+        SOURCED_ROUTE_TIMEOUT_MS - SOURCE_ROUTE_TIMEOUT_MS,
+      );
+      sourcedGate.release();
+      await pendingSourced;
+      expect(sourced.result()).toMatchObject({
+        status: 504,
+        body: { outcome: 'unavailable', requestId: generation.requestId },
+      });
       expect(discoverCandidates).not.toHaveBeenCalled();
+      expect(acquireCanonicalSource).not.toHaveBeenCalled();
+      expect(sourcedRequest).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('sanitizes a non-BodyError body-read failure without producer dispatch', async () => {
+    const discoverCandidates = vi.fn(unusedSourcing().discoverCandidates);
+    const acquireCanonicalSource = vi.fn(
+      unusedSourcing().acquireCanonicalSource,
+    );
+    const sourcedRequest = vi.fn(() => Effect.die('unexpected sourced'));
+    const deps = routeDependencies({
+      sourcing: {
+        ...unusedSourcing(),
+        discoverCandidates,
+        acquireCanonicalSource,
+      },
+      sourcedLearning: { request: sourcedRequest },
+    });
+    for (const pathname of [
+      '/v1/sources/discover',
+      '/v1/sources/acquire',
+      '/v1/learning/sourced',
+    ]) {
+      const captured = captureResponse();
+      await handleSourceRoute(
+        pathname,
+        failingBodyRequest(),
+        captured.response,
+        deps,
+        new AbortController().signal,
+      );
+      expect(captured.result()).toMatchObject({
+        status: 400,
+        headers: { 'cache-control': 'no-store' },
+        body: {
+          outcome: 'invalid-request',
+          requestId: null,
+          message:
+            pathname === '/v1/learning/sourced'
+              ? 'The request is invalid.'
+              : SOURCING_PUBLIC_MESSAGES.invalidRequest,
+        },
+      });
+      expect(JSON.stringify(captured.result().body)).not.toContain(
+        'socket reset secret',
+      );
+    }
+    expect(discoverCandidates).not.toHaveBeenCalled();
+    expect(acquireCanonicalSource).not.toHaveBeenCalled();
+    expect(sourcedRequest).not.toHaveBeenCalled();
+  });
+
+  it('maps acquire authentication failure and silent diagnostic fallbacks', async () => {
+    const acquireCanonicalSource = vi.fn(async () => {
+      throw new Error('upstream secret');
+    });
+    const authFailed = captureResponse();
+    await handleSourceRoute(
+      '/v1/sources/acquire',
+      jsonRequest(acquisition),
+      authFailed.response,
+      routeDependencies({
+        auth: {
+          authenticate: async () => {
+            throw new Error('session secret');
+          },
+          handle: async () => undefined,
+        },
+        sourcing: { ...unusedSourcing(), acquireCanonicalSource },
+      }),
+      new AbortController().signal,
+    );
+    expect(authFailed.result()).toMatchObject({
+      status: 503,
+      body: {
+        outcome: 'unavailable',
+        requestId: acquisition.requestId,
+        message: SOURCING_PUBLIC_MESSAGES.unavailable,
+      },
+    });
+    const thrown = captureResponse();
+    await handleSourceRoute(
+      '/v1/sources/acquire',
+      jsonRequest(acquisition),
+      thrown.response,
+      {
+        auth: {
+          authenticate: async () => account,
+          handle: async () => undefined,
+        },
+        sourcing: { ...unusedSourcing(), acquireCanonicalSource },
+        runEffect: (effect) => Effect.runPromise(effect),
+      },
+      new AbortController().signal,
+    );
+    expect(thrown.result()).toMatchObject({
+      status: 503,
+      body: { outcome: 'unavailable', requestId: acquisition.requestId },
+    });
+    expect(JSON.stringify(thrown.result().body)).not.toContain(
+      'upstream secret',
+    );
+    const silentAuth = captureResponse();
+    await handleSourceRoute(
+      '/v1/sources/discover',
+      jsonRequest(discovery),
+      silentAuth.response,
+      {
+        auth: {
+          authenticate: async () => {
+            throw new Error('lookup secret');
+          },
+          handle: async () => undefined,
+        },
+        sourcing: unusedSourcing(),
+        runEffect: (effect) => Effect.runPromise(effect),
+      },
+      new AbortController().signal,
+    );
+    expect(silentAuth.result().status).toBe(503);
+    const silentSourced = captureResponse();
+    await handleSourceRoute(
+      '/v1/learning/sourced',
+      jsonRequest(generation),
+      silentSourced.response,
+      {
+        auth: {
+          authenticate: async () => account,
+          handle: async () => undefined,
+        },
+        sourcedLearning: {
+          request: () => Effect.succeed({ ok: true } as never),
+        },
+        runEffect: async () => {
+          throw new Error('effect secret');
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(silentSourced.result()).toMatchObject({
+      status: 200,
+      body: { outcome: 'coverage-pending', requestId: generation.requestId },
+    });
+    expect(JSON.stringify(silentSourced.result().body)).not.toContain(
+      'effect secret',
+    );
+    expect(acquireCanonicalSource).toHaveBeenCalledTimes(1);
   });
 });

@@ -22,6 +22,13 @@ const databaseControl = vi.hoisted(() => ({
   },
 }));
 
+const authControl = vi.hoisted(() => ({
+  account: null as { id: string; name: string; image: null } | null,
+  reset() {
+    authControl.account = null;
+  },
+}));
+
 vi.mock('./database.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./database.js')>();
   return {
@@ -53,7 +60,7 @@ vi.mock('./auth.js', async (importOriginal) => {
     ...actual,
     makeAuthLayer: () =>
       Layer.succeed(actual.Authentication, {
-        authenticate: async () => null,
+        authenticate: async () => authControl.account,
         handle: async (_request, response) => {
           response.writeHead(200, { 'content-type': 'application/json' });
           response.end('{"ok":true}');
@@ -232,6 +239,7 @@ describe('startBackend composition boundaries', () => {
   afterEach(async () => {
     await Promise.all(stops.splice(0).map((stop) => stop()));
     databaseControl.reset();
+    authControl.reset();
   });
 
   it('reports complete, incomplete, and rejected migration readiness', async () => {
@@ -371,5 +379,86 @@ describe('startBackend composition boundaries', () => {
       await (await fetch(`http://127.0.0.1:${disabled.port}/health`)).json(),
     ).toEqual({ status: 'ok' });
     expect(request).not.toHaveBeenCalled();
+    const keyWithoutLimit = await startBackend(
+      {
+        ...config,
+        openAlexApiKey: 'synthetic-openalex',
+        openAlexMonthlyLimitMicrousd: null,
+        sourceIndexLive: true,
+        turbopufferApiKey: null,
+        turbopufferRegion: null,
+      },
+      {
+        host: '127.0.0.1',
+        request,
+        electronAuthCallbackScript,
+      },
+    );
+    stops.push(keyWithoutLimit.stop);
+    expect(
+      await (
+        await fetch(`http://127.0.0.1:${keyWithoutLimit.port}/health`)
+      ).json(),
+    ).toEqual({ status: 'ok' });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('uses default fetch and host without dispatching, and invokes runEffect from bound routes', async () => {
+    authControl.account = { id: 'user-a', name: 'Ada', image: null };
+    const defaults = await startBackend(config, {
+      electronAuthCallbackScript,
+    });
+    stops.push(defaults.stop);
+    expect(
+      await (await fetch(`http://127.0.0.1:${defaults.port}/health`)).json(),
+    ).toEqual({ status: 'ok' });
+    const account = await fetch(`http://127.0.0.1:${defaults.port}/v1/account`);
+    expect(account.status).toBe(503);
+    expect(await account.json()).toMatchObject({ outcome: 'unavailable' });
+    const learning = await fetch(
+      `http://127.0.0.1:${defaults.port}/v1/learning/requests`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          apiVersion: '2026-09-08',
+          requestId: 'generate-runtime-01',
+          model: 'google/gemini-3.8-flash',
+          operation: {
+            kind: 'generate-learning-path',
+            goal: 'Understand SQL joins',
+            learnerContext: [],
+            sources: [],
+          },
+        }),
+      },
+    );
+    expect(learning.status).toBe(503);
+    const discovered = await fetch(
+      `http://127.0.0.1:${defaults.port}/v1/sources/discover`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          apiVersion: '2026-09-08',
+          requestId: 'discover-runtime-01',
+          query: 'SQL structured query',
+          intent: 'learning',
+          kinds: ['chapter', 'paper'],
+          limit: 5,
+        }),
+      },
+    );
+    expect(discovered.status).toBeGreaterThanOrEqual(200);
+    expect(discovered.status).toBeLessThan(600);
+  });
+
+  it('loads the packaged auth-callback script when the option is omitted', async () => {
+    await expect(
+      startBackend(config, {
+        host: '127.0.0.1',
+        request: throwOnEgress(),
+      }),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
