@@ -340,8 +340,8 @@ describe('Companion app-owned controls and decoration', () => {
       screen.getByRole('button', { name: 'Ask about selected target' }),
     ).toBeDisabled();
     expect(
-      screen.getByRole('button', { name: 'Guide this activity' }),
-    ).toBeDisabled();
+      screen.queryByRole('button', { name: 'Guide this activity' }),
+    ).not.toBeInTheDocument();
     expect(t.resolveTarget).not.toHaveBeenCalled();
   });
 
@@ -562,11 +562,9 @@ describe('Companion Reader/Canvas selected help', () => {
       screen.getByText(/openrouter · google\/gemini-3.8-flash/),
     ).toBeInTheDocument();
     expect(requestCompanionGuidance).toHaveBeenCalledTimes(1);
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Guide this activity' }),
-    );
-    await screen.findByText(/Guiding: Selected source passage/);
-    fireEvent.click(screen.getByRole('button', { name: 'Stop guidance' }));
+    expect(
+      screen.queryByRole('button', { name: 'Guide this activity' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('Guidance is off.')).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Show selected target' }),
@@ -580,7 +578,7 @@ describe('Companion Reader/Canvas selected help', () => {
       ).toBeInTheDocument();
     });
     expect(owned).toHaveFocus();
-    expect(requestCompanionGuidance).toHaveBeenCalledTimes(2);
+    expect(requestCompanionGuidance).toHaveBeenCalledTimes(1);
     owned.remove();
   });
 

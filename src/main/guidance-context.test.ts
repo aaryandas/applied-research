@@ -170,6 +170,37 @@ function attempt(): PracticalAttemptRecord {
   };
 }
 
+function committedAttempt(
+  current: PracticalAttemptRecord = attempt(),
+): PracticalAttemptRecord {
+  return {
+    ...current,
+    revisions: [
+      {
+        revision: current.currentRevision,
+        draft: {
+          prediction: current.draft.prediction,
+          attempt: current.draft.attempt,
+          reportedResult: { ...current.draft.reportedResult },
+          selectedEvidence: current.draft.selectedEvidence,
+          reflection: { ...current.draft.reflection },
+        },
+        recordedAt: createdAt,
+      },
+    ],
+  };
+}
+
+function attemptWithEvidence(
+  evidence: NonNullable<PracticalAttemptRecord['draft']['selectedEvidence']>,
+): PracticalAttemptRecord {
+  const current = attempt();
+  return {
+    ...current,
+    draft: { ...current.draft, selectedEvidence: evidence },
+  };
+}
+
 function readers(
   overrides: Partial<CompanionGuidanceReaders> = {},
 ): CompanionGuidanceReaders {
@@ -180,7 +211,6 @@ function readers(
       text: 'imported column,1\n2,3',
       displayName: 'notes.csv',
     }),
-    lookupMeasuredCapture: async () => null,
     boundToolSession: () => ({
       sessionId: 'tool-session',
       title: 'Matrix experiment',
@@ -314,13 +344,25 @@ describe('companion guidance context resolver', () => {
         },
         utterance: { kind: 'none' },
       }),
-      readers(),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
+      }),
       new AbortController().signal,
     );
     expect(imported).toMatchObject({
       ok: true,
       value: { attribution: 'imported-file' },
     });
+    if (imported.ok) {
+      expect(imported.value.source.canonicalText).toBe(
+        'imported column,1\n2,3',
+      );
+      expect(imported.value.source.provenance.kind).toBe('human-imported');
+    }
 
     const missingCapture = await resolveCompanionGuidanceContext(
       request({
@@ -333,12 +375,38 @@ describe('companion guidance context resolver', () => {
         selectedEvidence: { kind: 'app-measured', captureId },
         utterance: { kind: 'none' },
       }),
-      readers(),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({ kind: 'app-measured', captureId }),
+      }),
       new AbortController().signal,
     );
     expect(missingCapture).toMatchObject({
       ok: false,
-      reply: { outcome: 'invalid-request' },
+      reply: { outcome: 'unavailable' },
+    });
+
+    const goneCapture = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: { kind: 'app-measured', captureId },
+        utterance: { kind: 'none' },
+      }),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({ kind: 'app-measured', captureId }),
+        lookupMeasuredCapture: async () => null,
+      }),
+      new AbortController().signal,
+    );
+    expect(goneCapture).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
     });
 
     const measured = await resolveCompanionGuidanceContext(
@@ -353,6 +421,8 @@ describe('companion guidance context resolver', () => {
         utterance: { kind: 'none' },
       }),
       readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({ kind: 'app-measured', captureId }),
         lookupMeasuredCapture: async () => ({
           text: 'det = 1',
           capturedAt: createdAt,
@@ -363,6 +433,32 @@ describe('companion guidance context resolver', () => {
     expect(measured).toMatchObject({
       ok: true,
       value: { attribution: 'measured-capture' },
+    });
+    if (measured.ok) {
+      expect(measured.value.source.provenance.kind).toBe('generated');
+    }
+
+    const claimedSavedDirty = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'reflection',
+        },
+        utterance: {
+          kind: 'human',
+          text: 'Help me improve this reflection without rewriting it for me.',
+          persistence: 'saved',
+          savedRevision: 2,
+        },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(claimedSavedDirty).toMatchObject({
+      ok: true,
+      value: { attribution: 'human-draft' },
     });
   });
 
@@ -387,6 +483,7 @@ describe('companion guidance context resolver', () => {
       );
       expect(resolved.value.source.canonicalText).not.toContain('https://');
       expect(resolved.value.attributionSummary).toContain('no page reads');
+      expect(resolved.value.source.provenance.kind).toBe('generated');
     }
   });
 
@@ -638,13 +735,76 @@ describe('companion guidance context resolver', () => {
           selectionId: 'file-01',
         },
       }),
-      readers({ readImportedFile: async () => null }),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
+        readImportedFile: async () => null,
+      }),
       new AbortController().signal,
     );
     expect(missingFile).toMatchObject({
       ok: false,
       reply: { outcome: 'stale' },
     });
+
+    const inventedFile = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: {
+          kind: 'user-selected-file',
+          selectionId: 'file-01',
+        },
+      }),
+      readers(),
+      new AbortController().signal,
+    );
+    expect(inventedFile).toMatchObject({
+      ok: false,
+      reply: { outcome: 'stale' },
+    });
+
+    const ownedFileIgnoresNoneClaim = await resolveCompanionGuidanceContext(
+      request({
+        target: {
+          surface: 'practical-work',
+          projectId,
+          attemptId,
+          target: 'selected-result',
+        },
+        selectedEvidence: { kind: 'none' },
+        utterance: {
+          kind: 'human',
+          text: 'The x-axis moved.',
+          persistence: 'saved',
+          savedRevision: 2,
+        },
+      }),
+      readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
+      }),
+      new AbortController().signal,
+    );
+    expect(ownedFileIgnoresNoneClaim).toMatchObject({
+      ok: true,
+      value: { attribution: 'imported-file' },
+    });
+    if (ownedFileIgnoresNoneClaim.ok) {
+      expect(ownedFileIgnoresNoneClaim.value.source.canonicalText).not.toBe(
+        'The x-axis moved.',
+      );
+    }
 
     const reported = await resolveCompanionGuidanceContext(
       request({
@@ -662,7 +822,7 @@ describe('companion guidance context resolver', () => {
           savedRevision: 2,
         },
       }),
-      readers(),
+      readers({ loadOwnedAttempt: async () => committedAttempt() }),
       new AbortController().signal,
     );
     expect(reported).toMatchObject({
@@ -994,7 +1154,6 @@ describe('companion guidance context resolver', () => {
         text: 'imported column,1\n2,3',
         displayName: 'notes.csv',
       }),
-      lookupMeasuredCapture: async () => null,
       boundToolSession: () => ({
         sessionId: 'tool-session',
         title: 'Matrix experiment',
@@ -1067,6 +1226,11 @@ describe('companion guidance context resolver', () => {
         utterance: { kind: 'none' },
       }),
       readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({
+            kind: 'user-selected-file',
+            selectionId: 'file-01',
+          }),
         readImportedFile: async () => ({
           text: huge,
           displayName: 'notes.csv',
@@ -1091,6 +1255,8 @@ describe('companion guidance context resolver', () => {
         utterance: { kind: 'none' },
       }),
       readers({
+        loadOwnedAttempt: async () =>
+          attemptWithEvidence({ kind: 'app-measured', captureId }),
         lookupMeasuredCapture: async () => ({
           text: huge,
           capturedAt: createdAt,
@@ -1118,7 +1284,7 @@ describe('companion guidance context resolver', () => {
           savedRevision: 2,
         },
       }),
-      readers(),
+      readers({ loadOwnedAttempt: async () => committedAttempt() }),
       new AbortController().signal,
     );
     expect(savedReflection).toMatchObject({

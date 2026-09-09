@@ -1,6 +1,7 @@
 import type {
   CompanionGuidanceInput,
   CompanionGuidanceReply as CompanionSessionReply,
+  CompanionVersion,
 } from '../../contracts/companion';
 import {
   COMPANION_GUIDANCE_CONTRACT_VERSION,
@@ -12,6 +13,7 @@ import {
   type CompanionHumanUtterance,
   type CompanionSelectedTarget,
 } from '../../contracts/companion-guidance';
+import type { PracticalEvidenceReference } from '../../contracts/practical-work';
 
 export const CONSUMER_ANSWER_LIMIT = 12_000;
 
@@ -112,18 +114,77 @@ function toSessionReply(reply: CompanionGuidanceReply): CompanionSessionReply {
   return { status: 'unavailable', message: reply.message };
 }
 
-function evidenceForAttempt(
-  selection: CompanionSelectedTarget | null,
-  attemptId: string,
-  evidence: CompanionEvidenceReference,
+function opaqueEvidence(
+  reference: PracticalEvidenceReference,
 ): CompanionEvidenceReference {
-  if (selection === null) return { kind: 'none' };
-  switch (selection.surface) {
-    case 'practical-work':
-      return selection.attemptId === attemptId ? evidence : { kind: 'none' };
-    default:
-      return { kind: 'none' };
+  if (reference.kind === 'user-selected-file') {
+    return {
+      kind: 'user-selected-file',
+      selectionId: reference.selectionId,
+    };
   }
+  return { kind: 'app-measured', captureId: reference.captureId };
+}
+
+function versionUtterance(
+  version: CompanionVersion,
+  question: string,
+): CompanionHumanUtterance {
+  if (version.kind === 'saved') {
+    return {
+      kind: 'human',
+      text: question,
+      persistence: 'saved',
+      savedRevision: version.revision,
+    };
+  }
+  return {
+    kind: 'human',
+    text: question,
+    persistence: 'unsaved-draft',
+    savedRevision: version.lastAcknowledgedRevision,
+  };
+}
+
+function requestFromSessionMapping(input: CompanionGuidanceInput): {
+  utterance: CompanionHumanUtterance;
+  evidence: CompanionEvidenceReference;
+} {
+  const context = input.context;
+  if (context.target === 'selected-result') {
+    if (context.result.kind === 'trusted-selected-evidence') {
+      return {
+        utterance: {
+          kind: 'app-authored-intent',
+          intent: 'ask-about-selection',
+        },
+        evidence: opaqueEvidence(context.result.reference),
+      };
+    }
+    return {
+      utterance: versionUtterance(
+        context.result.version,
+        'Help me interpret the selected result.',
+      ),
+      evidence: { kind: 'none' },
+    };
+  }
+  if (context.target === 'reflection') {
+    return {
+      utterance: versionUtterance(
+        context.version,
+        'Help me improve this reflection without rewriting it for me.',
+      ),
+      evidence: { kind: 'none' },
+    };
+  }
+  return {
+    utterance: {
+      kind: 'app-authored-intent',
+      intent: 'ask-about-selection',
+    },
+    evidence: { kind: 'none' },
+  };
 }
 
 function practicalTarget(
@@ -408,19 +469,12 @@ export function createCompanionGuidanceHost(
           message: 'This target belongs to a different activity or attempt.',
         };
       }
-      const evidence = evidenceForAttempt(
-        state.selection,
-        target.attemptId,
-        state.evidence,
-      );
+      const mapping = requestFromSessionMapping(input);
       const reply = await dispatch(
         input.cause,
         target,
-        {
-          kind: 'app-authored-intent',
-          intent: 'ask-about-selection',
-        },
-        evidence,
+        mapping.utterance,
+        mapping.evidence,
         signal,
         false,
       );

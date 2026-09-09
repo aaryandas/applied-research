@@ -51,7 +51,7 @@ export interface CompanionGuidanceService {
 function tutorQuestion(envelope: CompanionBackendEnvelope): string {
   const prefix =
     envelope.grounding === 'app-context'
-      ? `${APP_CONTEXT_QUESTION} `
+      ? `${SOURCE_QUESTION_PREFIX}${APP_CONTEXT_QUESTION} `
       : SOURCE_QUESTION_PREFIX;
   return `${prefix}${envelope.question}`.slice(0, 2_000);
 }
@@ -96,6 +96,8 @@ function mapLearningResponse(
         authorKind: 'ai',
         text,
         provenance: response.provenance,
+        nextAction: response.contribution.nextAction,
+        citations: [...response.contribution.citations],
       };
     }
     case 'quota-exceeded':

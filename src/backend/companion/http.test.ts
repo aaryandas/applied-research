@@ -183,6 +183,8 @@ describe('companion guidance HTTP route', () => {
         authorKind: 'ai',
         text: 'ok',
         provenance: learningSuccess.provenance,
+        nextAction: 'Change one entry.',
+        citations: [],
       }),
     ).toBe(200);
     expect(
@@ -235,6 +237,16 @@ describe('companion guidance HTTP route', () => {
       outcome: 'success',
       authorKind: 'ai',
       text: 'Compare the sheared image to the original basis.',
+      nextAction: 'Change one entry.',
+      citations: [
+        {
+          sourceId: 'source-01',
+          revisionId: 'revision01',
+          start: 0,
+          end: 5,
+          quote: 'Shear',
+        },
+      ],
     });
   });
 

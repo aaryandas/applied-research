@@ -213,7 +213,7 @@ describe('companion guidance operations', () => {
     t.operations.revoke('selection-replaced');
     release();
     await expect(pending).resolves.toMatchObject({
-      outcome: 'cancelled',
+      outcome: 'stale',
     });
   });
 

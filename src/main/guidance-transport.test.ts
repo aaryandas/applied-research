@@ -177,6 +177,83 @@ describe('authenticated companion guidance transport', () => {
     ).rejects.toMatchObject({ code: 'unavailable' });
   });
 
+  it('maps a deadline abort to unavailable, not cancelled', async () => {
+    const timeout = AbortSignal.abort();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(timeout);
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const signal = init?.signal;
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      return new Response(JSON.stringify(reply), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const post = makeCompanionGuidanceTransport({
+      request: fetch,
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      post(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    timeoutSpy.mockRestore();
+  });
+
+  it('does not treat a 401 success-shaped body as ready', async () => {
+    const post = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(JSON.stringify(reply), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      post(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('strips HTTP citations for the AR53 reply and requires HTTP 200 for success', async () => {
+    const cited = {
+      ...reply,
+      nextAction: 'Change one entry.',
+      citations: [
+        {
+          sourceId: 'source-01',
+          revisionId: 'revision01',
+          start: 0,
+          end: 5,
+          quote: 'Shear',
+        },
+      ],
+    };
+    const post = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(JSON.stringify(cited), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      sessionCookie: () => 'session=ok',
+    });
+    const decoded = await post(envelope, new AbortController().signal);
+    expect(decoded).toMatchObject({ outcome: 'success', requestId });
+    expect(decoded).not.toHaveProperty('citations');
+    expect(decoded).not.toHaveProperty('nextAction');
+
+    const nonOk = makeCompanionGuidanceTransport({
+      request: async () =>
+        new Response(JSON.stringify(cited), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }),
+      sessionCookie: () => 'session=ok',
+    });
+    await expect(
+      nonOk(envelope, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
   it('maps an aborted fetch to cancelled and does not retry', async () => {
     const controller = new AbortController();
     const fetch = vi.fn(async () => {

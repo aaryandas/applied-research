@@ -31,6 +31,19 @@ export interface CompanionGuidanceTransportOptions {
   sessionCookie(): string;
 }
 
+function ar53ReplyPayload(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if (record.outcome !== 'success') return value;
+  return {
+    outcome: record.outcome,
+    requestId: record.requestId,
+    authorKind: record.authorKind,
+    text: record.text,
+    provenance: record.provenance,
+  };
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const declaredLength = Number(response.headers.get('content-length'));
   if (declaredLength > MAX_RESPONSE_BYTES) {
@@ -136,10 +149,16 @@ export function makeCompanionGuidanceTransport(
         },
       );
     } catch (error) {
-      if (cancellation.aborted || signal.aborted) {
+      if (cancellation.aborted) {
         throw new CompanionGuidanceTransportError(
           'cancelled',
           'The companion request was cancelled.',
+        );
+      }
+      if (signal.aborted) {
+        throw new CompanionGuidanceTransportError(
+          'unavailable',
+          'Companion guidance timed out. Ask again.',
         );
       }
       if (error instanceof CompanionGuidanceTransportError) throw error;
@@ -149,19 +168,44 @@ export function makeCompanionGuidanceTransport(
       );
     }
     if (
+      response.status === 401 ||
+      response.status === 403 ||
       (response.status >= 300 && response.status < 400) ||
       !response.headers.get('content-type')?.startsWith('application/json')
     ) {
       await response.body?.cancel();
+      if (response.status === 401 || response.status === 403) {
+        throw new CompanionGuidanceTransportError(
+          'unauthenticated',
+          'Sign in to use remote learning.',
+        );
+      }
       throw new CompanionGuidanceTransportError(
         'unavailable',
         'The companion service returned an invalid response.',
       );
     }
     const payload = await readJson(response);
-    signal.throwIfAborted();
-    const decoded = decodeCompanionGuidanceReply(payload);
+    if (cancellation.aborted) {
+      throw new CompanionGuidanceTransportError(
+        'cancelled',
+        'The companion request was cancelled.',
+      );
+    }
+    if (signal.aborted) {
+      throw new CompanionGuidanceTransportError(
+        'unavailable',
+        'Companion guidance timed out. Ask again.',
+      );
+    }
+    const decoded = decodeCompanionGuidanceReply(ar53ReplyPayload(payload));
     if (!decoded.ok) {
+      throw new CompanionGuidanceTransportError(
+        'unavailable',
+        'The companion service returned an invalid response.',
+      );
+    }
+    if (decoded.value.outcome === 'success' && response.status !== 200) {
       throw new CompanionGuidanceTransportError(
         'unavailable',
         'The companion service returned an invalid response.',

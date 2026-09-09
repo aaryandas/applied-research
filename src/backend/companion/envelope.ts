@@ -1,6 +1,7 @@
 import type {
   AiProvenance,
   LearnerContextItem,
+  SourceCitation,
   SourceFormat,
   SourceProvenanceKind,
   SourceRevisionInput,
@@ -92,6 +93,8 @@ export type CompanionGuidanceHttpReply =
       readonly authorKind: 'ai';
       readonly text: string;
       readonly provenance: AiProvenance;
+      readonly nextAction: string;
+      readonly citations: readonly SourceCitation[];
     }
   | {
       readonly outcome: CompanionGuidanceFailureOutcome;
@@ -146,6 +149,27 @@ function boundedText(value: unknown, maximum: number): value is string {
 
 function identifier(value: unknown): value is string {
   return typeof value === 'string' && IDENTIFIER_PATTERN.test(value);
+}
+
+function httpsLocator(value: unknown, requestId: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length > 2_048 ||
+    value.includes('@') ||
+    !isRemoteText(value)
+  ) {
+    fail(requestId, 'The selected source locator is invalid.');
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    fail(requestId, 'The selected source locator is invalid.');
+  }
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') {
+    fail(requestId, 'The selected source locator is invalid.');
+  }
+  return value;
 }
 
 function fail(
@@ -246,13 +270,7 @@ function sourceRevision(
   }
   let locator: string | null = null;
   if (value.provenance.locator !== null) {
-    if (
-      typeof value.provenance.locator !== 'string' ||
-      !/^https:\/\//.test(value.provenance.locator)
-    ) {
-      fail(requestId, 'The selected source locator is invalid.');
-    }
-    locator = value.provenance.locator;
+    locator = httpsLocator(value.provenance.locator, requestId);
   }
   return {
     sourceId: value.sourceId,

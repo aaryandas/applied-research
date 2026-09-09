@@ -65,15 +65,22 @@ function failure(
 }
 
 function lateReply(
-  aborted: boolean,
+  signal: AbortSignal,
   requestId: string,
 ): CompanionGuidanceReply {
+  const reason = signal.reason;
+  const stale =
+    reason === 'project-replaced' ||
+    reason === 'attempt-replaced' ||
+    reason === 'selection-replaced' ||
+    reason === 'tool-closed' ||
+    reason === 'external-handoff';
   return failure(
-    aborted ? 'cancelled' : 'stale',
+    stale ? 'stale' : 'cancelled',
     requestId,
-    aborted
-      ? 'The companion request was cancelled.'
-      : 'The selected context changed. Ask again.',
+    stale
+      ? 'The selected context changed. Ask again.'
+      : 'The companion request was cancelled.',
   );
 }
 
@@ -91,7 +98,7 @@ export function createCompanionGuidanceOperations(
   }
 
   function revoke(reason: CompanionGuidanceRevokeReason): void {
-    for (const controller of pending.values()) controller.abort();
+    for (const controller of pending.values()) controller.abort(reason);
     pending.clear();
     requestGeneration += 1;
     if (
@@ -131,7 +138,7 @@ export function createCompanionGuidanceOperations(
       ) {
         return;
       }
-      pending.get(decoded.value.requestId)?.abort();
+      pending.get(decoded.value.requestId)?.abort('user-stop');
     },
     revoke,
     dispose() {
@@ -200,7 +207,14 @@ export function createCompanionGuidanceOperations(
       try {
         const resolved = await options.resolve(request, controller.signal);
         if (!stillHeld()) {
-          return lateReply(controller.signal.aborted, request.requestId);
+          if (controller.signal.aborted) {
+            return lateReply(controller.signal, request.requestId);
+          }
+          return failure(
+            'stale',
+            request.requestId,
+            'The selected context changed. Ask again.',
+          );
         }
         if (!resolved.ok) return resolved.reply;
         const envelope = buildCompanionGuidanceEnvelope({
@@ -213,7 +227,14 @@ export function createCompanionGuidanceOperations(
         });
         const reply = await options.post(envelope, controller.signal);
         if (!stillHeld()) {
-          return lateReply(controller.signal.aborted, request.requestId);
+          if (controller.signal.aborted) {
+            return lateReply(controller.signal, request.requestId);
+          }
+          return failure(
+            'stale',
+            request.requestId,
+            'The selected context changed. Ask again.',
+          );
         }
         if (
           reply.outcome === 'success' &&
@@ -227,12 +248,15 @@ export function createCompanionGuidanceOperations(
         }
         return reply;
       } catch (error) {
-        if (controller.signal.aborted || disposed) {
+        if (disposed) {
           return failure(
             'cancelled',
             request.requestId,
             'The companion request was cancelled.',
           );
+        }
+        if (controller.signal.aborted) {
+          return lateReply(controller.signal, request.requestId);
         }
         if (error instanceof CompanionGuidanceTransportError) {
           return failure(error.code, request.requestId, error.message);

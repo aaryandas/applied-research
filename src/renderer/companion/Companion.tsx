@@ -419,22 +419,18 @@ export function Companion({
                   Explain this passage
                 </button>
               )}
-            <button
-              type="button"
-              disabled={
-                (!canAskPractical && !canAskWorkspace) || busy || active
-              }
-              onClick={() => {
-                if (selectedRequest && session)
-                  void session.startActivity(selectedRequest);
-                else if (workspaceSelection && guidanceHost) {
-                  guidanceHost.setSelection(workspaceSelection);
-                  void guidanceHost.startActivity();
-                }
-              }}
-            >
-              Guide this activity
-            </button>
+            {canAskPractical && (
+              <button
+                type="button"
+                disabled={busy || active}
+                onClick={() => {
+                  if (selectedRequest && session)
+                    void session.startActivity(selectedRequest);
+                }}
+              >
+                Guide this activity
+              </button>
+            )}
           </div>
           <p className="activity-companion-pointing-status" role="status">
             {pointing.status === 'pointing'

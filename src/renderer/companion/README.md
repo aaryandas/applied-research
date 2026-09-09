@@ -144,7 +144,7 @@ const host = createCompanionGuidanceHost({
 });
 // Selection metadata updates do no I/O:
 host.setSelection(workspaceTarget); // or practical opaque ids + evidence
-// Practical paid path (opaque ids only):
+// Practical paid path (opaque ids + saved/draft markers only; never CompanionGuidanceInput over IPC):
 const requester = createCompanionRequester({
   ...identity,
   requestGuidance: (input, signal) => host.requestFromSession(input, signal),
@@ -153,6 +153,14 @@ const requester = createCompanionRequester({
   createRequestId,
 });
 ```
+
+`requestFromSession` maps in-process Practical context onto AR53:
+
+- `trusted-selected-evidence` → opaque `user-selected-file` / `app-measured` ids only (no resolved text, no provenanceId)
+- human-reported result / reflection → `selectedEvidence: none` plus human utterance **persistence/savedRevision** markers (not the body as measured/saved fact)
+- `tool-navigation` remains local unavailable
+
+Main then resolves those references from owned attempt/workspace state. Do not treat renderer-authored claims as measured or saved fact.
 
 The consumer still rejects answers above **12,000** characters even though the wire allows 24,000.
 
@@ -171,7 +179,7 @@ The consumer still rejects answers above **12,000** characters even though the w
 />
 ```
 
-Reader/Canvas selected-help controls live in `Companion` (`Ask about selected target`, `Explain this passage`, `Guide this activity`). Do not fabricate a Practical activity.
+Reader/Canvas selected-help controls live in `Companion` (`Ask about selected target`, `Explain this passage` on a source highlight, `Show selected target`). **Guide this activity** is Practical-only and requires a valid `selectedRequest`. Do not fabricate a Practical activity or latch `activity-start` from Reader/Canvas.
 
 ### Owned reveal registry
 

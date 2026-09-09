@@ -56,11 +56,7 @@ const readers: CompanionGuidanceReaders = {
       ? { text: preview.text, displayName: preview.displayName }
       : null;
   },
-  lookupMeasuredCapture: async (projectId, attemptId, captureId) => {
-    // REQUIRED for app-measured evidence. There is no capture reader on HEAD.
-    // Return { text, capturedAt } from main-owned measurement storage, else null (resolver rejects).
-    return null;
-  },
+  // Omit lookupMeasuredCapture until AR56. Do not stub a fake capture.
   boundToolSession: (projectId) => {
     // From the assembler-owned tool host; never a renderer URL.
     // { sessionId, title, controls: [{ name, description }] } | null
@@ -69,7 +65,7 @@ const readers: CompanionGuidanceReaders = {
 };
 ```
 
-Unresolved producer dependency: **measured-capture lookup** is not on HEAD. Until the assembler injects a real main-owned capture table/read, `selectedEvidence.kind === 'app-measured'` fails closed. Do not invent a second store in this lane.
+Unresolved producer dependency: **measured-capture lookup** is not on HEAD. Omit `lookupMeasuredCapture` until AR56 injects a real main-owned capture read. The resolver then returns `unavailable` with a precise seam message. Do not invent a second store or a fake capture in this lane. A provided reader that returns null is `stale`.
 
 AR51 `groundingForSource` / `tutorSourceInput` at `f7f733f` were inspected only. This producer inlines a bounded canonicalizer + SHA-256 helper. When the coordinator integrates that exact AR51 SHA, those helpers may replace the local copies; do not merge AR51 from here.
 
@@ -107,4 +103,8 @@ handle(COMPANION_GUIDANCE_CANCEL_CHANNEL, (value) => guidance.cancel(value));
 
 Preload: expose **only** named `requestCompanionGuidance` and `cancelCompanionGuidance`. Never raw IPC, SQL, cookies, or `CompanionGuidanceInput`.
 
-Transport posts `POST ${DESKTOP_AUTH_API_ORIGIN}/v1/learning/companion` once with `origin: applied-research:/` and the session cookie. No retry after uncertainty.
+Transport posts `POST ${DESKTOP_AUTH_API_ORIGIN}/v1/learning/companion` once with `origin: applied-research:/` and the session cookie. No retry after uncertainty. Combined-signal timeout is `unavailable`, not `cancelled`. HTTP 401/403 is `unauthenticated` even if the body is success-shaped. Success-shaped JSON is accepted only with HTTP 200.
+
+HTTP success JSON now includes tutor `citations` and `nextAction`. AR53 `CompanionGuidanceReply` is unchanged (`outcome`, `requestId`, `authorKind`, `text`, `provenance`). Main transport maps HTTP→AR53 by omitting those extra keys so preload's exact decoder does not fail. Assembler/AR53 must add a citations field before answer-side citation reveal can be built.
+
+`revoke('selection-replaced' | 'attempt-replaced' | 'tool-closed' | 'external-handoff' | 'project-replaced')` settles in-flight work as `stale`. User cancel / `user-stop` / sign-out / teardown / unmount remain `cancelled`. Do not conflate selection revoke with user cancel.

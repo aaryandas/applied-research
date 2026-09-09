@@ -36,8 +36,24 @@ if (matchCompanionGuidanceRoute(url.pathname, request.method)) {
 
 Do **not** construct a second OpenRouter client, budget, retry loop, or provider-enabling setting. The service calls `learning.request(account, ProviderLearningRequest)` **once**. `unavailable` / unknown provider outcomes are returned as typed failures; they are not retried.
 
-Authenticate with `auth.authenticate(request.headers)` (Better Auth cookies). Incoming selected material is untrusted content. The envelope decoder re-hashes `canonicalText` and checks excerpt offsets. When `lookupAdmittedSource` is injected and returns a row, a digest mismatch is `invalid-request`. A corpus miss still allows hash-verified workspace text; it is not treated as a scholarly corpus hit.
+Authenticate with `auth.authenticate(request.headers)` (Better Auth cookies). Incoming selected material is untrusted content. The envelope decoder re-hashes `canonicalText` and checks excerpt offsets. Locators must parse as `https:` URLs with no userinfo and no `@` authority ambiguity (same policy as main `httpsLocator` / `new URL`). When `lookupAdmittedSource` is injected and returns a row, a digest mismatch is `invalid-request`. A corpus miss still allows hash-verified workspace text; it is not treated as a scholarly corpus hit.
 
-Source-poor tool/app-control envelopes use `grounding: 'app-context'` and a labelled `companion-app-context` source revision so the existing tutor schema (citations minItems 1) can cite the actual control description instead of inventing papers.
+Source-poor tool/app-control envelopes use `grounding: 'app-context'` and a labelled `companion-app-context` source revision so the existing tutor schema (citations minItems 1) can cite the actual control description instead of inventing papers. The untrusted-content prefix is applied for **both** `source` and `app-context`.
 
-Reply JSON matches the AR53 success/failure shape (no `stale`/`offline` from HTTP; those are desktop outcomes).
+HTTP success JSON (hand-off from this producer; AR53 IPC is unchanged):
+
+```ts
+{
+  outcome: 'success',
+  requestId,
+  authorKind: 'ai',
+  text,
+  provenance,
+  nextAction, // tutor nextAction
+  citations,  // exact SourceCitation[] from LearningResponse
+}
+```
+
+Main transport strips `nextAction`/`citations` when mapping onto AR53 `CompanionGuidanceReply`. Do not decode this HTTP body with `decodeCompanionGuidanceReply` directly; extra keys fail that decoder.
+
+Reply JSON otherwise matches the AR53 success/failure shape (no `stale`/`offline` from HTTP; those are desktop outcomes).

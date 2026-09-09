@@ -16,6 +16,37 @@ const otherAttempt = '34000000-0000-4000-8000-000000000001';
 const requestId = '31000000-0000-4000-8000-000000000001';
 const highlightId = '40000000-0000-4000-8000-000000000001';
 const sourceRevisionId = '30000000-0000-4000-8000-000000000001';
+const selectionId = 'file-selected-01';
+const captureId = '25000000-0000-4000-8000-000000000001';
+
+function practicalActivity(): CompanionGuidanceInput['requestedTarget']['activity'] {
+  return {
+    projectId,
+    title: 'Compare',
+    objective: 'Explain',
+    instructions: 'Try',
+    origin: {
+      path: {
+        pathId: '11000000-0000-4000-8000-000000000001',
+        pathRevision: 1,
+        topicId: '12000000-0000-4000-8000-000000000001',
+        lessonId: '13000000-0000-4000-8000-000000000001',
+      },
+    },
+  };
+}
+
+function practicalInput(
+  overrides: Partial<CompanionGuidanceInput> &
+    Pick<CompanionGuidanceInput, 'requestedTarget' | 'context'>,
+): CompanionGuidanceInput {
+  return {
+    requestId,
+    cause: 'ask-once',
+    pageAccess: 'none',
+    ...overrides,
+  };
+}
 
 const success: CompanionGuidanceReply = {
   outcome: 'success',
@@ -145,6 +176,132 @@ describe('companion AR53 host adapter', () => {
     expect(t.host.getState().activity).toBe('off');
     t.host.invalidate();
     expect(t.host.getState().activity).toBe('off');
+  });
+
+  it('maps Practical imported-file, capture, and saved-draft identity onto the AR53 request', async () => {
+    const t = setup();
+    const activity = practicalActivity();
+    await t.host.requestFromSession(
+      practicalInput({
+        requestedTarget: {
+          scope: 'applied-research',
+          surface: 'practical-work',
+          attemptId,
+          target: 'selected-result',
+          activity,
+        },
+        context: {
+          target: 'selected-result',
+          result: {
+            kind: 'trusted-selected-evidence',
+            reference: { kind: 'user-selected-file', selectionId },
+            text: 'renderer-authored file body',
+            provenanceId: 'must-not-be-copied',
+          },
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(t.requestCompanionGuidance.mock.calls[0]?.[0]).toMatchObject({
+      target: { attemptId, target: 'selected-result' },
+      selectedEvidence: { kind: 'user-selected-file', selectionId },
+      utterance: { kind: 'app-authored-intent' },
+    });
+    expect(
+      JSON.stringify(t.requestCompanionGuidance.mock.calls[0]?.[0]),
+    ).not.toContain('renderer-authored file body');
+    expect(
+      JSON.stringify(t.requestCompanionGuidance.mock.calls[0]?.[0]),
+    ).not.toContain('must-not-be-copied');
+
+    await t.host.requestFromSession(
+      practicalInput({
+        requestedTarget: {
+          scope: 'applied-research',
+          surface: 'practical-work',
+          attemptId,
+          target: 'selected-result',
+          activity,
+        },
+        context: {
+          target: 'selected-result',
+          result: {
+            kind: 'trusted-selected-evidence',
+            reference: { kind: 'app-measured', captureId },
+            text: 'fake measured text',
+            provenanceId: 'also-not-copied',
+          },
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(t.requestCompanionGuidance.mock.calls[1]?.[0]).toMatchObject({
+      selectedEvidence: { kind: 'app-measured', captureId },
+    });
+    expect(
+      JSON.stringify(t.requestCompanionGuidance.mock.calls[1]?.[0]),
+    ).not.toContain('fake measured text');
+
+    await t.host.requestFromSession(
+      practicalInput({
+        requestedTarget: {
+          scope: 'applied-research',
+          surface: 'practical-work',
+          attemptId,
+          target: 'selected-result',
+          activity,
+        },
+        context: {
+          target: 'selected-result',
+          result: {
+            kind: 'user-reported-text',
+            text: 'The x-axis moved.',
+            version: { kind: 'saved', revision: 2 },
+          },
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(t.requestCompanionGuidance.mock.calls[2]?.[0]).toMatchObject({
+      selectedEvidence: { kind: 'none' },
+      utterance: {
+        kind: 'human',
+        persistence: 'saved',
+        savedRevision: 2,
+      },
+    });
+    expect(
+      t.requestCompanionGuidance.mock.calls[2]?.[0].utterance,
+    ).not.toMatchObject({
+      text: 'The x-axis moved.',
+    });
+
+    await t.host.requestFromSession(
+      practicalInput({
+        requestedTarget: {
+          scope: 'applied-research',
+          surface: 'practical-work',
+          attemptId,
+          target: 'reflection',
+          activity,
+        },
+        context: {
+          target: 'reflection',
+          authorKind: 'human',
+          text: 'Order changed the result.',
+          version: { kind: 'unsaved-draft', lastAcknowledgedRevision: 2 },
+        },
+      }),
+      new AbortController().signal,
+    );
+    expect(t.requestCompanionGuidance.mock.calls[3]?.[0]).toMatchObject({
+      selectedEvidence: { kind: 'none' },
+      utterance: {
+        kind: 'human',
+        persistence: 'unsaved-draft',
+        savedRevision: 2,
+      },
+    });
   });
 
   it('does not relabel tool-navigation as a paid AR53 request', async () => {

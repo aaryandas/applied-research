@@ -14,6 +14,7 @@ import type {
 } from '../contracts/companion-guidance';
 import type {
   LearnerContextItem,
+  SourceProvenanceKind,
   SourceRevisionInput,
 } from '../contracts/learning-api';
 import type {
@@ -22,6 +23,10 @@ import type {
   SourceVersion,
 } from '../contracts/learning-records';
 import type { PracticalAttemptRecord } from '../contracts/practical-records';
+import type {
+  PracticalDraft,
+  PracticalEvidenceReference,
+} from '../contracts/practical-work';
 
 export const APP_CONTEXT_SOURCE_ID = 'companion-app-context';
 export const LOCAL_PLAIN_CANONICALIZER = 'workspace-plain-v1';
@@ -74,7 +79,12 @@ export interface CompanionGuidanceReaders {
     attemptId: string,
     selectionId: string,
   ) => Promise<ImportedFileText | null>;
-  readonly lookupMeasuredCapture: (
+  /**
+   * Main-owned measured-capture read. Omit until AR56 supplies the real
+   * resolver; do not stub a fake capture. A provided reader that returns
+   * null means that capture is gone.
+   */
+  readonly lookupMeasuredCapture?: (
     projectId: string,
     attemptId: string,
     captureId: string,
@@ -121,14 +131,14 @@ function admitCanonicalizer(stored: string): string | null {
 }
 
 function httpsLocator(value: string | null): string | null {
-  if (
-    typeof value === 'string' &&
-    /^https:\/\//.test(value) &&
-    !value.includes('@')
-  ) {
+  if (typeof value !== 'string' || value.includes('@')) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password) return null;
     return value;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function appSource(
@@ -136,6 +146,7 @@ function appSource(
   title: string,
   canonicalText: string,
   acquiredAt: string,
+  provenanceKind: SourceProvenanceKind,
 ): SourceRevisionInput | null {
   if (
     canonicalText.length < 1 ||
@@ -152,7 +163,7 @@ function appSource(
     format: 'plain-text',
     canonicalizationVersion: LOCAL_PLAIN_CANONICALIZER,
     acquiredAt,
-    provenance: { kind: 'human-imported', locator: null },
+    provenance: { kind: provenanceKind, locator: null },
   };
 }
 
@@ -347,6 +358,7 @@ async function resolveWorkspace(
       entry.title || 'Saved question',
       entry.body,
       acquiredAt,
+      'human-imported',
     );
     if (!source) {
       return failed(
@@ -428,6 +440,7 @@ async function resolveWorkspace(
       record.current.title || 'Canvas record',
       record.current.body,
       acquiredAt,
+      record.current.authorKind === 'human' ? 'human-imported' : 'generated',
     );
     if (!source) {
       return failed(
@@ -468,6 +481,7 @@ async function resolveWorkspace(
       placedPath.current.title,
       text.length > 0 ? text : placedPath.current.title,
       acquiredAt,
+      'generated',
     );
     if (!source) {
       return failed(
@@ -494,6 +508,59 @@ async function resolveWorkspace(
     'stale',
     request.requestId,
     'The selected canvas record is no longer available.',
+  );
+}
+
+function sameOwnedEvidence(
+  left: PracticalEvidenceReference | null,
+  right: PracticalEvidenceReference | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (left.kind === 'app-measured' && right.kind === 'app-measured') {
+    return left.captureId === right.captureId;
+  }
+  return (
+    left.kind === 'user-selected-file' &&
+    right.kind === 'user-selected-file' &&
+    left.selectionId === right.selectionId
+  );
+}
+
+function sameOwnedDraft(left: PracticalDraft, right: PracticalDraft): boolean {
+  return (
+    left.prediction === right.prediction &&
+    left.attempt === right.attempt &&
+    left.reportedResult.text === right.reportedResult.text &&
+    left.reflection.text === right.reflection.text &&
+    sameOwnedEvidence(left.selectedEvidence, right.selectedEvidence)
+  );
+}
+
+function ownedHumanPersistence(
+  attempt: PracticalAttemptRecord,
+): 'saved-human' | 'human-draft' {
+  const committed = attempt.revisions.find(
+    (item) => item.revision === attempt.currentRevision,
+  );
+  if (!committed) return 'human-draft';
+  return sameOwnedDraft(committed.draft, attempt.draft)
+    ? 'saved-human'
+    : 'human-draft';
+}
+
+function claimedEvidenceMatchesOwned(
+  claimed: CompanionEvidenceReference,
+  owned: PracticalEvidenceReference,
+): boolean {
+  if (claimed.kind === 'none') return true;
+  if (owned.kind === 'user-selected-file') {
+    return (
+      claimed.kind === 'user-selected-file' &&
+      claimed.selectionId === owned.selectionId
+    );
+  }
+  return (
+    claimed.kind === 'app-measured' && claimed.captureId === owned.captureId
   );
 }
 
@@ -549,6 +616,7 @@ async function resolvePractical(
       attempt.activity.title,
       canonicalText,
       acquiredAt,
+      'generated',
     );
     if (!source) {
       return failed(
@@ -592,6 +660,7 @@ async function resolvePractical(
       session.title,
       canonicalText,
       acquiredAt,
+      'generated',
     );
     if (!source) {
       return failed(
@@ -615,17 +684,14 @@ async function resolvePractical(
     };
   }
   if (target.target === 'reflection') {
-    const persistence =
-      request.utterance.kind === 'human' &&
-      request.utterance.persistence === 'saved'
-        ? 'saved-human'
-        : 'human-draft';
+    const persistence = ownedHumanPersistence(attempt);
     const text = draft.reflection.text;
     const source = appSource(
       request.requestId,
       'Human reflection',
       text.length > 0 ? text : 'No reflection text is saved yet.',
       acquiredAt,
+      'human-imported',
     );
     if (!source) {
       return failed(
@@ -667,64 +733,80 @@ async function resolveSelectedResult(
   readers: CompanionGuidanceReaders,
   acquiredAt: string,
 ): Promise<CompanionResolveResult> {
-  const evidence: CompanionEvidenceReference = request.selectedEvidence;
-  if (evidence.kind === 'user-selected-file') {
-    const file = await readers.readImportedFile(
-      target.projectId,
-      target.attemptId,
-      evidence.selectionId,
-    );
-    if (!file) {
+  const owned = attempt.draft.selectedEvidence;
+  const claimed = request.selectedEvidence;
+  if (owned) {
+    if (!claimedEvidenceMatchesOwned(claimed, owned)) {
       return failed(
         'stale',
         request.requestId,
-        'The selected imported file is no longer available.',
+        'The selected evidence no longer matches the owned attempt.',
       );
     }
-    const source = appSource(
-      request.requestId,
-      file.displayName,
-      file.text,
-      acquiredAt,
-    );
-    if (!source) {
-      return failed(
-        'unsupported',
+    if (owned.kind === 'user-selected-file') {
+      const file = await readers.readImportedFile(
+        target.projectId,
+        target.attemptId,
+        owned.selectionId,
+      );
+      if (!file) {
+        return failed(
+          'stale',
+          request.requestId,
+          'The selected imported file is no longer available.',
+        );
+      }
+      const source = appSource(
         request.requestId,
-        'This imported file cannot be used as text evidence.',
+        file.displayName,
+        file.text,
+        acquiredAt,
+        'human-imported',
+      );
+      if (!source) {
+        return failed(
+          'unsupported',
+          request.requestId,
+          'This imported file cannot be used as text evidence.',
+        );
+      }
+      return {
+        ok: true,
+        value: {
+          identityKey: identityKey(target),
+          question: questionText(request),
+          grounding: 'app-context',
+          source,
+          excerpt: null,
+          learnerContext: learnerItems(request, [
+            {
+              id: 'imported-result-01',
+              kind: 'reported-result',
+              text: file.text.slice(0, 4_000),
+            },
+          ]),
+          attribution: 'imported-file',
+          attributionSummary: `Imported result · ${file.displayName}`,
+        },
+      };
+    }
+    if (!readers.lookupMeasuredCapture) {
+      return failed(
+        'unavailable',
+        request.requestId,
+        'App-measured capture lookup is not available yet.',
       );
     }
-    return {
-      ok: true,
-      value: {
-        identityKey: identityKey(target),
-        question: questionText(request),
-        grounding: 'app-context',
-        source,
-        excerpt: null,
-        learnerContext: learnerItems(request, [
-          {
-            id: 'imported-result-01',
-            kind: 'reported-result',
-            text: file.text.slice(0, 4_000),
-          },
-        ]),
-        attribution: 'imported-file',
-        attributionSummary: `Imported result · ${file.displayName}`,
-      },
-    };
-  }
-  if (evidence.kind === 'app-measured') {
     const capture = await readers.lookupMeasuredCapture(
       target.projectId,
       target.attemptId,
-      evidence.captureId,
+      owned.captureId,
     );
     if (!capture) {
       return failed(
-        'invalid-request',
+        'stale',
         request.requestId,
-        'Measured evidence must come from a main-owned capture.',
+        'The selected measured capture is no longer available.',
       );
     }
     const source = appSource(
@@ -732,6 +814,7 @@ async function resolveSelectedResult(
       'App-measured result',
       capture.text,
       capture.capturedAt,
+      'generated',
     );
     if (!source) {
       return failed(
@@ -760,17 +843,21 @@ async function resolveSelectedResult(
       },
     };
   }
+  if (claimed.kind !== 'none') {
+    return failed(
+      'stale',
+      request.requestId,
+      'The selected evidence is no longer available.',
+    );
+  }
   const reported = attempt.draft.reportedResult.text;
-  const persistence =
-    request.utterance.kind === 'human' &&
-    request.utterance.persistence === 'saved'
-      ? 'saved-human'
-      : 'human-draft';
+  const persistence = ownedHumanPersistence(attempt);
   const source = appSource(
     request.requestId,
     'Human-reported result',
     reported.length > 0 ? reported : 'No result text is saved yet.',
     acquiredAt,
+    'human-imported',
   );
   if (!source) {
     return failed(
