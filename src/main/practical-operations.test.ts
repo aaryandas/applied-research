@@ -381,3 +381,74 @@ it('settles native export cancel, rejected dialog and the fixed timeout without 
   await vi.advanceTimersByTimeAsync(0);
   expect(existsSync(late)).toBe(false);
 });
+
+it('records, previews, and cancels native selection through the selected live workspace', async () => {
+  const { store, activity, attemptId, directory } = openStore();
+  const picked = join(directory, 'picked.txt');
+  writeFileSync(picked, 'ops-preview=12\n');
+  const ops = new PracticalDesktopOperations({
+    store,
+    isSelectedWorkspace: (projectId) => projectId === activity.projectId,
+    windowAlive: () => true,
+    chooseOpenFile: async () => picked,
+    chooseSaveFile: async () => join(directory, 'copy.txt'),
+  });
+  const scope = { activity, attemptId };
+  expect(
+    ops.recordPracticalResult({
+      activity,
+      attemptId,
+      expectedRevision: 0,
+      draft: {
+        prediction: 'The output should change.',
+        attempt: 'Changed one input.',
+        reportedResult: { kind: 'user-reported-text', text: '12' },
+        selectedEvidence: null,
+        reflection: { authorKind: 'human', text: 'It matched.' },
+      },
+    }),
+  ).toMatchObject({
+    status: 'committed',
+    acknowledgement: { revision: 1, changed: true },
+  });
+  const imported = await ops.selectPracticalFile(scope);
+  expect(imported.status).toBe('imported');
+  if (imported.status !== 'imported') throw new Error('expected import');
+  expect(
+    ops.previewPracticalFile({
+      ...scope,
+      selectionId: imported.file.selectionId,
+    }),
+  ).toMatchObject({
+    status: 'ready',
+    text: 'ops-preview=12\n',
+    completeness: 'complete',
+  });
+  const cancelled = new PracticalDesktopOperations({
+    store,
+    isSelectedWorkspace: (projectId) => projectId === activity.projectId,
+    windowAlive: () => true,
+    chooseOpenFile: async () => null,
+    chooseSaveFile: async () => null,
+  });
+  expect(await cancelled.selectPracticalFile(scope)).toEqual({
+    status: 'cancelled',
+  });
+
+  let finish!: (value: string | null) => void;
+  const pendingOps = new PracticalDesktopOperations({
+    store,
+    isSelectedWorkspace: (projectId) => projectId === activity.projectId,
+    windowAlive: () => true,
+    chooseOpenFile: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    chooseSaveFile: async () => null,
+  });
+  const pending = pendingOps.selectPracticalFile(scope);
+  pendingOps.cancelPracticalFileSelection();
+  expect(await pending).toEqual({ status: 'cancelled' });
+  finish(picked);
+  await new Promise((resolve) => setImmediate(resolve));
+});
