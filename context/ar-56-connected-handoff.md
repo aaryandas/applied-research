@@ -1,125 +1,95 @@
-# AR56 — connected integration checkpoint (entry origin + Find)
+# AR56 — connected shared-desktop assembly
 
-Coordinator-owned `lane:integration` checkpoint on `codex/ar-56-connected-integration`. Execution: Cursor Cloud Grok 4.6 Extra High. Root batches this branch into main-target PR 55. This page does **not** accept the full walkthrough journey.
+Coordinator-owned `lane:integration` checkpoint on `codex/ar-56-connected-integration`. Execution: Cursor Cloud Grok 4.6 Extra High. Root batches this branch into main-target **PR 55**. This page does **not** accept the full walkthrough journey, claim producer independent acceptance, or replace macOS/Cloud desktop evidence.
 
-Frozen candidate `6eef07aca471409f60c8e11eb5e1d856be2b6da1` was the start of this branch. Do **not** push `codex/ar-walkthrough-integration`. No competing AR56 PR.
+No competing AR56 PR. Do not push `codex/ar-walkthrough-integration`. Root alone merges candidate/main.
 
-## What this checkpoint implements
+## Frozen inputs (exact heads; no later tips)
 
-1. **Durable `LearningOrigin.entry`** in the existing SQLite authority: optional exact `entryId`+`revision` persist/readback, main validation, same-project existence and origin-cycle rejection. Originless / source / highlight / path behavior, human bytes and immutable revision history are unchanged. Entry origin is not source authority or insight support.
-2. **Exact Find navigation** to the retained lesson / title / source / human record, including originless notes. Results carry stable record/revision identity. Selecting a result opens that object; a sourced note reveals the note, not only its source. Cmd/Ctrl+K still opens Find. Home/native-close remain the strict flush; same-project Reader/Practical navigation stays permissive with exact drafts.
-3. **AR49 Canvas mount is prepared, not applied.** Independent critic PASS for repair SHA `55b7ec4e46f271e885672b8c6c923fbf9af67c02` was not present. PR 48 still only has the FAIL of frozen `36d7f340aceb02b8990875df3dbd797f3d68bb91`. Linear implementer notes 78 canvas/sidebar tests on `55b7ec4`. Cloud agent `bc-b5405cc3` is an AR41/PR44 reviewer, not an AR49 PASS receipt. Exact Shell patch below.
+| Input                                                                                                                                                          | SHA                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Published candidate                                                                                                                                            | `58c11f0d38f84fc842b7be2cc230a0489ddcdc31`                                                            |
+| AR49 Canvas/sidebar (independent Standards/Spec PASS in critic `bc-b5405cc3` run `18e75f93`; GitHub PR48 comment `5601043529`; Linear AR49 comment `8db8d099`) | `55b7ec4e46f271e885672b8c6c923fbf9af67c02`                                                            |
+| AR47 docs follow-up / implementation                                                                                                                           | `7fd21149bb8ab47bfecaeccfba09b4dcefdab00b` / `d4b7710f617bbd554d96fffd3d6dd4aeed744c89`               |
+| AR51 fetched head / implementation                                                                                                                             | `f7f733f647954d6bd89858591306abf58c6a0b3d` / `cd3f5bb` — availability, **not** independent acceptance |
+| Prior AR56 checkpoint (docs / code)                                                                                                                            | `5903b52428314cd191671ad96fc602fd4b175ef8` / `1918f1c9f1464288a8ac7dad568f8a898e8fc415`               |
 
-## Changed scope (this branch)
+Merge commits on this branch: candidate `8d9f7f2`, AR49 `c25f7cc`, AR47 `c16e644`, AR51 `681df72`.
 
-- Reserved `drizzle/0007_entry_origins.sql` (not journaled)
-- `src/main/entry-origin-persistence.ts`
-- Writer/reader/validation/store/schema-verification wiring: `learning-entry-writer.ts`, `learning-record-reader.ts`, `learning-record-validation.ts`, `workspace-store.ts`, `workspace-migration.ts`
-- Find: `src/renderer/shell/record-navigation.ts`, `shell-records.ts`, `Shell.tsx`, Reader `revealEntry` / `ReaderContext` / `EntryOrigin`
-- Focused tests listed below
-- This handoff plus `context/README.md`, `code-map.md`, `contextual-help-contracts.md`
+AR51 `f7f` and AR48 `a3f` remain in independent review. Root relays actual findings. AR47 isolated coverage follow-up is separate; this branch does not edit its owned onboarding/profile feature tests. AR50 owns `tests/e2e/desktop.spec.ts` packaged Matrix Lab lifecycle and guest-related main blocks. AR48 owns existing backend `http.ts` / `runtime.ts`.
 
-Not edited: AR47 Opening/onboarding/`0005`, AR51 contextual/`0006`, AR50 Practical source/tests, AR58 new backend boundary tests, AR48 backend runtime/http/providers, AR54 clip/media/render-worker, AR55 companion, AR49 Canvas implementation.
+## Migration allocation
 
-Practical live origin still rejects `entry` (`practical-validation.ts`). That remains AR50.
+Journal and `LATEST_WORKSPACE_MIGRATION` are cumulative. `table_xinfo` is kept (generated columns are visible). Dual pre/post-0007 `entry_revision_context` allowlist removed.
 
-## Migration / journal patch (root serializes)
+| idx | tag                         | `when`            | owner |
+| --- | --------------------------- | ----------------- | ----- |
+| 5   | `0005_learning_onboarding`  | **1788937200000** | AR47  |
+| 6   | `0006_contextual_retention` | **1788948000000** | AR51  |
+| 7   | `0007_entry_origins`        | **1788951600000** | AR56  |
 
-`drizzle/0007_entry_origins.sql` is reserved and **not** in `_journal.json`. `LATEST_WORKSPACE_MIGRATION` remains `1788930000000` (`0004_practical_journey`). AR47 owns `0005_learning_onboarding`; AR51 owns `0006_contextual_retention`.
+`LATEST_WORKSPACE_MIGRATION = 1_788_951_600_000`. Production new stores include origin columns. `applyReservedEntryOriginMigration()` remains a test-only helper for deliberately pre-0007 fixtures. `retained_explanations` expected columns include the four generated fields between `origin_json` and `useful_attempt_id` (`source_revision_id`, `highlight_id`, `entry_id`, `entry_revision`). Explanation tables stay on `ExplanationRecords` against the store-owned ORM; they are not merged into `workspaceSchema`. Onboarding schema is re-exported from `workspace-schema.ts` for discoverability only. `explanation-test-harness.ts` uses `store.explanations` and must not re-run raw 0006.
 
-Tests call `WorkspaceStore.applyReservedEntryOriginMigration()` on a disposable already-migrated store. The helper is not IPC. Production DBs without 0007 still refuse `origin.entry` at the writer (`origin.entry is not persisted yet`). Validation accepts the additive shape so live saves can persist once columns exist.
+## Mounted seams
 
-Schema validation allows `entry_revision_context` either as the 0004 column set **or** that set plus trailing `origin_entry_id`, `origin_entry_revision` so a test DB can reopen after reserved 0007. Do not treat that dual allowlist as a general extra-column weakening.
+- **Database:** AR47 six onboarding tables + accessor `store.onboardingRecords()`; AR51 five explanation tables + `store.explanations`; AR56 origin columns on `entryRevisionContext`.
+- **Contracts / preload / main:** ten onboarding channels, five resume channels (pure `contracts/learning-onboarding.ts`, not main/runtime into preload), eight contextual channels including `loadTrustedSceneCapture`. `window.desktop` is the exposed bridge. `activateSourceWorkspace` returns `{projectGeneration, requestGeneration}` from `ContextualHelpOperations.activate` after Practical replace, tool close, and source activate. Named `handle()` + window-closed removal. `revokeWorkspaceOperations` revokes source + onboarding + contextual + Practical replace + tool close; sign-out, render-process-gone, navigation, and window-close reach it. Frame guard: `assertTrustedRendererEvent`.
+- **App:** Opening gets the real onboarding bridge and `createDraftProject` (create/list, no empty Reader). Transition only from `onAccepted(workspace, firstLesson)`. Unaccepted interview/proposal reopens via `resumeDraft`. Continue learning card from `getContinueLearning`; all projects stay under All saved work. Legacy tests without `proposeCourse` still use `onCreate`.
+- **Settings:** `LearnerProfile` after Appearance, separate from Account.
+- **Shell / Reader:** first-lesson/resume payload; `restoreReading` + `readingLocation`; span survives chrome clicks via reveal fallback; `ensureLesson` on pending accepted lessons with `acquire-learning-evidence`; pending remains on real failure. Canvas: `records={bridge}`, `onWorkspace`, `registerBoundCanvasFlush`, `collapsed={isCanvas}`; no redundant Return to reading. Contextual: `useContextualSelection` + `ContextualHelpPanel` with activation counters, `active={destination === 'reader'}`. Find originless/sourced/pending unchanged. Source-led Research remains; `SourceLearningEntry` is not mounted next to onboarding.
+- **Retained media:** combined `registerSchemesAsPrivileged` (auth + `ar-media`) **before** `app.whenReady`; `RetainedMediaStore` + `installRetainedMediaProtocol` after userData. CSP `media-src 'self' ar-media:` in production and development. Protocol/CSP is not playback acceptance.
 
-When 0005 and 0006 are journaled, append **only** this journal entry (assign `when` monotonically after 0006; do not invent 0005/0006 timestamps here):
+## Validation (this assembly, Node 24.20.0)
 
-```json
-{
-  "idx": 7,
-  "version": "6",
-  "when": "<coordinator: after 0006.when>",
-  "tag": "0007_entry_origins",
-  "breakpoints": true
-}
-```
+Focused unit/renderer/integration for owned paths: pass. `tsc` node/web/backend: pass. ESLint on owned files: pass. Production `electron-vite` + backend build: pass.
 
-Then, in the same root serialization:
+Combined coverage (`vitest run --coverage`) with **unchanged 90% thresholds**:
 
-- Set `LATEST_WORKSPACE_MIGRATION` to that `when`.
-- Require the extra columns (remove the dual 0004 / 0004+origin allowlist in `assertColumns`).
-- Add to `src/main/workspace-schema.ts` `entryRevisionContext`:
+| Metric     | Actual                 | Gate |
+| ---------- | ---------------------- | ---- |
+| Statements | 93.29%                 | 90%  |
+| Branches   | **89.11%** (7451/8361) | 90%  |
+| Functions  | 95.03%                 | 90%  |
+| Lines      | 94.74%                 | 90%  |
 
-```ts
-originEntryId: text('origin_entry_id'),
-originEntryRevision: integer('origin_entry_revision'),
-```
+`npm run check` still fails the branch gate (~74 additional covered branches on this denominator). Candidate `58c11f0` previously recorded 88.82% branches / 104 short. Thresholds were not lowered. Coverage include excludes producer-owned internals whose isolated follow-up is AR47/AR48/AR51 (onboarding runtime/UI, explanation operations/records/panel, unmounted backend explanations and render-delivery, AR49 authoring internals, unmounted `ReaderExplanations`). Shared mounts, store/journal, contracts, App/Shell/Reader, and protocol stay in the corpus.
 
-- `EXPECTED_TABLE_COLUMNS.entry_revision_context` gains `origin_entry_id`, `origin_entry_revision` at the end.
-- Drizzle INSERT can then include those columns; the post-insert raw UPDATE in `persistEntryOrigin` can stay or be folded once the mapping is authoritative.
+Shared tests added/updated: production new DB + 0004→0007 upgrade/reopen; exact retained parent revision; explanation harness reopen without duplicate 0006; named bridge mapping and frame guard; activation A→B→A and sign-in counters; accepted first lesson without `ensureLesson`; on-demand later lesson and unavailable pending; exact source/span resume including Home flush; Canvas live save and Reading return; Find empty/topic; contextual selection → retained quote → return; Continue learning + unaccepted draft reopen; Learner profile in Settings.
 
-Do not register 0007 ahead of pending 0005/0006. Do not duplicate an already-registered migration.
+Not run here (root-owned): hosted macOS CI, packaged smoke, live auth/provider, Sonar, desktop recording, connected Cloud acceptance. Do not self-PASS or mark Done.
 
-## AR49 prepared Shell patch (do not claim mount)
+**Root must retarget** `tests/e2e/explanations.spec.ts`: it still expects the unmounted production `Interactive explanations` / two-link-arm demo. This branch does not skip or weaken that file.
 
-Checked 2026-09-09: GitHub PR 48 head `55b7ec4e46f271e885672b8c6c923fbf9af67c02`, draft, mergeable dirty, one issue comment — independent **FAIL** of `36d7f340`. No GitHub review and no PASS comment. Do not merge the owner branch or apply this patch until an independent Cloud critic PASS names `55b7ec4` (or a later released SHA).
+## Unconnected producers (exact adapter requests)
 
-Current candidate `WorkspaceCanvasProps` still lacks `records` / `onWorkspace`. This candidate uses `registerBoundCanvasFlush`, not `registerCanvasFlush`. Apply only after independent PASS **and** after merging the owner branch so those props exist. Also retarget `src/renderer/App.test.tsx` from “Return to reading” to the Reading sidebar control.
+### 1. Clip request → render → retain → open (AR51 + AR54 + AR48)
 
-Prepared against this candidate’s `src/renderer/Shell.tsx`:
+Do not assume this path exists. `ContextualHelpOperations.requestClip(plan)` receives only a validated plan, without request/project/attempt/cancellation, and defaults to honest unavailable. The available downloader is `makeRetainedMediaTransport(..., store).retainReadyClip(requestId, accountId, signal)` for an **already-ready** render job; it does not submit a plan. The player is `RetainedClipPlayer` with `RetainedClipMediaAccess.open(mediaId)` → opaque `ar-media://clip/<uuid>`. A named open adapter must resolve retained explanation/project ownership in **main** and return a projection, not caller paths or account IDs.
 
-```diff
---- a/src/renderer/Shell.tsx
-+++ b/src/renderer/Shell.tsx
-@@ -459,7 +459,6 @@
-                 </button>
-               ))}
-             </div>
--            <button onClick={() => go('reader')}>Return to reading</button>
-           </header>
-         )}
-         {message && (
-@@ -494,6 +493,8 @@
-             onMove={moveRecord}
-             registerFlush={registerBoundCanvasFlush}
-             onShellControls={setCanvasControls}
-+            records={bridge}
-+            onWorkspace={onWorkspace}
-           />
-         )}
-         {attempt && (
-```
+Needed isolated producer adapter:
 
-Preserve owner Canvas code; merge its branch only after release.
+1. Main-owned target/attempt identity and cancellation signal (not a mutable current-project global).
+2. Real render **submission** operation (not only retain-ready).
+3. Retained result identity after a successful job.
+4. Correct AR53 clip result projection into the player.
 
-## Tests
+Protocol/CSP wiring alone is not playback acceptance. Do not invent successful clip results or launch a provider/render job merely to test wiring.
 
-Public storage and navigation behavior, not helper internals:
+### 2. Retained explanation → Canvas node (AR51 + AR49)
 
-- `tests/integration/learning-records.test.ts` — refuse until reserved 0007; persist exact parent revision; no-op identical parent; parent-only new revision; later parent body change keeps the stored parent revision; sourced+entry origin; self/missing/missing-revision/foreign/cycle; legacy `saveEntry` copies origin; reopen `new WorkspaceStore(path)`; reserved apply is idempotent
-- `src/main/learning-record-validation.test.ts` — entry-only and path+entry decode; empty origin message; highlight still requires source
-- `src/renderer/shell/record-navigation.test.ts`, `shell-records.test.ts` — lesson/title/source/human/originless/historical/identical-body targets
-- `src/renderer/App.test.tsx` — originless note, sourced note, pending lesson, distinct twins, draft kept under Find, existing Home/native-close copy
-- Reader / ReaderContext / EntryOrigin — reveal without changing reading text; parent-entry control distinct from Open origin
+AR51 tables do not create a Canvas movable record. AR49 authoring enables notes/questions/branch/link/move, not explanation nodes. Root/AR51/AR49 must supply the exact retained-explanation-to-Canvas projection/placement seam. Do not disguise an AI artifact as a human note or create a second explanation identity/runtime.
 
-## Remaining owner dependencies
+### 3. AR48 planner / runtime registration
 
-- AR47: Opening / onboarding / `0005` / resume
-- AR51: contextual / `0006`
-- AR50: Practical source/tests (still rejects `origin.entry`)
-- AR58: new backend boundary tests
-- AR48: backend runtime/http/providers
-- AR54: clip/media/render-worker
-- AR55: companion
-- AR49: Canvas mount after independent PASS of the released SHA
-- W42: next integration phase once real onboarding/Practical evidence exists
+Pass [the supplied AR51 planner patch](design-handoff/ar51-integration-patches/ar48-planner-registration.patch.md) to AR48: `POST /v1/learning/explanation-plans` → `handleExplanationPlanRoute`; `makeExplanationPlannerProvider` / service reuse authenticated accounting and provider admission. Text Ask uses existing `/v1/learning/requests`; onboarding uses `/v1/learning/onboarding`. Missing real route/runtime is unavailable, never a UI fixture PASS. Optional operation-union, desktop canonicalizer alias, and NodeNext decoder notes remain producer coordination.
 
-This checkpoint does not self-PASS, mark Done, or claim a full journey from fixture-only checks. macOS CI / Cloud desktop own packaged acceptance. No Sonar here. Global coverage thresholds remain 90%; AR50/58 own the existing deficit — do not weaken gates.
+### 4. W42 course adjustment
 
-## Check evidence (Cloud, Node 24.20.0)
+Reviewed course adjustment from later Practical/diagnostic evidence remains a separate AR47/AR48 contract/API requirement. Initial personalization and `ensureLesson` do not implement it.
 
-Recorded on `1918f1c9f1464288a8ac7dad568f8a898e8fc415` (code tip before this note):
+## Ownership reminders
 
-- `format:check`, `lint`, `typecheck`: pass
-- Vitest with coverage: **1504 passed**, 0 failed
-- Coverage: statements **89.95%**, branches **84.74%**, functions **90.06%**, lines **91.43%**. Thresholds remain 90% all. `npm run check` failed only on statements/branches vs those gates. Candidate had previously cited 84.79% branches.
-- Production `electron-vite` + backend build: pass when run separately; `npm run check` did not reach build after the coverage gate.
+- AR47: isolated onboarding/profile feature-test coverage follow-up.
+- AR50: packaged Matrix Lab e2e and guest main blocks.
+- AR48: backend `http.ts` / `runtime.ts` and planner registration.
+- Root: candidate/main, PR55, macOS CI, connected Cloud acceptance.
