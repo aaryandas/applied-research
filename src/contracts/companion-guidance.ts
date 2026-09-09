@@ -14,9 +14,10 @@ import {
   type ContractDecode,
 } from './contextual-contract-guards';
 import {
-  decodeEntryRevisionReference,
-  type EntryRevisionReference,
-} from './learning-records';
+  decodeHighlightLocator,
+  decodeSavedQuestionLocator,
+} from './contextual-origin-locators';
+import type { EntryRevisionReference } from './learning-records';
 import type { AiProvenance } from './learning-api';
 
 export const COMPANION_GUIDANCE_CONTRACT_VERSION = '2026-09-09';
@@ -235,34 +236,9 @@ function decodeWorkspaceFocus(
 > {
   if (!isContractRecord(value)) return failed('shape');
   if (value.kind === 'selected-source-highlight') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'sourceRevisionId',
-      'highlightId',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      !isContractUuid(decoded.value.sourceRevisionId) ||
-      !isContractUuid(decoded.value.highlightId)
-    ) {
-      return failed('identity');
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'selected-source-highlight',
-        sourceRevisionId: decoded.value.sourceRevisionId,
-        highlightId: decoded.value.highlightId,
-      },
-    };
+    return decodeHighlightLocator(value, 'selected-source-highlight');
   }
-  if (value.kind === 'saved-question') {
-    const decoded = decodeExactRecord(value, ['kind', 'entry']);
-    if (!decoded.ok) return decoded;
-    const entry = decodeEntryRevisionReference(decoded.value.entry);
-    if (!entry.ok) return entry;
-    return { ok: true, value: { kind: 'saved-question', entry: entry.value } };
-  }
+  if (value.kind === 'saved-question') return decodeSavedQuestionLocator(value);
   if (value.kind === 'selected-graph-record') {
     const decoded = decodeExactRecord(value, ['kind', 'recordId']);
     if (!decoded.ok) return decoded;
@@ -287,78 +263,112 @@ function decodeTarget(value: unknown): ContractDecode<CompanionSelectedTarget> {
   return failed('unsupported');
 }
 
-function decodeUtterance(
-  value: unknown,
-): ContractDecode<CompanionHumanUtterance> {
-  if (!isContractRecord(value)) return failed('shape');
-  if (value.kind === 'none') {
-    const decoded = decodeExactRecord(value, ['kind']);
-    if (!decoded.ok) return decoded;
-    return { ok: true, value: { kind: 'none' } };
-  }
-  if (value.kind === 'human') {
-    const decoded = decodeExactRecord(value, [
-      'kind',
-      'text',
-      'persistence',
-      'savedRevision',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (
-      !isBoundedRemoteText(decoded.value.text, CONTEXTUAL_HELP_QUESTION_LIMIT)
-    ) {
-      return failed('bounds');
-    }
-    if (
-      decoded.value.persistence !== 'unsaved-draft' &&
-      decoded.value.persistence !== 'saved'
-    ) {
-      return failed('unsupported');
-    }
-    const savedRevision = decoded.value.savedRevision;
-    if (decoded.value.persistence === 'saved') {
-      if (!isPositiveRevision(savedRevision)) return failed('revision');
-      return {
-        ok: true,
-        value: {
-          kind: 'human',
-          text: decoded.value.text,
-          persistence: 'saved',
-          savedRevision,
-        },
-      };
-    }
-    if (savedRevision === null) {
-      return {
-        ok: true,
-        value: {
-          kind: 'human',
-          text: decoded.value.text,
-          persistence: 'unsaved-draft',
-          savedRevision: null,
-        },
-      };
-    }
-    if (!isContractGeneration(savedRevision)) return failed('revision');
+function decodeNoneUtterance(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<CompanionHumanUtterance, { kind: 'none' }>> {
+  const decoded = decodeExactRecord(value, ['kind']);
+  if (!decoded.ok) return decoded;
+  return { ok: true, value: { kind: 'none' } };
+}
+
+function decodeSavedHumanUtterance(
+  text: string,
+  savedRevision: unknown,
+): ContractDecode<Extract<CompanionHumanUtterance, { persistence: 'saved' }>> {
+  if (!isPositiveRevision(savedRevision)) return failed('revision');
+  return {
+    ok: true,
+    value: {
+      kind: 'human',
+      text,
+      persistence: 'saved',
+      savedRevision,
+    },
+  };
+}
+
+function decodeDraftHumanUtterance(
+  text: string,
+  savedRevision: unknown,
+): ContractDecode<
+  Extract<CompanionHumanUtterance, { persistence: 'unsaved-draft' }>
+> {
+  if (savedRevision === null) {
     return {
       ok: true,
       value: {
         kind: 'human',
-        text: decoded.value.text,
+        text,
         persistence: 'unsaved-draft',
-        savedRevision,
+        savedRevision: null,
       },
     };
   }
+  if (!isContractGeneration(savedRevision)) return failed('revision');
+  return {
+    ok: true,
+    value: {
+      kind: 'human',
+      text,
+      persistence: 'unsaved-draft',
+      savedRevision,
+    },
+  };
+}
+
+function decodeHumanUtterance(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<CompanionHumanUtterance, { kind: 'human' }>> {
+  const decoded = decodeExactRecord(value, [
+    'kind',
+    'text',
+    'persistence',
+    'savedRevision',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (
+    !isBoundedRemoteText(decoded.value.text, CONTEXTUAL_HELP_QUESTION_LIMIT)
+  ) {
+    return failed('bounds');
+  }
+  if (decoded.value.persistence === 'saved') {
+    return decodeSavedHumanUtterance(
+      decoded.value.text,
+      decoded.value.savedRevision,
+    );
+  }
+  if (decoded.value.persistence === 'unsaved-draft') {
+    return decodeDraftHumanUtterance(
+      decoded.value.text,
+      decoded.value.savedRevision,
+    );
+  }
+  return failed('unsupported');
+}
+
+function decodeAppAuthoredUtterance(
+  value: Record<string, unknown>,
+): ContractDecode<
+  Extract<CompanionHumanUtterance, { kind: 'app-authored-intent' }>
+> {
+  const decoded = decodeExactRecord(value, ['kind', 'intent']);
+  if (!decoded.ok) return decoded;
+  if (!includes(APP_INTENTS, decoded.value.intent))
+    return failed('unsupported');
+  return {
+    ok: true,
+    value: { kind: 'app-authored-intent', intent: decoded.value.intent },
+  };
+}
+
+function decodeUtterance(
+  value: unknown,
+): ContractDecode<CompanionHumanUtterance> {
+  if (!isContractRecord(value)) return failed('shape');
+  if (value.kind === 'none') return decodeNoneUtterance(value);
+  if (value.kind === 'human') return decodeHumanUtterance(value);
   if (value.kind === 'app-authored-intent') {
-    const decoded = decodeExactRecord(value, ['kind', 'intent']);
-    if (!decoded.ok) return decoded;
-    if (!includes(APP_INTENTS, decoded.value.intent))
-      return failed('unsupported');
-    return {
-      ok: true,
-      value: { kind: 'app-authored-intent', intent: decoded.value.intent },
-    };
+    return decodeAppAuthoredUtterance(value);
   }
   return failed('shape');
 }
@@ -493,39 +503,41 @@ export function decodeCompanionGuidanceCancelRequest(
   };
 }
 
-export function decodeCompanionGuidanceReply(
-  value: unknown,
-): ContractDecode<CompanionGuidanceReply> {
-  if (!isContractRecord(value) || typeof value.outcome !== 'string') {
-    return failed('shape');
+function decodeCompanionSuccessReply(
+  value: Record<string, unknown>,
+): ContractDecode<Extract<CompanionGuidanceReply, { outcome: 'success' }>> {
+  const decoded = decodeExactRecord(value, [
+    'outcome',
+    'requestId',
+    'authorKind',
+    'text',
+    'provenance',
+  ]);
+  if (!decoded.ok) return decoded;
+  if (!isContractUuid(decoded.value.requestId)) return failed('identity');
+  if (decoded.value.authorKind !== 'ai') return failed('provenance');
+  if (!isBoundedRemoteText(decoded.value.text, COMPANION_ANSWER_LIMIT)) {
+    return failed('bounds');
   }
-  if (value.outcome === 'success') {
-    const decoded = decodeExactRecord(value, [
-      'outcome',
-      'requestId',
-      'authorKind',
-      'text',
-      'provenance',
-    ]);
-    if (!decoded.ok) return decoded;
-    if (!isContractUuid(decoded.value.requestId)) return failed('identity');
-    if (decoded.value.authorKind !== 'ai') return failed('provenance');
-    if (!isBoundedRemoteText(decoded.value.text, COMPANION_ANSWER_LIMIT)) {
-      return failed('bounds');
-    }
-    const provenance = decodeAiProvenance(decoded.value.provenance);
-    if (!provenance.ok) return provenance;
-    return {
-      ok: true,
-      value: {
-        outcome: 'success',
-        requestId: decoded.value.requestId,
-        authorKind: 'ai',
-        text: decoded.value.text,
-        provenance: provenance.value,
-      },
-    };
-  }
+  const provenance = decodeAiProvenance(decoded.value.provenance);
+  if (!provenance.ok) return provenance;
+  return {
+    ok: true,
+    value: {
+      outcome: 'success',
+      requestId: decoded.value.requestId,
+      authorKind: 'ai',
+      text: decoded.value.text,
+      provenance: provenance.value,
+    },
+  };
+}
+
+function decodeCompanionFailureReply(
+  value: Record<string, unknown>,
+): ContractDecode<
+  Extract<CompanionGuidanceReply, { outcome: CompanionGuidanceFailureOutcome }>
+> {
   if (!includes(FAILURE_OUTCOMES, value.outcome)) return failed('unsupported');
   const extra = extraKeyReason(value, ['outcome', 'requestId', 'message']);
   if (extra) return failed(extra);
@@ -541,4 +553,14 @@ export function decodeCompanionGuidanceReply(
       message: value.message,
     },
   };
+}
+
+export function decodeCompanionGuidanceReply(
+  value: unknown,
+): ContractDecode<CompanionGuidanceReply> {
+  if (!isContractRecord(value) || typeof value.outcome !== 'string') {
+    return failed('shape');
+  }
+  if (value.outcome === 'success') return decodeCompanionSuccessReply(value);
+  return decodeCompanionFailureReply(value);
 }
