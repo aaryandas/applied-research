@@ -276,7 +276,13 @@ try {
       const launchAge = Date.now() - Date.parse(job.createdAt ?? '');
       if (
         job.status === 'launching' &&
-        (!Number.isFinite(launchAge) || launchAge < 0 || launchAge >= 120_000)
+        (!Number.isFinite(launchAge) ||
+          launchAge < 0 ||
+          launchAge >= 120_000) &&
+        !events.some(
+          (event) =>
+            event.type === 'launched' && event.identifier === issue.identifier,
+        )
       )
         events.push({
           type: 'attention',
@@ -366,9 +372,16 @@ try {
           });
           continue;
         }
+        const previousRound = claim.round ?? 0;
+        const previousJobPath = claim.jobPath;
+        claim.round = previousRound + 1;
+        try {
+          launch(issue, claim);
+        } catch (error) {
+          if (claim.jobPath === previousJobPath) claim.round = previousRound;
+          throw error;
+        }
         claim.lastRepairId = issue.repairRequest.id;
-        claim.round += 1;
-        launch(issue, claim);
       }
     } catch (error) {
       claim.lastError = {
