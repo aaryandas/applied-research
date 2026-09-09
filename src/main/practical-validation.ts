@@ -16,10 +16,36 @@ import {
   type WorkspaceTransaction,
 } from './workspace-schema';
 
+function rejectUnpersistedOriginEntry(
+  origin: unknown,
+  description: string,
+): void {
+  if (
+    origin !== null &&
+    typeof origin === 'object' &&
+    !Array.isArray(origin) &&
+    Object.hasOwn(origin, 'entry')
+  ) {
+    throw new Error(
+      `Invalid ${description}: origin.entry is not persisted yet.`,
+    );
+  }
+}
+
 export function decodePracticalLoad(value: unknown): LoadPracticalAttemptInput {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Invalid attempt request.');
   const input = value as Record<string, unknown>;
+  if (
+    input.activity !== null &&
+    typeof input.activity === 'object' &&
+    !Array.isArray(input.activity)
+  ) {
+    rejectUnpersistedOriginEntry(
+      (input.activity as Record<string, unknown>).origin,
+      'attempt request',
+    );
+  }
   if (
     !isPracticalActivity(input.activity) ||
     Object.keys(input).some((key) => key !== 'activity' && key !== 'attemptId')
@@ -50,6 +76,7 @@ export function assertPracticalActivity(
   transaction: WorkspaceTransaction,
   activity: PracticalActivity,
 ): void {
+  rejectUnpersistedOriginEntry(activity.origin, 'practical activity');
   assertProject(transaction, activity.projectId);
   const { path, sourceRevisionId, highlightId } = activity.origin;
   const lesson = transaction
@@ -91,6 +118,7 @@ export function assertPracticalActivity(
 
 /** Stable serialization changes key order only, never any authored string. */
 export function practicalActivityJson(activity: PracticalActivity): string {
+  rejectUnpersistedOriginEntry(activity.origin, 'practical activity');
   const { path, sourceRevisionId, highlightId } = activity.origin;
   return JSON.stringify({
     projectId: activity.projectId,

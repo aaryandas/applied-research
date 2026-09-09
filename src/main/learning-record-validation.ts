@@ -48,6 +48,9 @@ function pathOrigin(value: unknown): PathOrigin {
 function origin(value: unknown): LearningOrigin | null {
   if (value === null) return null;
   const input = decodeRecord(value, 'entry origin');
+  if (Object.hasOwn(input, 'entry')) {
+    throw new Error('Invalid entry origin: origin.entry is not persisted yet.');
+  }
   const sourceRevisionId = optionalUuid(
     input.sourceRevisionId,
     'origin source revision id',
