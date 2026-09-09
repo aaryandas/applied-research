@@ -11,6 +11,8 @@ import type { ProcessRequest, ProcessResult } from './process.js';
 const workers: AnimationRenderWorker[] = [];
 const roots: string[] = [];
 const json = JSON.stringify(LINEAR_EXAMPLE);
+const posixDescribe = process.platform === 'win32' ? describe.skip : describe;
+const posixTest = process.platform === 'win32' ? it.skip : it;
 async function create(
   run: (request: ProcessRequest) => Promise<ProcessResult>,
 ): Promise<AnimationRenderWorker> {
@@ -51,7 +53,7 @@ afterEach(async () => {
   );
 });
 
-describe('bounded render queue', () => {
+posixDescribe('bounded render queue', () => {
   it('publishes verified identity only, constrains Docker, and explicitly releases the file', async () => {
     const run = vi.fn(successfulRuntime);
     const worker = await create(run);
@@ -232,67 +234,85 @@ describe('bounded render queue', () => {
   });
 });
 
-it('does not report clean cancellation when daemon cleanup is unverified', async () => {
-  const abort = new AbortController();
-  const worker = await create(async (request) => {
-    if (request.args.includes('run')) {
-      abort.abort();
-      return { ...OK_PROCESS, status: 'cancelled' };
+posixTest(
+  'does not report clean cancellation when daemon cleanup is unverified',
+  async () => {
+    const abort = new AbortController();
+    const worker = await create(async (request) => {
+      if (request.args.includes('run')) {
+        abort.abort();
+        return { ...OK_PROCESS, status: 'cancelled' };
+      }
+      return { ...OK_PROCESS, code: 1, stderr: 'daemon unavailable' };
+    });
+    expect(await worker.render(json, abort.signal)).toMatchObject({
+      status: 'failed',
+      reason: 'cleanup',
+    });
+  },
+);
+
+posixTest(
+  'requires non-root execution for the constrained mount ownership',
+  async () => {
+    const uid = vi.spyOn(process, 'getuid').mockReturnValue(0);
+    try {
+      await expect(AnimationRenderWorker.create()).rejects.toThrow('non-root');
+    } finally {
+      uid.mockRestore();
     }
-    return { ...OK_PROCESS, code: 1, stderr: 'daemon unavailable' };
-  });
-  expect(await worker.render(json, abort.signal)).toMatchObject({
-    status: 'failed',
-    reason: 'cleanup',
-  });
-});
+  },
+);
 
-it('requires non-root execution for the constrained mount ownership', async () => {
-  const uid = vi.spyOn(process, 'getuid').mockReturnValue(0);
-  try {
-    await expect(AnimationRenderWorker.create()).rejects.toThrow('non-root');
-  } finally {
-    uid.mockRestore();
-  }
-});
+posixTest(
+  'admits the eighth retained result immediately after awaiting the seventh',
+  async () => {
+    const worker = await create(successfulRuntime);
+    for (let index = 0; index < 8; index++) {
+      expect((await worker.render(json)).status).toBe('succeeded');
+    }
+    expect(await worker.render(json)).toMatchObject({
+      status: 'failed',
+      reason: 'capacity',
+    });
+  },
+);
 
-it('admits the eighth retained result immediately after awaiting the seventh', async () => {
-  const worker = await create(successfulRuntime);
-  for (let index = 0; index < 8; index++) {
-    expect((await worker.render(json)).status).toBe('succeeded');
-  }
-  expect(await worker.render(json)).toMatchObject({
-    status: 'failed',
-    reason: 'capacity',
-  });
-});
+posixTest(
+  'reports a real missing executable as runtime without attempting container removal',
+  async () => {
+    const { runProcess } = await import('./process.js');
+    const run = vi.fn((request: ProcessRequest) =>
+      runProcess({ ...request, command: '/no/ar/docker' }),
+    );
+    const worker = await create(run);
+    expect(await worker.render(json)).toEqual({
+      status: 'failed',
+      reason: 'runtime',
+      diagnostics: { stdout: '', stderr: 'Executable not found' },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  },
+);
 
-it('reports a real missing executable as runtime without attempting container removal', async () => {
-  const { runProcess } = await import('./process.js');
-  const run = vi.fn((request: ProcessRequest) =>
-    runProcess({ ...request, command: '/no/ar/docker' }),
-  );
-  const worker = await create(run);
-  expect(await worker.render(json)).toEqual({
-    status: 'failed',
-    reason: 'runtime',
-    diagnostics: { stdout: '', stderr: 'Executable not found' },
-  });
-  expect(run).toHaveBeenCalledTimes(1);
-});
-
-it('preserves safe diagnostics for uncertain cleanup even when both commands report a disconnected daemon', async () => {
-  const run = vi.fn(async (): Promise<ProcessResult> => ({
-    ...OK_PROCESS,
-    code: 1,
-    stderr:
-      'Cannot connect to the Docker daemon at a private path\nprivate source label',
-  }));
-  const worker = await create(run);
-  expect(await worker.render(json)).toEqual({
-    status: 'failed',
-    reason: 'cleanup',
-    diagnostics: { stdout: '', stderr: 'Cannot connect to the Docker daemon' },
-  });
-  expect(run.mock.calls).toHaveLength(2);
-});
+posixTest(
+  'preserves safe diagnostics for uncertain cleanup even when both commands report a disconnected daemon',
+  async () => {
+    const run = vi.fn(async (): Promise<ProcessResult> => ({
+      ...OK_PROCESS,
+      code: 1,
+      stderr:
+        'Cannot connect to the Docker daemon at a private path\nprivate source label',
+    }));
+    const worker = await create(run);
+    expect(await worker.render(json)).toEqual({
+      status: 'failed',
+      reason: 'cleanup',
+      diagnostics: {
+        stdout: '',
+        stderr: 'Cannot connect to the Docker daemon',
+      },
+    });
+    expect(run.mock.calls).toHaveLength(2);
+  },
+);

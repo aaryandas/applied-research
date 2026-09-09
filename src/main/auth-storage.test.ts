@@ -39,7 +39,8 @@ describe('auth storage', () => {
     expect(readFileSync(path, 'utf8')).toBe(
       '{"applied-research-auth.cookie":"base64-sdk-ciphertext"}',
     );
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32')
+      expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(createAuthStorage(path).getItem(AUTH_STORAGE_KEYS[0])).toBe(
       'base64-sdk-ciphertext',
     );

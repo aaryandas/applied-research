@@ -21,14 +21,26 @@ import {
 } from './electron-lifecycle';
 
 const evidence = process.env.AR24_EVIDENCE_DIR;
+const linuxGraphicsArguments =
+  process.platform === 'linux'
+    ? [
+        '--enable-gpu',
+        '--disable-gpu-sandbox',
+        '--use-angle=swiftshader',
+        '--enable-unsafe-swiftshader',
+      ]
+    : [];
 async function launchExplanationApplication(
   directory: string,
 ): Promise<ElectronApplication> {
   const requestedExecutablePath = process.env.ELECTRON_EXECUTABLE_PATH;
   const application = await electron.launch({
     ...(requestedExecutablePath
-      ? { executablePath: requestedExecutablePath, args: [] }
-      : { args: ['.'] }),
+      ? {
+          executablePath: requestedExecutablePath,
+          args: linuxGraphicsArguments,
+        }
+      : { args: ['.', ...linuxGraphicsArguments] }),
     env: {
       ...process.env,
       APPLIED_RESEARCH_DATA_DIR: directory,
