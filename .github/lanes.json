@@ -33,7 +33,12 @@
     ],
     "research": ["src/renderer/research/**"],
     "settings": ["src/renderer/settings/**"],
-    "explanations": ["src/renderer/explanations/**", "src/render-worker/**"],
+    "explanations": [
+      "src/renderer/explanations/**",
+      "src/render-worker/**",
+      "src/backend/render-delivery/**",
+      "src/main/retained-media-*.ts"
+    ],
     "opening": [
       "src/renderer/Opening.tsx",
       "src/renderer/Opening.test.tsx",
