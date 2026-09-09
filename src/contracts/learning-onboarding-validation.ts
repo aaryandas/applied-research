@@ -1,0 +1,2355 @@
+import {
+  LEARNING_API_VERSION,
+  LEARNING_MODEL_ALLOWLIST,
+} from './learning-api.js';
+import type {
+  AiProvenance,
+  MonthlyQuota,
+  SourceCitation,
+  SourceRevisionInput,
+  SourceRevisionLocator,
+} from './learning-api.js';
+import type { PathSourceState } from './learning-records.js';
+import {
+  COMPATIBLE_SOURCED_LEARNING_SCOPE,
+  EXTRACTION_COVERAGE,
+  FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS,
+  LEARNING_ONBOARDING_API_VERSION,
+  LEARNING_ONBOARDING_LIMITS as LIMITS,
+  LEARNING_ONBOARDING_OPERATIONS,
+  LEARNING_ONBOARDING_PUBLIC_MESSAGES as MESSAGES,
+  LEARNING_ONBOARDING_SCOPES,
+  LESSON_DEPTHS,
+  LESSON_ROLES,
+  ONBOARDING_CONTEXT_TRUST,
+} from './learning-onboarding-api.js';
+import type {
+  CompactSyllabus,
+  CourseProposalSuccess,
+  GenerateSelectedLessonOperation,
+  HumanDiagnosticAnswer,
+  InterviewPromptOperation,
+  InterviewPromptSuccess,
+  LearningOnboardingOperation,
+  LearningOnboardingRequest,
+  LearningOnboardingResponse,
+  LearningOnboardingScope,
+  LessonDepth,
+  LessonRole,
+  OnboardingCoverageGap,
+  OnboardingGeneratedLesson,
+  OnboardingPersonalization,
+  OnboardingSourceCoverage,
+  OnboardingSyllabus,
+  OnboardingSyllabusTopic,
+  OpaqueRevisionRef,
+  ProposalSource,
+  ProposeCourseOperation,
+  ReviseCourseOperation,
+  SeedRevisionLocator,
+  SelectedLessonSuccess,
+  UnacquiredSeedUrl,
+  UntrustedHumanLearnerContext,
+  UntrustedModelSyllabusContext,
+} from './learning-onboarding-api.js';
+import type {
+  AcceptCourseInput,
+  AcceptedStepMapping,
+  CourseProposal,
+  EnsureLessonInput,
+  InterviewAnswer,
+  InterviewDraft,
+  InterviewPrompt,
+  InterviewPromptInput,
+  InterviewRecord,
+  LearnerProfile,
+  LearnerProfileDraft,
+  LearningOnboardingSnapshot,
+  OnboardingRequest,
+  ProposalLesson,
+  ProposalTopic,
+  ProposeCourseInput,
+  RevisionWrite,
+  ReviseCourseInput,
+  SaveLearnerProfileInput,
+  SaveLearningInterviewInput,
+} from './learning-onboarding.js';
+import { createSourceContractValidation } from './source-contract-validation.js';
+import {
+  SOURCE_FORMATS,
+  createValidationPrimitives,
+  includesMember,
+  isDenseArray,
+} from './source-validation-primitives.js';
+import {
+  SOURCE_KINDS,
+  SOURCE_RETRIEVAL_PROVIDERS,
+  SOURCING_LIMITS,
+} from './sourcing.js';
+import type {
+  AcquiredSource,
+  OpenAlexWorkId,
+  PassageLocator,
+  RetrievalEvidence,
+  SourceQuality,
+  SourceRevisionIdentity,
+} from './sourcing.js';
+
+export class LearningOnboardingValidationError extends Error {
+  readonly _tag = 'LearningOnboardingValidationError';
+  constructor(input: { message: string }) {
+    super(input.message);
+    this.name = 'LearningOnboardingValidationError';
+  }
+}
+
+const SOURCE_ACCESS = [
+  'public',
+  'registration-required',
+  'subscription-required',
+  'unavailable',
+  'unknown',
+] as const;
+const SOURCE_QUALITY = ['high', 'medium', 'low', 'unknown'] as const;
+const PATH_SOURCE_STATES: readonly PathSourceState[] = [
+  'ready',
+  'pending',
+  'unsupported',
+];
+const MONTH_PATTERN = /^\d{4}-\d{2}$/;
+
+export interface LearningOnboardingValidation {
+  parseSaveLearnerProfileInput(value: unknown): SaveLearnerProfileInput;
+  parseLearnerProfile(value: unknown): LearnerProfile;
+  parseSaveLearningInterviewInput(value: unknown): SaveLearningInterviewInput;
+  parseInterviewRecord(value: unknown): InterviewRecord;
+  parseGetLearningOnboardingInput(value: unknown): { projectId: string };
+  parseLearningOnboardingSnapshot(value: unknown): LearningOnboardingSnapshot;
+  parseInterviewPromptInput(value: unknown): InterviewPromptInput;
+  parseProposeCourseInput(value: unknown): ProposeCourseInput;
+  parseReviseCourseInput(value: unknown): ReviseCourseInput;
+  parseAcceptCourseInput(value: unknown): AcceptCourseInput;
+  parseEnsureLessonInput(value: unknown): EnsureLessonInput;
+  parseOnboardingRequest(value: unknown): OnboardingRequest;
+  parseCourseProposal(value: unknown): CourseProposal;
+  parseAcceptedStepMapping(value: unknown): AcceptedStepMapping;
+  parseAcceptedStepMappings(value: unknown): AcceptedStepMapping[];
+  parseLearningOnboardingRequest(value: unknown): LearningOnboardingRequest;
+  parseLearningOnboardingResponse(
+    value: unknown,
+    request: LearningOnboardingRequest,
+  ): LearningOnboardingResponse;
+  parseRevisionWrite<T>(
+    value: unknown,
+    parseRecord: (record: unknown) => T,
+  ): RevisionWrite<T>;
+}
+
+export function createLearningOnboardingValidation(
+  sha256Text: (value: string) => string,
+): LearningOnboardingValidation {
+  function invalid(message: string): never {
+    throw new LearningOnboardingValidationError({ message });
+  }
+  const validation = createValidationPrimitives({
+    invalid,
+    unsupportedFieldMessage: 'The value contains an unsupported field.',
+  });
+  const {
+    boundedText,
+    identifier,
+    isoTimestamp,
+    sha256: validateSha256,
+    strictRecord,
+  } = validation;
+  const sourcing = createSourceContractValidation(sha256Text);
+
+  function rejectForbiddenAuthority(record: Record<string, unknown>): void {
+    for (const field of FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS) {
+      if (record[field] !== undefined) {
+        invalid(
+          'Caller evidence, account or source-policy authority is forbidden.',
+        );
+      }
+    }
+  }
+
+  function rejectDefinedFields(
+    record: Record<string, unknown>,
+    fields: readonly string[],
+    message: string,
+  ): void {
+    if (fields.some((field) => record[field] !== undefined)) invalid(message);
+  }
+
+  function publicMessage<T extends string>(value: unknown, expected: T): T {
+    if (value !== expected) invalid('Public response message is invalid.');
+    return expected;
+  }
+
+  function boundedInteger(
+    value: unknown,
+    minimum: number,
+    maximum: number,
+    field: string,
+  ): number {
+    if (
+      typeof value !== 'number' ||
+      !Number.isSafeInteger(value) ||
+      value < minimum ||
+      value > maximum
+    ) {
+      invalid(`${field} is invalid.`);
+    }
+    return value;
+  }
+
+  function revision(value: unknown, field: string): number {
+    return boundedInteger(value, 0, LIMITS.revision, field);
+  }
+
+  function booleanField(value: unknown, field: string): boolean {
+    if (typeof value !== 'boolean') invalid(`${field} is invalid.`);
+    return value;
+  }
+
+  function httpsUrl(value: unknown, field: string): string {
+    return validation.httpsUrl(value, {
+      field,
+      invalid: `${field} must be an HTTPS URL.`,
+      insecure: `${field} must be an HTTPS URL without credentials.`,
+    });
+  }
+
+  function identifiers(
+    value: unknown,
+    maximum: number,
+    field: string,
+  ): string[] {
+    if (!isDenseArray(value) || value.length > maximum) {
+      invalid(`${field} are invalid.`);
+    }
+    const parsed = value.map((item) => identifier(item, field));
+    if (new Set(parsed).size !== parsed.length) {
+      invalid(`${field} must be distinct.`);
+    }
+    return parsed;
+  }
+
+  function assertRequestBudget(parsed: unknown): void {
+    const bytes = new TextEncoder().encode(JSON.stringify(parsed)).length;
+    if (bytes > LIMITS.requestBytes) {
+      invalid('The onboarding request exceeds the 64 KiB admission limit.');
+    }
+  }
+
+  function depth(value: unknown): LessonDepth {
+    if (!includesMember(LESSON_DEPTHS, value))
+      invalid('Lesson depth is invalid.');
+    return value;
+  }
+
+  function role(value: unknown): LessonRole {
+    if (!includesMember(LESSON_ROLES, value))
+      invalid('Lesson role is invalid.');
+    return value;
+  }
+
+  function sourceState(value: unknown): PathSourceState {
+    if (!includesMember(PATH_SOURCE_STATES, value)) {
+      invalid('Lesson source state is invalid.');
+    }
+    return value;
+  }
+
+  function opaqueRef(value: unknown): OpaqueRevisionRef {
+    const input = strictRecord(value, ['id', 'revision']);
+    return {
+      id: identifier(input.id, 'Proposal id'),
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Proposal revision',
+      ),
+    };
+  }
+
+  function profileDraft(value: unknown): LearnerProfileDraft {
+    const input = strictRecord(value, [
+      'background',
+      'learningGoals',
+      'priorKnowledge',
+    ]);
+    return {
+      background: boundedText(
+        input.background,
+        LIMITS.profileFieldCharacters,
+        'Background',
+      ),
+      learningGoals: boundedText(
+        input.learningGoals,
+        LIMITS.profileFieldCharacters,
+        'Learning goals',
+      ),
+      priorKnowledge: boundedText(
+        input.priorKnowledge,
+        LIMITS.profileFieldCharacters,
+        'Prior knowledge',
+      ),
+    };
+  }
+
+  function parseSaveLearnerProfileInput(
+    value: unknown,
+  ): SaveLearnerProfileInput {
+    const input = strictRecord(value, ['expectedRevision', 'draft']);
+    rejectForbiddenAuthority(input);
+    return {
+      expectedRevision: revision(input.expectedRevision, 'Expected revision'),
+      draft: profileDraft(input.draft),
+    };
+  }
+
+  function parseLearnerProfile(value: unknown): LearnerProfile {
+    const input = strictRecord(value, [
+      'background',
+      'learningGoals',
+      'priorKnowledge',
+      'revision',
+      'updatedAt',
+      'author',
+    ]);
+    if (input.author !== 'human')
+      invalid('Learner profile must be human-authored.');
+    const draft = profileDraft({
+      background: input.background,
+      learningGoals: input.learningGoals,
+      priorKnowledge: input.priorKnowledge,
+    });
+    return {
+      ...draft,
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Profile revision',
+      ),
+      updatedAt: isoTimestamp(input.updatedAt, 'Profile updated time'),
+      author: input.author,
+    };
+  }
+
+  function interviewAnswers(value: unknown): InterviewAnswer[] {
+    if (!isDenseArray(value) || value.length > LIMITS.diagnosticAnswers) {
+      invalid('Interview answers are invalid.');
+    }
+    const parsed = value.map((item): InterviewAnswer => {
+      const input = strictRecord(item, ['promptId', 'answer']);
+      return {
+        promptId: identifier(input.promptId, 'Prompt id'),
+        answer: boundedText(
+          input.answer,
+          LIMITS.diagnosticAnswerCharacters,
+          'Diagnostic answer',
+        ),
+      };
+    });
+    if (new Set(parsed.map((item) => item.promptId)).size !== parsed.length) {
+      invalid('Interview answers must name distinct prompts.');
+    }
+    return parsed;
+  }
+
+  function seedDrafts(value: unknown): UnacquiredSeedUrl[] {
+    if (!isDenseArray(value) || value.length > LIMITS.unacquiredSeedUrls) {
+      invalid('Seed drafts are invalid.');
+    }
+    return value.map((item): UnacquiredSeedUrl => {
+      const input = strictRecord(item, ['trust', 'kind', 'url']);
+      if (
+        input.trust !== ONBOARDING_CONTEXT_TRUST.human ||
+        input.kind !== 'unacquired-url'
+      ) {
+        invalid('Seed draft attribution is invalid.');
+      }
+      return {
+        trust: input.trust,
+        kind: input.kind,
+        url: httpsUrl(input.url, 'Seed URL'),
+      };
+    });
+  }
+
+  function interviewDraft(value: unknown): InterviewDraft {
+    const input = strictRecord(value, [
+      'goal',
+      'focus',
+      'depth',
+      'profileRevision',
+      'sourceRevisionIds',
+      'seedDrafts',
+      'answers',
+    ]);
+    rejectForbiddenAuthority(input);
+    return {
+      goal: boundedText(input.goal, LIMITS.goalCharacters, 'Learning goal'),
+      focus: boundedText(input.focus, LIMITS.focusCharacters, 'Course focus'),
+      depth: depth(input.depth),
+      profileRevision: boundedInteger(
+        input.profileRevision,
+        1,
+        LIMITS.revision,
+        'Profile revision',
+      ),
+      sourceRevisionIds: identifiers(
+        input.sourceRevisionIds,
+        LIMITS.seedRevisionLocators,
+        'Source revision id',
+      ),
+      seedDrafts: seedDrafts(input.seedDrafts),
+      answers: interviewAnswers(input.answers),
+    };
+  }
+
+  function provenance(value: unknown): AiProvenance {
+    const input = strictRecord(value, [
+      'author',
+      'provider',
+      'providerRequestId',
+      'model',
+      'requestVersion',
+      'promptVersion',
+      'createdAt',
+      'sourceRevisions',
+    ]);
+    if (input.author !== 'ai' || input.provider !== 'openrouter') {
+      invalid('AI provenance attribution is invalid.');
+    }
+    if (!includesMember(LEARNING_MODEL_ALLOWLIST, input.model)) {
+      invalid('Model is not on the allowlist.');
+    }
+    if (input.requestVersion !== LEARNING_API_VERSION) {
+      invalid('Provenance request version is incompatible.');
+    }
+    if (
+      !isDenseArray(input.sourceRevisions) ||
+      input.sourceRevisions.length > LIMITS.provenanceReceipts
+    ) {
+      invalid('Provenance source revisions are invalid.');
+    }
+    return {
+      author: input.author,
+      provider: input.provider,
+      providerRequestId: identifier(
+        input.providerRequestId,
+        'Provider request id',
+      ),
+      model: input.model,
+      requestVersion: input.requestVersion,
+      promptVersion: identifier(input.promptVersion, 'Prompt version'),
+      createdAt: isoTimestamp(input.createdAt, 'Provenance time'),
+      sourceRevisions: input.sourceRevisions.map(sourceRevisionLocator),
+    };
+  }
+
+  function sourceRevisionLocator(value: unknown): SourceRevisionLocator {
+    const input = strictRecord(value, [
+      'sourceId',
+      'revisionId',
+      'title',
+      'sha256',
+      'format',
+      'canonicalizationVersion',
+      'acquiredAt',
+      'provenance',
+    ]);
+    if (input.canonicalText !== undefined) {
+      invalid(
+        'Caller evidence, account or source-policy authority is forbidden.',
+      );
+    }
+    const origin = strictRecord(input.provenance, ['kind', 'locator']);
+    if (
+      origin.kind !== 'human-imported' &&
+      origin.kind !== 'generated' &&
+      origin.kind !== 'discovered'
+    ) {
+      invalid('Source provenance is invalid.');
+    }
+    if (!includesMember(SOURCE_FORMATS, input.format)) {
+      invalid('Source format is invalid.');
+    }
+    return {
+      sourceId: identifier(input.sourceId, 'Source id'),
+      revisionId: identifier(input.revisionId, 'Source revision id'),
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Source title'),
+      sha256: validateSha256(input.sha256),
+      format: input.format,
+      canonicalizationVersion: identifier(
+        input.canonicalizationVersion,
+        'Canonicalization version',
+      ),
+      acquiredAt: isoTimestamp(input.acquiredAt, 'Acquisition time'),
+      provenance: {
+        kind: origin.kind,
+        locator:
+          origin.locator === null
+            ? null
+            : httpsUrl(origin.locator, 'Source locator'),
+      },
+    };
+  }
+
+  function interviewPrompt(value: unknown): InterviewPrompt {
+    const input = strictRecord(value, ['id', 'text', 'provenance']);
+    return {
+      id: identifier(input.id, 'Prompt id'),
+      text: boundedText(
+        input.text,
+        LIMITS.promptCharacters,
+        'Interview prompt',
+      ),
+      provenance: provenance(input.provenance),
+    };
+  }
+
+  function parseInterviewRecord(value: unknown): InterviewRecord {
+    const input = strictRecord(value, [
+      'goal',
+      'focus',
+      'depth',
+      'profileRevision',
+      'sourceRevisionIds',
+      'seedDrafts',
+      'answers',
+      'projectId',
+      'revision',
+      'updatedAt',
+      'prompts',
+    ]);
+    const draft = interviewDraft({
+      goal: input.goal,
+      focus: input.focus,
+      depth: input.depth,
+      profileRevision: input.profileRevision,
+      sourceRevisionIds: input.sourceRevisionIds,
+      seedDrafts: input.seedDrafts,
+      answers: input.answers,
+    });
+    if (
+      !isDenseArray(input.prompts) ||
+      input.prompts.length > LIMITS.interviewPrompts
+    ) {
+      invalid('Interview prompts are invalid.');
+    }
+    const prompts = input.prompts.map(interviewPrompt);
+    if (new Set(prompts.map((item) => item.id)).size !== prompts.length) {
+      invalid('Interview prompts must be distinct.');
+    }
+    return {
+      ...draft,
+      projectId: identifier(input.projectId, 'Project id'),
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      updatedAt: isoTimestamp(input.updatedAt, 'Interview updated time'),
+      prompts,
+    };
+  }
+
+  function parseSaveLearningInterviewInput(
+    value: unknown,
+  ): SaveLearningInterviewInput {
+    const input = strictRecord(value, [
+      'projectId',
+      'expectedRevision',
+      'draft',
+    ]);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      expectedRevision: revision(input.expectedRevision, 'Expected revision'),
+      draft: interviewDraft(input.draft),
+    };
+  }
+
+  function parseGetLearningOnboardingInput(value: unknown): {
+    projectId: string;
+  } {
+    const input = strictRecord(value, ['projectId']);
+    rejectForbiddenAuthority(input);
+    return { projectId: identifier(input.projectId, 'Project id') };
+  }
+
+  function parseOnboardingRequest(value: unknown): OnboardingRequest {
+    const input = strictRecord(value, ['projectId', 'requestId']);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+    };
+  }
+
+  function remoteRequest(
+    value: unknown,
+    extra: readonly string[],
+  ): Record<string, unknown> {
+    const input = strictRecord(value, [
+      'projectId',
+      'requestId',
+      'interviewRevision',
+      'consent',
+      'proposal',
+      'changes',
+      'target',
+      ...extra,
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.consent !== 'acquire-learning-evidence') {
+      invalid('Learning evidence consent is required.');
+    }
+    return input;
+  }
+
+  function parseInterviewPromptInput(value: unknown): InterviewPromptInput {
+    const input = remoteRequest(value, []);
+    if (
+      input.proposal !== undefined ||
+      input.changes !== undefined ||
+      input.target !== undefined
+    ) {
+      invalid('Interview prompt fields are invalid.');
+    }
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function parseProposeCourseInput(value: unknown): ProposeCourseInput {
+    const input = remoteRequest(value, []);
+    if (
+      input.proposal !== undefined ||
+      input.changes !== undefined ||
+      input.target !== undefined
+    ) {
+      invalid('Propose-course fields are invalid.');
+    }
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function parseReviseCourseInput(value: unknown): ReviseCourseInput {
+    const input = remoteRequest(value, []);
+    if (input.target !== undefined)
+      invalid('Revise-course fields are invalid.');
+    const changes = strictRecord(input.changes, ['focus', 'depth']);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      proposal: opaqueRef(input.proposal),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      changes: {
+        focus: boundedText(
+          changes.focus,
+          LIMITS.focusCharacters,
+          'Course focus',
+        ),
+        depth: depth(changes.depth),
+      },
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function parseAcceptCourseInput(value: unknown): AcceptCourseInput {
+    const input = strictRecord(value, ['projectId', 'requestId', 'proposal']);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      proposal: opaqueRef(input.proposal),
+    };
+  }
+
+  function parseEnsureLessonInput(value: unknown): EnsureLessonInput {
+    const input = remoteRequest(value, []);
+    if (
+      input.proposal !== undefined ||
+      input.changes !== undefined ||
+      input.interviewRevision !== undefined
+    ) {
+      invalid('Ensure-lesson fields are invalid.');
+    }
+    const target = strictRecord(input.target, [
+      'pathId',
+      'pathRevision',
+      'topicId',
+      'lessonId',
+    ]);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      requestId: identifier(input.requestId, 'Request id'),
+      target: {
+        pathId: identifier(target.pathId, 'Path id'),
+        pathRevision: boundedInteger(
+          target.pathRevision,
+          1,
+          LIMITS.revision,
+          'Path revision',
+        ),
+        topicId: identifier(target.topicId, 'Topic id'),
+        lessonId: identifier(target.lessonId, 'Lesson id'),
+      },
+      consent: 'acquire-learning-evidence',
+    };
+  }
+
+  function coverage(value: unknown): OnboardingSourceCoverage {
+    const input = strictRecord(value, [
+      'readyLessons',
+      'pendingLessons',
+      'unsupportedLessons',
+      'sources',
+      'gaps',
+    ]);
+    return {
+      readyLessons: boundedInteger(
+        input.readyLessons,
+        0,
+        LIMITS.lessons,
+        'Ready lessons',
+      ),
+      pendingLessons: boundedInteger(
+        input.pendingLessons,
+        0,
+        LIMITS.lessons,
+        'Pending lessons',
+      ),
+      unsupportedLessons: boundedInteger(
+        input.unsupportedLessons,
+        0,
+        LIMITS.lessons,
+        'Unsupported lessons',
+      ),
+      sources: boundedInteger(
+        input.sources,
+        0,
+        LIMITS.proposalSources,
+        'Source count',
+      ),
+      gaps: boundedInteger(input.gaps, 0, LIMITS.gaps, 'Gap count'),
+    };
+  }
+
+  function gaps(value: unknown): OnboardingCoverageGap[] {
+    if (!isDenseArray(value) || value.length > LIMITS.gaps) {
+      invalid('Coverage gaps are invalid.');
+    }
+    return value.map((item): OnboardingCoverageGap => {
+      const input = strictRecord(item, ['kind', 'message']);
+      if (
+        input.kind !== 'retrieval' &&
+        input.kind !== 'generation' &&
+        input.kind !== 'support'
+      ) {
+        invalid('Coverage gap kind is invalid.');
+      }
+      return {
+        kind: input.kind,
+        message: boundedText(
+          input.message,
+          LIMITS.gapMessageCharacters,
+          'Gap message',
+        ),
+      };
+    });
+  }
+
+  function personalization(value: unknown): OnboardingPersonalization {
+    const input = strictRecord(value, [
+      'author',
+      'summary',
+      'observedGaps',
+      'masteryEstablished',
+    ]);
+    if (input.author !== 'ai' || input.masteryEstablished !== false) {
+      invalid('Personalization must be AI-attributed without claimed mastery.');
+    }
+    if (
+      !isDenseArray(input.observedGaps) ||
+      input.observedGaps.length > LIMITS.observedGaps
+    ) {
+      invalid('Observed gaps are invalid.');
+    }
+    return {
+      author: input.author,
+      summary: boundedText(
+        input.summary,
+        LIMITS.personalizationSummaryCharacters,
+        'Personalization summary',
+      ),
+      observedGaps: input.observedGaps.map((item) =>
+        boundedText(item, LIMITS.observedGapCharacters, 'Observed gap'),
+      ),
+      masteryEstablished: false,
+    };
+  }
+
+  function proposalSource(value: unknown): ProposalSource {
+    const input = strictRecord(value, [
+      'sourceId',
+      'kind',
+      'title',
+      'originalLocation',
+      'providerIds',
+      'scholarlyIdentity',
+      'access',
+      'edition',
+      'coverage',
+      'lessonStepIds',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (!includesMember(SOURCE_KINDS, input.kind))
+      invalid('Source kind is invalid.');
+    if (!includesMember(SOURCE_ACCESS, input.access)) {
+      invalid('Source access is invalid.');
+    }
+    if (!includesMember(EXTRACTION_COVERAGE, input.coverage)) {
+      invalid('Source coverage is invalid.');
+    }
+    const location = strictRecord(input.originalLocation, ['url', 'trust']);
+    if (location.trust !== 'untrusted-public-url') {
+      invalid('Original source URL trust is invalid.');
+    }
+    const scholarly = strictRecord(input.scholarlyIdentity, ['doi', 'arxivId']);
+    if (
+      !isDenseArray(input.providerIds) ||
+      input.providerIds.length < 1 ||
+      input.providerIds.length > SOURCING_LIMITS.providerIdentities
+    ) {
+      invalid('Provider identities are invalid.');
+    }
+    return {
+      sourceId: identifier(input.sourceId, 'Source id'),
+      kind: input.kind,
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Source title'),
+      originalLocation: {
+        url: httpsUrl(location.url, 'Original source URL'),
+        trust: location.trust,
+      },
+      providerIds: input.providerIds.map((item) => {
+        const identity = strictRecord(item, ['provider', 'id']);
+        const id = boundedText(identity.id, 512, 'Provider source id');
+        if (identity.provider === 'openalex') {
+          if (!/^W\d+$/.test(id)) invalid('OpenAlex work id is invalid.');
+          return { provider: identity.provider, id: id as OpenAlexWorkId };
+        }
+        if (
+          identity.provider !== 'mit-open-courseware' &&
+          identity.provider !== 'curated-catalog'
+        ) {
+          invalid('Source discovery provider is invalid.');
+        }
+        return { provider: identity.provider, id };
+      }),
+      scholarlyIdentity: {
+        doi:
+          scholarly.doi === null
+            ? null
+            : boundedText(scholarly.doi, 512, 'DOI'),
+        arxivId:
+          scholarly.arxivId === null
+            ? null
+            : boundedText(scholarly.arxivId, 64, 'arXiv id'),
+      },
+      access: input.access,
+      edition:
+        input.edition === null ? null : sourceRevisionLocator(input.edition),
+      coverage: input.coverage,
+      lessonStepIds: identifiers(
+        input.lessonStepIds,
+        LIMITS.lessons,
+        'Lesson step id',
+      ),
+    };
+  }
+
+  function proposalLesson(value: unknown): ProposalLesson {
+    const input = strictRecord(value, [
+      'stepId',
+      'title',
+      'objective',
+      'activity',
+      'role',
+      'prerequisiteStepIds',
+      'sourceState',
+      'sourceIds',
+    ]);
+    return {
+      stepId: identifier(input.stepId, 'Step id'),
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Lesson title'),
+      objective: boundedText(
+        input.objective,
+        LIMITS.objectiveCharacters,
+        'Lesson objective',
+      ),
+      activity: boundedText(
+        input.activity,
+        LIMITS.activityCharacters,
+        'Lesson activity',
+      ),
+      role: role(input.role),
+      prerequisiteStepIds: identifiers(
+        input.prerequisiteStepIds,
+        LIMITS.prerequisiteIds,
+        'Prerequisite step id',
+      ),
+      sourceState: sourceState(input.sourceState),
+      sourceIds: identifiers(
+        input.sourceIds,
+        LIMITS.sourceRefsPerLesson,
+        'Source id',
+      ),
+    };
+  }
+
+  function proposalTopics(value: unknown): ProposalTopic[] {
+    if (
+      !isDenseArray(value) ||
+      value.length < 1 ||
+      value.length > LIMITS.topics
+    ) {
+      invalid('Syllabus topics are invalid.');
+    }
+    const topics = value.map((item): ProposalTopic => {
+      const input = strictRecord(item, [
+        'topicId',
+        'title',
+        'outcome',
+        'prerequisiteTopicIds',
+        'lessons',
+      ]);
+      if (
+        !isDenseArray(input.lessons) ||
+        input.lessons.length < 1 ||
+        input.lessons.length > LIMITS.lessonsPerTopic
+      ) {
+        invalid('Topic lessons are invalid.');
+      }
+      return {
+        topicId: identifier(input.topicId, 'Topic id'),
+        title: boundedText(input.title, LIMITS.titleCharacters, 'Topic title'),
+        outcome: boundedText(
+          input.outcome,
+          LIMITS.outcomeCharacters,
+          'Topic outcome',
+        ),
+        prerequisiteTopicIds: identifiers(
+          input.prerequisiteTopicIds,
+          LIMITS.prerequisiteIds,
+          'Prerequisite topic id',
+        ),
+        lessons: input.lessons.map(proposalLesson),
+      };
+    });
+    const lessons = topics.flatMap((topic) => topic.lessons);
+    if (lessons.length > LIMITS.lessons)
+      invalid('Syllabus exceeds the lesson ceiling.');
+    if (new Set(topics.map((topic) => topic.topicId)).size !== topics.length) {
+      invalid('Topic ids must be distinct.');
+    }
+    if (
+      new Set(lessons.map((lesson) => lesson.stepId)).size !== lessons.length
+    ) {
+      invalid('Step ids must be distinct.');
+    }
+    const topicIds = new Set(topics.map((topic) => topic.topicId));
+    const stepIds = new Set(lessons.map((lesson) => lesson.stepId));
+    for (const topic of topics) {
+      if (
+        topic.prerequisiteTopicIds.some(
+          (id) => !topicIds.has(id) || id === topic.topicId,
+        )
+      ) {
+        invalid('Topic prerequisites are invalid.');
+      }
+    }
+    for (const lesson of lessons) {
+      if (
+        lesson.prerequisiteStepIds.some(
+          (id) => !stepIds.has(id) || id === lesson.stepId,
+        )
+      ) {
+        invalid('Lesson prerequisites are invalid.');
+      }
+    }
+    if (lessons.filter((lesson) => lesson.role === 'capstone').length > 1) {
+      invalid('A syllabus may include at most one capstone.');
+    }
+    return topics;
+  }
+
+  function sourceCoverageMatches(
+    topics: readonly ProposalTopic[] | readonly OnboardingSyllabusTopic[],
+    reported: OnboardingSourceCoverage,
+    sourceCount: number,
+    gapCount: number,
+  ): void {
+    const lessons = topics.flatMap((topic) => topic.lessons);
+    const ready = lessons.filter(
+      (lesson) => lesson.sourceState === 'ready',
+    ).length;
+    const pending = lessons.filter(
+      (lesson) => lesson.sourceState === 'pending',
+    ).length;
+    const unsupported = lessons.filter(
+      (lesson) => lesson.sourceState === 'unsupported',
+    ).length;
+    if (
+      reported.readyLessons !== ready ||
+      reported.pendingLessons !== pending ||
+      reported.unsupportedLessons !== unsupported ||
+      reported.sources !== sourceCount ||
+      reported.gaps !== gapCount
+    ) {
+      invalid('Source coverage does not match the syllabus.');
+    }
+  }
+
+  function parseCourseProposal(value: unknown): CourseProposal {
+    const input = strictRecord(value, [
+      'id',
+      'revision',
+      'projectId',
+      'interviewRevision',
+      'title',
+      'topics',
+      'firstLesson',
+      'sources',
+      'gaps',
+      'sourceCoverage',
+      'personalization',
+      'acceptance',
+    ]);
+    rejectForbiddenAuthority(input);
+    const topics = proposalTopics(input.topics);
+    const sources = (() => {
+      if (
+        !isDenseArray(input.sources) ||
+        input.sources.length > LIMITS.proposalSources
+      ) {
+        invalid('Proposal sources are invalid.');
+      }
+      return input.sources.map(proposalSource);
+    })();
+    const reportedGaps = gaps(input.gaps);
+    const sourceCoverage = coverage(input.sourceCoverage);
+    sourceCoverageMatches(
+      topics,
+      sourceCoverage,
+      sources.length,
+      reportedGaps.length,
+    );
+    if (
+      input.acceptance !== 'ready' &&
+      input.acceptance !== 'coverage-pending'
+    ) {
+      invalid('Proposal acceptance state is invalid.');
+    }
+    const first =
+      input.firstLesson === null
+        ? null
+        : (() => {
+            const lesson = strictRecord(input.firstLesson, [
+              'stepId',
+              'title',
+              'text',
+            ]);
+            return {
+              stepId: identifier(lesson.stepId, 'First lesson step id'),
+              title: boundedText(
+                lesson.title,
+                LIMITS.titleCharacters,
+                'First lesson title',
+              ),
+              text: boundedText(
+                lesson.text,
+                LIMITS.previewCharacters,
+                'First lesson preview',
+              ),
+            };
+          })();
+    const firstStep = topics[0]?.lessons[0];
+    if (input.acceptance === 'ready') {
+      if (
+        first === null ||
+        firstStep === undefined ||
+        first.stepId !== firstStep.stepId ||
+        first.title !== firstStep.title ||
+        firstStep.sourceState !== 'ready'
+      ) {
+        invalid('A ready proposal requires a matching first lesson.');
+      }
+    }
+    return {
+      id: identifier(input.id, 'Proposal id'),
+      revision: boundedInteger(
+        input.revision,
+        1,
+        LIMITS.revision,
+        'Proposal revision',
+      ),
+      projectId: identifier(input.projectId, 'Project id'),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
+      topics,
+      firstLesson: first,
+      sources,
+      gaps: reportedGaps,
+      sourceCoverage,
+      personalization: personalization(input.personalization),
+      acceptance: input.acceptance,
+    };
+  }
+
+  function parseAcceptedStepMapping(value: unknown): AcceptedStepMapping {
+    const input = strictRecord(value, [
+      'projectId',
+      'pathId',
+      'acceptedProposalId',
+      'acceptedProposalRevision',
+      'remoteStepId',
+      'localTopicId',
+      'localLessonId',
+    ]);
+    rejectForbiddenAuthority(input);
+    return {
+      projectId: identifier(input.projectId, 'Project id'),
+      pathId: identifier(input.pathId, 'Path id'),
+      acceptedProposalId: identifier(input.acceptedProposalId, 'Proposal id'),
+      acceptedProposalRevision: boundedInteger(
+        input.acceptedProposalRevision,
+        1,
+        LIMITS.revision,
+        'Proposal revision',
+      ),
+      remoteStepId: identifier(input.remoteStepId, 'Remote step id'),
+      localTopicId: identifier(input.localTopicId, 'Topic id'),
+      localLessonId: identifier(input.localLessonId, 'Lesson id'),
+    };
+  }
+
+  function parseAcceptedStepMappings(value: unknown): AcceptedStepMapping[] {
+    if (
+      !isDenseArray(value) ||
+      value.length < 1 ||
+      value.length > LIMITS.mappingEntries
+    ) {
+      invalid('Step mappings are invalid.');
+    }
+    const parsed = value.map(parseAcceptedStepMapping);
+    const remote = new Set(parsed.map((item) => item.remoteStepId));
+    const local = new Set(parsed.map((item) => item.localLessonId));
+    if (remote.size !== parsed.length || local.size !== parsed.length) {
+      invalid('Step mappings must keep distinct remote and local lesson ids.');
+    }
+    const owner = parsed[0];
+    if (
+      owner &&
+      parsed.some(
+        (item) =>
+          item.projectId !== owner.projectId ||
+          item.pathId !== owner.pathId ||
+          item.acceptedProposalId !== owner.acceptedProposalId ||
+          item.acceptedProposalRevision !== owner.acceptedProposalRevision,
+      )
+    ) {
+      invalid('Step mappings must share one accepted path identity.');
+    }
+    return parsed;
+  }
+
+  function parseLearningOnboardingSnapshot(
+    value: unknown,
+  ): LearningOnboardingSnapshot {
+    const input = strictRecord(value, ['interview', 'proposal', 'accepted']);
+    const accepted =
+      input.accepted === null
+        ? null
+        : (() => {
+            const record = strictRecord(input.accepted, [
+              'proposal',
+              'pathId',
+              'pathRevision',
+              'firstLesson',
+            ]);
+            const lesson = strictRecord(record.firstLesson, [
+              'pathId',
+              'pathRevision',
+              'topicId',
+              'lessonId',
+            ]);
+            return {
+              proposal: opaqueRef(record.proposal),
+              pathId: identifier(record.pathId, 'Path id'),
+              pathRevision: boundedInteger(
+                record.pathRevision,
+                1,
+                LIMITS.revision,
+                'Path revision',
+              ),
+              firstLesson: {
+                pathId: identifier(lesson.pathId, 'Path id'),
+                pathRevision: boundedInteger(
+                  lesson.pathRevision,
+                  1,
+                  LIMITS.revision,
+                  'Path revision',
+                ),
+                topicId: identifier(lesson.topicId, 'Topic id'),
+                lessonId: identifier(lesson.lessonId, 'Lesson id'),
+              },
+            };
+          })();
+    return {
+      interview:
+        input.interview === null ? null : parseInterviewRecord(input.interview),
+      proposal:
+        input.proposal === null ? null : parseCourseProposal(input.proposal),
+      accepted,
+    };
+  }
+
+  function parseRevisionWrite<T>(
+    value: unknown,
+    parseRecord: (record: unknown) => T,
+  ): RevisionWrite<T> {
+    const input = strictRecord(value, [
+      'status',
+      'record',
+      'expectedRevision',
+      'currentRevision',
+    ]);
+    if (input.status === 'saved') {
+      if (
+        input.expectedRevision !== undefined ||
+        input.currentRevision !== undefined
+      ) {
+        invalid('Saved revision write is invalid.');
+      }
+      return { status: input.status, record: parseRecord(input.record) };
+    }
+    if (input.status !== 'conflict')
+      invalid('Revision write status is invalid.');
+    if (input.record !== undefined)
+      invalid('Conflicting revision write is invalid.');
+    return {
+      status: input.status,
+      expectedRevision: revision(input.expectedRevision, 'Expected revision'),
+      currentRevision: boundedInteger(
+        input.currentRevision,
+        1,
+        LIMITS.revision,
+        'Current revision',
+      ),
+    };
+  }
+
+  function humanAnswers(value: unknown): HumanDiagnosticAnswer[] {
+    if (!isDenseArray(value) || value.length > LIMITS.diagnosticAnswers) {
+      invalid('Diagnostic answers are invalid.');
+    }
+    return value.map((item): HumanDiagnosticAnswer => {
+      const input = strictRecord(item, ['trust', 'promptId', 'answer']);
+      if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
+        invalid('Diagnostic answers must be untrusted human context.');
+      }
+      return {
+        trust: input.trust,
+        promptId: identifier(input.promptId, 'Prompt id'),
+        answer: boundedText(
+          input.answer,
+          LIMITS.diagnosticAnswerCharacters,
+          'Diagnostic answer',
+        ),
+      };
+    });
+  }
+
+  function seedLocators(value: unknown): SeedRevisionLocator[] {
+    if (!isDenseArray(value) || value.length > LIMITS.seedRevisionLocators) {
+      invalid('Seed revision locators are invalid.');
+    }
+    return value.map((item): SeedRevisionLocator => {
+      const input = strictRecord(item, ['sourceId', 'revisionId']);
+      rejectForbiddenAuthority(input);
+      return {
+        sourceId: identifier(input.sourceId, 'Source id'),
+        revisionId: identifier(input.revisionId, 'Source revision id'),
+      };
+    });
+  }
+
+  function humanContext(value: unknown): UntrustedHumanLearnerContext {
+    const input = strictRecord(value, [
+      'trust',
+      'goal',
+      'focus',
+      'depth',
+      'profileRevision',
+      'interviewRevision',
+      'profile',
+      'answers',
+      'seedRevisionLocators',
+      'unacquiredSeedUrls',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.trust !== ONBOARDING_CONTEXT_TRUST.human) {
+      invalid('Learner context must be marked untrusted human context.');
+    }
+    return {
+      trust: input.trust,
+      goal: boundedText(input.goal, LIMITS.goalCharacters, 'Learning goal'),
+      focus: boundedText(input.focus, LIMITS.focusCharacters, 'Course focus'),
+      depth: depth(input.depth),
+      profileRevision: boundedInteger(
+        input.profileRevision,
+        1,
+        LIMITS.revision,
+        'Profile revision',
+      ),
+      interviewRevision: boundedInteger(
+        input.interviewRevision,
+        1,
+        LIMITS.revision,
+        'Interview revision',
+      ),
+      profile: profileDraft(input.profile),
+      answers: humanAnswers(input.answers),
+      seedRevisionLocators: seedLocators(input.seedRevisionLocators),
+      unacquiredSeedUrls: seedDrafts(input.unacquiredSeedUrls),
+    };
+  }
+
+  function compactSyllabus(value: unknown): CompactSyllabus {
+    const input = strictRecord(value, ['title', 'topics']);
+    if (
+      !isDenseArray(input.topics) ||
+      input.topics.length < 1 ||
+      input.topics.length > LIMITS.topics
+    ) {
+      invalid('Compact syllabus topics are invalid.');
+    }
+    const topics = input.topics.map((item) => {
+      const topic = strictRecord(item, ['topicId', 'title', 'lessons']);
+      if (
+        !isDenseArray(topic.lessons) ||
+        topic.lessons.length < 1 ||
+        topic.lessons.length > LIMITS.lessonsPerTopic
+      ) {
+        invalid('Compact syllabus lessons are invalid.');
+      }
+      return {
+        topicId: identifier(topic.topicId, 'Topic id'),
+        title: boundedText(topic.title, LIMITS.titleCharacters, 'Topic title'),
+        lessons: topic.lessons.map((entry) => {
+          const lesson = strictRecord(entry, [
+            'stepId',
+            'title',
+            'role',
+            'sourceState',
+          ]);
+          return {
+            stepId: identifier(lesson.stepId, 'Step id'),
+            title: boundedText(
+              lesson.title,
+              LIMITS.titleCharacters,
+              'Lesson title',
+            ),
+            role: role(lesson.role),
+            sourceState: sourceState(lesson.sourceState),
+          };
+        }),
+      };
+    });
+    const lessons = topics.flatMap((topic) => topic.lessons);
+    if (lessons.length > LIMITS.lessons)
+      invalid('Syllabus exceeds the lesson ceiling.');
+    if (new Set(topics.map((topic) => topic.topicId)).size !== topics.length) {
+      invalid('Topic ids must be distinct.');
+    }
+    if (
+      new Set(lessons.map((lesson) => lesson.stepId)).size !== lessons.length
+    ) {
+      invalid('Step ids must be distinct.');
+    }
+    return {
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
+      topics,
+    };
+  }
+
+  function modelContext(value: unknown): UntrustedModelSyllabusContext {
+    const input = strictRecord(value, [
+      'trust',
+      'priorProposal',
+      'syllabus',
+      'personalization',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.trust !== ONBOARDING_CONTEXT_TRUST.model) {
+      invalid('Prior syllabus must be marked untrusted model context.');
+    }
+    return {
+      trust: input.trust,
+      priorProposal: opaqueRef(input.priorProposal),
+      syllabus: compactSyllabus(input.syllabus),
+      personalization:
+        input.personalization === null
+          ? null
+          : personalization(input.personalization),
+    };
+  }
+
+  function operation(value: unknown): LearningOnboardingOperation {
+    const input = strictRecord(value, [
+      'kind',
+      'human',
+      'model',
+      'changes',
+      'target',
+    ]);
+    if (!includesMember(LEARNING_ONBOARDING_OPERATIONS, input.kind)) {
+      invalid('Onboarding operation is not supported.');
+    }
+    const human = humanContext(input.human);
+    if (input.kind === 'interview-prompt' || input.kind === 'propose-course') {
+      if (
+        input.model !== undefined ||
+        input.changes !== undefined ||
+        input.target !== undefined
+      ) {
+        invalid('Onboarding operation fields are invalid.');
+      }
+      return { kind: input.kind, human } as
+        InterviewPromptOperation | ProposeCourseOperation;
+    }
+    if (input.kind === 'revise-course') {
+      if (input.target !== undefined)
+        invalid('Revise-course fields are invalid.');
+      const changes = strictRecord(input.changes, ['focus', 'depth']);
+      return {
+        kind: input.kind,
+        human,
+        model: modelContext(input.model),
+        changes: {
+          focus: boundedText(
+            changes.focus,
+            LIMITS.focusCharacters,
+            'Course focus',
+          ),
+          depth: depth(changes.depth),
+        },
+      } satisfies ReviseCourseOperation;
+    }
+    const target = strictRecord(input.target, [
+      'remoteStepId',
+      'acceptedProposal',
+    ]);
+    const selected: GenerateSelectedLessonOperation = {
+      kind: 'generate-selected-lesson',
+      human,
+      model: modelContext(input.model),
+      target: {
+        remoteStepId: identifier(target.remoteStepId, 'Remote step id'),
+        acceptedProposal: opaqueRef(target.acceptedProposal),
+      },
+    };
+    const steps = selected.model.syllabus.topics.flatMap(
+      (topic) => topic.lessons,
+    );
+    if (
+      !steps.some((lesson) => lesson.stepId === selected.target.remoteStepId)
+    ) {
+      invalid('Selected lesson target is not in the supplied syllabus.');
+    }
+    if (input.changes !== undefined)
+      invalid('Selected-lesson fields are invalid.');
+    return selected;
+  }
+
+  function parseLearningOnboardingRequest(
+    value: unknown,
+  ): LearningOnboardingRequest {
+    const input = strictRecord(value, [
+      'apiVersion',
+      'requestId',
+      'model',
+      'operation',
+    ]);
+    rejectForbiddenAuthority(input);
+    if (input.apiVersion !== LEARNING_ONBOARDING_API_VERSION) {
+      invalid('This onboarding contract version is not supported.');
+    }
+    if (!includesMember(LEARNING_MODEL_ALLOWLIST, input.model)) {
+      invalid('Model is not on the allowlist.');
+    }
+    const parsed: LearningOnboardingRequest = {
+      apiVersion: LEARNING_ONBOARDING_API_VERSION,
+      requestId: identifier(input.requestId, 'Request id'),
+      model: input.model,
+      operation: operation(input.operation),
+    };
+    assertRequestBudget(parsed);
+    return parsed;
+  }
+
+  function quota(value: unknown): MonthlyQuota {
+    const input = strictRecord(value, [
+      'month',
+      'limitMicrousd',
+      'committedMicrousd',
+      'reservedMicrousd',
+      'remainingMicrousd',
+    ]);
+    const month = boundedText(input.month, 7, 'Quota month');
+    if (!MONTH_PATTERN.test(month)) invalid('Quota month is invalid.');
+    return {
+      month,
+      limitMicrousd: boundedInteger(
+        input.limitMicrousd,
+        0,
+        1_000_000_000,
+        'Quota limit',
+      ),
+      committedMicrousd: boundedInteger(
+        input.committedMicrousd,
+        0,
+        1_000_000_000,
+        'Committed quota',
+      ),
+      reservedMicrousd: boundedInteger(
+        input.reservedMicrousd,
+        0,
+        1_000_000_000,
+        'Reserved quota',
+      ),
+      remainingMicrousd: boundedInteger(
+        input.remainingMicrousd,
+        0,
+        1_000_000_000,
+        'Remaining quota',
+      ),
+    };
+  }
+
+  function generatedSource(value: unknown): SourceRevisionInput {
+    const input = strictRecord(value, [
+      'sourceId',
+      'revisionId',
+      'title',
+      'canonicalText',
+      'sha256',
+      'format',
+      'canonicalizationVersion',
+      'acquiredAt',
+      'provenance',
+    ]);
+    const origin = strictRecord(input.provenance, ['kind', 'locator']);
+    const canonicalText = boundedText(
+      input.canonicalText,
+      LIMITS.generatedLessonCharacters,
+      'Generated lesson text',
+    );
+    const hash = validateSha256(input.sha256);
+    if (
+      origin.kind !== 'generated' ||
+      origin.locator !== null ||
+      (input.format !== 'plain-text' && input.format !== 'markdown') ||
+      hash !== sha256Text(canonicalText)
+    ) {
+      invalid('Generated lesson identity or hash is invalid.');
+    }
+    return {
+      sourceId: identifier(input.sourceId, 'Generated source id'),
+      revisionId: identifier(input.revisionId, 'Generated revision id'),
+      title: boundedText(
+        input.title,
+        LIMITS.titleCharacters,
+        'Generated title',
+      ),
+      canonicalText,
+      sha256: hash,
+      format: input.format,
+      canonicalizationVersion: identifier(
+        input.canonicalizationVersion,
+        'Canonicalization version',
+      ),
+      acquiredAt: isoTimestamp(input.acquiredAt, 'Generation time'),
+      provenance: { kind: 'generated', locator: null },
+    };
+  }
+
+  function citation(
+    value: unknown,
+    originals: readonly {
+      sourceId: string;
+      revisionId: string;
+      canonicalText: string;
+    }[],
+  ): SourceCitation {
+    const input = strictRecord(value, [
+      'sourceId',
+      'revisionId',
+      'start',
+      'end',
+      'quote',
+    ]);
+    const sourceId = identifier(input.sourceId, 'Citation source id');
+    const revisionId = identifier(input.revisionId, 'Citation revision id');
+    const start = boundedInteger(
+      input.start,
+      0,
+      LIMITS.generatedLessonCharacters,
+      'Citation start',
+    );
+    const end = boundedInteger(
+      input.end,
+      start + 1,
+      LIMITS.generatedLessonCharacters + 1,
+      'Citation end',
+    );
+    const quote = boundedText(
+      input.quote,
+      SOURCING_LIMITS.passageCharacters,
+      'Citation quote',
+    );
+    if (quote.length !== end - start) {
+      invalid('Citation quote length does not match its UTF-16 range.');
+    }
+    const original = originals.find(
+      (item) => item.sourceId === sourceId && item.revisionId === revisionId,
+    );
+    if (!original || original.canonicalText.slice(start, end) !== quote) {
+      invalid('Citation does not match backend-owned source evidence.');
+    }
+    return { sourceId, revisionId, start, end, quote };
+  }
+
+  function acquiredSources(value: unknown): AcquiredSource[] {
+    if (
+      !isDenseArray(value) ||
+      value.length < 1 ||
+      value.length > LIMITS.generationEvidenceSources
+    ) {
+      invalid('Generation evidence sources are invalid.');
+    }
+    const parsed = value.map((item) =>
+      sourcing.parseStoredAcquiredSource(item),
+    );
+    const characters = parsed.reduce(
+      (total, source) => total + source.content.revision.canonicalText.length,
+      0,
+    );
+    if (characters > LIMITS.generationEvidenceCharacters) {
+      invalid('Canonical source context is too large.');
+    }
+    return parsed;
+  }
+
+  function passagePosition(value: unknown): PassageLocator['position'] {
+    const input = strictRecord(value, [
+      'kind',
+      'startPage',
+      'endPage',
+      'startMilliseconds',
+      'endMilliseconds',
+    ]);
+    if (input.kind === 'document') {
+      if (
+        input.startPage !== undefined ||
+        input.endPage !== undefined ||
+        input.startMilliseconds !== undefined ||
+        input.endMilliseconds !== undefined
+      ) {
+        invalid('Document position is invalid.');
+      }
+      return { kind: input.kind };
+    }
+    if (input.kind === 'pages') {
+      return {
+        kind: input.kind,
+        startPage: boundedInteger(input.startPage, 1, 100_000, 'Start page'),
+        endPage: boundedInteger(input.endPage, 1, 100_000, 'End page'),
+      };
+    }
+    if (input.kind !== 'time') invalid('Passage position is invalid.');
+    return {
+      kind: input.kind,
+      startMilliseconds: boundedInteger(
+        input.startMilliseconds,
+        0,
+        Number.MAX_SAFE_INTEGER,
+        'Start time',
+      ),
+      endMilliseconds: boundedInteger(
+        input.endMilliseconds,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        'End time',
+      ),
+    };
+  }
+
+  function evidenceItem(value: unknown): RetrievalEvidence {
+    const input = strictRecord(value, [
+      'evidenceId',
+      'locator',
+      'sourceVersion',
+      'retrieverScore',
+      'sourceQuality',
+      'provenance',
+    ]);
+    if (!includesMember(SOURCE_QUALITY, input.sourceQuality)) {
+      invalid('Source quality is invalid.');
+    }
+    const locatorInput = strictRecord(input.locator, [
+      'sourceId',
+      'revisionId',
+      'start',
+      'end',
+      'quote',
+      'position',
+    ]);
+    const start = boundedInteger(
+      locatorInput.start,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'Quote start',
+    );
+    const end = boundedInteger(
+      locatorInput.end,
+      start + 1,
+      Number.MAX_SAFE_INTEGER,
+      'Quote end',
+    );
+    const quote = boundedText(
+      locatorInput.quote,
+      SOURCING_LIMITS.passageCharacters,
+      'Exact quote',
+    );
+    if (quote.length !== end - start) {
+      invalid('Exact quote length does not match its UTF-16 range.');
+    }
+    const version = strictRecord(input.sourceVersion, [
+      'sourceId',
+      'revisionId',
+      'sha256',
+      'canonicalizationVersion',
+    ]);
+    const sourceVersion: SourceRevisionIdentity = {
+      sourceId: identifier(version.sourceId, 'Source id'),
+      revisionId: identifier(version.revisionId, 'Source revision id'),
+      sha256: validateSha256(version.sha256),
+      canonicalizationVersion: identifier(
+        version.canonicalizationVersion,
+        'Canonicalization version',
+      ),
+    };
+    const locator: PassageLocator = {
+      sourceId: identifier(locatorInput.sourceId, 'Source id'),
+      revisionId: identifier(locatorInput.revisionId, 'Source revision id'),
+      start,
+      end,
+      quote,
+      position: passagePosition(locatorInput.position),
+    };
+    if (
+      locator.sourceId !== sourceVersion.sourceId ||
+      locator.revisionId !== sourceVersion.revisionId
+    ) {
+      invalid('Evidence locator does not match its source version.');
+    }
+    if (
+      typeof input.retrieverScore !== 'number' ||
+      !Number.isFinite(input.retrieverScore) ||
+      input.retrieverScore < 0 ||
+      input.retrieverScore > 1
+    ) {
+      invalid('Retriever score is invalid.');
+    }
+    const origin = strictRecord(input.provenance, [
+      'query',
+      'intent',
+      'provider',
+      'retrievalVersion',
+      'rankingMethod',
+      'rank',
+      'retrievedAt',
+    ]);
+    if (!includesMember(SOURCE_RETRIEVAL_PROVIDERS, origin.provider)) {
+      invalid('Retrieval provider is invalid.');
+    }
+    if (origin.intent !== 'learning' && origin.intent !== 'research') {
+      invalid('Sourcing intent is invalid.');
+    }
+    return {
+      evidenceId: identifier(input.evidenceId, 'Evidence id'),
+      locator,
+      sourceVersion,
+      retrieverScore: input.retrieverScore,
+      sourceQuality: input.sourceQuality as SourceQuality,
+      provenance: {
+        query: boundedText(
+          origin.query,
+          SOURCING_LIMITS.queryCharacters,
+          'Retrieval query',
+        ),
+        intent: origin.intent,
+        provider: origin.provider,
+        retrievalVersion: identifier(
+          origin.retrievalVersion,
+          'Retrieval version',
+        ),
+        rankingMethod: boundedText(origin.rankingMethod, 200, 'Ranking method'),
+        rank: boundedInteger(origin.rank, 1, LIMITS.retrievalPassages, 'Rank'),
+        retrievedAt: isoTimestamp(origin.retrievedAt, 'Retrieval time'),
+      },
+    };
+  }
+
+  function evidenceList(value: unknown): RetrievalEvidence[] {
+    if (
+      !isDenseArray(value) ||
+      value.length < 1 ||
+      value.length > LIMITS.retrievalPassages
+    ) {
+      invalid('Retrieval evidence is invalid.');
+    }
+    return value.map(evidenceItem);
+  }
+
+  function generatedLesson(
+    value: unknown,
+    originals: readonly {
+      sourceId: string;
+      revisionId: string;
+      canonicalText: string;
+    }[],
+    expectedStepId: string,
+    expectedTitle: string,
+    expectedActivity: string | null,
+  ): OnboardingGeneratedLesson {
+    const input = strictRecord(value, [
+      'stepId',
+      'source',
+      'paragraphs',
+      'activity',
+    ]);
+    const stepId = identifier(input.stepId, 'Step id');
+    if (stepId !== expectedStepId)
+      invalid('Generated lesson does not match its target step.');
+    const source = generatedSource(input.source);
+    if (source.title !== expectedTitle) {
+      invalid('Generated lesson title does not match its step.');
+    }
+    if (
+      !isDenseArray(input.paragraphs) ||
+      input.paragraphs.length < 1 ||
+      input.paragraphs.length > 32
+    ) {
+      invalid('Generated lesson paragraphs are invalid.');
+    }
+    const paragraphs = input.paragraphs.map((item) => {
+      const paragraph = strictRecord(item, ['text', 'kind', 'citations']);
+      if (paragraph.kind !== 'ai-explanation') {
+        invalid('Generated lesson paragraph attribution is invalid.');
+      }
+      if (
+        !isDenseArray(paragraph.citations) ||
+        paragraph.citations.length > 12
+      ) {
+        invalid('Generated lesson citations are invalid.');
+      }
+      return {
+        text: boundedText(
+          paragraph.text,
+          LIMITS.generatedLessonCharacters,
+          'Lesson paragraph',
+        ),
+        kind: 'ai-explanation' as const,
+        citations: paragraph.citations.map((entry) =>
+          citation(entry, originals),
+        ),
+      };
+    });
+    if (
+      paragraphs.map((paragraph) => paragraph.text).join('\n\n') !==
+      source.canonicalText
+    ) {
+      invalid('Generated lesson text does not match its canonical source.');
+    }
+    const activity = strictRecord(input.activity, [
+      'text',
+      'kind',
+      'masteryEstablished',
+    ]);
+    if (
+      activity.kind !== 'ai-proposed-activity' ||
+      activity.masteryEstablished !== false ||
+      (expectedActivity !== null && activity.text !== expectedActivity)
+    ) {
+      invalid(
+        'Generated activity does not match its step and cannot claim mastery.',
+      );
+    }
+    return {
+      stepId,
+      source,
+      paragraphs,
+      activity: {
+        text: boundedText(
+          activity.text,
+          LIMITS.activityCharacters,
+          'Lesson activity',
+        ),
+        kind: 'ai-proposed-activity',
+        masteryEstablished: false,
+      },
+    };
+  }
+
+  function parseSyllabus(value: unknown): OnboardingSyllabus {
+    const input = strictRecord(value, ['title', 'topics']);
+    return {
+      title: boundedText(input.title, LIMITS.titleCharacters, 'Course title'),
+      topics: proposalTopics(input.topics),
+    };
+  }
+
+  function bibliography(value: unknown): ProposalSource[] {
+    if (!isDenseArray(value) || value.length > LIMITS.proposalSources) {
+      invalid('Bibliography is invalid.');
+    }
+    return value.map(proposalSource);
+  }
+
+  function successEnvelope(value: unknown): Record<string, unknown> {
+    const input = strictRecord(value, [
+      'outcome',
+      'requestId',
+      'scope',
+      'prompt',
+      'assessment',
+      'syllabus',
+      'firstLesson',
+      'lesson',
+      'sources',
+      'bibliography',
+      'evidence',
+      'gaps',
+      'sourceCoverage',
+      'personalization',
+      'provenance',
+      'quota',
+      'message',
+      'retryable',
+      'accounting',
+      'expectedRevision',
+      'currentRevision',
+    ]);
+    if (input.scope === COMPATIBLE_SOURCED_LEARNING_SCOPE) {
+      invalid(
+        'Onboarding must not reuse first-useful-step sourced-learning scope.',
+      );
+    }
+    return input;
+  }
+
+  function interviewSuccess(
+    input: Record<string, unknown>,
+  ): InterviewPromptSuccess {
+    rejectDefinedFields(
+      input,
+      [
+        'syllabus',
+        'firstLesson',
+        'lesson',
+        'sources',
+        'bibliography',
+        'evidence',
+        'gaps',
+        'sourceCoverage',
+        'personalization',
+        'provenance',
+        'message',
+        'retryable',
+        'accounting',
+        'expectedRevision',
+        'currentRevision',
+      ],
+      'Interview success outcome is invalid.',
+    );
+    const prompt = strictRecord(input.prompt, ['id', 'text', 'provenance']);
+    return {
+      outcome: 'success',
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: 'interview-prompt',
+      prompt: interviewPrompt(prompt),
+      assessment:
+        input.assessment === null ? null : personalization(input.assessment),
+      quota: quota(input.quota),
+    };
+  }
+
+  function courseSuccess(
+    input: Record<string, unknown>,
+  ): CourseProposalSuccess {
+    rejectDefinedFields(
+      input,
+      [
+        'prompt',
+        'assessment',
+        'lesson',
+        'message',
+        'retryable',
+        'accounting',
+        'expectedRevision',
+        'currentRevision',
+      ],
+      'Course success outcome is invalid.',
+    );
+    const syllabus = parseSyllabus(input.syllabus);
+    const firstStep = syllabus.topics[0]?.lessons[0];
+    if (firstStep === undefined)
+      invalid('A proposed course requires a first lesson.');
+    const sources = acquiredSources(input.sources);
+    const originals = sources.map((source) => ({
+      sourceId: source.content.revision.sourceId,
+      revisionId: source.content.revision.revisionId,
+      canonicalText: source.content.revision.canonicalText,
+    }));
+    const firstLesson = generatedLesson(
+      input.firstLesson,
+      originals,
+      firstStep.stepId,
+      firstStep.title,
+      firstStep.activity,
+    );
+    const reportedGaps = input.gaps === undefined ? [] : gaps(input.gaps);
+    const listedBibliography = bibliography(input.bibliography);
+    const sourceCoverage = coverage(input.sourceCoverage);
+    sourceCoverageMatches(
+      syllabus.topics,
+      sourceCoverage,
+      listedBibliography.length,
+      reportedGaps.length,
+    );
+    if (firstStep.sourceState !== 'ready') {
+      invalid('The first syllabus lesson must be ready.');
+    }
+    if (
+      !isDenseArray(input.provenance) ||
+      input.provenance.length < 1 ||
+      input.provenance.length > LIMITS.provenanceReceipts
+    ) {
+      invalid('AI provenance receipts are invalid.');
+    }
+    return {
+      outcome: 'success',
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: 'complete-syllabus-and-first-lesson',
+      syllabus,
+      firstLesson,
+      sources,
+      bibliography: listedBibliography,
+      evidence: evidenceList(input.evidence),
+      gaps: reportedGaps,
+      sourceCoverage,
+      personalization: personalization(input.personalization),
+      provenance: input.provenance.map(provenance),
+      quota: quota(input.quota),
+    };
+  }
+
+  function selectedSuccess(
+    input: Record<string, unknown>,
+    request: LearningOnboardingRequest,
+  ): SelectedLessonSuccess {
+    if (request.operation.kind !== 'generate-selected-lesson') {
+      invalid('Selected-lesson success does not match its request.');
+    }
+    const target = request.operation.target.remoteStepId;
+    const compact = request.operation.model.syllabus.topics
+      .flatMap((topic) => topic.lessons)
+      .find((lesson) => lesson.stepId === target);
+    if (compact === undefined)
+      invalid('Selected lesson target is not in the supplied syllabus.');
+    const sources = acquiredSources(input.sources);
+    const originals = sources.map((source) => ({
+      sourceId: source.content.revision.sourceId,
+      revisionId: source.content.revision.revisionId,
+      canonicalText: source.content.revision.canonicalText,
+    }));
+    if (input.syllabus !== undefined) {
+      invalid(
+        'Selected-lesson generation must not return a replacement syllabus.',
+      );
+    }
+    rejectDefinedFields(
+      input,
+      [
+        'prompt',
+        'assessment',
+        'firstLesson',
+        'sourceCoverage',
+        'personalization',
+        'message',
+        'retryable',
+        'accounting',
+        'expectedRevision',
+        'currentRevision',
+      ],
+      'Selected-lesson success outcome is invalid.',
+    );
+    const lesson = generatedLesson(
+      input.lesson,
+      originals,
+      target,
+      compact.title,
+      null,
+    );
+    if (
+      !isDenseArray(input.provenance) ||
+      input.provenance.length < 1 ||
+      input.provenance.length > LIMITS.provenanceReceipts
+    ) {
+      invalid('AI provenance receipts are invalid.');
+    }
+    return {
+      outcome: 'success',
+      requestId: identifier(input.requestId, 'Request id'),
+      scope: 'selected-existing-lesson',
+      lesson,
+      sources,
+      bibliography: bibliography(input.bibliography),
+      evidence: evidenceList(input.evidence),
+      gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+      provenance: input.provenance.map(provenance),
+      quota: quota(input.quota),
+    };
+  }
+
+  function failure(
+    value: unknown,
+    requestId: string,
+  ): Exclude<LearningOnboardingResponse, { outcome: 'success' }> {
+    const input = successEnvelope(value);
+    if (input.requestId !== null && input.requestId !== requestId) {
+      invalid('Onboarding response request id does not match its request.');
+    }
+    switch (input.outcome) {
+      case 'invalid-request':
+        return {
+          outcome: input.outcome,
+          requestId:
+            input.requestId === null
+              ? null
+              : identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.invalidRequest),
+        };
+      case 'unauthenticated':
+        return {
+          outcome: input.outcome,
+          requestId:
+            input.requestId === null
+              ? null
+              : identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.unauthenticated),
+        };
+      case 'unsupported':
+        return {
+          outcome: input.outcome,
+          requestId:
+            input.requestId === null
+              ? null
+              : identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.unsupported),
+        };
+      case 'cancelled':
+        if (input.retryable !== false)
+          invalid('Cancelled onboarding cannot authorize a paid retry.');
+        if (
+          input.accounting !== 'released' &&
+          input.accounting !== 'charged' &&
+          input.accounting !== 'reservation-retained'
+        ) {
+          invalid('Cancelled accounting is invalid.');
+        }
+        return {
+          outcome: input.outcome,
+          requestId: identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.cancelled),
+          retryable: false,
+          accounting: input.accounting,
+        };
+      case 'unavailable':
+        return {
+          outcome: input.outcome,
+          requestId:
+            input.requestId === null
+              ? null
+              : identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.unavailable),
+          retryable: booleanField(input.retryable, 'Retryable'),
+          accounting:
+            input.accounting === 'none' ||
+            input.accounting === 'released' ||
+            input.accounting === 'charged' ||
+            input.accounting === 'reservation-retained'
+              ? input.accounting
+              : invalid('Unavailable accounting is invalid.'),
+        };
+      case 'coverage-pending':
+        if (input.retryable !== false)
+          invalid('Coverage-pending cannot authorize a paid retry.');
+        if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
+          invalid('Coverage scope is invalid.');
+        }
+        return {
+          outcome: input.outcome,
+          requestId: identifier(input.requestId, 'Request id'),
+          scope: input.scope as LearningOnboardingScope,
+          message: publicMessage(input.message, MESSAGES.coveragePending),
+          gaps: input.gaps === undefined ? [] : gaps(input.gaps),
+          sourceCoverage:
+            input.sourceCoverage === null
+              ? null
+              : coverage(input.sourceCoverage),
+          quota: input.quota === null ? null : quota(input.quota),
+          retryable: false,
+        };
+      case 'conflict':
+        if (input.retryable !== false)
+          invalid('Conflict cannot authorize a paid retry.');
+        return {
+          outcome: input.outcome,
+          requestId: identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.conflict),
+          retryable: false,
+        };
+      case 'stale-revision':
+        if (input.retryable !== false)
+          invalid('Stale revision cannot authorize a paid retry.');
+        return {
+          outcome: input.outcome,
+          requestId: identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.staleRevision),
+          expectedRevision:
+            input.expectedRevision === null
+              ? null
+              : revision(input.expectedRevision, 'Expected revision'),
+          currentRevision:
+            input.currentRevision === null
+              ? null
+              : boundedInteger(
+                  input.currentRevision,
+                  1,
+                  LIMITS.revision,
+                  'Current revision',
+                ),
+          retryable: false,
+        };
+      case 'quota-exceeded':
+        return {
+          outcome: input.outcome,
+          requestId: identifier(input.requestId, 'Request id'),
+          message: publicMessage(input.message, MESSAGES.quotaExceeded),
+          quota: quota(input.quota),
+        };
+      default:
+        return invalid('Onboarding outcome is invalid.');
+    }
+  }
+
+  function parseLearningOnboardingResponse(
+    value: unknown,
+    request: LearningOnboardingRequest,
+  ): LearningOnboardingResponse {
+    const input = successEnvelope(value);
+    if (input.outcome !== 'success') return failure(value, request.requestId);
+    if (input.requestId !== request.requestId) {
+      invalid('Onboarding response request id does not match its request.');
+    }
+    if (!includesMember(LEARNING_ONBOARDING_SCOPES, input.scope)) {
+      invalid('Onboarding success scope is invalid.');
+    }
+    if (input.scope === 'interview-prompt') {
+      if (request.operation.kind !== 'interview-prompt') {
+        invalid('Interview success does not match its request.');
+      }
+      return interviewSuccess(input);
+    }
+    if (input.scope === 'complete-syllabus-and-first-lesson') {
+      if (
+        request.operation.kind !== 'propose-course' &&
+        request.operation.kind !== 'revise-course'
+      ) {
+        invalid('Course success does not match its request.');
+      }
+      return courseSuccess(input);
+    }
+    return selectedSuccess(input, request);
+  }
+
+  return {
+    parseSaveLearnerProfileInput,
+    parseLearnerProfile,
+    parseSaveLearningInterviewInput,
+    parseInterviewRecord,
+    parseGetLearningOnboardingInput,
+    parseLearningOnboardingSnapshot,
+    parseInterviewPromptInput,
+    parseProposeCourseInput,
+    parseReviseCourseInput,
+    parseAcceptCourseInput,
+    parseEnsureLessonInput,
+    parseOnboardingRequest,
+    parseCourseProposal,
+    parseAcceptedStepMapping,
+    parseAcceptedStepMappings,
+    parseLearningOnboardingRequest,
+    parseLearningOnboardingResponse,
+    parseRevisionWrite,
+  };
+}

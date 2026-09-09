@@ -1,6 +1,10 @@
-# Minimal AR-47 / AR-48 onboarding seam — proposed, not implemented
+# Minimal AR-47 / AR-48 onboarding seam — historical proposal
 
 Inspected frozen integration: `ea46e3d8dd387b4fdb5914c37f4062d80bdb9dc7`.
+
+**Status:** AR-52 implemented the public contracts, validators and tests. Follow
+[learning onboarding](learning-onboarding.md) and `src/contracts/learning-onboarding*.ts`.
+This page remains the earlier recommendation text for AR-47/AR-48 runtime work.
 
 **Recommendation:** add one new desktop contract module, a main-owned durable onboarding service, and one new authenticated backend operation envelope. Preview retains a validated backend response in main; acceptance sends only its opaque identity. Generate the complete syllabus plus first lesson for preview/acceptance, then generate each subsequent selected lesson on demand. Do not use current `generateSourcedLearning()` as preview: it commits immediately.
 

@@ -1,0 +1,453 @@
+import type {
+  AiProvenance,
+  LearningModel,
+  MonthlyQuota,
+  SourceCitation,
+  SourceRevisionInput,
+  SourceRevisionLocator,
+} from './learning-api.js';
+import {
+  LEARNING_API_VERSION,
+  LEARNING_MODEL_ALLOWLIST,
+} from './learning-api.js';
+import type { PathSourceState } from './learning-records.js';
+import type {
+  AcquiredSource,
+  ProviderIdentity,
+  RetrievalEvidence,
+  ScholarlyIdentity,
+  SourceAccess,
+  SourceKind,
+  UntrustedOriginalLocation,
+} from './sourcing.js';
+import { SOURCING_LIMITS } from './sourcing.js';
+
+/** Sibling of `/v1/learning/sourced`. Do not register this path on the old route. */
+export const LEARNING_ONBOARDING_PATH = '/v1/learning/onboarding' as const;
+export const LEARNING_ONBOARDING_API_VERSION = '2026-09-09' as const;
+export const LEARNING_ONBOARDING_METHOD = 'POST' as const;
+
+/** Existing sourced-learning scope. The onboarding route must not emit it. */
+export const COMPATIBLE_SOURCED_LEARNING_SCOPE = 'first-useful-step' as const;
+
+export const LEARNING_ONBOARDING_SCOPES = [
+  'interview-prompt',
+  'complete-syllabus-and-first-lesson',
+  'selected-existing-lesson',
+] as const;
+export type LearningOnboardingScope =
+  (typeof LEARNING_ONBOARDING_SCOPES)[number];
+
+export const LEARNING_ONBOARDING_OPERATIONS = [
+  'interview-prompt',
+  'propose-course',
+  'revise-course',
+  'generate-selected-lesson',
+] as const;
+export type LearningOnboardingOperationKind =
+  (typeof LEARNING_ONBOARDING_OPERATIONS)[number];
+
+export const LESSON_DEPTHS = ['concise', 'balanced', 'deep'] as const;
+export type LessonDepth = (typeof LESSON_DEPTHS)[number];
+
+export const LESSON_ROLES = [
+  'concept',
+  'setup',
+  'practice',
+  'capstone',
+] as const;
+export type LessonRole = (typeof LESSON_ROLES)[number];
+
+export const EXTRACTION_COVERAGE = [
+  'complete',
+  'partial',
+  'metadata-only',
+  'unavailable',
+] as const;
+export type ProposalSourceCoverage = (typeof EXTRACTION_COVERAGE)[number];
+
+export const ONBOARDING_CONTEXT_TRUST = {
+  human: 'untrusted-human-context',
+  model: 'untrusted-model-context',
+} as const;
+
+/** Maximum envelope, not a target course length. Preserve existing admission. */
+export const LEARNING_ONBOARDING_LIMITS = {
+  requestBytes: 64 * 1024,
+  responseBytes: 4 * 1024 * 1024,
+  profileFieldCharacters: 2_000,
+  goalCharacters: 2_000,
+  focusCharacters: 2_000,
+  diagnosticAnswers: 6,
+  diagnosticAnswerCharacters: 4_000,
+  interviewPrompts: 6,
+  promptCharacters: 2_000,
+  seedRevisionLocators: 8,
+  unacquiredSeedUrls: 4,
+  urlCharacters: 2_048,
+  topics: 16,
+  lessons: 160,
+  lessonsPerTopic: 40,
+  prerequisiteIds: 16,
+  titleCharacters: 200,
+  outcomeCharacters: 2_000,
+  objectiveCharacters: 2_000,
+  activityCharacters: 2_000,
+  previewCharacters: 24_000,
+  generatedLessonCharacters: 48_000,
+  generationEvidenceSources: 4,
+  generationEvidenceCharacters: 48_000,
+  proposalSources: SOURCING_LIMITS.discoveryResults,
+  retrievalPassages: 12,
+  sourceRefsPerLesson: 8,
+  observedGaps: 12,
+  observedGapCharacters: 500,
+  personalizationSummaryCharacters: 2_000,
+  gaps: 32,
+  gapMessageCharacters: 500,
+  provenanceReceipts: 4,
+  mappingEntries: 160,
+  revision: 1_000_000,
+} as const;
+
+export const LEARNING_ONBOARDING_MODEL_ALLOWLIST = LEARNING_MODEL_ALLOWLIST;
+export const LEARNING_ONBOARDING_LEARNING_API_VERSION = LEARNING_API_VERSION;
+
+export const LEARNING_ONBOARDING_PUBLIC_MESSAGES = {
+  invalidRequest: 'The onboarding request is invalid.',
+  unauthenticated: 'Authentication is required.',
+  cancelled: 'The onboarding request was cancelled.',
+  unavailable: 'The onboarding operation is unavailable.',
+  coveragePending: 'Source coverage is insufficient for this onboarding step.',
+  conflict:
+    'The onboarding target or request conflicts with retained identity.',
+  staleRevision: 'The onboarding revision is no longer current.',
+  quotaExceeded: 'The monthly learning allowance is exhausted.',
+  unsupported: 'This onboarding operation is not supported.',
+} as const;
+
+export const FORBIDDEN_ONBOARDING_AUTHORITY_FIELDS = [
+  'accountId',
+  'account',
+  'evidenceContext',
+  'canonicalText',
+  'usePolicy',
+  'sourcePolicy',
+  'paidRetry',
+  'retryPaid',
+  'sourceScopes',
+  'evidence',
+] as const;
+
+export type OpaqueRevisionRef = {
+  id: string;
+  revision: number;
+};
+
+export type SeedRevisionLocator = {
+  sourceId: string;
+  revisionId: string;
+};
+
+export type UnacquiredSeedUrl = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  kind: 'unacquired-url';
+  url: string;
+};
+
+export type HumanDiagnosticAnswer = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  promptId: string;
+  answer: string;
+};
+
+export type UntrustedHumanLearnerContext = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.human;
+  goal: string;
+  focus: string;
+  depth: LessonDepth;
+  profileRevision: number;
+  interviewRevision: number;
+  profile: {
+    background: string;
+    learningGoals: string;
+    priorKnowledge: string;
+  };
+  answers: HumanDiagnosticAnswer[];
+  seedRevisionLocators: SeedRevisionLocator[];
+  unacquiredSeedUrls: UnacquiredSeedUrl[];
+};
+
+export type CompactSyllabusLesson = {
+  stepId: string;
+  title: string;
+  role: LessonRole;
+  sourceState: PathSourceState;
+};
+
+export type CompactSyllabusTopic = {
+  topicId: string;
+  title: string;
+  lessons: CompactSyllabusLesson[];
+};
+
+export type CompactSyllabus = {
+  title: string;
+  topics: CompactSyllabusTopic[];
+};
+
+export type UntrustedModelSyllabusContext = {
+  trust: typeof ONBOARDING_CONTEXT_TRUST.model;
+  priorProposal: OpaqueRevisionRef;
+  syllabus: CompactSyllabus;
+  personalization: {
+    summary: string;
+    observedGaps: string[];
+    masteryEstablished: false;
+  } | null;
+};
+
+export type OnboardingSyllabusLesson = {
+  stepId: string;
+  title: string;
+  objective: string;
+  activity: string;
+  role: LessonRole;
+  prerequisiteStepIds: string[];
+  sourceState: PathSourceState;
+  sourceIds: string[];
+};
+
+export type OnboardingSyllabusTopic = {
+  topicId: string;
+  title: string;
+  outcome: string;
+  prerequisiteTopicIds: string[];
+  lessons: OnboardingSyllabusLesson[];
+};
+
+export type OnboardingSyllabus = {
+  title: string;
+  topics: OnboardingSyllabusTopic[];
+};
+
+export type OnboardingCoverageGap = {
+  kind: 'retrieval' | 'generation' | 'support';
+  message: string;
+};
+
+export type OnboardingSourceCoverage = {
+  readyLessons: number;
+  pendingLessons: number;
+  unsupportedLessons: number;
+  sources: number;
+  gaps: number;
+};
+
+export type OnboardingGeneratedLesson = {
+  stepId: string;
+  source: SourceRevisionInput;
+  paragraphs: {
+    text: string;
+    kind: 'ai-explanation';
+    citations: SourceCitation[];
+  }[];
+  activity: {
+    text: string;
+    kind: 'ai-proposed-activity';
+    masteryEstablished: false;
+  };
+};
+
+export type OnboardingPersonalization = {
+  author: 'ai';
+  summary: string;
+  observedGaps: string[];
+  masteryEstablished: false;
+};
+
+export type InterviewPromptOperation = {
+  kind: 'interview-prompt';
+  human: UntrustedHumanLearnerContext;
+};
+
+export type ProposeCourseOperation = {
+  kind: 'propose-course';
+  human: UntrustedHumanLearnerContext;
+};
+
+export type ReviseCourseOperation = {
+  kind: 'revise-course';
+  human: UntrustedHumanLearnerContext;
+  model: UntrustedModelSyllabusContext;
+  changes: { focus: string; depth: LessonDepth };
+};
+
+export type GenerateSelectedLessonOperation = {
+  kind: 'generate-selected-lesson';
+  human: UntrustedHumanLearnerContext;
+  model: UntrustedModelSyllabusContext;
+  target: {
+    remoteStepId: string;
+    acceptedProposal: OpaqueRevisionRef;
+  };
+};
+
+export type LearningOnboardingOperation =
+  | InterviewPromptOperation
+  | ProposeCourseOperation
+  | ReviseCourseOperation
+  | GenerateSelectedLessonOperation;
+
+/**
+ * Main→backend envelope. Account is session-derived and must be absent.
+ * Caller context is untrusted instruction, never evidence or policy authority.
+ */
+export type LearningOnboardingRequest = {
+  apiVersion: typeof LEARNING_ONBOARDING_API_VERSION;
+  requestId: string;
+  model: LearningModel;
+  operation: LearningOnboardingOperation;
+};
+
+export type InterviewPromptSuccess = {
+  outcome: 'success';
+  requestId: string;
+  scope: 'interview-prompt';
+  prompt: {
+    id: string;
+    text: string;
+    provenance: AiProvenance;
+  };
+  assessment: OnboardingPersonalization | null;
+  quota: MonthlyQuota;
+};
+
+export type CourseProposalSuccess = {
+  outcome: 'success';
+  requestId: string;
+  scope: 'complete-syllabus-and-first-lesson';
+  syllabus: OnboardingSyllabus;
+  firstLesson: OnboardingGeneratedLesson;
+  /** Canonical acquired evidence used for generation. Existing 4-source/48k cap. */
+  sources: AcquiredSource[];
+  /** Identity/access/coverage only. Not generation authority. */
+  bibliography: ProposalSource[];
+  evidence: RetrievalEvidence[];
+  gaps: OnboardingCoverageGap[];
+  sourceCoverage: OnboardingSourceCoverage;
+  personalization: OnboardingPersonalization;
+  provenance: AiProvenance[];
+  quota: MonthlyQuota;
+};
+
+export type SelectedLessonSuccess = {
+  outcome: 'success';
+  requestId: string;
+  scope: 'selected-existing-lesson';
+  lesson: OnboardingGeneratedLesson;
+  sources: AcquiredSource[];
+  bibliography: ProposalSource[];
+  evidence: RetrievalEvidence[];
+  gaps: OnboardingCoverageGap[];
+  provenance: AiProvenance[];
+  quota: MonthlyQuota;
+};
+
+export type LearningOnboardingSuccess =
+  InterviewPromptSuccess | CourseProposalSuccess | SelectedLessonSuccess;
+
+export type OnboardingInvalidRequest = {
+  outcome: 'invalid-request';
+  requestId: string | null;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.invalidRequest;
+};
+
+export type OnboardingUnauthenticated = {
+  outcome: 'unauthenticated';
+  requestId: string | null;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.unauthenticated;
+};
+
+export type OnboardingUnsupported = {
+  outcome: 'unsupported';
+  requestId: string | null;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.unsupported;
+};
+
+export type OnboardingCancelled = {
+  outcome: 'cancelled';
+  requestId: string;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.cancelled;
+  retryable: false;
+  accounting: 'released' | 'charged' | 'reservation-retained';
+};
+
+export type OnboardingUnavailable = {
+  outcome: 'unavailable';
+  requestId: string | null;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable;
+  retryable: boolean;
+  accounting: 'none' | 'released' | 'charged' | 'reservation-retained';
+};
+
+export type OnboardingCoveragePending = {
+  outcome: 'coverage-pending';
+  requestId: string;
+  scope: LearningOnboardingScope;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.coveragePending;
+  gaps: OnboardingCoverageGap[];
+  sourceCoverage: OnboardingSourceCoverage | null;
+  quota: MonthlyQuota | null;
+  retryable: false;
+};
+
+export type OnboardingConflict = {
+  outcome: 'conflict';
+  requestId: string;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.conflict;
+  retryable: false;
+};
+
+export type OnboardingStaleRevision = {
+  outcome: 'stale-revision';
+  requestId: string;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.staleRevision;
+  expectedRevision: number | null;
+  currentRevision: number | null;
+  retryable: false;
+};
+
+export type OnboardingQuotaExceeded = {
+  outcome: 'quota-exceeded';
+  requestId: string;
+  message: typeof LEARNING_ONBOARDING_PUBLIC_MESSAGES.quotaExceeded;
+  quota: MonthlyQuota;
+};
+
+export type LearningOnboardingFailure =
+  | OnboardingInvalidRequest
+  | OnboardingUnauthenticated
+  | OnboardingUnsupported
+  | OnboardingCancelled
+  | OnboardingUnavailable
+  | OnboardingCoveragePending
+  | OnboardingConflict
+  | OnboardingStaleRevision
+  | OnboardingQuotaExceeded;
+
+export type LearningOnboardingResponse =
+  LearningOnboardingSuccess | LearningOnboardingFailure;
+
+export type ProposalSource = {
+  sourceId: string;
+  kind: SourceKind;
+  title: string;
+  originalLocation: UntrustedOriginalLocation;
+  providerIds: ProviderIdentity[];
+  scholarlyIdentity: ScholarlyIdentity;
+  access: SourceAccess;
+  edition: SourceRevisionLocator | null;
+  coverage: ProposalSourceCoverage;
+  lessonStepIds: string[];
+};

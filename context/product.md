@@ -12,6 +12,8 @@ The central loop is: learning goal → useful learning step → practical work i
 
 Prefer a custom curriculum assembled from individual sources. Use an established course or textbook sequence when it fits the learner's goal, starting knowledge, and time budget.
 
+Entering an arbitrary goal starts a short open-ended diagnostic of real understanding, then a reviewable sourced syllabus. Explicit accept opens the first substantive lesson; later lessons generate when reached. Human profile and interview answers persist with revisions. AI assessments stay separately attributed. Current `generateSourcedLearning` is not this preview/accept flow.
+
 ## Experiences
 
 - **Learning Path:** a persistent left-sidebar outline of expandable topics and their concepts/learning items. Selecting an item opens its content in the main workspace. This is the organizing navigation, not a separate overview screen (founder correction, September 8). Direction through concepts and activities still needs evidence for why the next step is useful.
