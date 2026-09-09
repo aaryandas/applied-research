@@ -504,8 +504,7 @@ function sameCitations(
     stored.every((item, index) => {
       const citation = context.citations[index];
       return (
-        citation !== undefined &&
-        item.sourceId === citation.sourceId &&
+        item.sourceId === citation?.sourceId &&
         item.sourceRevisionId === citation.revisionId &&
         item.start === citation.start &&
         item.end === citation.end &&

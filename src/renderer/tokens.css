@@ -43,6 +43,12 @@
   --radius-group: 8px;
   --radius-panel: 12px;
   --radius-pill: 100px;
+  --text-heading: 22px;
+  --text-title: 40px;
+  --icon-lg: 32px;
+  --dot: 6px;
+  --focus-ring: 2px;
+  --focus-offset: 4px;
   --duration-press: 150ms;
   --duration-reveal: 220ms;
   --duration-arrive: 700ms;

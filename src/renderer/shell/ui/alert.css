@@ -7,7 +7,8 @@
  * always reads. `--danger` is the one alarm colour. `--human` is the
  * human-authorship colour and is deliberately absent here.
  *
- * Add `.ui-focusable` to the controls; the focus ring lives in `base.css`.
+ * The focus ring reaches the controls from the app-wide `:focus-visible` rule in
+ * `styles.css`; this file adds none.
  */
 
 .ui-alert {
@@ -57,16 +58,15 @@
   border-color: var(--line-strong);
 }
 
-/* Failure. `--error` and `--danger` name the same tone. */
-.ui-alert--error,
-.ui-alert--danger {
+/* Failure. */
+.ui-alert--error {
   color: var(--danger);
   border-color: var(--danger);
 }
 
 /*
  * Trailing controls. Both are buttons, so they are `.ui-button` — a retry is
- * `.ui-button .ui-button--quiet`, a dismiss is `.ui-button .ui-button--icon` with an
+ * `.ui-button .ui-button--text`, a dismiss is `.ui-button .ui-button--icon` with an
  * `aria-label`. Re-declaring a box, a hover and a disabled treatment here is how the
  * app ended up with 17 buttons; this part contributes placement and nothing else.
  */
