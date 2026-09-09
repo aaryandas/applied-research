@@ -140,10 +140,14 @@ Operations this desktop already sends:
 | `revise-course`            | `complete-syllabus-and-first-lesson` |
 | `generate-selected-lesson` | `selected-existing-lesson`           |
 
-Human context is `untrusted-human-context` (goal, focus, depth, profile,
-answers, unacquired seed URLs). Prior syllabus is `untrusted-model-context`.
-A source URL or pasted excerpt is data, never trusted instructions. Accept
-and ensure-lesson do not send canonical lesson/source JSON.
+Human context is `untrusted-human-context` (goal, focus, depth, live intended
+profile, interview answers, unacquired seed URLs, and `pastedSeedText`).
+`pastedSeedText` is private human paste or `null`; it is not evidence and must
+not be acquired or placed on `seedRevisionLocators`. Prior syllabus is
+`untrusted-model-context`. Selected-lesson requests may send a newer live
+profile revision than the accepted interview stored; that does not rewrite
+accepted history. A source URL or pasted excerpt is data, never trusted
+instructions. Accept and ensure-lesson do not send canonical lesson/source JSON.
 
 **Practical / AR-50:** consume `CoursePracticeBrief` and
 `CoursePracticeActivityBinding`. Populate existing Practical activity

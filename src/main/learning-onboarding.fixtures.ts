@@ -336,6 +336,7 @@ export function humanContext(input: {
     ],
     seedRevisionLocators: [],
     unacquiredSeedUrls: [],
+    pastedSeedText: null,
   };
 }
 

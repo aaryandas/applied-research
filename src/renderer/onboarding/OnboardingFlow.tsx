@@ -90,6 +90,15 @@ function localQuestions(goal: string): readonly {
   ];
 }
 
+function typedInterviewAnswers(
+  items: readonly { id: string }[],
+  answers: Record<string, string>,
+): { promptId: string; answer: string }[] {
+  return items
+    .map((item) => ({ promptId: item.id, answer: answers[item.id] ?? '' }))
+    .filter((item) => item.answer.trim() !== '');
+}
+
 export function OnboardingFlow({
   projectId,
   goal,
@@ -123,10 +132,20 @@ export function OnboardingFlow({
   const [retryable, setRetryable] = useState(false);
   const submitting = useRef(false);
   const ignoreRemote = useRef(false);
+  const leaving = useRef(false);
+  const dirty = useRef(false);
+  const busyRef = useRef(false);
+  const persistInterviewRef = useRef<
+    (mode: 'plan' | 'draft') => Promise<InterviewRecord | null>
+  >(async () => null);
   const requestId = useRef(newRequestId());
   const acceptRequestId = useRef<string | undefined>(undefined);
   const interviewRevision = useRef(0);
   const profileRevision = useRef(0);
+
+  const markDirty = (): void => {
+    dirty.current = true;
+  };
 
   useEffect(() => {
     void (async () => {
@@ -145,15 +164,44 @@ export function OnboardingFlow({
         });
         const seed = snapshot.interview.seedDrafts[0]?.url;
         if (seed) setSourceUrl(seed);
+      } else {
+        const profile = await bridge.getLearnerProfile();
+        if (profile) {
+          profileRevision.current = profile.revision;
+          setAnswers((current) => ({
+            ...current,
+            [LOCAL_PROMPT_IDS.background]:
+              current[LOCAL_PROMPT_IDS.background] || profile.background,
+            [LOCAL_PROMPT_IDS.intended]:
+              current[LOCAL_PROMPT_IDS.intended] || profile.learningGoals,
+            [LOCAL_PROMPT_IDS.prior]:
+              current[LOCAL_PROMPT_IDS.prior] || profile.priorKnowledge,
+          }));
+        }
       }
       const pasted = await bridge.getPastedSource?.({ projectId });
-      if (pasted) setPaste(pasted);
+      if (snapshot.interview) setPaste(pasted ?? '');
+      else if (pasted) setPaste(pasted);
       if (snapshot.proposal) {
         setProposal(snapshot.proposal);
         setPhase('plan');
       }
     })();
   }, [bridge, projectId]);
+
+  useEffect(() => {
+    return () => {
+      if (
+        leaving.current ||
+        submitting.current ||
+        busyRef.current ||
+        !dirty.current
+      ) {
+        return;
+      }
+      void persistInterviewRef.current('draft').catch(() => undefined);
+    };
+  }, []);
 
   const applyRemote = <T,>(
     result: OnboardingResult<T>,
@@ -182,7 +230,7 @@ export function OnboardingFlow({
     result: RevisionWrite<T>,
     onSaved: (record: T) => void,
   ): boolean => {
-    if (result.status === 'saved') {
+    if (result?.status === 'saved') {
       onSaved(result.record);
       return true;
     }
@@ -195,24 +243,52 @@ export function OnboardingFlow({
     return false;
   };
 
-  const persistInterview = async (): Promise<InterviewRecord | null> => {
+  const persistInterview = async (
+    mode: 'plan' | 'draft',
+  ): Promise<InterviewRecord | null> => {
     const currentProfile = await bridge.getLearnerProfile();
-    const profileWrite = await bridge.saveLearnerProfile({
-      expectedRevision: currentProfile?.revision ?? 0,
-      draft: {
-        background: answers[LOCAL_PROMPT_IDS.background] ?? '',
-        learningGoals: answers[LOCAL_PROMPT_IDS.intended] ?? '',
-        priorKnowledge: answers[LOCAL_PROMPT_IDS.prior] ?? '',
-      },
-    });
-    let profile: LearnerProfile | undefined;
-    if (
-      !applyWrite(profileWrite, (record) => {
-        profile = record;
-        profileRevision.current = record.revision;
-      })
+    let profile: LearnerProfile | undefined = currentProfile ?? undefined;
+    if (mode === 'plan') {
+      const profileWrite = await bridge.saveLearnerProfile({
+        expectedRevision: currentProfile?.revision ?? 0,
+        draft: {
+          background: answers[LOCAL_PROMPT_IDS.background] ?? '',
+          learningGoals: answers[LOCAL_PROMPT_IDS.intended] ?? '',
+          priorKnowledge: answers[LOCAL_PROMPT_IDS.prior] ?? '',
+        },
+      });
+      if (
+        !applyWrite(profileWrite, (record) => {
+          profile = record;
+          profileRevision.current = record.revision;
+        })
+      ) {
+        return null;
+      }
+    } else if (
+      currentProfile === null &&
+      (answers[LOCAL_PROMPT_IDS.background] ?? '').trim() !== '' &&
+      (answers[LOCAL_PROMPT_IDS.intended] ?? '').trim() !== '' &&
+      (answers[LOCAL_PROMPT_IDS.prior] ?? '').trim() !== ''
     ) {
-      return null;
+      const profileWrite = await bridge.saveLearnerProfile({
+        expectedRevision: 0,
+        draft: {
+          background: answers[LOCAL_PROMPT_IDS.background] ?? '',
+          learningGoals: answers[LOCAL_PROMPT_IDS.intended] ?? '',
+          priorKnowledge: answers[LOCAL_PROMPT_IDS.prior] ?? '',
+        },
+      });
+      if (
+        !applyWrite(profileWrite, (record) => {
+          profile = record;
+          profileRevision.current = record.revision;
+        })
+      ) {
+        return null;
+      }
+    } else if (currentProfile) {
+      profileRevision.current = currentProfile.revision;
     }
     const snapshot = await bridge.getLearningOnboarding({ projectId });
     const interviewWrite = await bridge.saveLearningInterview({
@@ -222,13 +298,10 @@ export function OnboardingFlow({
         goal,
         focus: focus.trim() === '' ? goal : focus,
         depth,
-        profileRevision: profile!.revision,
+        profileRevision: profile?.revision ?? 0,
         sourceRevisionIds: snapshot.interview?.sourceRevisionIds ?? [],
         seedDrafts: seedFromUrl(sourceUrl),
-        answers: questions.map((item) => ({
-          promptId: item.id,
-          answer: answers[item.id] ?? '',
-        })),
+        answers: typedInterviewAnswers(questions, answers),
       },
     });
     let interview: InterviewRecord | undefined;
@@ -240,11 +313,11 @@ export function OnboardingFlow({
     ) {
       return null;
     }
-    if (paste.trim() !== '' && bridge.savePastedSource) {
+    if (bridge.savePastedSource) {
       const pastedWrite = await bridge.savePastedSource({
         projectId,
         expectedRevision: interview!.revision,
-        pastedSourceText: paste,
+        pastedSourceText: paste.trim() === '' ? null : paste,
       });
       if (
         !applyWrite(pastedWrite, (record) => {
@@ -258,6 +331,11 @@ export function OnboardingFlow({
     return interview!;
   };
 
+  useEffect(() => {
+    busyRef.current = busy;
+    persistInterviewRef.current = persistInterview;
+  });
+
   const submitInterview = async (): Promise<void> => {
     if (submitting.current || busy) return;
     submitting.current = true;
@@ -266,7 +344,7 @@ export function OnboardingFlow({
     setError(undefined);
     setStatus('Saving your answers…');
     try {
-      const interview = await persistInterview();
+      const interview = await persistInterview('plan');
       if (!interview || ignoreRemote.current) return;
       requestId.current = newRequestId();
       setStatus('Planning a sourced course from your answers…');
@@ -302,7 +380,7 @@ export function OnboardingFlow({
     setError(undefined);
     setStatus('Revising the plan from your focus notes…');
     try {
-      const interview = await persistInterview();
+      const interview = await persistInterview('plan');
       if (!interview || ignoreRemote.current) return;
       requestId.current = newRequestId();
       const revised = await bridge.reviseCourse({
@@ -370,6 +448,27 @@ export function OnboardingFlow({
     setStatus(undefined);
     setError('Planning was cancelled. Your interview answers are still here.');
     setRetryable(true);
+  };
+
+  const persistDraftAndLeave = async (): Promise<void> => {
+    if (leaving.current || submitting.current || busy) return;
+    leaving.current = true;
+    try {
+      const interview = await persistInterview('draft');
+      if (!interview) {
+        leaving.current = false;
+        return;
+      }
+      onCancel();
+    } catch (failure) {
+      leaving.current = false;
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'The planner could not save this draft. Your typed answers remain.',
+      );
+      setRetryable(true);
+    }
   };
 
   const lessonTitleByStep = (value: CourseProposal): Map<string, string> => {
@@ -481,7 +580,13 @@ export function OnboardingFlow({
           Adjust focus
           <textarea
             value={focus}
-            onChange={(event) => setFocus(event.target.value)}
+            onChange={(event) =>
+              setFocus((current) => {
+                const next = event.target.value;
+                if (next !== current) markDirty();
+                return next;
+              })
+            }
             rows={3}
             disabled={busy}
           />
@@ -491,7 +596,10 @@ export function OnboardingFlow({
           <select
             value={depth}
             disabled={busy}
-            onChange={(event) => setDepth(event.target.value as LessonDepth)}
+            onChange={(event) => {
+              markDirty();
+              setDepth(event.target.value as LessonDepth);
+            }}
           >
             {LESSON_DEPTHS.map((item) => (
               <option key={item} value={item}>
@@ -510,7 +618,7 @@ export function OnboardingFlow({
           <button
             type="button"
             className="ui-button ui-button--text"
-            onClick={onCancel}
+            onClick={() => void persistDraftAndLeave()}
             disabled={busy}
           >
             Back to opening
@@ -571,12 +679,13 @@ export function OnboardingFlow({
           {item.question}
           <textarea
             value={answers[item.id] ?? ''}
-            onChange={(event) =>
+            onChange={(event) => {
+              markDirty();
               setAnswers((current) => ({
                 ...current,
                 [item.id]: event.target.value,
-              }))
-            }
+              }));
+            }}
             rows={4}
             disabled={busy}
           />
@@ -587,7 +696,10 @@ export function OnboardingFlow({
         <input
           type="url"
           value={sourceUrl}
-          onChange={(event) => setSourceUrl(event.target.value)}
+          onChange={(event) => {
+            markDirty();
+            setSourceUrl(event.target.value);
+          }}
           disabled={busy}
         />
       </label>
@@ -595,7 +707,10 @@ export function OnboardingFlow({
         Optional pasted excerpt
         <textarea
           value={paste}
-          onChange={(event) => setPaste(event.target.value)}
+          onChange={(event) => {
+            markDirty();
+            setPaste(event.target.value);
+          }}
           rows={4}
           disabled={busy}
         />
@@ -610,7 +725,7 @@ export function OnboardingFlow({
         <button
           type="button"
           className="ui-button ui-button--text"
-          onClick={onCancel}
+          onClick={() => void persistDraftAndLeave()}
           disabled={busy}
         >
           Back to opening
