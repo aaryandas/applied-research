@@ -130,6 +130,7 @@ function ProjectResearch(props: Readonly<ResearchEntryProps>): ReactElement {
     setIssues([]);
     setNoResults(false);
     setResults(null);
+    setDeniedIds([]);
     setSourceAlerts({});
     const operation = {
       context: structuredClone(props.context),

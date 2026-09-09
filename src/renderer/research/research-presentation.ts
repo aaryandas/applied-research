@@ -28,12 +28,12 @@ export function canAcquire(source: MetadataOnlySource): boolean {
 
 export function sourceAvailability(source: MetadataOnlySource): string {
   if (source.usePolicy.access === 'unavailable') return 'Unavailable';
+  if (source.acquisitionLocation) return 'Readable link';
   if (
     source.metadataSummary &&
     source.providerIds.some((id) => id.provider === 'openalex')
   )
     return 'Abstract available';
-  if (source.acquisitionLocation) return 'Readable link';
   return 'Catalog only';
 }
 
