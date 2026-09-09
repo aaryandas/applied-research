@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArtifactStore } from './artifact-store.js';
+import type { ArtifactStore } from './artifact-store.js';
 import { createRenderDeliveryService } from './service.js';
 import type {
   EngineArtifact,
@@ -513,5 +514,231 @@ describe('render delivery ownership and lifecycle', () => {
         )
       ).failure?.reason,
     ).toBe('invalid-request');
+  });
+});
+
+function deferredAction<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function wrapStore(
+  inner: ArtifactStore,
+  retain: ArtifactStore['retain'],
+  readOwned?: ArtifactStore['readOwned'],
+): ArtifactStore & { discarded: string[] } {
+  const discarded: string[] = [];
+  return {
+    discarded,
+    retain,
+    discard: async (accountId, mediaId) => {
+      discarded.push(mediaId);
+      await inner.discard(accountId, mediaId);
+    },
+    readOwned: readOwned ?? inner.readOwned.bind(inner),
+    openOwned: inner.openOwned.bind(inner),
+  };
+}
+
+describe('render delivery deferred retention', () => {
+  it('keeps the account lease during retain so a second request is capacity', async () => {
+    const file = await sourceFile();
+    const root = await mkdtemp(join(tmpdir(), 'ar-delivery-hold-'));
+    roots.push(root);
+    const inner = createArtifactStore(root);
+    const hold = deferredAction();
+    const store = wrapStore(inner, async (input) => {
+      await hold.promise;
+      return inner.retain(input);
+    });
+    const render = vi.fn(async () => ({
+      status: 'succeeded' as const,
+      jobId: randomUUID(),
+      artifactPath: file.path,
+      artifact: artifact(file.bytes),
+    }));
+    const delivery = createRenderDeliveryService({
+      engine: engine(render),
+      store,
+      originOwnership: {
+        assertOwned: async (accountId, origin) =>
+          accountId === ACCOUNT.id && origin.projectId === PROJECT,
+      },
+    });
+    const requestId = randomUUID();
+    const pending = delivery.submit(
+      ACCOUNT,
+      { requestId, recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    await vi.waitFor(async () => {
+      expect(await delivery.status(ACCOUNT, requestId)).toMatchObject({
+        status: 'verifying',
+      });
+    });
+    const blocked = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID(), recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    expect(blocked.failure?.reason).toBe('capacity');
+    expect(blocked.failure?.retryable).toBe(true);
+    expect(render).toHaveBeenCalledTimes(1);
+    hold.resolve();
+    const first = await pending;
+    expect(first.status).toBe('ready');
+    expect(first.mediaId).toBeTruthy();
+    expect(store.discarded).toHaveLength(0);
+    const recovered = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID(), recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    expect(recovered.status).toBe('ready');
+    expect(render).toHaveBeenCalledTimes(2);
+    await delivery.close();
+  });
+
+  it('propagates parent abort to the retain signal and cannot become ready', async () => {
+    const file = await sourceFile();
+    const root = await mkdtemp(join(tmpdir(), 'ar-delivery-abort-'));
+    roots.push(root);
+    const inner = createArtifactStore(root);
+    const hold = deferredAction();
+    let retainSignal: AbortSignal | undefined;
+    let holdRetain = true;
+    const store = wrapStore(inner, async (input) => {
+      retainSignal = input.signal;
+      if (holdRetain) {
+        await hold.promise;
+        return 'retained';
+      }
+      return inner.retain(input);
+    });
+    const render = engine(async () => ({
+      status: 'succeeded',
+      jobId: randomUUID(),
+      artifactPath: file.path,
+      artifact: artifact(file.bytes),
+    }));
+    const delivery = createRenderDeliveryService({
+      engine: render,
+      store,
+      originOwnership: {
+        assertOwned: async (accountId, origin) =>
+          accountId === ACCOUNT.id && origin.projectId === PROJECT,
+      },
+    });
+    const requestId = randomUUID();
+    const abort = new AbortController();
+    const pending = delivery.submit(
+      ACCOUNT,
+      { requestId, recipeJson: recipeJson() },
+      abort.signal,
+    );
+    await vi.waitFor(async () => {
+      expect(await delivery.status(ACCOUNT, requestId)).toMatchObject({
+        status: 'verifying',
+      });
+    });
+    abort.abort();
+    await vi.waitFor(() => {
+      expect(retainSignal?.aborted).toBe(true);
+    });
+    hold.resolve();
+    const cancelled = await pending;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.mediaId).toBeNull();
+    expect(store.discarded).toHaveLength(1);
+    expect(render.release).toHaveBeenCalled();
+    expect((await delivery.status(ACCOUNT, requestId))?.status).toBe(
+      'cancelled',
+    );
+    holdRetain = false;
+    const recovered = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID(), recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    expect(recovered.status).toBe('ready');
+    expect(recovered.mediaId).toBeTruthy();
+    await delivery.close();
+  });
+
+  it('resolves a public failed job when retain or readOwned rejects', async () => {
+    const file = await sourceFile();
+    const root = await mkdtemp(join(tmpdir(), 'ar-delivery-reject-'));
+    roots.push(root);
+    const inner = createArtifactStore(root);
+    let retainShouldThrow = true;
+    let readShouldThrow = false;
+    const store = wrapStore(
+      inner,
+      async (input) => {
+        if (retainShouldThrow) throw new Error('retain exploded');
+        return inner.retain(input);
+      },
+      async (accountId, mediaId) => {
+        if (readShouldThrow) throw new Error('readOwned exploded');
+        return inner.readOwned(accountId, mediaId);
+      },
+    );
+    const render = engine(async () => ({
+      status: 'succeeded',
+      jobId: randomUUID(),
+      artifactPath: file.path,
+      artifact: artifact(file.bytes),
+    }));
+    const delivery = createRenderDeliveryService({
+      engine: render,
+      store,
+      originOwnership: {
+        assertOwned: async (accountId, origin) =>
+          accountId === ACCOUNT.id && origin.projectId === PROJECT,
+      },
+    });
+    const retainId = randomUUID();
+    await expect(
+      delivery.submit(
+        ACCOUNT,
+        { requestId: retainId, recipeJson: recipeJson() },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      mediaId: null,
+      failure: { reason: 'runtime', retryable: true },
+    });
+    expect((await delivery.status(ACCOUNT, retainId))?.status).toBe('failed');
+    retainShouldThrow = false;
+    readShouldThrow = true;
+    const readId = randomUUID();
+    await expect(
+      delivery.submit(
+        ACCOUNT,
+        { requestId: readId, recipeJson: recipeJson() },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      mediaId: null,
+      failure: { reason: 'runtime', retryable: true },
+    });
+    expect((await delivery.status(ACCOUNT, readId))?.status).toBe('failed');
+    readShouldThrow = false;
+    const recovered = await delivery.submit(
+      ACCOUNT,
+      { requestId: randomUUID(), recipeJson: recipeJson() },
+      new AbortController().signal,
+    );
+    expect(recovered.status).toBe('ready');
+    expect(recovered.mediaId).toBeTruthy();
+    await delivery.close();
   });
 });

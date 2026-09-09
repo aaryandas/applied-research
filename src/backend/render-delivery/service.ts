@@ -13,6 +13,7 @@ import {
   type PublicRenderJob,
   type PublicRetainedClip,
   type RenderEngine,
+  type RenderEngineOutcome,
   type RenderFailureReason,
   type RenderJobStatus,
 } from './types.js';
@@ -225,6 +226,124 @@ function trustedArtifact(
   );
 }
 
+function jobKey(accountId: string, requestId: string): string {
+  return `${accountId}:${requestId}`;
+}
+
+function unsuccessfulEngineJob(
+  job: JobRecord,
+  outcome: Exclude<RenderEngineOutcome, { status: 'succeeded' }>,
+): PublicRenderJob {
+  if (outcome.status === 'invalid') {
+    return failed(
+      job,
+      'invalid-request',
+      'The recipe is not a valid installed animation request.',
+      false,
+    );
+  }
+  if (outcome.status === 'unsupported') {
+    return failed(
+      job,
+      'unsupported',
+      'Only the installed linear-transform and weighted-combination recipes can render.',
+      false,
+    );
+  }
+  if (outcome.status === 'cancelled') {
+    return failed(job, 'cancelled', 'The render request was cancelled.', true);
+  }
+  return failed(
+    job,
+    outcome.reason,
+    'The isolated renderer could not complete this request.',
+    outcome.reason === 'capacity' || outcome.reason === 'runtime',
+  );
+}
+
+interface VerifiedRetention {
+  readonly job: JobRecord;
+  readonly outcome: Extract<RenderEngineOutcome, { status: 'succeeded' }>;
+  readonly origin: ClipOrigin | null;
+  readonly engine: RenderEngine;
+  readonly store: ArtifactStore;
+  readonly isClosed: () => boolean;
+}
+
+async function retainVerifiedSuccess(
+  retention: VerifiedRetention,
+): Promise<PublicRenderJob> {
+  const { job, outcome, origin, engine, store, isClosed } = retention;
+  if (!trustedArtifact(outcome.artifact, origin)) {
+    await engine.release(outcome.jobId);
+    return failed(
+      job,
+      'artifact',
+      'The verified renderer output could not be retained.',
+      false,
+    );
+  }
+  job.status = 'verifying';
+  const mediaId = newMediaId();
+  const started = performance.now();
+  const clip = publicClip(
+    job.requestId,
+    job.attemptId,
+    mediaId,
+    outcome.artifact,
+    0,
+  );
+  const retained = await store.retain({
+    accountId: job.accountId,
+    mediaId,
+    sourcePath: outcome.artifactPath,
+    clip: {
+      ...clip,
+      timings: {
+        ...clip.timings,
+        transferMs: performance.now() - started,
+      },
+    },
+    signal: job.controller.signal,
+  });
+  await engine.release(outcome.jobId);
+  if (retained !== 'retained') {
+    if (retained === 'cancelled' || job.controller.signal.aborted) {
+      return failed(
+        job,
+        'cancelled',
+        'The render request was cancelled.',
+        true,
+      );
+    }
+    return failed(
+      job,
+      'artifact',
+      'The verified renderer output could not be retained.',
+      false,
+    );
+  }
+  if (job.controller.signal.aborted || isClosed()) {
+    await store.discard(job.accountId, mediaId);
+    return failed(job, 'cancelled', 'The render request was cancelled.', true);
+  }
+  const opened = await store.readOwned(job.accountId, mediaId);
+  if (!opened) {
+    await store.discard(job.accountId, mediaId);
+    return failed(
+      job,
+      'artifact',
+      'The retained clip could not be re-verified.',
+      false,
+    );
+  }
+  job.status = 'ready';
+  job.mediaId = mediaId;
+  job.clip = opened;
+  job.failure = null;
+  return snapshot(job);
+}
+
 export function createRenderDeliveryService(options: {
   engine: RenderEngine;
   store: ArtifactStore;
@@ -234,10 +353,6 @@ export function createRenderDeliveryService(options: {
   const jobs = new Map<string, JobRecord>();
   const inFlight = new Set<string>();
   let closed = false;
-
-  function key(accountId: string, requestId: string): string {
-    return `${accountId}:${requestId}`;
-  }
 
   function latestReady(accountId: string): string | null {
     let found: string | null = null;
@@ -280,111 +395,17 @@ export function createRenderDeliveryService(options: {
           true,
         );
       }
-      if (outcome.status === 'invalid') {
-        return failed(
-          job,
-          'invalid-request',
-          'The recipe is not a valid installed animation request.',
-          false,
-        );
+      if (outcome.status !== 'succeeded') {
+        return unsuccessfulEngineJob(job, outcome);
       }
-      if (outcome.status === 'unsupported') {
-        return failed(
-          job,
-          'unsupported',
-          'Only the installed linear-transform and weighted-combination recipes can render.',
-          false,
-        );
-      }
-      if (outcome.status === 'cancelled') {
-        return failed(
-          job,
-          'cancelled',
-          'The render request was cancelled.',
-          true,
-        );
-      }
-      if (outcome.status === 'failed') {
-        return failed(
-          job,
-          outcome.reason,
-          'The isolated renderer could not complete this request.',
-          outcome.reason === 'capacity' || outcome.reason === 'runtime',
-        );
-      }
-      if (!trustedArtifact(outcome.artifact, origin)) {
-        await options.engine.release(outcome.jobId);
-        return failed(
-          job,
-          'artifact',
-          'The verified renderer output could not be retained.',
-          false,
-        );
-      }
-      job.status = 'verifying';
-      const mediaId = newMediaId();
-      const started = performance.now();
-      const clip = publicClip(
-        job.requestId,
-        job.attemptId,
-        mediaId,
-        outcome.artifact,
-        0,
-      );
-      const retained = await options.store.retain({
-        accountId: job.accountId,
-        mediaId,
-        sourcePath: outcome.artifactPath,
-        clip: {
-          ...clip,
-          timings: {
-            ...clip.timings,
-            transferMs: performance.now() - started,
-          },
-        },
-        signal: job.controller.signal,
+      return await retainVerifiedSuccess({
+        job,
+        outcome,
+        origin,
+        engine: options.engine,
+        store: options.store,
+        isClosed: () => closed,
       });
-      await options.engine.release(outcome.jobId);
-      if (retained !== 'retained') {
-        if (retained === 'cancelled' || job.controller.signal.aborted) {
-          return failed(
-            job,
-            'cancelled',
-            'The render request was cancelled.',
-            true,
-          );
-        }
-        return failed(
-          job,
-          'artifact',
-          'The verified renderer output could not be retained.',
-          false,
-        );
-      }
-      if (job.controller.signal.aborted || closed) {
-        await options.store.discard(job.accountId, mediaId);
-        return failed(
-          job,
-          'cancelled',
-          'The render request was cancelled.',
-          true,
-        );
-      }
-      const opened = await options.store.readOwned(job.accountId, mediaId);
-      if (!opened) {
-        await options.store.discard(job.accountId, mediaId);
-        return failed(
-          job,
-          'artifact',
-          'The retained clip could not be re-verified.',
-          false,
-        );
-      }
-      job.status = 'ready';
-      job.mediaId = mediaId;
-      job.clip = opened;
-      job.failure = null;
-      return snapshot(job);
     } catch {
       return failed(
         job,
@@ -436,7 +457,7 @@ export function createRenderDeliveryService(options: {
           },
         };
       }
-      const existing = jobs.get(key(account.id, parsed.requestId));
+      const existing = jobs.get(jobKey(account.id, parsed.requestId));
       if (existing) return existing.completion;
       if (inFlight.has(account.id)) {
         return {
@@ -505,7 +526,7 @@ export function createRenderDeliveryService(options: {
         }),
       };
       inFlight.add(account.id);
-      jobs.set(key(account.id, parsed.requestId), job);
+      jobs.set(jobKey(account.id, parsed.requestId), job);
       job.completion = (async () => {
         if (
           origin !== null &&
@@ -525,12 +546,12 @@ export function createRenderDeliveryService(options: {
     },
     async status(account, requestId) {
       if (!isUuid(requestId)) return null;
-      const job = jobs.get(key(account.id, requestId));
+      const job = jobs.get(jobKey(account.id, requestId));
       return job ? snapshot(job) : null;
     },
     async cancel(account, requestId) {
       if (!isUuid(requestId)) return null;
-      const job = jobs.get(key(account.id, requestId));
+      const job = jobs.get(jobKey(account.id, requestId));
       if (!job) return null;
       job.controller.abort();
       return job.completion;

@@ -184,7 +184,7 @@ describe('render delivery HTTP', () => {
     );
     expect(bytes.status).toBe(200);
     expect(bytes.headers.get('content-type')).toBe('video/mp4');
-    expect(Buffer.from(await bytes.arrayBuffer()).length).toBe(
+    expect(Buffer.from(await bytes.arrayBuffer())).toHaveLength(
       file.bytes.length,
     );
     expect(

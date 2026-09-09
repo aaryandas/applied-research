@@ -57,7 +57,11 @@ export interface RetainedClipMediaAccess {
 const activePause = new Set<() => void>();
 
 export function claimClipPlayback(pause: () => void): () => void {
-  for (const other of [...activePause]) {
+  const snapshot: Array<() => void> = [];
+  for (const other of activePause) {
+    snapshot.push(other);
+  }
+  for (const other of snapshot) {
     if (other !== pause) other();
   }
   activePause.add(pause);
@@ -95,4 +99,36 @@ export function isOpaqueMediaUrl(value: string): boolean {
     value.startsWith('blob:') ||
     value.startsWith('blob:http')
   );
+}
+
+function vttTimestamp(totalMs: number): string {
+  const ms = Math.max(0, Math.round(totalMs));
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
+  const seconds = Math.floor((ms % 60_000) / 1000);
+  const millis = ms % 1000;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+}
+
+/** Timed stage names for silent verified Manim clips; not generated speech. */
+export function clipStageCaptionVtt(clip: RetainedClipView): string {
+  const lines = ['WEBVTT', ''];
+  const durationMs = Math.max(1, Math.round(clip.durationSeconds * 1000));
+  if (clip.stages.length === 0) {
+    lines.push(`00:00:00.000 --> ${vttTimestamp(durationMs)}`);
+    lines.push(clip.title);
+    lines.push('');
+    return lines.join('\n');
+  }
+  for (const [index, stage] of clip.stages.entries()) {
+    const startMs = Math.max(0, Math.round(stage.seconds * 1000));
+    const next = clip.stages[index + 1];
+    const endMs = next
+      ? Math.max(startMs + 1, Math.round(next.seconds * 1000))
+      : Math.max(startMs + 1, durationMs);
+    lines.push(`${vttTimestamp(startMs)} --> ${vttTimestamp(endMs)}`);
+    lines.push(stage.name);
+    lines.push('');
+  }
+  return lines.join('\n');
 }

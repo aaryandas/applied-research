@@ -252,7 +252,12 @@ describe.skipIf(!posixHost)('bounded render queue', () => {
     roots.push(missingContext);
     await expect(
       AnimationRenderWorker.create({ temporaryRoot: missingContext }),
-    ).rejects.toThrow('dockerContext');
+    ).rejects.toThrow(TypeError);
+    await expect(
+      AnimationRenderWorker.create({ temporaryRoot: missingContext }),
+    ).rejects.toThrow(
+      'dockerContext must name a trusted Docker context. OrbStack is not inferred.',
+    );
     await expect(
       AnimationRenderWorker.create({
         temporaryRoot: missingContext,
