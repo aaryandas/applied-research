@@ -287,19 +287,22 @@ function classifySourcedRequest(
 function writeUnsupportedSourced(
   response: ServerResponse,
   unsupported: RequestValidationError,
-  publicId: string,
+  publicId: string | null,
 ): void {
   writeJson(
     response,
     200,
-    generationGap(unsupported.requestId ?? publicId, unsupported.message),
+    generationGap(
+      unsupported.requestId ?? publicId ?? 'unsupported',
+      unsupported.message,
+    ),
   );
 }
 
 function sourcedPublicId(
   decoded: Exclude<SourcedRequestDecode, { kind: 'invalid' }>,
   requestId: string | null,
-): string {
+): string | null {
   if (decoded.kind === 'parsed') return decoded.request.requestId;
   return decoded.error.requestId ?? requestId ?? publicRequestId(null);
 }
