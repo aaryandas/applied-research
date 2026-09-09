@@ -13,8 +13,9 @@ Producer follow-up inside that PASS: `a70cc0d76f16431a436509858ef1af1abe74c04b` 
 Full-app remainder after `9c325f5` (do not rebase or remake that PASS, and do not wipe `pastedSeedText` / intended-profile / `profileRevision` 0):
 contracts `4738c4713eaee8a583bd138ca5ef76edbc9eafdf`,
 main overlay `0e5a2a03cb6c642335090f276cd05b144c796186`,
-Opening mount `5cd07e4c7d80f7d5b3d68c02b49adb44c0321bde`.
-Docs/handoff pin is this file’s commit; use `git rev-parse origin/codex/ar-47-onboarding-cloud` for HEAD.  
+Opening mount `5cd07e4c7d80f7d5b3d68c02b49adb44c0321bde`,
+live intended profile + follow-up gating `80105d67d13be1461668576be79897a353700b49`.
+Docs/handoff pin is this file’s commit; published HEAD is `git rev-parse origin/codex/ar-47-onboarding-cloud`.  
 Integrated base: `e67f71e0e20531d66c23fe8c1c10e564a76697e6`  
 Linear: AR-47
 Patch path: `context/ar-47-onboarding-handoff.md`
@@ -527,13 +528,13 @@ real-app Cloud acceptance (needs integrated main/CI and actual auth). Do not
 seed fake courses or call paid models from this lane.
 
 **Mounted `requestInterviewPrompt`.** After the four human diagnostic answers,
-Opening shows **Request a follow-up question** (user-initiated; no implicit
-paid dispatch). Main already appended AI prompts on `InterviewRecord.prompts`
-with `author: 'ai'`. The human answer is a separate field. Unavailable keeps a
-fixed local question (`follow-up-local-01`) that is explicitly not AI.
-Loading/error/cancel/retry are explicit. Reopen restores last prompts and the
-separate human answer. Background/goals/diagnostic answers and optional paste
-stay.
+Opening shows **Request a follow-up question** (disabled until those four
+answers are non-empty; user-initiated; no implicit paid dispatch). Main already
+appended AI prompts on `InterviewRecord.prompts` with `author: 'ai'`. The human
+answer is a separate field. Unavailable keeps a fixed local question
+(`follow-up-local-01`) that is explicitly not AI. Loading/error/cancel/retry
+are explicit. Reopen restores last prompts and the separate human answer.
+Background/goals/diagnostic answers and optional paste stay.
 
 **W42 accepted-course overlay.** `revise-course` still replaces a _preview_
 syllabus and cannot safely express post-accept review. Named operation
@@ -542,8 +543,11 @@ bounded overlay: focus/depth before-after, pending practice/objective patches,
 citations from acquired evidence. Explicit **Accept overlay** applies pending
 practice briefs only. Ready lessons, path IDs, accepted proposal identity, and
 human/AI attribution stay. Self-report is not mastery. Opening mounts
-`AcceptedCourseAdjustment` from **Review course from your work**. Empty
-Practical locators are honest until AR-56 passes `adjustmentEvidence`.
+`AcceptedCourseAdjustment` from **Review course from your work**. The sheet
+shows live intended profile bytes (`getLearnerProfile` /
+`getLearnerProfileView`) separately from historical interview answers and from
+any AI assessment (`author: 'ai'`, mastery not established). Empty Practical
+locators are honest until AR-56 passes `adjustmentEvidence`.
 
 **Honest persist (P2).** Unmount `.catch(() => undefined)` is gone. Back and
 `OnboardingDraftPersist.persistDraft()` share one in-flight save and surface
