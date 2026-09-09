@@ -71,8 +71,7 @@ describe('desktop auth protocol', () => {
     );
 
     const openUrl = fake.listeners.get('open-url') as
-      | ((event: Event, url: string) => void)
-      | undefined;
+      ((event: Event, url: string) => void) | undefined;
     const event: Event = {
       preventDefault: vi.fn(),
       defaultPrevented: false,
