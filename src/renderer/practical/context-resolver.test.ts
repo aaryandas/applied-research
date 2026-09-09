@@ -219,6 +219,54 @@ it('requires a bound host tool session and supplies only host controls/identity'
   ).toMatchObject({ status: 'unavailable' });
 });
 
+it('admits a later live host session on the same producer without a replacement bind', async () => {
+  const { save, signal } = setup();
+  const host = { sessionId: undefined as string | undefined };
+  let tool: {
+    sessionId: string;
+    url: string;
+    title: string;
+    loading: boolean;
+    error: string | null;
+    controls: readonly { name: string; description: string }[];
+  } | null = null;
+  const resolver = createPracticalContextResolver({
+    identity: input,
+    getSnapshot: save.getContextSnapshot,
+    getToolSessionId: () => host.sessionId,
+    getToolState: () => tool,
+  });
+  expect(
+    await resolver.resolveTarget(request('tool-controls'), signal),
+  ).toMatchObject({ status: 'unavailable' });
+  host.sessionId = 'guest-one';
+  tool = {
+    sessionId: 'guest-one',
+    url: 'https://www.desmos.com/calculator',
+    title: 'Desmos',
+    loading: false,
+    error: null,
+    controls: [
+      {
+        name: 'Open externally',
+        description:
+          'Stop guidance and open the selected tool in your browser.',
+      },
+    ],
+  };
+  expect(
+    await resolver.resolveTarget(request('tool-controls'), signal),
+  ).toMatchObject({
+    status: 'available',
+    context: {
+      target: 'tool-controls',
+      guest: { sessionId: 'guest-one' },
+      loading: false,
+      error: null,
+    },
+  });
+});
+
 it('resolves selected evidence only through its scoped trusted producer, never from a human report or metadata', async () => {
   const { save, signal } = setup();
   const reference = {
