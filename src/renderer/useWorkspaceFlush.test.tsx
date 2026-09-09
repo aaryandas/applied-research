@@ -9,7 +9,7 @@ it('does not cache an empty successful flush over later registered drafts', asyn
   await act(async () => expect(await result.current.flush()).toBe(true));
   result.current.registerReaderFlush(async () => false);
   await act(async () => expect(await result.current.flush()).toBe(false));
-  expect(result.current.message).toContain('Your work is still open');
+  expect(result.current.message).toContain('A draft needs attention');
 });
 
 it('serializes navigation, drains every producer, and preserves failed drafts', async () => {
@@ -105,3 +105,112 @@ function fireSaveKey(): void {
     new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
   );
 }
+
+it('uses the mounted Reader view guard while still flushing Canvas and Practical drafts', async () => {
+  const { result } = renderHook(useWorkspaceFlush);
+  const reader = vi.fn(async () => false);
+  const readerView = vi.fn(async () => true);
+  const canvas = vi.fn(async () => true);
+  const practical = vi.fn(async () => ({
+    status: 'ready' as const,
+    acknowledgement: null,
+  }));
+  const navigate = vi.fn();
+  result.current.registerReaderFlush(reader);
+  result.current.registerReaderViewFlush(readerView);
+  result.current.registerCanvasFlush(canvas);
+  result.current.registerPracticalFlush(practical);
+  await act(async () => {
+    await result.current.navigate(navigate, 'view');
+  });
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(reader).not.toHaveBeenCalled();
+  expect(result.current.message).toBe('');
+  expect(readerView).toHaveBeenCalledOnce();
+  expect(canvas).toHaveBeenCalledOnce();
+  expect(practical).toHaveBeenCalledOnce();
+  await act(async () => expect(await result.current.flush()).toBe(false));
+  expect(reader).toHaveBeenCalledOnce();
+  expect(result.current.message).toContain('before closing this project');
+});
+
+it('falls back to the strict Reader guard when no mounted-view guard is registered', async () => {
+  const { result } = renderHook(useWorkspaceFlush);
+  const reader = vi.fn(async () => false);
+  const navigate = vi.fn();
+  result.current.registerReaderFlush(reader);
+  result.current.registerReaderViewFlush(async () => true);
+  result.current.registerReaderViewFlush(null);
+  await act(async () => {
+    await result.current.navigate(navigate, 'view');
+  });
+  expect(reader).toHaveBeenCalledOnce();
+  expect(navigate).not.toHaveBeenCalled();
+  expect(result.current.message).toContain('before continuing');
+});
+
+it.each([true, false])(
+  'escalates a pending view save to one strict workspace save after view result %s',
+  async (viewReady) => {
+    const { result } = renderHook(useWorkspaceFlush);
+    let finishView: (value: boolean) => void = () => {};
+    const readerView = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishView = resolve;
+        }),
+    );
+    const reader = vi.fn(async () => false);
+    result.current.registerReaderViewFlush(readerView);
+    result.current.registerReaderFlush(reader);
+    let viewSave!: Promise<boolean>;
+    let closeSave!: Promise<boolean>;
+    let secondCloseSave!: Promise<boolean>;
+    act(() => {
+      viewSave = result.current.flushView();
+      closeSave = result.current.flush();
+      secondCloseSave = result.current.flush();
+    });
+    expect(reader).not.toHaveBeenCalled();
+    expect(result.current.saving).toBe(true);
+    await act(async () => {
+      finishView(viewReady);
+      expect(await viewSave).toBe(viewReady);
+      expect(await closeSave).toBe(false);
+      expect(await secondCloseSave).toBe(false);
+    });
+    expect(readerView).toHaveBeenCalledOnce();
+    expect(reader).toHaveBeenCalledOnce();
+    expect(result.current.saving).toBe(false);
+  },
+);
+
+it('never treats a permissive in-flight view save as native-close permission', async () => {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+  const { result } = renderHook(useWorkspaceFlush);
+  let finishView: (value: boolean) => void = () => {};
+  const reader = vi.fn(async () => false);
+  result.current.registerReaderViewFlush(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finishView = resolve;
+      }),
+  );
+  result.current.registerReaderFlush(reader);
+  act(() => {
+    void result.current.flushView();
+    window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
+  });
+  expect(reader).not.toHaveBeenCalled();
+  await act(async () => {
+    finishView(true);
+  });
+  await waitFor(() => expect(reader).toHaveBeenCalledOnce());
+  expect(close).not.toHaveBeenCalled();
+  expect(result.current.message).toContain('before closing this project');
+  result.current.registerReaderFlush(async () => true);
+  await act(async () => {
+    window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
+  });
+  expect(close).toHaveBeenCalledOnce();
+});

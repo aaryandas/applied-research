@@ -82,13 +82,21 @@ export function Shell({
   const search = useRef<HTMLInputElement>(null);
   const {
     registerReaderFlush,
+    registerReaderViewFlush,
     registerCanvasFlush,
     registerPracticalFlush,
     flush,
+    flushView,
     navigate,
     message,
     saving,
   } = useWorkspaceFlush();
+  useEffect(() => {
+    registerReaderViewFlush(
+      async () => (await reader.current?.flushViewNavigation()) ?? true,
+    );
+    return () => registerReaderViewFlush(null);
+  }, [registerReaderViewFlush]);
   useEffect(() => {
     projectLifetime.activate(workspace.project.id);
     void bridge.activateSourceWorkspace?.(workspace.project.id);
@@ -124,8 +132,8 @@ export function Shell({
   const flushResearch = useCallback(async () => {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
-    return flush();
-  }, [bridge, flush, projectLifetime]);
+    return flushView();
+  }, [bridge, flushView, projectLifetime]);
   const openSavedResearch = useCallback(
     (
       next: LearningWorkspace,
@@ -190,27 +198,30 @@ export function Shell({
   function go(next: WorkspaceDestination): void {
     projectLifetime.stopPractical();
     void bridge.cancelPracticalFileSelection?.();
-    void navigate(() => {
-      setResearchVisible(false);
-      if (next === 'home') {
-        onHome();
-        return;
-      }
-      if (next === 'settings' && destination !== 'settings') {
-        settingsEntry.current =
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
-        returnDestination.current = destination;
-      }
-      if (next === 'practical' && !attempt) {
-        setAttempt({
-          id: crypto.randomUUID(),
-          activity: practicalActivity(workspace, selectedPath),
-        });
-      }
-      setDestination(next);
-    });
+    void navigate(
+      () => {
+        setResearchVisible(false);
+        if (next === 'home') {
+          onHome();
+          return;
+        }
+        if (next === 'settings' && destination !== 'settings') {
+          settingsEntry.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
+          returnDestination.current = destination;
+        }
+        if (next === 'practical' && !attempt) {
+          setAttempt({
+            id: crypto.randomUUID(),
+            activity: practicalActivity(workspace, selectedPath),
+          });
+        }
+        setDestination(next);
+      },
+      next === 'home' ? 'workspace' : 'view',
+    );
   }
   function openOrigin(origin: LearningOrigin): void {
     projectLifetime.stopPractical();
@@ -218,13 +229,13 @@ export function Shell({
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin(origin);
-    });
+    }, 'view');
   }
   function editEntry(entry: EntryRevisionReference): void {
     void navigate(() => {
       setDestination('reader');
       reader.current?.editEntry(entry);
-    });
+    }, 'view');
   }
   function selectLesson(path: PathOrigin): void {
     projectLifetime.stopPractical();
@@ -232,7 +243,7 @@ export function Shell({
     void navigate(() => {
       setDestination('reader');
       reader.current?.openOrigin({ path });
-    });
+    }, 'view');
   }
   function closeSettings(): void {
     setDestination(returnDestination.current);
@@ -245,7 +256,7 @@ export function Shell({
     const findShortcut = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        void navigate(() => setDestination('find'));
+        void navigate(() => setDestination('find'), 'view');
       }
     };
     window.addEventListener('keydown', findShortcut);
@@ -280,7 +291,7 @@ export function Shell({
             flush={async () => {
               projectLifetime.stopPractical();
               void bridge.cancelPracticalFileSelection?.();
-              return flush();
+              return flushView();
             }}
             onSaved={(next, pathId) => {
               const path = next.paths.find((path) => path.id === pathId);
@@ -311,7 +322,10 @@ export function Shell({
               onClick={() => {
                 projectLifetime.stopPractical();
                 void bridge.cancelPracticalFileSelection?.();
-                void navigate(() => setResearchVisible((value) => !value));
+                void navigate(
+                  () => setResearchVisible((value) => !value),
+                  'view',
+                );
               }}
             >
               {researchVisible ? 'Return to workspace' : 'Research sources'}

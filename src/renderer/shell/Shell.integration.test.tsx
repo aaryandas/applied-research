@@ -150,6 +150,7 @@ async function setup() {
     createdAt: '',
     revisions: [current],
   });
+  const onHome = vi.fn();
   function Host() {
     const [value, setValue] = useState(workspace);
     return (
@@ -157,7 +158,7 @@ async function setup() {
         bridge={bridge}
         workspace={value}
         onWorkspace={setValue}
-        onHome={() => {}}
+        onHome={onHome}
         appearance={{ value: 'light', onChange: async () => {} }}
       />
     );
@@ -167,6 +168,7 @@ async function setup() {
     bridge,
     workspace,
     view,
+    onHome,
     saved: () => saved,
     account: (state: DesktopAccountState) => act(() => accountListener(state)),
   };
@@ -217,4 +219,43 @@ it('mounts durable PracticalWorkspace, saves its actual attempt, and retains the
   expect(bridge.recordPracticalResult).toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Return to learning' }));
   await waitFor(() => expect(prediction).not.toBeVisible());
+});
+
+it('retains an exact source import across view navigation and guards Home until explicit discard', async () => {
+  const { onHome } = await setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
+  const draft = await screen.findByLabelText('Exact source text');
+  fireEvent.change(draft, {
+    target: { value: '  Keep my imported source 😀\n  ' },
+  });
+  for (const destination of [
+    'Find',
+    'Profile and settings',
+    'Research sources',
+  ]) {
+    fireEvent.click(screen.getByRole('button', { name: destination }));
+    await waitFor(() => expect(draft).not.toBeVisible());
+    if (destination === 'Research sources') {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Return to workspace' }),
+      );
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
+    }
+    await waitFor(() => expect(draft).toBeVisible());
+    expect(draft).toHaveValue('  Keep my imported source 😀\n  ');
+  }
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  await screen.findByText(
+    'A draft needs attention. Save or discard it before closing this project.',
+  );
+  expect(onHome).not.toHaveBeenCalled();
+  expect(draft).toHaveValue('  Keep my imported source 😀\n  ');
+  fireEvent.click(screen.getByRole('button', { name: 'Discard import' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Applied Research home' }),
+  );
+  await waitFor(() => expect(onHome).toHaveBeenCalledOnce());
 });
