@@ -134,6 +134,7 @@ function launch(issue, claim) {
     prompt: promptFor(issue, claim),
     resumeThreadId: claim.threadId ?? null,
     status: 'launching',
+    createdAt: new Date().toISOString(),
     logPath: join(stateDir, `${issue.identifier}-${round}.jsonl`),
     errorPath: join(stateDir, `${issue.identifier}-${round}.stderr`),
   };
@@ -272,7 +273,11 @@ try {
       const job = JSON.parse(readFileSync(claim.jobPath, 'utf8'));
       claim.threadId = job.threadId ?? claim.threadId;
       claim.phase = job.status;
-      if (job.status === 'launching')
+      const launchAge = Date.now() - Date.parse(job.createdAt ?? '');
+      if (
+        job.status === 'launching' &&
+        (!Number.isFinite(launchAge) || launchAge < 0 || launchAge >= 120_000)
+      )
         events.push({
           type: 'attention',
           identifier: issue.identifier,
