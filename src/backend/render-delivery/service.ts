@@ -261,14 +261,19 @@ function unsuccessfulEngineJob(
   );
 }
 
+interface VerifiedRetention {
+  readonly job: JobRecord;
+  readonly outcome: Extract<RenderEngineOutcome, { status: 'succeeded' }>;
+  readonly origin: ClipOrigin | null;
+  readonly engine: RenderEngine;
+  readonly store: ArtifactStore;
+  readonly isClosed: () => boolean;
+}
+
 async function retainVerifiedSuccess(
-  job: JobRecord,
-  outcome: Extract<RenderEngineOutcome, { status: 'succeeded' }>,
-  origin: ClipOrigin | null,
-  engine: RenderEngine,
-  store: ArtifactStore,
-  isClosed: () => boolean,
+  retention: VerifiedRetention,
 ): Promise<PublicRenderJob> {
+  const { job, outcome, origin, engine, store, isClosed } = retention;
   if (!trustedArtifact(outcome.artifact, origin)) {
     await engine.release(outcome.jobId);
     return failed(
@@ -393,14 +398,14 @@ export function createRenderDeliveryService(options: {
       if (outcome.status !== 'succeeded') {
         return unsuccessfulEngineJob(job, outcome);
       }
-      return retainVerifiedSuccess(
+      return await retainVerifiedSuccess({
         job,
         outcome,
         origin,
-        options.engine,
-        options.store,
-        () => closed,
-      );
+        engine: options.engine,
+        store: options.store,
+        isClosed: () => closed,
+      });
     } catch {
       return failed(
         job,

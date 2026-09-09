@@ -1,7 +1,6 @@
 import {
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -192,12 +191,15 @@ export function RetainedClipPlayer({
   );
 }
 
-function handlePlaybackKeys(
-  event: KeyboardEvent<HTMLVideoElement>,
-  enlarged: boolean,
-  jump: (seconds: number) => void,
-  setEnlarged: Dispatch<SetStateAction<boolean>>,
-): void {
+interface PlaybackKeyAction {
+  readonly event: KeyboardEvent<HTMLVideoElement>;
+  readonly enlarged: boolean;
+  readonly jump: (seconds: number) => void;
+  readonly setEnlarged: Dispatch<SetStateAction<boolean>>;
+}
+
+function handlePlaybackKeys(action: PlaybackKeyAction): void {
+  const { event, enlarged, jump, setEnlarged } = action;
   if (event.target !== event.currentTarget) return;
   const element = event.currentTarget;
   if (event.key === ' ' || event.key === 'k') {
@@ -254,19 +256,22 @@ function ClipSession({
   const [playbackStartMs, setPlaybackStartMs] = useState<number | null>(null);
   const labelId = useId();
   const failedOpen = Boolean(openError && usingPrior);
-  const captionUrl = useMemo(
-    () =>
-      URL.createObjectURL(
-        new Blob([clipStageCaptionVtt(clip)], { type: 'text/vtt' }),
-      ),
-    [clip],
-  );
+  const [captionUrl, setCaptionUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    const url = URL.createObjectURL(
+      new Blob([clipStageCaptionVtt(clip)], { type: 'text/vtt' }),
+    );
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setCaptionUrl(url);
+    });
     return () => {
-      URL.revokeObjectURL(captionUrl);
+      cancelled = true;
+      URL.revokeObjectURL(url);
     };
-  }, [captionUrl]);
+  }, [clip]);
 
   useEffect(() => {
     if (objectUrl) readyAt.current = performance.now();
@@ -334,16 +339,18 @@ function ClipSession({
           playsInline
           tabIndex={0}
           onKeyDown={(event) =>
-            handlePlaybackKeys(event, enlarged, jump, setEnlarged)
+            handlePlaybackKeys({ event, enlarged, jump, setEnlarged })
           }
         >
-          <track
-            kind="captions"
-            src={captionUrl}
-            srcLang="en"
-            label="Named stages"
-            default
-          />
+          {captionUrl ? (
+            <track
+              kind="captions"
+              src={captionUrl}
+              srcLang="en"
+              label="Named stages"
+              default
+            />
+          ) : null}
         </video>
       </div>
       <h2 id={labelId}>{clip.title}</h2>

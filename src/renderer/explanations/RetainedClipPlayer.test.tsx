@@ -220,7 +220,9 @@ describe('RetainedClipPlayer', () => {
     await waitFor(() => expect(media.open).toHaveBeenCalled());
     const player = document.querySelector('video');
     expect(player).toBeTruthy();
-    expect(player?.querySelector('track[kind="captions"]')).not.toBeNull();
+    await waitFor(() =>
+      expect(player?.querySelector('track[kind="captions"]')).not.toBeNull(),
+    );
     fireEvent.keyDown(player!, { key: 'k' });
     expect(screen.getByRole('button', { name: 'Pause' })).toBeVisible();
     fireEvent.keyDown(player!, { key: 'ArrowLeft' });

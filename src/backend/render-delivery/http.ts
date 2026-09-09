@@ -164,12 +164,15 @@ function writeOwnedJob(
   writeJson(response, jsonStatus(job), job);
 }
 
-async function submitOwnedRender(
-  request: IncomingMessage,
-  response: ServerResponse,
-  account: AuthenticatedAccount,
-  delivery: RenderDeliveryService,
-): Promise<void> {
+interface OwnedRenderSubmit {
+  readonly request: IncomingMessage;
+  readonly response: ServerResponse;
+  readonly account: AuthenticatedAccount;
+  readonly delivery: RenderDeliveryService;
+}
+
+async function submitOwnedRender(submit: OwnedRenderSubmit): Promise<void> {
+  const { request, response, account, delivery } = submit;
   const disconnect = observeDisconnect(request, response);
   try {
     let body: unknown;
@@ -247,7 +250,12 @@ export async function handleRenderDelivery(
       );
       return;
     }
-    await submitOwnedRender(request, response, account, dependencies.delivery);
+    await submitOwnedRender({
+      request,
+      response,
+      account,
+      delivery: dependencies.delivery,
+    });
   } catch {
     writeJson(response, 503, {
       outcome: 'unavailable',
