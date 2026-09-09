@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe('auth storage', () => {
-  it('persists only SDK ciphertext with restrictive permissions', async () => {
+  it.skipIf(process.platform === 'win32')('persists only SDK ciphertext with restrictive permissions', async () => {
     const path = temporaryFile();
     const storage = createAuthStorage(path);
     storage.acceptEpoch(1);

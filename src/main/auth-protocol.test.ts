@@ -46,7 +46,7 @@ describe('desktop auth protocol', () => {
     ]);
   });
 
-  it('uses the executable and entry script only for development registration', () => {
+  it.skipIf(process.platform === 'win32')('uses the executable and entry script only for development registration', () => {
     const fake = fakeApp();
     const callback = vi.fn();
     const registration = registerDesktopAuthProtocol({

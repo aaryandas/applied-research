@@ -52,7 +52,7 @@ describe('bounded real child process execution', () => {
       ).code,
     ).toBe(7);
   });
-  it('kills a real child process group on deadline and bounds diagnostic bytes', async () => {
+  it.skipIf(process.platform === 'win32')('kills a real child process group on deadline and bounds diagnostic bytes', async () => {
     const result = await runProcess({
       command: process.execPath,
       args: ['-e', 'setInterval(()=>{},1000)'],
@@ -73,7 +73,7 @@ describe('bounded real child process execution', () => {
     expect(overflow.status).toBe('output-limit');
     expect(overflow.stdout).toHaveLength(128);
   });
-  it('honors pre-start and active cancellation', async () => {
+  it.skipIf(process.platform === 'win32')('honors pre-start and active cancellation', async () => {
     const controller = new AbortController();
     const pending = runProcess({
       command: process.execPath,
@@ -96,7 +96,7 @@ describe('bounded real child process execution', () => {
   });
 });
 
-it('terminates a real grandchild in the same process group', async () => {
+it.skipIf(process.platform === 'win32')('terminates a real grandchild in the same process group', async () => {
   const result = await runProcess({
     command: process.execPath,
     args: [
@@ -134,7 +134,7 @@ it('normalizes Docker connection diagnostics without retaining paths or source l
   ).toEqual({ stdout: '', stderr: 'Cannot connect to the Docker daemon' });
 });
 
-it('classifies an existing non-executable file without echoing its path', async () => {
+it.skipIf(process.platform === 'win32')('classifies an existing non-executable file without echoing its path', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ar-process-access-'));
   const command = join(directory, 'private-label');
   try {

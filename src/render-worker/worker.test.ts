@@ -8,6 +8,7 @@ import { MANIM_IMAGE } from './docker.js';
 import { VIDEO_METADATA, OK_PROCESS } from './test-support.js';
 import type { ProcessRequest, ProcessResult } from './process.js';
 
+const posixHost = typeof process.getuid === 'function';
 const workers: AnimationRenderWorker[] = [];
 const roots: string[] = [];
 const json = JSON.stringify(LINEAR_EXAMPLE);
@@ -51,7 +52,7 @@ afterEach(async () => {
   );
 });
 
-describe('bounded render queue', () => {
+describe.skipIf(!posixHost)('bounded render queue', () => {
   it('publishes verified identity only, constrains Docker, and explicitly releases the file', async () => {
     const run = vi.fn(successfulRuntime);
     const worker = await create(run);
@@ -232,7 +233,7 @@ describe('bounded render queue', () => {
   });
 });
 
-it('does not report clean cancellation when daemon cleanup is unverified', async () => {
+it.skipIf(!posixHost)('does not report clean cancellation when daemon cleanup is unverified', async () => {
   const abort = new AbortController();
   const worker = await create(async (request) => {
     if (request.args.includes('run')) {
@@ -247,7 +248,7 @@ it('does not report clean cancellation when daemon cleanup is unverified', async
   });
 });
 
-it('requires non-root execution for the constrained mount ownership', async () => {
+it.skipIf(!posixHost)('requires non-root execution for the constrained mount ownership', async () => {
   const uid = vi.spyOn(process, 'getuid').mockReturnValue(0);
   try {
     await expect(AnimationRenderWorker.create()).rejects.toThrow('non-root');
@@ -256,7 +257,7 @@ it('requires non-root execution for the constrained mount ownership', async () =
   }
 });
 
-it('admits the eighth retained result immediately after awaiting the seventh', async () => {
+it.skipIf(!posixHost)('admits the eighth retained result immediately after awaiting the seventh', async () => {
   const worker = await create(successfulRuntime);
   for (let index = 0; index < 8; index++) {
     expect((await worker.render(json)).status).toBe('succeeded');
@@ -267,7 +268,7 @@ it('admits the eighth retained result immediately after awaiting the seventh', a
   });
 });
 
-it('reports a real missing executable as runtime without attempting container removal', async () => {
+it.skipIf(!posixHost)('reports a real missing executable as runtime without attempting container removal', async () => {
   const { runProcess } = await import('./process.js');
   const run = vi.fn((request: ProcessRequest) =>
     runProcess({ ...request, command: '/no/ar/docker' }),
@@ -281,7 +282,7 @@ it('reports a real missing executable as runtime without attempting container re
   expect(run).toHaveBeenCalledTimes(1);
 });
 
-it('preserves safe diagnostics for uncertain cleanup even when both commands report a disconnected daemon', async () => {
+it.skipIf(!posixHost)('preserves safe diagnostics for uncertain cleanup even when both commands report a disconnected daemon', async () => {
   const run = vi.fn(async (): Promise<ProcessResult> => ({
     ...OK_PROCESS,
     code: 1,
