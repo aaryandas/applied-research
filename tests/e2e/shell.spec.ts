@@ -140,7 +140,7 @@ test('wires a real saved source through Reader, Canvas, Settings and restart', a
     ).toBeVisible();
     await page.getByRole('button', { name: 'Practical', exact: true }).click();
     await expect(
-      page.getByText(/Choose a lesson with an activity/),
+      page.getByText(/No saved lesson activities are available/),
     ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath('practical-empty.png'),

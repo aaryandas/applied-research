@@ -1,5 +1,45 @@
 # Practical Work — AR-19 producer and integration handoff
 
+## AR-50 local journey (current)
+
+AR-19 PR28 and AR-37 PR33 already connected local SQLite Practical records (`0003`), main/preload record/load/select/cancel, and Shell → PracticalSession → PracticalWorkspace. Documentation below that still says those modules are unconnected is historical. AR-50 reuses that flow.
+
+This lane adds:
+
+- Migration `0004_practical_journey.sql` for retained binding snapshots, per-attempt work choice/human plan, and per-milestone progress bound to the exact brief or plan revision. **0004 is reserved to AR-50.** Exact journal entry:
+
+  `{ "idx": 4, "version": "6", "when": 1788930000000, "tag": "0004_practical_journey", "breakpoints": true }`
+
+  `LATEST_WORKSPACE_MIGRATION` is `1_788_930_000_000`. Do not reuse idx 4 or this timestamp.
+
+- A **narrow adapter** in `src/contracts/practical-brief.ts` for a reviewed `CoursePracticeActivityBinding`. AR-52 PR #45 (`b912ebc6`) **failed independent review** and is not accepted producer input. Local type copies are a seam only. Checkpoints are `string[]`; this lane projects stable `checkpoint:${index}` ids for per-attempt progress. Optional capstone is `CourseCapstoneDesignation` (`substantial: true`), not a second brief schema. Missing snapshots use the saved lesson activity plus an optional human-authored plan and **must not** claim a generated capstone exists. Do not parse lesson `activity` prose as milestones.
+- Named preview/export operations: opaque `selectionId` + activity/attempt scope only. Main reuses `WorkspaceStore.readPracticalFile` (project/activity/attempt ownership and stored hash). txt/csv/json preview is inert UTF-8 with completeness; PNG/JPEG/PDF start as unsupported-preview. Exact-byte export uses a main-owned save dialog. Limits remain 5 MiB/file, 20 files, 20 MiB/attempt, no-follow import.
+- Selected-workspace/lifetime guards on **every** Practical operation, including import. Cancellation drops late dialog/read/export; import and export cannot stack native dialogs.
+- Restored Desmos/GeoGebra as optional supported tools, plus explicit external work. No default math tool. Guest closes on switch/navigation/disposal/sign-out/external handoff. No guest-page reading.
+- Context resolver wiring: `toolSessionId`, host controls (`pageAccess: none`), and `resolveEvidence` from retained text preview. Authenticated companion/`requestGuidance` is AR-48 and stays a truthful unavailable state with **no** `askTutor` fallback.
+- Hosted macOS `practical-tools.spec.ts` guest `capturePage()`: wait for load/visibility/nonzero bounds and retry only the identified transient `UnknownVizError`, requiring a real nonempty PNG. Do not skip that test.
+
+**Capstone is not complete.** A reviewed AR-52-produced accepted brief does not yet drive the persisted local journey. Tests may retain a labelled synthetic binding snapshot. That is not live producer proof.
+
+User-reported checkpoint completion is not mastery. Imported files remain user-selected evidence, never app-measured results or source citations. LocalExplanations `onCapture` objects stay untrusted.
+
+### Shared-file integration (coordinator-owned)
+
+`lane:practical` owns `src/renderer/practical/**`, `src/main/practical-*.ts`, `src/contracts/practical*.ts`, PracticalSession/PracticalToolHost/practical-session, `tests/integration/source-practical-wiring.test.ts`, and `tests/integration/practical-course.test.ts`.
+
+These files remain coordinator-owned. They are in this checkpoint so the journey is testable; they are not claimed as a practical-lane merge:
+
+1. `src/main/index.ts` — named channels, dialogs, workspace guard, guest `setVisible`/`invalidate` on nonzero resize
+2. `src/main/workspace-store.ts` — delegates for journey/preview/progress/plan/work-choice/`retainAcceptedBrief` (main-internal; not a renderer-submitted brief body)
+3. `src/main/workspace-migration.ts` — `EXPECTED_TABLE_COLUMNS` + `LATEST_WORKSPACE_MIGRATION` so 0004 actually applies
+4. `src/preload/index.ts` — named invokes only
+5. `src/renderer/Shell.tsx` — chooser/resume/new attempt, full bridge, export cancellation
+6. `src/renderer/shell-records.ts` — `listPracticalActivities`
+
+`drizzle/0004_practical_journey.sql` and the journal idx-4 entry are reserved to this ticket. `src/backend/**` is AR-48. No lockfile, styling-foundation, or workflow changes.
+
+---
+
 This checkpoint implements the result producer and adapters beside the existing Practical Work UI, on base `94340203891406d012028d4762ae15fbfe04e04a`. The current assignment reserves shared store/migration/main/preload/desktop wiring to AR-37. These modules are not yet connected to the shipped Shell. Passing their tests does not establish full connected acceptance or mark AR-19 Done.
 
 The founder's September 8 delegation in [the build handoff](design-handoff/README.md) supplies design authority. The current AR-19 repair explicitly authorizes the bounded context producer; its dispatch lists no approved prerequisite checkpoints. AR-25's published contract is an explicitly pending dependency, not an available dependency on main or accepted connected behavior. The existing Practical screen and styles are retained. The reference manifest remains `34edd8b4cd365afb1160ef2883fa76df547a1f122ec4a7ba8a9aabf06ec27556` (SHA-256 of `design-handoff/prototype-manifest.json`).
