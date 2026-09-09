@@ -35,17 +35,17 @@ describe('permission-verified starter catalog', () => {
     ).toBe(true);
   });
 
-  it('does not default to BCcampus acquisition grants and keeps official links discoverable', () => {
+  it('keeps reviewed BCcampus SQL chapters and official link-only courses', () => {
+    const sql = STARTER_CATALOG_SOURCES.find(
+      (source) => source.sourceId === 'bccampus_database_design_2e_ch15',
+    );
+    expect(sql?.usePolicy.indexing.status).toBe('permitted');
+    expect(sql?.usePolicy.acquisition.status).toBe('permitted');
     expect(
-      STARTER_CATALOG_SOURCES.some((source) =>
-        source.sourceId.includes('bccampus'),
+      composeCatalogSources().some(
+        (source) => source.sourceId === 'bccampus_database_design_2e_ch15',
       ),
-    ).toBe(false);
-    expect(
-      composeCatalogSources().some((source) =>
-        source.sourceId.includes('bccampus'),
-      ),
-    ).toBe(false);
+    ).toBe(true);
     const python = STARTER_CATALOG_SOURCES.find((source) =>
       source.sourceId.includes('python'),
     );

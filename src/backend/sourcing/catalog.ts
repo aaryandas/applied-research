@@ -15,9 +15,171 @@ function forbidden(reason: string): PermissionDecision {
   return { status: 'forbidden', reason };
 }
 
+function permitted(evidenceUrl: string): PermissionDecision {
+  return { status: 'permitted', basis: 'license', evidenceUrl };
+}
+
 const python = CURATED_SOURCE_MANIFEST[0]
   ? curatedSourceDescriptor(CURATED_SOURCE_MANIFEST[0])
   : null;
+
+const bccampusBook: MetadataOnlySource = {
+  sourceId: 'bccampus_database_design_2e',
+  kind: 'textbook',
+  title: 'Database Design – 2nd Edition',
+  authorship: {
+    kind: 'authored',
+    creators: ['Adrienne Watt', 'Nelson Eng'],
+  },
+  providerIds: [{ provider: 'curated-catalog', id: 'bccampus-dbdesign-2e' }],
+  scholarlyIdentity: { doi: null, arxivId: null },
+  originalLocation: {
+    url: 'https://opentextbc.ca/dbdesign01/',
+    trust: 'untrusted-public-url',
+  },
+  acquisitionLocation: null,
+  publicationDate: '2014-01-01',
+  discoveredAt: DISCOVERED_AT,
+  metadataSummary:
+    'BCcampus webbook. Text is CC BY 4.0 except where a chapter notice says otherwise. Chapter 13 is CC BY-NC-SA 3.0 and is excluded. HTML chapters only; PDFs are not acquired.',
+  relationships: [],
+  usePolicy: {
+    access: 'public',
+    accessEvidenceUrl: 'https://opentextbc.ca/dbdesign01/',
+    license: {
+      status: 'known',
+      name: 'Creative Commons Attribution 4.0 International',
+      spdxId: 'CC-BY-4.0',
+      url: 'https://creativecommons.org/licenses/by/4.0/',
+    },
+    acquisition: forbidden(
+      'Acquire reviewed HTML chapters individually; the book PDF is not parsed.',
+    ),
+    indexing: forbidden(
+      'Index only verified HTML chapters. Remix exceptions including NC-SA chapters are excluded.',
+    ),
+  },
+  content: { state: 'metadata-only' },
+};
+
+function bccampusChapter(input: {
+  id: string;
+  sourceId: string;
+  title: string;
+  url: string;
+  licenseName: string;
+  spdxId: string;
+  licenseUrl: string;
+  summary: string;
+}): MetadataOnlySource {
+  const permission = permitted(input.licenseUrl);
+  return {
+    sourceId: input.sourceId,
+    kind: 'chapter',
+    title: input.title,
+    authorship: {
+      kind: 'authored',
+      creators: ['Adrienne Watt', 'Nelson Eng'],
+    },
+    providerIds: [{ provider: 'curated-catalog', id: input.id }],
+    scholarlyIdentity: { doi: null, arxivId: null },
+    originalLocation: {
+      url: input.url,
+      trust: 'untrusted-public-url',
+    },
+    acquisitionLocation: {
+      url: input.url,
+      trust: 'untrusted-public-url',
+    },
+    publicationDate: '2014-01-01',
+    discoveredAt: DISCOVERED_AT,
+    metadataSummary: input.summary,
+    relationships: [
+      {
+        kind: 'chapter-of-textbook',
+        parentSourceId: bccampusBook.sourceId,
+        parentProviderIds: bccampusBook.providerIds,
+      },
+    ],
+    usePolicy: {
+      access: 'public',
+      accessEvidenceUrl: input.url,
+      license: {
+        status: 'known',
+        name: input.licenseName,
+        spdxId: input.spdxId,
+        url: input.licenseUrl,
+      },
+      acquisition: permission,
+      indexing: permission,
+    },
+    content: { state: 'metadata-only' },
+  };
+}
+
+const bccampusFundamental = bccampusChapter({
+  id: 'bccampus-dbdesign-2e-ch2',
+  sourceId: 'bccampus_database_design_2e_ch2',
+  title: 'Fundamental Concepts',
+  url: 'https://opentextbc.ca/dbdesign01/chapter/chapter-2-fundamental-concepts/',
+  licenseName: 'Creative Commons Attribution 3.0 Unported',
+  spdxId: 'CC-BY-3.0',
+  licenseUrl: 'https://creativecommons.org/licenses/by/3.0/',
+  summary:
+    'HTML chapter of Database Design 2e. Attribution required for Watt, Eng, and the Nguyen Kim Anh CC BY 3.0 derivative notice. Images and noted exceptions are not acquired. The HTML extractor does not parse PDFs.',
+});
+
+const bccampusSql = bccampusChapter({
+  id: 'bccampus-dbdesign-2e-ch15',
+  sourceId: 'bccampus_database_design_2e_ch15',
+  title: 'SQL Structured Query Language',
+  url: 'https://opentextbc.ca/dbdesign01/chapter/sql-structured-query-language/',
+  licenseName: 'Creative Commons Attribution 4.0 International',
+  spdxId: 'CC-BY-4.0',
+  licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+  summary:
+    'HTML SQL chapter of Database Design 2e (Watt/Eng). Book notice is CC BY 4.0 except where otherwise noted; this chapter has no NC-SA exception in the reviewed edition. Images are not acquired. PDFs are unsupported.',
+});
+
+const openTextbookLibrary: MetadataOnlySource = {
+  sourceId: 'otl_database_design_2e',
+  kind: 'textbook',
+  title: 'Database Design – 2nd Edition (Open Textbook Library record)',
+  authorship: {
+    kind: 'authored',
+    creators: ['Adrienne Watt', 'Nelson Eng'],
+  },
+  providerIds: [{ provider: 'curated-catalog', id: 'otl-dbdesign-2e' }],
+  scholarlyIdentity: { doi: null, arxivId: null },
+  originalLocation: {
+    url: 'https://open.umn.edu/opentextbooks/textbooks/database-design-2nd-edition',
+    trust: 'untrusted-public-url',
+  },
+  acquisitionLocation: null,
+  publicationDate: null,
+  discoveredAt: DISCOVERED_AT,
+  metadataSummary:
+    'Open Textbook Library catalog metadata is CC0. Per-book text licenses still require edition-specific verification; this metadata record does not authorize acquisition or indexing of book files.',
+  relationships: [],
+  usePolicy: {
+    access: 'public',
+    accessEvidenceUrl:
+      'https://open.umn.edu/opentextbooks/textbooks/database-design-2nd-edition',
+    license: {
+      status: 'known',
+      name: 'CC0 1.0 Universal (metadata only)',
+      spdxId: 'CC0-1.0',
+      url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    },
+    acquisition: forbidden(
+      'OTL metadata is CC0; the underlying book text must be acquired from its reviewed publisher HTML edition, not this catalog page.',
+    ),
+    indexing: forbidden(
+      'Catalog metadata is not full text and is not indexed as evidence.',
+    ),
+  },
+  content: { state: 'metadata-only' },
+};
 
 function linkOnly(input: {
   id: string;
@@ -97,12 +259,16 @@ export const OFFICIAL_LINK_ONLY_SOURCES: readonly MetadataOnlySource[] = [
 ];
 
 /**
- * Shared catalog defaults: reviewed PSF HTML plus official link-only courses.
- * BCcampus is not a default acquisition grant. AR-57 injects university
- * MetadataOnlySource[] through `composeCatalogSources`.
+ * Shared catalog defaults: reviewed PSF HTML, reviewed BCcampus SQL chapters
+ * from main's 90 corpus, plus official link-only courses. AR-57 injects
+ * university MetadataOnlySource[] through `composeCatalogSources`.
  */
 export const STARTER_CATALOG_SOURCES: readonly MetadataOnlySource[] = [
   ...(python ? [python] : []),
+  bccampusBook,
+  bccampusFundamental,
+  bccampusSql,
+  openTextbookLibrary,
   ...OFFICIAL_LINK_ONLY_SOURCES,
 ];
 
@@ -113,6 +279,7 @@ export const STARTER_CATALOG_LIMITATIONS = [
   'OpenStax current notices restrict commercial/AI reuse; titles are link-only.',
   'Official course and lecture URLs may be listed for discovery without transcript or index permission.',
   'University extractors (MIT/Delft and later Stanford/Berkeley/Harvard grants) are injected by AR-57; this lane does not invent that catalog.',
+  'BCcampus Database Design 2e Chapter 13 is CC BY-NC-SA 3.0 and is excluded.',
   'Images and chapter-noted third-party exceptions are not acquired.',
 ] as const;
 
