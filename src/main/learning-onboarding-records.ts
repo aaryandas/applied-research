@@ -357,9 +357,10 @@ export class LearningOnboardingRecords {
       firstLesson: PathOrigin & { lessonId: string };
       requestId: string;
     },
-    transaction: WorkspaceTransaction = this.database,
+    transaction?: WorkspaceTransaction,
   ): void {
-    transaction
+    const connection = transaction ?? this.database;
+    connection
       .insert(learningAcceptances)
       .values({
         projectId: input.projectId,
@@ -376,16 +377,17 @@ export class LearningOnboardingRecords {
 
   replaceMappings(
     rows: StoredMappingRow[],
-    transaction: WorkspaceTransaction = this.database,
+    transaction?: WorkspaceTransaction,
   ): void {
     if (rows.length === 0) return;
+    const connection = transaction ?? this.database;
     const projectId = rows[0]!.projectId;
-    transaction
+    connection
       .delete(acceptedStepMappings)
       .where(eq(acceptedStepMappings.projectId, projectId))
       .run();
     for (const row of rows) {
-      transaction
+      connection
         .insert(acceptedStepMappings)
         .values({
           projectId: row.projectId,
@@ -464,10 +466,11 @@ export class LearningOnboardingRecords {
 
   saveResume(
     resume: Omit<ContinueLearningResume, 'updatedAt'>,
-    transaction: WorkspaceTransaction = this.database,
+    transaction?: WorkspaceTransaction,
   ): void {
+    const connection = transaction ?? this.database;
     const updatedAt = new Date().toISOString();
-    const current = transaction.select().from(learningResume).get();
+    const current = connection.select().from(learningResume).get();
     const values = {
       id: 1 as const,
       projectId: resume.projectId,
@@ -484,13 +487,13 @@ export class LearningOnboardingRecords {
       updatedAt,
     };
     if (current) {
-      transaction
+      connection
         .update(learningResume)
         .set(values)
         .where(eq(learningResume.id, 1))
         .run();
     } else {
-      transaction.insert(learningResume).values(values).run();
+      connection.insert(learningResume).values(values).run();
     }
   }
 }

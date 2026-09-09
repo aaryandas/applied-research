@@ -123,7 +123,7 @@ export function OnboardingFlow({
   const [retryable, setRetryable] = useState(false);
   const submitting = useRef(false);
   const requestId = useRef(newRequestId());
-  const acceptRequestId = useRef<string | undefined>();
+  const acceptRequestId = useRef<string | undefined>(undefined);
   const interviewRevision = useRef(0);
   const profileRevision = useRef(0);
 

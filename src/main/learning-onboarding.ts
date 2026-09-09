@@ -83,11 +83,13 @@ export interface LearningOnboardingOptions {
   transport: OnboardingTransport | null;
 }
 
-function unavailable<T>(
+type RemoteFailure = Exclude<OnboardingResult<never>, { outcome: 'success' }>;
+
+function unavailable(
   requestId: string,
   retryable: boolean,
-  message = LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable,
-): OnboardingResult<T> {
+  message: string = LEARNING_ONBOARDING_PUBLIC_MESSAGES.unavailable,
+): RemoteFailure {
   return {
     outcome: 'unavailable',
     requestId,
@@ -686,7 +688,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
     };
   }
 
-  private async remote<T>(
+  private async remote(
     projectId: string,
     requestId: string,
     request: LearningOnboardingRequest,
@@ -696,7 +698,7 @@ export class LearningOnboardingOperations implements LearningOnboardingBridge {
       | 'interview-prompt',
   ): Promise<
     | { kind: 'body'; body: LearningOnboardingResponse }
-    | { kind: 'result'; result: OnboardingResult<T> }
+    | { kind: 'result'; result: RemoteFailure }
   > {
     void expectedScope;
     if (this.pending.has(requestId) || this.pending.size >= 1) {
