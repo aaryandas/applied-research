@@ -116,7 +116,7 @@ describe('trusted worker runtime argv', () => {
       resolveTrustedWorkerRuntime(
         flags({ ...tools, dockerContext: '--privileged' }),
       ),
-    ).rejects.toThrow('trusted');
+    ).rejects.toThrow('requires a value');
     expect(() => dockerCliArgs('orbstack;rm', ['ps'])).toThrow('trusted');
   });
 
