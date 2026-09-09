@@ -3,7 +3,6 @@ import type { TrustedSceneCapture } from '../contracts/explanation-artifacts';
 import {
   measuredCaptureTextFromOwnedAttempt,
   measuredCaptureTextFromTrusted,
-  measuredPracticalResultFromTrustedCapture,
 } from './guidance-measured-capture';
 
 const captureId = '25000000-0000-4000-8000-000000000001';
@@ -22,21 +21,7 @@ const endpoint: TrustedSceneCapture = {
   measuredAt,
 };
 
-describe('trusted scene capture summary', () => {
-  it('derives bounded text and time from the stored measurement, not renderer copy', () => {
-    const adapted = measuredCaptureTextFromTrusted(endpoint);
-    expect(adapted.capturedAt).toBe(measuredAt);
-    expect(adapted.text).toContain('App-measured endpoint (model units)');
-    expect(adapted.text).toContain('3.5000');
-    expect(adapted.text).not.toContain('renderer said');
-    expect(measuredPracticalResultFromTrustedCapture(endpoint)).toMatchObject({
-      kind: 'app-measured',
-      captureId,
-      measuredAt,
-      summary: adapted.text,
-    });
-  });
-
+describe('owned measured capture read', () => {
   it('requires a revalidated returnedEvidence offer, not a leftover draft id', () => {
     const projectId = '27000000-0000-4000-8000-000000000001';
     const attempt = {

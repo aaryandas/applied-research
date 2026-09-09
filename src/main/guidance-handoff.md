@@ -4,16 +4,17 @@ Owned by the Companion lane. Main assembler `run-f562` owns `src/main/index.ts`,
 
 ## Exports
 
-| Symbol                                                      | Module                                  |
-| ----------------------------------------------------------- | --------------------------------------- |
-| `createCompanionGuidanceOperations(options)`                | `src/main/guidance-operations.ts`       |
-| `CompanionGuidanceOperationsOptions`                        | same                                    |
-| `resolveCompanionGuidanceContext(request, readers, signal)` | `src/main/guidance-context.ts`          |
-| `CompanionGuidanceReaders`                                  | same                                    |
-| `measuredCaptureTextFromTrusted(capture)`                   | `src/main/guidance-measured-capture.ts` |
-| `measuredCaptureTextFromOwnedAttempt(attempt, id, load)`    | same                                    |
-| `makeCompanionGuidanceTransport(options)`                   | `src/main/guidance-transport.ts`        |
-| `buildCompanionGuidanceEnvelope(...)`                       | `src/main/guidance-envelope.ts`         |
+| Symbol                                                      | Module                                   |
+| ----------------------------------------------------------- | ---------------------------------------- |
+| `createCompanionGuidanceOperations(options)`                | `src/main/guidance-operations.ts`        |
+| `CompanionGuidanceOperationsOptions`                        | same                                     |
+| `resolveCompanionGuidanceContext(request, readers, signal)` | `src/main/guidance-context.ts`           |
+| `CompanionGuidanceReaders`                                  | same                                     |
+| `measuredCaptureTextFromTrusted(capture)`                   | `src/main/practical-measured-capture.ts` |
+| `measuredPracticalResultFromTrustedCapture(capture)`        | same                                     |
+| `measuredCaptureTextFromOwnedAttempt(attempt, id, load)`    | `src/main/guidance-measured-capture.ts`  |
+| `makeCompanionGuidanceTransport(options)`                   | `src/main/guidance-transport.ts`         |
+| `buildCompanionGuidanceEnvelope(...)`                       | `src/main/guidance-envelope.ts`          |
 
 Channels (already in AR53 contracts; do not redeclare):
 

@@ -39,7 +39,7 @@ import {
   practicalMilestoneProgress,
 } from './practical-schema';
 import { acknowledgement, touchProject } from './learning-record-persistence';
-import { measuredPracticalResultFromTrustedCapture } from './guidance-measured-capture';
+import { measuredPracticalResultFromTrustedCapture } from './practical-measured-capture';
 import {
   assertPracticalActivity,
   decodePracticalLoad,
