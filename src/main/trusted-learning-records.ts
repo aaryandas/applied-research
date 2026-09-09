@@ -127,7 +127,7 @@ export function decodeTrustedLearningPath(
       steps: contribution.steps.map((value_, stepIndex) => {
         const step = decodeRecord(value_, `learning path step ${stepIndex}`);
         if (!Array.isArray(step.citations)) {
-          throw new Error(
+          throw new TypeError(
             `Invalid learning path step ${stepIndex}: citations must be a list.`,
           );
         }
@@ -147,7 +147,9 @@ export function decodeTrustedLearningPath(
             `learning path step ${stepIndex} activity`,
             4_000,
           ),
-          citations: step.citations.map(citation),
+          citations: step.citations.map((value, index) =>
+            citation(value, index),
+          ),
         };
       }),
     },

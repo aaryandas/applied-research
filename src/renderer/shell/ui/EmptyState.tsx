@@ -11,14 +11,22 @@ import { useId, type ReactElement, type ReactNode } from 'react';
  * emptiness announced renders this inside a `StatusRegion`, which owns the
  * stable mount that makes an announcement actually fire.
  */
+/** ReactNode admits `true` and `''`; neither deserves a slot box with its margins. */
+function absent(slot: ReactNode): boolean {
+  return slot == null || typeof slot === 'boolean' || slot === '';
+}
+
 export function EmptyState({
   title,
+  icon,
   body,
   action,
   unsupported = false,
   className,
 }: {
   title: string;
+  /** Optional mark above the title; sized by `.ui-empty-state__icon`. */
+  icon?: ReactNode;
   body?: ReactNode;
   action?: ReactNode;
   unsupported?: boolean;
@@ -31,13 +39,16 @@ export function EmptyState({
 
   return (
     <div className={classes.join(' ')} role="group" aria-labelledby={titleId}>
+      {absent(icon) ? null : (
+        <div className="ui-empty-state__icon" aria-hidden="true">
+          {icon}
+        </div>
+      )}
       <p className="ui-heading ui-empty-state__title" id={titleId}>
         {title}
       </p>
-      {body === undefined ? null : (
-        <div className="ui-empty-state__body">{body}</div>
-      )}
-      {action === undefined ? null : (
+      {absent(body) ? null : <div className="ui-empty-state__body">{body}</div>}
+      {absent(action) ? null : (
         <div className="ui-empty-state__action">{action}</div>
       )}
     </div>

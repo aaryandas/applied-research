@@ -19,8 +19,8 @@
 /* .local-status i, .connection-status i (styles.css:555). currentColor so the variants
    can tint dot and label together, as the prototype's .guide-status:before does. */
 .ui-status__dot {
-  width: 6px;
-  height: 6px;
+  width: var(--dot);
+  height: var(--dot);
   flex-shrink: 0;
   display: inline-block;
   border-radius: 50%;
@@ -51,20 +51,23 @@
    (.settings-panel button[aria-disabled='true'], settings.css:111). */
 .ui-busy[aria-busy='true'] {
   cursor: wait;
-  /* This class lands on the element holding the live-region text (StatusRegion), so the
-     trough has to stay readable: --muted at 0.85 over --paper is 4.80:1, over the dark
-     ground higher. Anything below ~0.80 drops the label under the 4.5:1 AA floor. */
+  /* This class lands on the element holding the live-region text (StatusRegion), which
+     also carries .ui-status--busy, so the label is --accent and not --muted. At 0.85 that
+     is 5.38:1 over --paper and 7.39:1 over the dark ground, both clear of the 4.5:1 AA
+     floor; 0.80 would still pass, 0.65 (the dot's floor) would not, light. */
   --ui-pulse-floor: 0.85;
 }
 
 .ui-status--busy .ui-status__dot,
-.ui-busy[aria-busy='true'] {
+.ui-status.ui-busy[aria-busy='true'] {
   animation: ui-pulse calc(var(--duration-arrive) * 2) var(--ease-out) infinite;
 }
 
-/* One keyframe, two amplitudes: a 6px dot can dip further than a panel of text. The dot
-   is the only carrier of the busy state, so its trough still has to clear the 3:1
-   non-text minimum: --accent at 0.65 is 3.35:1 light and 4.78:1 dark. */
+/* One keyframe, two amplitudes: a small dot can dip further than a panel of text. The dot
+   is a carrier of the busy state, so its trough still has to clear the 3:1 non-text
+   minimum: --accent at 0.65 is 3.38:1 light and 4.74:1 dark. Inside a .ui-busy region the
+   dot inherits that region's 0.85 floor and the two opacities compose to 0.72 — 3.99:1
+   light — so it clears the minimum either way. */
 @keyframes ui-pulse {
   50% {
     opacity: var(--ui-pulse-floor, 0.65);
@@ -74,7 +77,7 @@
 /* tokens.css already zeroes --duration-* here; stop the animation outright as well. */
 @media (prefers-reduced-motion: reduce) {
   .ui-status--busy .ui-status__dot,
-  .ui-busy[aria-busy='true'] {
+  .ui-status.ui-busy[aria-busy='true'] {
     animation: none;
   }
 }

@@ -45,6 +45,7 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 
 ## MVP modules
 
+- `src/main/auth-sdk.ts`: supported Better Auth Electron client, guarded Node fetch for cookie-bearing auth responses, and the SDK OAuth state compatibility wrapper. Adjacent SDK tests cover real Node response headers; `tests/e2e/auth.spec.ts` exercises encrypted restart and sign-out in Electron.
 - `src/contracts/workspace.ts`: compatibility project/entry/request models and named channels.
 - `src/contracts/learning-records.ts`: serializable source, highlight, human-entry, path, placement, acknowledgement and conflict contracts for the durable learning workspace.
 - `src/main/validation.ts`: runtime command, identifier, text, URL and bounds validation.
@@ -62,13 +63,14 @@ Unit tests live beside their source. The MVP modules below own the implemented r
 - `src/renderer/Shell.tsx`, `shell.css`: persistent topic navigation, Reader/Canvas/Practical/Settings composition, automatic Canvas icon rail and thin detail-mode bar. Reader stays mounted to preserve reading position; successful Canvas moves refresh the shared workspace before remounting.
 - `src/renderer/useWorkspaceFlush.ts`: serial save barrier for Reader drafts, Canvas positions and Practical attempts before navigation, project replacement, Cmd/Ctrl+S and ordinary native window close. Failed saves keep the workspace mounted; this does not protect against forced process termination.
 - `src/renderer/shell-records.ts`: resolves the exact selected path revision into Practical activity context and searches saved source/entry text without inventing origins.
+- `src/renderer/shell/ui/`: the shared `.ui-*` component layer every surface draws its controls from, plus the `EmptyState` and `StatusRegion` React primitives. Its `README.md` owns the authoring contract and the public class list.
 - `src/renderer/reader/`: durable pasted-source reading, exact highlights, human notes/questions/insights and revision-aware draft saves. Reader accepts optional shell navigation/explanation slots and reports selected path changes.
 - `src/renderer/canvas/`: supported React Flow infinite map, Distilled/Expanded projections, exact origin links and per-view placement saves from the shared learning workspace.
 - `src/renderer/practical/`: activity/checkpoint consumer mounted by Shell. The durable result producer remains absent from the declared desktop bridge; empty/unavailable states are real, and unsaved practical drafts block navigation/close.
 - `src/renderer/settings/`: account state/subscription operations and controlled Light/Dark appearance. No key importer or model picker is exposed by the new shell.
 - `src/renderer/ReaderExplanations.tsx`: explicit session-local assembly/arm examples inline in Reader; graphics deactivate outside Reader and are never assigned a source origin automatically.
 - `src/renderer/Opening.tsx`: approved topic-entry scene, actual saved-project rows, duplicate-submit prevention, retryable failure and keyboard focus. App normalizes bridge failures and owns project creation/navigation.
-- `src/renderer/styles.css`: scoped application layouts and components; imports renderer-owned `tokens.css` and `fonts.css`. The approved `apple-landscape.webp` is bundled by Vite. Opening focus/motion and shared typography follow the accepted portable reference.
+- `src/renderer/styles.css`: scoped application layouts and components; declares the `@layer reset, ui` order and imports renderer-owned `shell/ui/ui.css` into the `ui` layer plus unlayered `tokens.css` and `fonts.css`. The approved `apple-landscape.webp` is bundled by Vite. Opening focus/motion and shared typography follow the accepted portable reference.
 - `src/renderer/ToolPanel.tsx`: native guest layout requests, external fallback controls and browser/assembly/arm mode selection. A local scene hides the native guest surface without granting it new capabilities.
 - `src/renderer/MatrixLab.tsx`, `math.ts`: a reusable deterministic linear transformation and captured results.
 - `src/contracts/explanations.ts`: bounded versioned original-geometry recipes, explicit nullable origin and app-measured session capture contracts.

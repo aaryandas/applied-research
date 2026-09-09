@@ -38,13 +38,20 @@
   opacity: 1;
 }
 
-.ui-input:hover:not(:disabled, [aria-disabled='true'], [readonly]),
-.ui-textarea:hover:not(:disabled, [aria-disabled='true'], [readonly]) {
+.ui-input:hover:not(
+    :disabled,
+    [aria-disabled='true'],
+    [readonly],
+    [aria-invalid='true']
+  ),
+.ui-textarea:hover:not(
+    :disabled,
+    [aria-disabled='true'],
+    [readonly],
+    [aria-invalid='true']
+  ) {
   border-color: var(--ink);
 }
-
-/* Focus: add .ui-focusable. The ring is defined once, in base.css — repeating
-   its outline here would be a second copy to keep in sync. */
 
 .ui-input:disabled,
 .ui-textarea:disabled,
@@ -63,7 +70,9 @@
 .ui-input[aria-invalid='true'],
 .ui-textarea[aria-invalid='true'],
 .ui-field--invalid .ui-input,
-.ui-field--invalid .ui-textarea {
+.ui-field--invalid .ui-textarea,
+.ui-field--invalid .ui-input:hover,
+.ui-field--invalid .ui-textarea:hover {
   border-color: var(--danger);
 }
 

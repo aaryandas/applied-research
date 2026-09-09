@@ -1,4 +1,6 @@
-/* Shared primitives: screen-reader text, the one focus ring, scroll containment. */
+/* Shared primitives: screen-reader text and scroll containment. The focus ring is not
+   here: styles.css declares one unlayered `:focus-visible` rule that already reaches every
+   element, so a class in this layer would only be a second copy to keep in sync. */
 
 .ui-sr-only {
   position: absolute;
@@ -10,11 +12,6 @@
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
-}
-
-.ui-focusable:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
 }
 
 .ui-scroll {

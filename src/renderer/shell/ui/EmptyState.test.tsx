@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { EmptyState } from './EmptyState';
+import { StatusRegion } from './StatusRegion';
 
 it('names the region with its title', () => {
   render(<EmptyState title="No experiments yet" />);
@@ -33,6 +34,16 @@ it('renders the body and the caller-supplied action', () => {
   ).toBeInTheDocument();
 });
 
+it('renders the optional icon as decoration, and omits the slot without one', () => {
+  const { container, rerender } = render(<EmptyState title="No sources" />);
+  expect(container.querySelector('.ui-empty-state__icon')).toBeNull();
+
+  rerender(<EmptyState title="No sources" icon={<svg />} />);
+  const slot = container.querySelector('.ui-empty-state__icon');
+  expect(slot).toHaveAttribute('aria-hidden', 'true');
+  expect(slot?.querySelector('svg')).not.toBeNull();
+});
+
 it('marks the unsupported variant', () => {
   const { rerender } = render(<EmptyState title="Not available here" />);
   expect(screen.getByRole('group')).not.toHaveClass(
@@ -46,6 +57,20 @@ it('is not a live region — StatusRegion owns the stable mount announcements ne
   render(<EmptyState title="No matches" />);
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.getByRole('group')).not.toHaveAttribute('aria-live');
+});
+
+it('keeps its own layout when announced through StatusRegion', () => {
+  render(
+    <StatusRegion busy>
+      <EmptyState title="No matches" />
+    </StatusRegion>,
+  );
+  const region = screen.getByRole('status');
+  expect(region).not.toHaveClass('ui-status');
+  expect(region).toHaveClass('ui-busy');
+  expect(screen.getByRole('group', { name: 'No matches' })).toHaveClass(
+    'ui-empty-state',
+  );
 });
 
 it('keeps the caller class alongside its own', () => {

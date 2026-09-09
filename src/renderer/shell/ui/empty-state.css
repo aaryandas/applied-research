@@ -12,11 +12,10 @@
 }
 
 /* .canvas-empty > .ui-icon (styles.css:658). Accent, because an empty state that
-   can still be filled is an invitation. 32px has no token; neither does .ui-icon's
-   own 16px (styles.css:88). */
+   can still be filled is an invitation. */
 .ui-empty-state__icon {
-  width: 32px;
-  height: 32px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   margin-bottom: var(--space-6);
   color: var(--accent);
 }

@@ -3,7 +3,7 @@
    rules in reader.css, canvas.css, explanations.css and shell.css — into one box, one hover
    and one disabled treatment.
 
-   Compose .ui-focusable for the focus ring; this file never declares one.
+   The focus ring is the app-wide `:focus-visible` rule in styles.css; this file adds none.
    :disabled and [aria-disabled='true'] are styled identically so a control that must stay
    focusable while it is busy (Settings uses aria-disabled for exactly that) looks disabled
    without leaving the tab order. */
@@ -53,7 +53,7 @@
 
 .ui-button--primary {
   padding-inline: var(--space-6);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   background: var(--ink);
   color: var(--paper);
   font-weight: 500;
@@ -69,12 +69,10 @@
 .ui-button--secondary {
   padding-inline: var(--space-4);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
 }
 
-/* README calls this variant --text; this lane's brief calls it --quiet. Same rule under
-   both names until one of them is retired. */
-.ui-button--quiet,
+/* Low-emphasis inline action. */
 .ui-button--text {
   padding-inline: var(--space-2);
   color: var(--muted);

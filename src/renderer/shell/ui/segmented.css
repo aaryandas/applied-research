@@ -7,8 +7,8 @@
    .segmented (context/design-handoff/prototype/styles.css).
 
    Selection is read from the DOM, so a plain button group ([aria-pressed]) and a
-   react-aria ToggleButtonGroup ([data-selected]) both style themselves. Add
-   .ui-focusable to each option for the shared focus ring; do not add one here. */
+   react-aria ToggleButtonGroup ([data-selected]) both style themselves. The focus ring
+   comes from the app-wide `:focus-visible` rule in styles.css; do not add one here. */
 
 /* A tray is a grouped control: 8px (DESIGN-CONTRACT "Rounded controls 6px; grouped
    controls 8px"), matching the approved .segmented. The options inside stay 6px. */
@@ -32,8 +32,7 @@
   cursor: pointer;
   transition:
     background-color var(--duration-press),
-    color var(--duration-press),
-    box-shadow var(--duration-press);
+    color var(--duration-press);
 }
 
 /* Hover is the unchosen, enabled option only, so it never fights the two rules below. */
@@ -42,16 +41,18 @@
     [aria-disabled='true'],
     [data-disabled],
     [aria-pressed='true'],
-    [data-selected]
+    [data-selected]:not([data-selected='false'])
   ):hover {
   background: var(--surface-subtle);
 }
 
+/* Fill and colour only, no ring: the approved `.segmented [aria-pressed=true]` sets
+   background and colour and nothing else, and the Structure decision (DESIGN-CONTRACT)
+   removes structural separators in favour of grouping by spacing. */
 .ui-segmented__option[aria-pressed='true'],
-.ui-segmented__option[data-selected] {
+.ui-segmented__option[data-selected]:not([data-selected='false']) {
   background: var(--paper);
   color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .ui-segmented__option:disabled,
