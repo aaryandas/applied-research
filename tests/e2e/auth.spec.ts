@@ -78,7 +78,7 @@ async function installSyntheticAuth(application: ElectronApplication) {
       });
     };
 
-    await session.defaultSession.protocol.handle('https', (request) => {
+    const authResponse = (request: Request): Response => {
       const url = new URL(request.url);
       const requests = Reflect.get(globalThis, 'ar12AuthRequestPaths');
       if (Array.isArray(requests)) requests.push(url.pathname);
@@ -106,6 +106,16 @@ async function installSyntheticAuth(application: ElectronApplication) {
                 'better-auth.session_token=synthetic-session-secret; Path=/; HttpOnly; Secure; SameSite=Lax',
             },
           },
+        );
+      }
+      if (
+        (url.pathname.endsWith('/get-session') ||
+          url.pathname.endsWith('/sign-out')) &&
+        !request.headers.get('cookie')?.includes('better-auth.session_token=')
+      ) {
+        return jsonResponse(
+          { message: 'Authentication is required.' },
+          { status: 401 },
         );
       }
       if (url.pathname.endsWith('/get-session')) {
@@ -156,7 +166,56 @@ async function installSyntheticAuth(application: ElectronApplication) {
         });
       }
       return new Response('Synthetic route not found.', { status: 404 });
+    };
+    await session.defaultSession.protocol.handle('https', authResponse);
+
+    // Preserve Node's real response-header behavior. Only the remote service
+    // is synthetic; SDK fetches still travel through Electron's Node runtime.
+    const { createServer } = process.getBuiltinModule('node:http');
+    const server = createServer((request, response) => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (typeof value === 'string') headers.set(name, value);
+      }
+      const result = authResponse(
+        new Request(
+          `https://api-production-e7aa.up.railway.app${request.url ?? '/'}`,
+          { headers },
+        ),
+      );
+      result.headers.forEach((value, name) => response.setHeader(name, value));
+      response.writeHead(result.status);
+      void result.arrayBuffer().then(
+        (body) => response.end(Buffer.from(body)),
+        () => response.destroy(),
+      );
     });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    app.once('will-quit', () => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Synthetic server is absent.');
+    const nodeFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      if (
+        url.origin !== 'https://api-production-e7aa.up.railway.app' ||
+        !url.pathname.startsWith('/api/auth/')
+      ) {
+        throw new Error('External Node network is disabled in this test.');
+      }
+      return nodeFetch(
+        `http://127.0.0.1:${address.port}${url.pathname}${url.search}`,
+        init,
+      );
+    };
   });
 }
 
@@ -308,11 +367,6 @@ test('uses the real Electron SDK for cancellation, encrypted restart and sign-ou
       expect(await latestOpenedUrl(application)).toBeNull();
       return;
     }
-    // AR-40: the exchange succeeds but Electron net.fetch hides Set-Cookie, so
-    // the SDK never stores the session cookie and the app stays signed out.
-    // Expected to fail until the auth transport is fixed; remove with the fix.
-    test.fail(true, 'AR-40: net.fetch hides Set-Cookie; session never stored');
-
     expect(await page.evaluate(() => window.desktop.signIn())).toMatchObject({
       session: 'signing-in',
     });

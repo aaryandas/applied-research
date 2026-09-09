@@ -143,7 +143,7 @@ export function decodeHumanEntry(value: unknown): SaveHumanEntryInput {
 export function decodeInsight(value: unknown): SaveInsightInput {
   const input = decodeRecord(value, 'insight');
   if (!Array.isArray(input.supports)) {
-    throw new Error('Invalid insight supports: expected a list.');
+    throw new TypeError('Invalid insight supports: expected a list.');
   }
   const supports = input.supports.map((item, index) => {
     const support = decodeRecord(item, `insight support ${index}`);
@@ -220,7 +220,7 @@ function lesson(value: unknown, index: number): PathLessonInput {
 function topic(value: unknown, index: number): PathTopicInput {
   const input = decodeRecord(value, `path topic ${index}`);
   if (!Array.isArray(input.lessons)) {
-    throw new Error(`Invalid path topic ${index}: lessons must be a list.`);
+    throw new TypeError(`Invalid path topic ${index}: lessons must be a list.`);
   }
   const lessons = input.lessons.map((item, lessonIndex) =>
     lesson(item, lessonIndex),
