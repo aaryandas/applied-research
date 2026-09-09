@@ -58,3 +58,14 @@ it('reports the companion session state and revokes synchronously during a pendi
   await starting;
   expect(adapter.status).toBe('idle');
 });
+
+it('refuses an unexpected start outcome without exposing transport details', async () => {
+  const adapter = createPracticalActivityGuidance({
+    getState: () => ({ observation: { status: 'inactive' } }),
+    startActivity: async () => ({ status: 'unavailable' }),
+    stop: () => {},
+  });
+  await expect(adapter.start(request)).rejects.toThrow(
+    'Activity guidance could not start.',
+  );
+});

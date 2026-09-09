@@ -8,6 +8,7 @@ import type {
 import {
   isRecordPracticalResultInput,
   type PracticalActivity,
+  type ReturnedPracticalEvidence,
 } from '../../contracts/practical-work';
 import { PracticalWork, type PracticalWorkProps } from './PracticalWork';
 
@@ -47,6 +48,8 @@ export function PracticalWorkspace(
     />
   );
 }
+
+const EMPTY_RETURNED_EVIDENCE: readonly ReturnedPracticalEvidence[] = [];
 
 function activityKey(activity: PracticalActivity | null): string {
   if (!activity) return '';
@@ -140,7 +143,7 @@ function LoadPracticalWorkspace(
         attemptId={seedAttemptId}
         activityStatus={activity ? 'loading' : 'ready'}
         expectedRevision={0}
-        returnedEvidence={[]}
+        returnedEvidence={EMPTY_RETURNED_EVIDENCE}
         registerFlush={props.registerFlush}
         onReturnToLearning={props.onReturnToLearning}
         {...(props.availableActivities
@@ -196,7 +199,7 @@ function LoadPracticalWorkspace(
       attemptId={attemptId}
       expectedRevision={attempt?.currentRevision ?? 0}
       {...(attempt ? { initialDraft: attempt.draft } : {})}
-      returnedEvidence={attempt?.returnedEvidence ?? []}
+      returnedEvidence={attempt?.returnedEvidence ?? EMPTY_RETURNED_EVIDENCE}
       registerFlush={props.registerFlush}
       onReturnToLearning={props.onReturnToLearning}
       {...(props.availableActivities
