@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   AGENT_ID,
@@ -20,8 +23,10 @@ import {
   maybeLaunchReview,
   missingKeyResult,
   parseReviewVerdict,
+  persistIndependentReviewReceipt,
   resolveReviewModel,
 } from './delivery-review.mjs';
+import { createIndependentReviewRunReceipt } from './delivery-trust.mjs';
 
 const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const STALE = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -925,4 +930,158 @@ test('authorized dispatch launch POSTs the documented mode:agent create schema',
   assert.equal(Object.hasOwn(posted, 'toolProfile'), false);
   assert.equal(result.receipt.source, TRUSTED_LAUNCH_RECEIPT_SOURCE);
   assert.equal(result.receipt.githubEvent, 'workflow_dispatch');
+});
+
+test('rerun launch GETs write permission for both github.actor and github.triggering_actor', async () => {
+  const seen = [];
+  let posted;
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv({
+      GITHUB_ACTOR: 'github-actions[bot]',
+      GITHUB_TRIGGERING_ACTOR: 'aaryandas',
+    }),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/')) {
+        seen.push(decodeURIComponent(href));
+        const login = href.includes('github-actions')
+          ? 'github-actions[bot]'
+          : 'aaryandas';
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              permission: login === 'aaryandas' ? 'write' : 'admin',
+            };
+          },
+        };
+      }
+      if (href.includes('/pulls/99')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return launchPr();
+          },
+        };
+      }
+      if (href.includes('/v1/agents') && init?.method === 'POST') {
+        posted = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              agent: { id: AGENT, url: `https://cursor.com/agents/${AGENT}` },
+              run: { id: RUN },
+            });
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.launched, true);
+  assert.equal(posted.mode, 'agent');
+  assert.equal(
+    seen.some((href) => href.includes('github-actions[bot]')),
+    true,
+  );
+  assert.equal(
+    seen.some((href) => href.includes('aaryandas')),
+    true,
+  );
+});
+
+test('rerun launch fails when triggering_actor lacks write even if actor is admin', async () => {
+  let posted = false;
+  const result = await maybeLaunchReview({
+    apiKey: 'cursor_test-key',
+    launch: true,
+    model: resolveReviewModel(catalog),
+    prUrl: PR_URL,
+    repoUrl: 'https://github.com/aaryandas/applied-research',
+    headSha: HEAD,
+    ticket: 'AR-41',
+    repository: 'aaryandas/applied-research',
+    prNumber: 99,
+    env: dispatchLaunchEnv({
+      GITHUB_ACTOR: 'github-actions[bot]',
+      GITHUB_TRIGGERING_ACTOR: 'stranger',
+    }),
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/collaborators/')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              permission: href.includes('stranger') ? 'none' : 'admin',
+            };
+          },
+        };
+      }
+      if (href.includes('/pulls/99')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return launchPr();
+          },
+        };
+      }
+      if (init?.method === 'POST') {
+        posted = true;
+        throw new Error('must not POST Cursor');
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    },
+  });
+  assert.equal(result.launched, false);
+  assert.equal(posted, false);
+  assert.match(result.reason, /github\.triggering_actor stranger/);
+});
+
+test('trusted evaluate persists a run artifact receipt with the custom check id', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ar-review-receipt-'));
+  const output = join(dir, 'github-output');
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    const receipt = createIndependentReviewRunReceipt({
+      prNumber: 99,
+      headSha: HEAD,
+      customCheckId: 9001,
+      githubRunId: 42,
+      criticAgentId: AGENT,
+      criticRunId: RUN,
+      passed: true,
+      status: 'PASS',
+    });
+    persistIndependentReviewReceipt(receipt, { githubOutput: output });
+    const written = JSON.parse(
+      await readFile(join(dir, 'independent-review-receipt.json'), 'utf8'),
+    );
+    assert.equal(written.customCheckId, 9001);
+    assert.equal(written.prNumber, 99);
+    assert.equal(written.headSha, HEAD);
+    const gh = await readFile(output, 'utf8');
+    assert.match(gh, /review_receipt_file=independent-review-receipt.json/);
+    assert.match(gh, /review_pr_number=99/);
+    assert.match(gh, new RegExp(`review_head_sha=${HEAD}`));
+  } finally {
+    process.chdir(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   CI_GATE_NAME,
-  GITHUB_ACTIONS_APP_ID,
   HOSTED_SONAR_NAMES,
   HOSTED_SONAR_WORKFLOW_FILE,
   LANE_GUARD_NAME,
@@ -30,7 +29,7 @@ import {
   explainLinearLifecycleGap,
 } from './delivery-constants.mjs';
 import {
-  enrichCheckPublisher,
+  bindIndependentReviewDisplay,
   fetchCommitCheckRuns,
   fetchCompare,
   fetchDefaultBranchSha,
@@ -76,23 +75,22 @@ export function trustedReviewPublisherOk(
 ) {
   if (!actionsCheckOk(check)) return false;
   if (check.name !== REVIEW_CHECK_NAME) return false;
-  const pub = check.publisher;
-  if (!pub) return false;
-  if (Number(pub.appId ?? check.app?.id) !== GITHUB_ACTIONS_APP_ID)
-    return false;
-  if (pub.workflowPath !== TRUSTED_WORKFLOW_FILE) return false;
-  if (pub.jobName !== TRUSTED_REVIEW_JOB_NAME) return false;
-  if (!TRUSTED_GITHUB_EVENTS.includes(pub.event)) return false;
+  const binding = check.independentReviewBinding;
+  if (!binding?.ok) return false;
+  if (Number(binding.customCheckId) !== Number(check.id)) return false;
+  if (binding.workflowPath !== TRUSTED_WORKFLOW_FILE) return false;
+  if (binding.jobName !== TRUSTED_REVIEW_JOB_NAME) return false;
+  if (!TRUSTED_GITHUB_EVENTS.includes(binding.event)) return false;
   if (
-    pub.event === 'workflow_dispatch' &&
-    pub.headBranch &&
-    pub.headBranch !== defaultBranch
+    binding.event === 'workflow_dispatch' &&
+    binding.headBranch &&
+    binding.headBranch !== defaultBranch
   ) {
     return false;
   }
-  if (!pub.runId) return false;
-  const summary = String(check.output?.summary ?? '');
-  if (!summary.includes(`githubRunId=${pub.runId}`)) return false;
+  if (!binding.githubRunId) return false;
+  if (binding.passed !== true) return false;
+  if (binding.headSha && binding.headSha !== check.head_sha) return false;
   return true;
 }
 
@@ -304,6 +302,23 @@ export function assessCandidate({
     REVIEW_CHECK_NAME,
   ];
   for (const name of required) {
+    if (name === REVIEW_CHECK_NAME) {
+      const proven = (checks ?? []).find(
+        (entry) =>
+          entry.name === name &&
+          entry.head_sha === pr.headRefOid &&
+          trustedReviewPublisherOk(entry),
+      );
+      if (!proven) {
+        if (!checkAtHead(checks, name, pr.headRefOid)) {
+          return refuse(`Missing current-head check: ${name}`, 'infra');
+        }
+        return refuse(
+          'Independent review check is missing a trusted-run Actions artifact receipt bound to this custom check',
+        );
+      }
+      continue;
+    }
     const check = checkAtHead(checks, name, pr.headRefOid);
     if (!check) return refuse(`Missing current-head check: ${name}`, 'infra');
     if (check.status !== 'completed') {
@@ -314,11 +329,6 @@ export function assessCandidate({
     }
     if (!githubActionsAppOk(check)) {
       return refuse(`Untrusted app for ${name}`);
-    }
-    if (name === REVIEW_CHECK_NAME && !trustedReviewPublisherOk(check)) {
-      return refuse(
-        'Independent review check is missing GitHub Actions trusted-workflow/job/run provenance',
-      );
     }
   }
 
@@ -593,17 +603,24 @@ export function reviewFromChecks(
   headSha,
   { defaultBranch = 'main' } = {},
 ) {
-  const check = checkAtHead(checks, REVIEW_CHECK_NAME, headSha);
-  const passed = trustedReviewPublisherOk(check, { defaultBranch });
+  const check = (checks ?? []).find(
+    (entry) =>
+      entry.head_sha === headSha &&
+      trustedReviewPublisherOk(entry, { defaultBranch }),
+  );
+  const passed = Boolean(check);
   return {
     passed,
     evidence: passed
       ? {
           headSha: check.head_sha,
           checkId: check.id,
-          githubRunId: check.publisher.runId,
-          workflowPath: check.publisher.workflowPath,
-          jobName: check.publisher.jobName,
+          customCheckId: check.independentReviewBinding.customCheckId,
+          githubRunId: check.independentReviewBinding.githubRunId,
+          workflowPath: check.independentReviewBinding.workflowPath,
+          jobName: check.independentReviewBinding.jobName,
+          nativeJobCheckId: check.independentReviewBinding.nativeJobCheckId,
+          runHeadSha: check.independentReviewBinding.runHeadSha,
         }
       : null,
   };
@@ -611,7 +628,7 @@ export function reviewFromChecks(
 
 export async function loadLiveCandidate(
   env = process.env,
-  { fetchImpl = fetch } = {},
+  { fetchImpl = fetch, extractZipFile } = {},
 ) {
   if (env[TRUSTED_DEFAULT_BRANCH_ENV] !== 'true') {
     throw new Error(
@@ -646,13 +663,23 @@ export async function loadLiveCandidate(
   );
   const files = await fetchPullFiles(repository, prNumber, github);
   const rawChecks = await fetchCommitCheckRuns(repository, headSha, github);
-  const checks = await Promise.all(
-    rawChecks.map((check) =>
-      check.name === REVIEW_CHECK_NAME
-        ? enrichCheckPublisher(check, repository, github)
-        : check,
-    ),
-  );
+  const checks = [];
+  for (const check of rawChecks) {
+    if (check.name === REVIEW_CHECK_NAME) {
+      checks.push(
+        await bindIndependentReviewDisplay(check, {
+          repository,
+          prNumber,
+          headSha,
+          defaultBranch,
+          ...github,
+          extractZipFile,
+        }),
+      );
+    } else {
+      checks.push(check);
+    }
+  }
   const reviewThreads = await fetchReviewThreads(repository, prNumber, github);
   const ticket = ticketFromBranchOrBody(prPayload.head?.ref, prPayload.body);
   const linear = ticket
@@ -738,6 +765,7 @@ export async function trustedEvaluate(env = process.env, deps = {}) {
     action: 'evaluate-only',
     merge: false,
     ...decision,
+    review: snapshot.review,
   };
   log.log(JSON.stringify(result));
   if (!decision.eligible) process.exitCode = 1;

@@ -1,7 +1,19 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
-  redactSecrets,
+  INDEPENDENT_REVIEW_RECEIPT_FILE,
+  MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES,
+  MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS,
+  REVIEW_CHECK_NAME,
+  TRUSTED_GITHUB_EVENTS,
   TRUSTED_REVIEW_JOB_NAME,
+  TRUSTED_WORKFLOW_FILE,
+  independentReviewArtifactName,
+  redactSecrets,
 } from './delivery-constants.mjs';
+import { parseIndependentReviewReceipt } from './delivery-trust.mjs';
 
 export async function githubJson(
   path,
@@ -129,12 +141,13 @@ export function parseActionsRunJob(url) {
   return runOnly ? { runId: runOnly[1], jobId: null } : null;
 }
 
-export async function fetchWorkflowRun(repository, runId, options) {
-  return githubJson(`repos/${repository}/actions/runs/${runId}`, options);
+export function parseNativeJobCheckRunId(checkRunUrl) {
+  const match = String(checkRunUrl ?? '').match(/\/check-runs\/(\d+)(?:\/|$)/);
+  return match ? Number(match[1]) : null;
 }
 
-export async function fetchActionsJob(repository, jobId, options) {
-  return githubJson(`repos/${repository}/actions/jobs/${jobId}`, options);
+export async function fetchWorkflowRun(repository, runId, options) {
+  return githubJson(`repos/${repository}/actions/runs/${runId}`, options);
 }
 
 export async function fetchWorkflowRunJobs(repository, runId, options) {
@@ -145,60 +158,311 @@ export async function fetchWorkflowRunJobs(repository, runId, options) {
   return payload?.jobs ?? [];
 }
 
-export async function fetchWorkflowRunsForCheckSuite(
-  repository,
-  checkSuiteId,
-  options,
-) {
+export async function listActionsArtifactsByName(repository, name, options) {
   const payload = await githubJson(
-    `repos/${repository}/actions/runs?check_suite_id=${checkSuiteId}&per_page=1`,
+    `repos/${repository}/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`,
     options,
   );
-  return payload?.workflow_runs?.[0] ?? null;
+  return Array.isArray(payload?.artifacts) ? payload.artifacts : [];
 }
 
-export async function enrichCheckPublisher(check, repository, options) {
-  const ids =
-    parseActionsRunJob(check?.html_url) ??
-    parseActionsRunJob(check?.details_url);
-  let run = null;
-  let job = null;
-  if (ids?.runId) {
-    run = await fetchWorkflowRun(repository, ids.runId, options);
-  } else if (check?.check_suite_id) {
-    run = await fetchWorkflowRunsForCheckSuite(
-      repository,
-      check.check_suite_id,
-      options,
+function headerValue(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === 'function') {
+    return headers.get(name);
+  }
+  return headers[name] ?? headers[name.toLowerCase()] ?? null;
+}
+
+async function readBoundedBytes(response, maxBytes) {
+  const declared = Number(headerValue(response.headers, 'content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error('Independent-review artifact exceeds size bound');
+  }
+  let bytes;
+  if (Buffer.isBuffer(response.body)) {
+    bytes = response.body;
+  } else if (response.body instanceof Uint8Array) {
+    bytes = Buffer.from(response.body);
+  } else if (typeof response.arrayBuffer === 'function') {
+    bytes = Buffer.from(await response.arrayBuffer());
+  } else {
+    throw new Error('Artifact download did not return bytes');
+  }
+  if (bytes.byteLength === 0 || bytes.byteLength > maxBytes) {
+    throw new Error('Independent-review artifact exceeds size bound');
+  }
+  return bytes;
+}
+
+export async function downloadActionsArtifactZip(
+  repository,
+  artifactId,
+  {
+    token,
+    fetchImpl = fetch,
+    maxBytes = MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES,
+  } = {},
+) {
+  const path = `repos/${repository}/actions/artifacts/${artifactId}/zip`;
+  const response = await fetchImpl(`https://api.github.com/${path}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    redirect: 'manual',
+  });
+  if (
+    response.status === 301 ||
+    response.status === 302 ||
+    response.status === 307 ||
+    response.status === 308
+  ) {
+    const location = headerValue(response.headers, 'location');
+    if (!location) {
+      throw new Error(
+        redactSecrets(`GitHub GET ${path} redirect missing Location`),
+      );
+    }
+    const redirected = await fetchImpl(location, { method: 'GET' });
+    if (!redirected.ok) {
+      throw new Error(
+        redactSecrets(
+          `GitHub GET ${path} artifact bytes returned ${redirected.status}`,
+        ),
+      );
+    }
+    return readBoundedBytes(redirected, maxBytes);
+  }
+  if (!response.ok) {
+    throw new Error(
+      redactSecrets(`GitHub GET ${path} returned ${response.status}`),
     );
   }
-  if (ids?.jobId) {
-    job = await fetchActionsJob(repository, ids.jobId, options);
-  } else if (run?.id) {
-    const jobs = await fetchWorkflowRunJobs(repository, run.id, options);
-    job =
-      jobs.find((entry) => entry.name === TRUSTED_REVIEW_JOB_NAME) ??
-      jobs.find((entry) => entry.name === check?.name) ??
-      null;
+  return readBoundedBytes(response, maxBytes);
+}
+
+export function extractNamedFileFromZip(
+  zipBuffer,
+  fileName,
+  { unzipBin = 'unzip' } = {},
+) {
+  const bytes = Buffer.isBuffer(zipBuffer)
+    ? zipBuffer
+    : Buffer.from(zipBuffer ?? []);
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES
+  ) {
+    throw new Error('Independent-review artifact exceeds size bound');
   }
-  if (!run) {
-    return { ...check, publisher: null };
+  const dir = mkdtempSync(join(tmpdir(), 'ar-review-artifact-'));
+  const zipPath = join(dir, 'artifact.zip');
+  try {
+    writeFileSync(zipPath, bytes);
+    const listed = spawnSync(unzipBin, ['-Z', '-1', zipPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES,
+    });
+    if (listed.status !== 0) {
+      throw new Error(
+        'unzip could not list the Actions artifact; no JavaScript zip parser fallback',
+      );
+    }
+    const names = listed.stdout
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const match = names.find(
+      (name) => name === fileName || name.endsWith(`/${fileName}`),
+    );
+    if (!match || names.length > 8) {
+      throw new Error(
+        'Artifact zip does not contain a bounded independent-review receipt file',
+      );
+    }
+    const extracted = spawnSync(unzipBin, ['-p', zipPath, match], {
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS,
+    });
+    if (extracted.status !== 0) {
+      throw new Error('unzip could not extract the independent-review receipt');
+    }
+    return extracted.stdout;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function failedBinding(reason) {
+  return { ok: false, reason };
+}
+
+async function verifyIndependentReviewArtifact({
+  artifact,
+  check,
+  repository,
+  prNumber,
+  headSha,
+  defaultBranch,
+  token,
+  fetchImpl,
+  extractZipFile,
+}) {
+  if (!artifact || artifact.expired === true) {
+    return failedBinding('expired-artifact');
+  }
+  if (Number(artifact.size_in_bytes) > MAX_INDEPENDENT_REVIEW_ARTIFACT_BYTES) {
+    return failedBinding('artifact-too-large');
+  }
+  const runId = artifact.workflow_run?.id;
+  if (!/^\d+$/.test(String(runId ?? ''))) {
+    return failedBinding('artifact-missing-workflow-run');
+  }
+  const github = { token, fetchImpl };
+  const run = await fetchWorkflowRun(repository, runId, github);
+  if (Number(run?.id) !== Number(runId)) {
+    return failedBinding('run-id-mismatch');
+  }
+  if (run.path !== TRUSTED_WORKFLOW_FILE) {
+    return failedBinding('wrong-workflow');
+  }
+  if (!TRUSTED_GITHUB_EVENTS.includes(run.event)) {
+    return failedBinding('wrong-event');
+  }
+  if (
+    run.event === 'workflow_dispatch' &&
+    run.head_branch &&
+    run.head_branch !== defaultBranch
+  ) {
+    return failedBinding('dispatch-not-default-branch');
+  }
+  const jobs = await fetchWorkflowRunJobs(repository, run.id, github);
+  const job = (jobs ?? []).find(
+    (entry) => entry.name === TRUSTED_REVIEW_JOB_NAME,
+  );
+  if (!job) {
+    return failedBinding('missing-expected-job');
+  }
+  if (Number(job.run_id) !== Number(run.id)) {
+    return failedBinding('job-run-mismatch');
+  }
+  if (job.status !== 'completed' || job.conclusion !== 'success') {
+    return failedBinding('job-not-success');
+  }
+  const nativeJobCheckId = parseNativeJobCheckRunId(job.check_run_url);
+  const zip = await downloadActionsArtifactZip(repository, artifact.id, github);
+  const extract = extractZipFile ?? extractNamedFileFromZip;
+  let raw;
+  try {
+    raw = extract(zip, INDEPENDENT_REVIEW_RECEIPT_FILE);
+  } catch {
+    return failedBinding('receipt-extract-failed');
+  }
+  const parsed = parseIndependentReviewReceipt(raw);
+  if (!parsed.ok) {
+    return failedBinding(parsed.reason);
+  }
+  const receipt = parsed.receipt;
+  if (Number(receipt.customCheckId) !== Number(check.id)) {
+    return failedBinding('custom-check-id-mismatch');
+  }
+  if (Number(receipt.prNumber) !== Number(prNumber)) {
+    return failedBinding('receipt-wrong-pr');
+  }
+  if (receipt.headSha !== headSha || check.head_sha !== headSha) {
+    return failedBinding('receipt-wrong-sha');
+  }
+  if (Number(receipt.githubRunId) !== Number(run.id)) {
+    return failedBinding('receipt-wrong-run');
+  }
+  if (receipt.passed !== true) {
+    return failedBinding('receipt-not-passed');
+  }
+  if (check.name !== REVIEW_CHECK_NAME) {
+    return failedBinding('wrong-check-name');
   }
   return {
-    ...check,
-    publisher: {
-      appId: check.app?.id,
-      appSlug: check.app?.slug,
-      runId: String(run.id),
-      workflowPath: run.path,
-      workflowName: run.name,
-      event: run.event,
-      jobName: job?.name ?? null,
-      jobId: job?.id != null ? String(job.id) : (ids?.jobId ?? null),
-      headBranch: run.head_branch,
-      runHeadSha: run.head_sha,
-    },
+    ok: true,
+    customCheckId: Number(check.id),
+    githubRunId: String(run.id),
+    workflowPath: run.path,
+    event: run.event,
+    jobName: job.name,
+    jobId: String(job.id),
+    nativeJobCheckId,
+    headBranch: run.head_branch ?? null,
+    runHeadSha: run.head_sha ?? null,
+    passed: true,
+    headSha,
+    prNumber: Number(prNumber),
+    criticAgentId: receipt.criticAgentId,
+    criticRunId: receipt.criticRunId,
+    artifactId: artifact.id,
   };
+}
+
+export async function bindIndependentReviewDisplay(
+  check,
+  {
+    repository,
+    prNumber,
+    headSha,
+    defaultBranch = 'main',
+    token,
+    fetchImpl = fetch,
+    extractZipFile,
+  } = {},
+) {
+  const fail = (reason) => ({
+    ...check,
+    independentReviewBinding: failedBinding(reason),
+  });
+  if (!check) return fail('missing-display-check');
+  let artifactName;
+  try {
+    artifactName = independentReviewArtifactName(prNumber, headSha);
+  } catch {
+    return fail('invalid-artifact-name');
+  }
+  const artifacts = await listActionsArtifactsByName(repository, artifactName, {
+    token,
+    fetchImpl,
+  });
+  if (!artifacts.length) {
+    return fail('missing-artifact');
+  }
+  let last = failedBinding('no-matching-receipt');
+  for (const artifact of artifacts) {
+    if (artifact.name && artifact.name !== artifactName) {
+      last = failedBinding('artifact-name-mismatch');
+      continue;
+    }
+    try {
+      const binding = await verifyIndependentReviewArtifact({
+        artifact,
+        check,
+        repository,
+        prNumber,
+        headSha,
+        defaultBranch,
+        token,
+        fetchImpl,
+        extractZipFile,
+      });
+      if (binding.ok) {
+        return { ...check, independentReviewBinding: binding };
+      }
+      last = binding;
+    } catch (error) {
+      last = failedBinding(redactSecrets(error.message));
+    }
+  }
+  return { ...check, independentReviewBinding: last };
 }
 
 export async function fetchReviewThreads(repository, prNumber, options) {

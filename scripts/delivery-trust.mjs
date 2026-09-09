@@ -3,9 +3,12 @@ import {
   AGENT_ID,
   AUTOMATED_LAUNCH_ACTOR,
   COORDINATOR_DISPATCH_RECEIPT_SOURCE,
+  INDEPENDENT_REVIEW_RECEIPT_KIND,
+  INDEPENDENT_REVIEW_RECEIPT_SCHEMA_VERSION,
   LAUNCH_RECEIPT_KIND,
   LAUNCH_RECEIPT_SCHEMA_VERSION,
   LAUNCH_REPO_PERMISSIONS,
+  MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS,
   MISSING_ISOLATION_VARS,
   REQUIRED_MODEL_ID,
   REQUIRED_MODEL_PARAMS,
@@ -14,6 +17,7 @@ import {
   TRUSTED_GITHUB_EVENTS,
   TRUSTED_LAUNCH_EVENT,
   TRUSTED_LAUNCH_RECEIPT_SOURCE,
+  TRUSTED_REVIEW_JOB_NAME,
   TRUSTED_WORKFLOW_FILE,
   UNTRUSTED_CURSOR_CREDENTIAL,
   UNTRUSTED_GITHUB_EVENTS,
@@ -116,11 +120,26 @@ export function untrustedEnvLaunchReceipt(raw) {
   };
 }
 
-export function launchActorLogin(env = {}) {
-  return (
-    String(env.GITHUB_TRIGGERING_ACTOR ?? '').trim() ||
-    String(env.GITHUB_ACTOR ?? '').trim()
-  );
+export function launchActorIdentities(env = {}) {
+  return {
+    actor: String(env.GITHUB_ACTOR ?? '').trim(),
+    triggeringActor: String(env.GITHUB_TRIGGERING_ACTOR ?? '').trim(),
+  };
+}
+
+function launchSubjectFailures(role, login, permission) {
+  const failures = [];
+  if (!login) {
+    failures.push(`Launch requires ${role}`);
+    return failures;
+  }
+  const granted = permission?.permission ?? permission;
+  if (!LAUNCH_REPO_PERMISSIONS.includes(granted)) {
+    failures.push(
+      `${role} ${login} must have repository write, maintain, or admin permission (saw ${granted ?? 'missing'})`,
+    );
+  }
+  return failures;
 }
 
 export function launchMintFailures({
@@ -132,7 +151,9 @@ export function launchMintFailures({
   repository,
   pr,
   actorLogin,
-  permission,
+  triggeringActorLogin,
+  actorPermission,
+  triggeringActorPermission,
 } = {}) {
   const failures = [];
   const fail = (reason) => failures.push(reason);
@@ -149,16 +170,24 @@ export function launchMintFailures({
       'Automated workflow_run may evaluate receipts but must not mint a write-capable Cursor agent; fresh launch requires explicit default-branch workflow_dispatch for one PR number and expected SHA',
     );
   }
-  const login = String(actorLogin ?? '').trim();
-  if (!login || login === AUTOMATED_LAUNCH_ACTOR) {
+  const actor = String(actorLogin ?? '').trim();
+  const triggering = String(triggeringActorLogin ?? '').trim();
+  failures.push(
+    ...launchSubjectFailures('github.actor', actor, actorPermission),
+  );
+  failures.push(
+    ...launchSubjectFailures(
+      'github.triggering_actor',
+      triggering,
+      triggeringActorPermission,
+    ),
+  );
+  const humans = [actor, triggering].filter(
+    (login) => login && login !== AUTOMATED_LAUNCH_ACTOR,
+  );
+  if (actor && triggering && humans.length === 0) {
     fail(
-      'Launch requires an authenticated dispatch actor with repository write access, not github-actions[bot]',
-    );
-  }
-  const granted = permission?.permission ?? permission;
-  if (!LAUNCH_REPO_PERMISSIONS.includes(granted)) {
-    fail(
-      `Dispatch actor ${login || '(missing)'} must have repository write, maintain, or admin permission (saw ${granted ?? 'missing'})`,
+      'Launch requires an authenticated dispatch actor with repository write access, not only github-actions[bot]',
     );
   }
   if (!pr) {
@@ -296,6 +325,118 @@ export function launchReceiptFailures(
     }
   }
   return failures;
+}
+
+export function createIndependentReviewRunReceipt({
+  prNumber,
+  headSha,
+  customCheckId,
+  githubRunId,
+  criticAgentId = null,
+  criticRunId = null,
+  passed,
+  status,
+} = {}) {
+  return {
+    kind: INDEPENDENT_REVIEW_RECEIPT_KIND,
+    schemaVersion: INDEPENDENT_REVIEW_RECEIPT_SCHEMA_VERSION,
+    prNumber: Number(prNumber),
+    headSha,
+    customCheckId: Number(customCheckId),
+    githubRunId: Number(githubRunId),
+    workflowPath: TRUSTED_WORKFLOW_FILE,
+    jobName: TRUSTED_REVIEW_JOB_NAME,
+    criticAgentId: criticAgentId ?? null,
+    criticRunId: criticRunId ?? null,
+    passed: Boolean(passed),
+    status: String(status ?? ''),
+  };
+}
+
+export function parseIndependentReviewReceipt(raw) {
+  if (raw == null || raw === '') {
+    return { ok: false, reason: 'missing-receipt' };
+  }
+  if (
+    typeof raw === 'string' &&
+    raw.length > MAX_INDEPENDENT_REVIEW_RECEIPT_CHARS
+  ) {
+    return { ok: false, reason: 'receipt-too-large' };
+  }
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false, reason: 'receipt-not-json' };
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, reason: 'receipt-not-object' };
+  }
+  if (parsed.kind !== INDEPENDENT_REVIEW_RECEIPT_KIND) {
+    return { ok: false, reason: 'receipt-kind' };
+  }
+  if (parsed.schemaVersion !== INDEPENDENT_REVIEW_RECEIPT_SCHEMA_VERSION) {
+    return { ok: false, reason: 'receipt-schema' };
+  }
+  const prNumber = Number(parsed.prNumber);
+  const customCheckId = Number(parsed.customCheckId);
+  const githubRunId = Number(parsed.githubRunId);
+  const headSha = String(parsed.headSha ?? '');
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    return { ok: false, reason: 'receipt-prNumber' };
+  }
+  if (!Number.isInteger(customCheckId) || customCheckId <= 0) {
+    return { ok: false, reason: 'receipt-customCheckId' };
+  }
+  if (!Number.isInteger(githubRunId) || githubRunId <= 0) {
+    return { ok: false, reason: 'receipt-githubRunId' };
+  }
+  if (!isFullSha(headSha)) {
+    return { ok: false, reason: 'receipt-headSha' };
+  }
+  if (parsed.workflowPath !== TRUSTED_WORKFLOW_FILE) {
+    return { ok: false, reason: 'receipt-workflowPath' };
+  }
+  if (parsed.jobName !== TRUSTED_REVIEW_JOB_NAME) {
+    return { ok: false, reason: 'receipt-jobName' };
+  }
+  if (typeof parsed.passed !== 'boolean') {
+    return { ok: false, reason: 'receipt-passed' };
+  }
+  const criticAgentId =
+    parsed.criticAgentId == null ? null : String(parsed.criticAgentId);
+  const criticRunId =
+    parsed.criticRunId == null ? null : String(parsed.criticRunId);
+  if (parsed.passed === true) {
+    if (!AGENT_ID.test(criticAgentId ?? '')) {
+      return { ok: false, reason: 'receipt-criticAgentId' };
+    }
+    if (
+      !RUN_ID.test(criticRunId ?? '') &&
+      !String(criticRunId ?? '').startsWith('run-')
+    ) {
+      return { ok: false, reason: 'receipt-criticRunId' };
+    }
+  }
+  return {
+    ok: true,
+    receipt: {
+      kind: parsed.kind,
+      schemaVersion: parsed.schemaVersion,
+      prNumber,
+      customCheckId,
+      githubRunId,
+      headSha,
+      workflowPath: parsed.workflowPath,
+      jobName: parsed.jobName,
+      passed: parsed.passed,
+      criticAgentId,
+      criticRunId,
+      status: String(parsed.status ?? ''),
+    },
+  };
 }
 
 export function workflowMentionsCursorSecret(yaml) {

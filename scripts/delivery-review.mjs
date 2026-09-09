@@ -1,3 +1,4 @@
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   AGENT_ID,
@@ -5,6 +6,7 @@ import {
   AGENT_MODE_IS_NOT_READONLY,
   DOCUMENTED_AGENT_MODE,
   FORBIDDEN_REVIEW_ROLES,
+  INDEPENDENT_REVIEW_RECEIPT_FILE,
   INDEPENDENT_REVIEWER,
   INDEPENDENT_REVIEW_NAME,
   LAUNCH_RECEIPT_ENV,
@@ -49,10 +51,11 @@ import {
 import {
   assertTrustedCursorInvocation,
   assertUntrustedMustNotCarryCursorKey,
+  createIndependentReviewRunReceipt,
   cursorCredentialUseAllowed,
   forbiddenCursorSecretWorkflows,
   githubEventName,
-  launchActorLogin,
+  launchActorIdentities,
   launchMintFailures,
   idempotentReviewAgentId,
   isUntrustedGithubEvent,
@@ -663,9 +666,10 @@ export async function maybeLaunchReview({
     };
   }
   const token = env.GITHUB_TOKEN;
-  const actor = launchActorLogin(env);
+  const { actor, triggeringActor } = launchActorIdentities(env);
   let livePr = null;
-  let permission = null;
+  let actorPermission = { permission: 'none' };
+  let triggeringActorPermission = { permission: 'none' };
   if (token && repository && prNumber) {
     try {
       livePr = await fetchPullRequest(repository, prNumber, {
@@ -679,12 +683,23 @@ export async function maybeLaunchReview({
       };
     }
   }
-  if (token && repository && actor) {
+  if (token && repository) {
     try {
-      permission = await fetchCollaboratorPermission(repository, actor, {
-        token,
-        fetchImpl,
-      });
+      actorPermission = actor
+        ? await fetchCollaboratorPermission(repository, actor, {
+            token,
+            fetchImpl,
+          })
+        : { permission: 'none' };
+      triggeringActorPermission =
+        triggeringActor && triggeringActor === actor
+          ? actorPermission
+          : triggeringActor
+            ? await fetchCollaboratorPermission(repository, triggeringActor, {
+                token,
+                fetchImpl,
+              })
+            : { permission: 'none' };
     } catch (error) {
       return {
         launched: false,
@@ -701,7 +716,9 @@ export async function maybeLaunchReview({
     repository,
     pr: livePr,
     actorLogin: actor,
-    permission,
+    triggeringActorLogin: triggeringActor,
+    actorPermission,
+    triggeringActorPermission,
   });
   if (mintFailures.length) {
     return {
@@ -802,27 +819,43 @@ export async function scanPrWorkflows({
   return files;
 }
 
+export function persistIndependentReviewReceipt(
+  receipt,
+  {
+    githubOutput,
+    writeFile = writeFileSync,
+    appendOutput = appendFileSync,
+  } = {},
+) {
+  writeFile(
+    INDEPENDENT_REVIEW_RECEIPT_FILE,
+    `${JSON.stringify(receipt)}\n`,
+    'utf8',
+  );
+  if (!githubOutput) return INDEPENDENT_REVIEW_RECEIPT_FILE;
+  const values = {
+    review_receipt_file: INDEPENDENT_REVIEW_RECEIPT_FILE,
+    review_pr_number: String(receipt.prNumber),
+    review_head_sha: receipt.headSha,
+  };
+  const lines = Object.entries(values)
+    .map(([key, value]) => `${key}=${String(value).replaceAll('\n', '')}`)
+    .join('\n');
+  appendOutput(githubOutput, `${lines}\n`);
+  return INDEPENDENT_REVIEW_RECEIPT_FILE;
+}
+
 async function publishCheck({
   repository,
   token,
   headSha,
+  prNumber,
   result,
   fetchImpl,
   env = process.env,
 }) {
-  if (!token) return;
-  const runId = env.GITHUB_RUN_ID;
-  const provenance = [
-    `githubRunId=${runId ?? ''}`,
-    `workflow=${TRUSTED_WORKFLOW_FILE}`,
-    `job=${TRUSTED_REVIEW_JOB_NAME}`,
-    result.evidence?.agentId ? `agentId=${result.evidence.agentId}` : null,
-    result.evidence?.runId ? `runId=${result.evidence.runId}` : null,
-    `headSha=${headSha}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-  await postCheckRun(
+  if (!token) return null;
+  const posted = await postCheckRun(
     repository,
     {
       name: REVIEW_CHECK_NAME,
@@ -833,12 +866,48 @@ async function publishCheck({
         title: result.passed
           ? 'Cursor Cloud Grok 4.6 Extra High PASS'
           : `Independent review ${result.status}`,
-        summary:
-          `${provenance}\n\n${(result.failures ?? []).join('\n') || 'PASS'}`.trim(),
+        summary: [
+          `customCheckId is assigned by POST /check-runs; it is not the native job check.`,
+          `githubRunId=${env.GITHUB_RUN_ID ?? ''} is display text, not queue association.`,
+          `workflow=${TRUSTED_WORKFLOW_FILE}`,
+          `job=${TRUSTED_REVIEW_JOB_NAME}`,
+          result.evidence?.agentId
+            ? `agentId=${result.evidence.agentId}`
+            : null,
+          result.evidence?.runId ? `runId=${result.evidence.runId}` : null,
+          `headSha=${headSha}`,
+          (result.failures ?? []).join('\n') || 'PASS',
+        ]
+          .filter(Boolean)
+          .join('\n'),
       },
     },
     { token, fetchImpl },
   );
+  const customCheckId = Number(posted?.id);
+  if (!Number.isInteger(customCheckId) || customCheckId <= 0) {
+    throw new Error('POST /check-runs did not return a custom check id');
+  }
+  const githubRunId = Number(env.GITHUB_RUN_ID);
+  if (!Number.isInteger(githubRunId) || githubRunId <= 0) {
+    throw new Error(
+      'GITHUB_RUN_ID is required to persist the independent-review receipt',
+    );
+  }
+  const receipt = createIndependentReviewRunReceipt({
+    prNumber,
+    headSha,
+    customCheckId,
+    githubRunId,
+    criticAgentId: result.evidence?.agentId ?? null,
+    criticRunId: result.evidence?.runId ?? null,
+    passed: Boolean(result.passed),
+    status: result.status,
+  });
+  persistIndependentReviewReceipt(receipt, {
+    githubOutput: env.GITHUB_OUTPUT,
+  });
+  return posted;
 }
 
 export async function mainUntrusted(env = process.env, deps = {}) {
@@ -975,6 +1044,7 @@ export async function mainEvaluate(env = process.env, deps = {}) {
       repository,
       token,
       headSha,
+      prNumber,
       result,
       fetchImpl,
       env,

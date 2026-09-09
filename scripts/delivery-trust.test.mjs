@@ -15,6 +15,8 @@ import {
   idempotentReviewAgentId,
   launchReceiptFailures,
   launchMintFailures,
+  parseIndependentReviewReceipt,
+  createIndependentReviewRunReceipt,
   parseLaunchReceipt,
   requiredIsolationIds,
   reviewIdempotencyKey,
@@ -254,7 +256,7 @@ test('only the trusted workflow file may mention secrets.CURSOR_API_KEY', () => 
   assert.equal(forbidden[0].path, '.github/workflows/steal.yml');
 });
 
-test('launch mint fails closed on automated, fork, closed, draft, stale, and low-permission actors', () => {
+test('launch mint checks actor and triggering_actor permissions, including reruns', () => {
   const pr = {
     state: 'open',
     draft: false,
@@ -273,22 +275,58 @@ test('launch mint fails closed on automated, fork, closed, draft, stale, and low
     repository: 'aaryandas/applied-research',
     pr,
     actorLogin: 'aaryandas',
-    permission: { permission: 'admin' },
+    triggeringActorLogin: 'aaryandas',
+    actorPermission: { permission: 'admin' },
+    triggeringActorPermission: { permission: 'admin' },
   };
   assert.deepEqual(launchMintFailures(ok), []);
+  assert.deepEqual(
+    launchMintFailures({
+      ...ok,
+      actorLogin: 'github-actions[bot]',
+      actorPermission: { permission: 'admin' },
+      triggeringActorLogin: 'aaryandas',
+      triggeringActorPermission: { permission: 'write' },
+    }),
+    [],
+  );
   assert.match(
     launchMintFailures({ ...ok, eventName: 'workflow_run' }).join('\n'),
     /must not mint/,
   );
   assert.match(
-    launchMintFailures({ ...ok, actorLogin: 'github-actions[bot]' }).join('\n'),
+    launchMintFailures({
+      ...ok,
+      actorLogin: 'github-actions[bot]',
+      triggeringActorLogin: 'github-actions[bot]',
+      actorPermission: { permission: 'admin' },
+      triggeringActorPermission: { permission: 'admin' },
+    }).join('\n'),
     /github-actions\[bot\]/,
   );
   assert.match(
-    launchMintFailures({ ...ok, permission: { permission: 'triage' } }).join(
-      '\n',
-    ),
-    /write, maintain, or admin/,
+    launchMintFailures({
+      ...ok,
+      triggeringActorLogin: '',
+      triggeringActorPermission: { permission: 'none' },
+    }).join('\n'),
+    /github\.triggering_actor/,
+  );
+  assert.match(
+    launchMintFailures({
+      ...ok,
+      triggeringActorLogin: 'other',
+      triggeringActorPermission: { permission: 'triage' },
+    }).join('\n'),
+    /github\.triggering_actor other/,
+  );
+  assert.match(
+    launchMintFailures({
+      ...ok,
+      actorPermission: { permission: 'triage' },
+      triggeringActorPermission: { permission: 'admin' },
+    }).join('\n'),
+    /github\.actor aaryandas/,
   );
   assert.match(
     launchMintFailures({ ...ok, pr: { ...pr, state: 'closed' } }).join('\n'),
@@ -311,5 +349,33 @@ test('launch mint fails closed on automated, fork, closed, draft, stale, and low
   assert.match(
     launchMintFailures({ ...ok, liveHeadSha: 'b'.repeat(40) }).join('\n'),
     /recheck before launch/,
+  );
+});
+
+test('independent-review run receipt rejects malformed payloads and accepts a genuine one', () => {
+  const receipt = createIndependentReviewRunReceipt({
+    prNumber: 99,
+    headSha: HEAD,
+    customCheckId: 9001,
+    githubRunId: 42,
+    criticAgentId: AGENT,
+    criticRunId: RUN,
+    passed: true,
+    status: 'PASS',
+  });
+  assert.equal(parseIndependentReviewReceipt(receipt).ok, true);
+  assert.equal(parseIndependentReviewReceipt('').ok, false);
+  assert.equal(parseIndependentReviewReceipt('{').reason, 'receipt-not-json');
+  assert.equal(
+    parseIndependentReviewReceipt({ ...receipt, kind: 'alias' }).reason,
+    'receipt-kind',
+  );
+  assert.equal(
+    parseIndependentReviewReceipt({ ...receipt, passed: 'true' }).reason,
+    'receipt-passed',
+  );
+  assert.equal(
+    parseIndependentReviewReceipt({ ...receipt, customCheckId: 0 }).reason,
+    'receipt-customCheckId',
   );
 });

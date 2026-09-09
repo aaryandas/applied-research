@@ -55,6 +55,15 @@ test('trusted evaluator checks out the default branch only and pins starting eva
   assert.match(trusted, /must not mint an agent/);
   assert.equal(trusted.includes('CURSOR_LAUNCH_RECEIPT_JSON'), false);
   assert.match(trusted, /Coordinator JSON is not model proof/);
+  assert.match(
+    trusted,
+    /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/,
+  );
+  assert.match(
+    trusted,
+    /independent-review-\$\{\{ steps\.evaluate\.outputs\.review_pr_number \}\}/,
+  );
+  assert.match(trusted, /actions: write/);
 });
 
 test('F5: queue pull_request job is notice-only; live job is default-branch dispatch', () => {
@@ -66,6 +75,7 @@ test('F5: queue pull_request job is notice-only; live job is default-branch disp
   assert.equal(untrustedJob.includes('LINEAR_API_KEY'), false);
   assert.equal(untrustedJob.includes('CURSOR_API_KEY'), false);
   assert.match(queue, /LINEAR_API_KEY/);
+  assert.match(queue, /actions: read/);
 });
 
 test('verify.yml uploads coverage from macOS and does not invoke Fable', () => {

@@ -13,7 +13,9 @@ import {
   REVIEW_CHECK_NAME,
   TRUSTED_REVIEW_JOB_NAME,
   TRUSTED_WORKFLOW_FILE,
+  independentReviewArtifactName,
 } from './delivery-constants.mjs';
+import { createIndependentReviewRunReceipt } from './delivery-trust.mjs';
 import {
   acquireQueueLock,
   assessCandidate,
@@ -41,26 +43,31 @@ function actionsApp() {
 
 function trustedReviewCheck(sha = HEAD) {
   return {
-    id: 99,
+    id: 9001,
     name: REVIEW_CHECK_NAME,
     head_sha: sha,
     status: 'completed',
     conclusion: 'success',
-    html_url:
-      'https://github.com/aaryandas/applied-research/actions/runs/1/job/2',
+    html_url: 'https://github.com/aaryandas/applied-research/runs/9001',
+    details_url:
+      'https://github.com/aaryandas/applied-research/actions/runs/42',
     app: actionsApp(),
     output: {
       title: 'PASS',
-      summary: `githubRunId=1\nworkflow=${TRUSTED_WORKFLOW_FILE}\njob=${TRUSTED_REVIEW_JOB_NAME}`,
+      summary: 'githubRunId=42 is display text, not association',
     },
-    publisher: {
-      appId: GITHUB_ACTIONS_APP_ID,
-      appSlug: GITHUB_ACTIONS_APP_SLUG,
-      runId: '1',
+    independentReviewBinding: {
+      ok: true,
+      customCheckId: 9001,
+      githubRunId: '42',
       workflowPath: TRUSTED_WORKFLOW_FILE,
       event: 'workflow_run',
       jobName: TRUSTED_REVIEW_JOB_NAME,
-      headBranch: 'main',
+      headBranch: 'codex/ar-41-cursor-cloud-orchestration-ce33',
+      runHeadSha: MAIN,
+      nativeJobCheckId: 111,
+      passed: true,
+      headSha: sha,
     },
   };
 }
@@ -158,7 +165,7 @@ test('changed main invalidates eligibility', () => {
   assert.match(decision.reason, /Main moved/);
 });
 
-test('same-name independent review check without trusted publisher cannot merge', () => {
+test('same-name independent review check without trusted artifact receipt cannot merge', () => {
   const forged = {
     name: REVIEW_CHECK_NAME,
     head_sha: HEAD,
@@ -181,7 +188,7 @@ test('same-name independent review check without trusted publisher cannot merge'
     activation: true,
   });
   assert.equal(decision.eligible, false);
-  assert.match(decision.reason, /provenance|Independent Cursor Cloud/);
+  assert.match(decision.reason, /artifact receipt|Independent Cursor Cloud/);
 });
 
 test('stale independent review SHA cannot merge', () => {
@@ -533,8 +540,24 @@ test('F5: pull_request main does not load GitHub or claim live eligibility', asy
   );
 });
 
-test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', async () => {
+test('F5: trusted evaluate binds the custom PR check to a trusted-run artifact receipt', async () => {
   const calls = [];
+  const artifactName = independentReviewArtifactName(99, HEAD);
+  const receipt = createIndependentReviewRunReceipt({
+    prNumber: 99,
+    headSha: HEAD,
+    customCheckId: 9001,
+    githubRunId: 42,
+    criticAgentId: 'bc-11111111-1111-1111-1111-111111111111',
+    criticRunId: 'run-22222222-2222-2222-2222-222222222222',
+    passed: true,
+    status: 'PASS',
+  });
+  const displayChecks = passingChecks().map((check) =>
+    check.name === REVIEW_CHECK_NAME
+      ? { ...check, independentReviewBinding: undefined }
+      : check,
+  );
   const result = await main(
     {
       TRUSTED_DEFAULT_BRANCH: 'true',
@@ -551,6 +574,7 @@ test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', 
     {
       command: 'evaluate',
       log: { log() {}, error() {} },
+      extractZipFile: () => JSON.stringify(receipt),
       fetchImpl: async (url, init) => {
         const href = String(url);
         calls.push(href);
@@ -588,22 +612,54 @@ test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', 
           return json({ status: 'ahead' });
         }
         if (href.includes('/check-runs')) {
-          return json({ check_runs: passingChecks() });
+          return json({ check_runs: displayChecks });
         }
-        if (href.includes('/actions/jobs/')) {
+        if (href.includes('/actions/artifacts?name=')) {
+          assert.equal(href.includes(encodeURIComponent(artifactName)), true);
           return json({
-            id: 2,
-            name: TRUSTED_REVIEW_JOB_NAME,
-            run_id: 1,
+            total_count: 1,
+            artifacts: [
+              {
+                id: 7,
+                name: artifactName,
+                expired: false,
+                size_in_bytes: 200,
+                workflow_run: { id: 42, head_sha: MAIN },
+              },
+            ],
           });
         }
-        if (href.includes('/actions/runs/')) {
+        if (href.endsWith('/actions/artifacts/7/zip')) {
+          return {
+            ok: true,
+            status: 200,
+            async arrayBuffer() {
+              return Buffer.from('PK');
+            },
+          };
+        }
+        if (href.includes('/actions/runs/42/jobs')) {
           return json({
-            id: 1,
+            jobs: [
+              {
+                id: 8,
+                name: TRUSTED_REVIEW_JOB_NAME,
+                run_id: 42,
+                status: 'completed',
+                conclusion: 'success',
+                check_run_url:
+                  'https://api.github.com/repos/aaryandas/applied-research/check-runs/111',
+              },
+            ],
+          });
+        }
+        if (href.includes('/actions/runs/42')) {
+          return json({
+            id: 42,
             path: TRUSTED_WORKFLOW_FILE,
             event: 'workflow_run',
             name: 'Independent review',
-            head_branch: 'main',
+            head_branch: 'codex/ar-41-cursor-cloud-orchestration-ce33',
             head_sha: MAIN,
           });
         }
@@ -642,8 +698,16 @@ test('F5: trusted evaluate loads GitHub/Linear/main/checks and stays unmerged', 
   assert.equal(result.merge, false);
   assert.equal(result.eligible, true);
   assert.match(result.serializer, /delivery-queue-live/);
+  assert.equal(result.review.evidence.customCheckId, 9001);
+  assert.equal(result.review.evidence.nativeJobCheckId, 111);
+  assert.notEqual(
+    result.review.evidence.customCheckId,
+    result.review.evidence.nativeJobCheckId,
+  );
+  assert.equal(result.review.evidence.runHeadSha, MAIN);
+  assert.notEqual(result.review.evidence.runHeadSha, HEAD);
   assert.equal(
-    calls.some((href) => href.includes('api.github.com')),
+    calls.some((href) => href.includes('/actions/artifacts?name=')),
     true,
   );
   assert.equal(
@@ -685,14 +749,9 @@ test('premerge app candidate is eligible without PR-head Sonar when review prove
 test('same-name review check from another Actions workflow cannot merge', () => {
   const steal = {
     ...trustedReviewCheck(),
-    publisher: {
-      appId: GITHUB_ACTIONS_APP_ID,
-      appSlug: GITHUB_ACTIONS_APP_SLUG,
-      runId: '1',
-      workflowPath: '.github/workflows/steal.yml',
-      event: 'workflow_run',
-      jobName: TRUSTED_REVIEW_JOB_NAME,
-      headBranch: 'main',
+    independentReviewBinding: {
+      ok: false,
+      reason: 'wrong-workflow',
     },
   };
   assert.equal(trustedReviewPublisherOk(steal), false);
