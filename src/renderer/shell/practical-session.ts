@@ -128,10 +128,7 @@ export class PracticalSessionOwner {
     const result = await pending;
     if (result.status !== 'loaded' || !this.active || token !== this.generation)
       return result;
-    this.bindRequester(
-      activity,
-      result.attempt?.attemptId ?? this.attemptId,
-    );
+    this.bindRequester(activity, result.attempt?.attemptId ?? this.attemptId);
     return result;
   }
 
@@ -144,10 +141,7 @@ export class PracticalSessionOwner {
     const result = await pending;
     if (result.status !== 'loaded' || !this.active || token !== this.generation)
       return result;
-    this.bindRequester(
-      activity,
-      result.attempt?.attemptId ?? this.attemptId,
-    );
+    this.bindRequester(activity, result.attempt?.attemptId ?? this.attemptId);
     return result;
   }
 }

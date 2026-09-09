@@ -76,13 +76,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function committed(
-  input: {
-    activity: PracticalActivity;
-    attemptId: string;
-    expectedRevision: number;
-  },
-) {
+function committed(input: {
+  activity: PracticalActivity;
+  attemptId: string;
+  expectedRevision: number;
+}) {
   return {
     status: 'committed' as const,
     acknowledgement: {
@@ -138,7 +136,9 @@ function sessionBridge(
   return practicalWorkspaceMethods({
     loadPracticalJourney: vi.fn(async () => loadedJourney(null)),
     recordPracticalResult: vi.fn(async (input) => committed(input)),
-    recordPracticalWorkChoice: vi.fn(async () => ({ status: 'saved' as const })),
+    recordPracticalWorkChoice: vi.fn(async () => ({
+      status: 'saved' as const,
+    })),
     savePracticalHumanPlan: vi.fn(async () => ({
       status: 'saved' as const,
       revision: 1,
@@ -176,7 +176,9 @@ function renderSession(
     <PracticalSession
       bridge={overrides.bridge ?? sessionBridge()}
       toolBridge={tools}
-      activity={overrides.activity === undefined ? activity : overrides.activity}
+      activity={
+        overrides.activity === undefined ? activity : overrides.activity
+      }
       attemptId={overrides.attemptId ?? seedAttemptId}
       {...(overrides.attemptSelection
         ? { attemptSelection: overrides.attemptSelection }
@@ -199,7 +201,9 @@ function renderSession(
       {...(overrides.omitGuidance ? {} : { requestGuidance })}
     />
   );
-  const view = render(overrides.strict ? <StrictMode>{session}</StrictMode> : session);
+  const view = render(
+    overrides.strict ? <StrictMode>{session}</StrictMode> : session,
+  );
   return { view, tools, requestGuidance };
 }
 
@@ -498,9 +502,10 @@ it('discards an unmounted deferred load and does not restore its requester', asy
 });
 
 it('does not send retained-file context from a replaced attempt preview', async () => {
-  const preview = deferred<
-    Awaited<ReturnType<PracticalWorkspaceBridge['previewPracticalFile']>>
-  >();
+  const preview =
+    deferred<
+      Awaited<ReturnType<PracticalWorkspaceBridge['previewPracticalFile']>>
+    >();
   const file = {
     kind: 'user-selected-file' as const,
     selectionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -533,7 +538,9 @@ it('does not send retained-file context from a replaced attempt preview', async 
   await waitFor(() =>
     expect(screen.getByRole('radio', { name: /trial.txt/ })).toBeChecked(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Ask about this result' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Ask about this result' }),
+  );
   await waitFor(() => expect(bridge.previewPracticalFile).toHaveBeenCalled());
   const otherAttempt = 'aa234567-1234-4234-8234-123456789012';
   view.rerender(
@@ -570,9 +577,10 @@ it('does not send retained-file context from a replaced attempt preview', async 
 });
 
 it('does not preview file context after disposal, including a late ready result', async () => {
-  const preview = deferred<
-    Awaited<ReturnType<PracticalWorkspaceBridge['previewPracticalFile']>>
-  >();
+  const preview =
+    deferred<
+      Awaited<ReturnType<PracticalWorkspaceBridge['previewPracticalFile']>>
+    >();
   const file = {
     kind: 'user-selected-file' as const,
     selectionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -601,7 +609,9 @@ it('does not preview file context after disposal, including a late ready result'
   await waitFor(() =>
     expect(screen.getByRole('radio', { name: /trial.txt/ })).toBeChecked(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Ask about this result' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Ask about this result' }),
+  );
   await waitFor(() => expect(bridge.previewPracticalFile).toHaveBeenCalled());
   expect(bridge.previewPracticalFile).toHaveBeenCalledWith({
     activity,
@@ -643,9 +653,9 @@ it('keeps the current flush registration when an older workspace unregister runs
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save work' }));
   await waitFor(() =>
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent(
-      'Saved',
-    ),
+    expect(
+      screen.getByRole('status', { name: 'Save status' }),
+    ).toHaveTextContent('Saved'),
   );
   expect(bridge.recordPracticalResult).toHaveBeenCalledTimes(1);
   expect(requestGuidance).not.toHaveBeenCalled();
@@ -664,9 +674,12 @@ it('blocks a tool change when the draft cannot flush and keeps the writing', asy
   fireEvent.change(screen.getByLabelText('Expected outcome'), {
     target: { value: '  Keep this blocked draft.\n' },
   });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'tool:desmos-graphing' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'tool:desmos-graphing' },
+    },
+  );
   await waitFor(() =>
     expect(
       screen.getByRole('combobox', { name: 'Tool for this attempt' }),
@@ -743,9 +756,12 @@ it('persists an explicit tool choice on the reopened attempt id without auto-lau
       screen.getByRole('textbox', { name: /Your interpretation/ }),
     ).toHaveValue(' My exact saved reflection. '),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'tool:geogebra-graphing' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'tool:geogebra-graphing' },
+    },
+  );
   await waitFor(() =>
     expect(bridge.recordPracticalWorkChoice).toHaveBeenCalledWith({
       activity,
@@ -771,14 +787,21 @@ it('keeps exact external-setup text when choosing own tools or a retained brief 
   });
   const { view, tools } = renderSession({ bridge });
   await waitFor(() =>
-    expect(screen.getByText(/not a reviewed AR-52 producer result/i)).toBeVisible(),
+    expect(
+      screen.getByText(/not a reviewed AR-52 producer result/i),
+    ).toBeVisible(),
   );
   expect(
-    screen.getByText(/No generated capstone is included in this accepted brief/),
+    screen.getByText(
+      /No generated capstone is included in this accepted brief/,
+    ),
   ).toBeVisible();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'external:Own notebook' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'external:Own notebook' },
+    },
+  );
   await waitFor(() =>
     expect(bridge.recordPracticalWorkChoice).toHaveBeenCalledWith({
       activity,
@@ -793,9 +816,12 @@ it('keeps exact external-setup text when choosing own tools or a retained brief 
   expect(
     screen.getByText(/External work does not auto-launch/),
   ).toHaveTextContent(/Work outside the app\. It will not auto-launch\./);
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'external:own' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'external:own' },
+    },
+  );
   await waitFor(() =>
     expect(bridge.recordPracticalWorkChoice).toHaveBeenCalledWith({
       activity,
@@ -828,9 +854,12 @@ it('clears a tool choice through the existing control without persisting or laun
       screen.getByRole('combobox', { name: 'Tool for this attempt' }),
     ).toHaveValue('tool:desmos-graphing'),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: '' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: '' },
+    },
+  );
   await waitFor(() =>
     expect(
       screen.getByRole('combobox', { name: 'Tool for this attempt' }),
@@ -855,22 +884,26 @@ it('shows an actionable status when work-choice persistence fails or throws', as
       screen.getByRole('combobox', { name: 'Tool for this attempt' }),
     ).toHaveValue(''),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'tool:desmos-graphing' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'tool:desmos-graphing' },
+    },
+  );
   await waitFor(() =>
     expect(
-      screen.getByText(
-        'The work choice could not be saved with this attempt.',
-      ),
+      screen.getByText('The work choice could not be saved with this attempt.'),
     ).toBeVisible(),
   );
   expect(
     screen.getByRole('combobox', { name: 'Tool for this attempt' }),
   ).toHaveValue('tool:desmos-graphing');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Tool for this attempt' }), {
-    target: { value: 'tool:geogebra-graphing' },
-  });
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Tool for this attempt' }),
+    {
+      target: { value: 'tool:geogebra-graphing' },
+    },
+  );
   await waitFor(() =>
     expect(
       screen.getByText('Save this draft before changing tools.'),
@@ -892,7 +925,9 @@ it('sends only app-owned tool controls and none page access after native host st
   const tools = toolBridge();
   const { view, requestGuidance } = renderSession({ bridge, tools });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Ask about this tool' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Ask about this tool' }),
+    ).toBeVisible(),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Ask about this tool' }));
   fireEvent.click(screen.getByRole('button', { name: 'Companion' }));
@@ -966,7 +1001,9 @@ it('does not apply an old native listener to a newly mounted session', async () 
   const firstTools = toolBridge();
   const first = renderSession({ bridge, tools: firstTools });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Ask about this tool' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Ask about this tool' }),
+    ).toBeVisible(),
   );
   const staleEmit = firstTools.emit.bind(firstTools);
   first.view.unmount();
@@ -977,7 +1014,9 @@ it('does not apply an old native listener to a newly mounted session', async () 
     requestGuidance: first.requestGuidance,
   });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Ask about this tool' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Ask about this tool' }),
+    ).toBeVisible(),
   );
   act(() => {
     staleEmit({
@@ -988,9 +1027,7 @@ it('does not apply an old native listener to a newly mounted session', async () 
     });
   });
   fireEvent.click(screen.getByRole('button', { name: 'Ask about this tool' }));
-  await waitFor(() =>
-    expect(first.requestGuidance).not.toHaveBeenCalled(),
-  );
+  await waitFor(() => expect(first.requestGuidance).not.toHaveBeenCalled());
   second.view.unmount();
 });
 
@@ -1014,7 +1051,9 @@ it('opens a supported tool in-app only after an explicit action and refuses a fa
   });
   const { view } = renderSession({ bridge, tools });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Open tool here' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Open tool here' }),
+    ).toBeVisible(),
   );
   expect(tools.openTool).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open tool here' }));
@@ -1048,7 +1087,9 @@ it('opens a successful guest and refuses external opening when the draft cannot 
   });
   const { view } = renderSession({ bridge, tools });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Open tool here' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Open tool here' }),
+    ).toBeVisible(),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Open tool here' }));
   await screen.findByLabelText('Selected practical tool');
@@ -1074,7 +1115,9 @@ it('opens the catalog URL externally after a ready flush', async () => {
   });
   const { view, tools } = renderSession({ bridge });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Open externally' })).toBeVisible(),
+    expect(
+      screen.getByRole('button', { name: 'Open externally' }),
+    ).toBeVisible(),
   );
   fireEvent.click(screen.getByRole('button', { name: 'Open externally' }));
   await waitFor(() =>
