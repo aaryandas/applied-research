@@ -265,9 +265,20 @@ describe('PostgreSQL planner accounting adapter', () => {
 
   it('maps query failures to typed AccountingFailure instead of orDie', async () => {
     const fake = fakeDatabase({}, true);
-    await expect(reserve(fake.database)).rejects.toBeInstanceOf(
-      AccountingFailure,
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        makePostgresPlannerAccounting(fake.database).reserve({
+          accountId: 'account-01',
+          request: plannerRequest,
+          inputHash: plannerInputHash(plannerRequest),
+          monthStart: '2026-09-01',
+          now,
+          limitMicrousd: 20_000_000,
+          reservationMicrousd: 100_000,
+        }),
+      ),
     );
+    expect(failure).toBeInstanceOf(AccountingFailure);
   });
 
   it('returns in-progress, quota, and account-busy without a second planner hash', async () => {
@@ -367,8 +378,8 @@ describe('PostgreSQL planner accounting adapter', () => {
     expect(settled.state.request?.state).toBe('settled');
 
     const missing = fakeDatabase();
-    await expect(
-      Effect.runPromise(
+    const missingFailure = await Effect.runPromise(
+      Effect.flip(
         makePostgresPlannerAccounting(missing.database).settle({
           accountId: 'account-01',
           requestId: plannerRequest.requestId,
@@ -379,13 +390,14 @@ describe('PostgreSQL planner accounting adapter', () => {
           limitMicrousd: 20_000_000,
         }),
       ),
-    ).rejects.toBeInstanceOf(AccountingFailure);
+    );
+    expect(missingFailure).toBeInstanceOf(AccountingFailure);
 
     const invalid = fakeDatabase();
     await reserve(invalid.database);
     if (invalid.state.ledger) invalid.state.ledger.reservedMicrousd = 0;
-    await expect(
-      Effect.runPromise(
+    const invalidFailure = await Effect.runPromise(
+      Effect.flip(
         makePostgresPlannerAccounting(invalid.database).settle({
           accountId: 'account-01',
           requestId: plannerRequest.requestId,
@@ -400,6 +412,7 @@ describe('PostgreSQL planner accounting adapter', () => {
           limitMicrousd: 20_000_000,
         }),
       ),
-    ).rejects.toBeInstanceOf(AccountingFailure);
+    );
+    expect(invalidFailure).toBeInstanceOf(AccountingFailure);
   });
 });

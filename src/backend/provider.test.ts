@@ -388,13 +388,18 @@ describe('learning-path validation', () => {
       operation,
     );
     expect(contribution.kind).toBe('learning-path');
-    expect(JSON.stringify(contribution)).not.toContain('master');
     if (contribution.kind === 'learning-path') {
       expect(contribution.steps[0]).toMatchObject({
         role: 'concept',
         practice: null,
       });
-      expect(contribution.steps[1]).toMatchObject({ role: 'practice' });
+      expect(contribution.steps[1]).toMatchObject({
+        role: 'practice',
+        practice: { author: 'ai', masteryEstablished: false },
+      });
+      expect(JSON.stringify(contribution.steps[1]?.practice)).not.toMatch(
+        /"masteryEstablished":true/,
+      );
     }
   });
 

@@ -105,15 +105,16 @@ describe('generation-eval ledger adapter', () => {
     if (!Exit.isFailure(exit)) return;
     const failure = exit.cause;
     expect(JSON.stringify(failure)).toContain('AccountingFailure');
-    await expect(
-      Effect.runPromise(
+    const typed = await Effect.runPromise(
+      Effect.flip(
         ledger.admit({
           requestId: 'request-eval-05',
           inputHash: 'e'.repeat(64),
           reservationMicrousd: 10,
         }),
       ),
-    ).rejects.toBeInstanceOf(AccountingFailure);
+    );
+    expect(typed).toBeInstanceOf(AccountingFailure);
   });
 
   it('maps conflict and in-progress, no-ops a missing reservation, and settles known spend', async () => {
@@ -233,8 +234,8 @@ describe('generation-eval ledger adapter', () => {
         }),
       ),
     ).toEqual({ kind: 'admit' });
-    await expect(
-      Effect.runPromise(
+    const typed = await Effect.runPromise(
+      Effect.flip(
         ledger.settle({
           requestId: 'request-eval-08',
           inputHash: 'j'.repeat(64),
@@ -243,6 +244,7 @@ describe('generation-eval ledger adapter', () => {
           cancelled: false,
         }),
       ),
-    ).rejects.toBeInstanceOf(AccountingFailure);
+    );
+    expect(typed).toBeInstanceOf(AccountingFailure);
   });
 });
