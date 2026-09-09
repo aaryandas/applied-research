@@ -8,7 +8,11 @@ Base: `codex/ar-walkthrough-integration` at `317c0721da715dc7c6dd489f24b68d2b5f1
 
 Renderer requests may name a project, request, intent and retained identity. They may not attest account, AI provenance, imported evidence, measured results, remote URLs, filesystem paths, executable code, shaders or artifact bodies. Main re-resolves ownership and exact quotes from the same SQLite authority Reader uses. Backend derives the account from the session. Generated title/quote/rationale are `role: 'untrusted-display-copy'` and are never model or system instructions.
 
-`LearningOrigin.entry` is an exact `EntryRevisionReference`. It may identify a saved question used as contextual origin or a Canvas follow-up branch. Insight `supports` remain a separate field. Existing source/path/highlight rules stand: a highlight still requires its source revision. Storage, not this contract, rejects missing entries and cycles.
+`LearningOrigin.entry` is an exact `EntryRevisionReference`. It may identify a saved question used as contextual origin or a Canvas follow-up branch. Insight `supports` remain a separate field. Existing source/path/highlight rules stand: a highlight still requires its source revision. `decodeLearningOrigin` accepts this future origin. Live save-entry (`decodeHumanEntry`) and live Practical origin/JSON boundaries reject an unpersisted `entry` until AR-56 stores the exact revision; they must not drop it and report saved. Storage, not this contract, later rejects missing entries and cycles.
+
+Retained explanations require matching parent intent, every attempt intent, and a ready result kind/family: `text` → `text-answer`, `visual` → `scene` or `clip`. A supported plan's family must match that ready result (`spatial-assembly`/`two-link-arm` vs `linear-transform`/`weighted-combination`).
+
+Companion guidance requests carry `expectedProjectGeneration` and `expectedRequestGeneration` like contextual help. Cancel uses `COMPANION_GUIDANCE_CANCEL_CHANNEL` with the same request id and generations. That envelope is not IPC registration, page observation, or an ambient API.
 
 ## Modules
 
