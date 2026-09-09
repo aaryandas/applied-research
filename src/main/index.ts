@@ -52,6 +52,7 @@ import {
   entryDraft,
   entryPosition,
   identifier,
+  planWorkspaceActivate,
   text,
   toolBounds,
   tutorRequest,
@@ -325,10 +326,14 @@ async function createWindow(): Promise<void> {
     });
   }
   handle(SOURCE_CHANNELS.activate, (value) => {
-    practicalOperations.replaceWorkspace();
-    closeTool();
+    const plan = planWorkspaceActivate(selectedWorkspaceId, value);
+    if (plan.revokeOperations) {
+      onboardingOperations.revoke();
+      practicalOperations.replaceWorkspace();
+      closeTool();
+    }
     sourceOperations.activate(value);
-    selectedWorkspaceId = typeof value === 'string' ? value : null;
+    selectedWorkspaceId = plan.nextId;
     return contextualHelp.activate(value);
   });
   handle(SOURCE_CHANNELS.generate, (value) => sourceOperations.generate(value));
