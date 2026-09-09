@@ -1,5 +1,6 @@
 import { decodeRecord } from './workspace-decoder';
 import { SourceDesktopOperations } from './source-desktop';
+import { makeAuthenticatedSourceTransport } from './source-transport';
 import { SOURCE_CHANNELS } from '../contracts/source-desktop';
 import { PracticalFileSelection } from './practical-file-selection';
 import { RECORD_PRACTICAL_RESULT_CHANNEL } from '../contracts/practical-work';
@@ -205,9 +206,13 @@ async function createWindow(): Promise<void> {
   const sourceOperations = new SourceDesktopOperations({
     store,
     authenticated: () => authenticated,
-    // Auth/backend composition must supply the reviewed HTTP transport. Fail
-    // unavailable until it exists; no development provider or fabricated answer.
-    transport: null,
+    transport: makeAuthenticatedSourceTransport({
+      request: globalThis.fetch,
+      sessionCookie: () =>
+        authController.state().session === 'signed-in'
+          ? authSdk.getCookie()
+          : '',
+    }),
     openOriginal: (url) => shell.openExternal(url),
   });
   const fileSelection = new PracticalFileSelection({
