@@ -173,7 +173,10 @@ test('Practical journey retains an accepted lesson activity, brief, imported evi
     await page.getByLabel('Produce the output note').fill('Imported the csv.');
     await page.getByRole('button', { name: 'Save checkpoint' }).click();
     await page.getByLabel('Your interpretation').fill('The result matched.');
-    await page.getByRole('button', { name: 'Save work' }).click();
+    await page
+      .locator('footer.practical-footer')
+      .getByRole('button', { name: 'Save work' })
+      .click();
     await expect(page.getByLabel('Save status')).toHaveText(/Saved/);
     await closeTestApplication(application);
 
