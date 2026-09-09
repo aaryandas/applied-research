@@ -308,13 +308,21 @@ test('manipulates actual local scenes, measures endpoints, pauses, and recovers 
     await expect
       .poll(() => page.evaluate(() => document.hasFocus()))
       .toBe(true);
-    await application.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]?.minimize(),
-    );
+    await application.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window?.minimize();
+      // Xvfb does not always expose a native minimized state. Hiding the
+      // window preserves the visibility transition that pauses rendering.
+      if (process.platform === 'linux' && window && !window.isMinimized())
+        window.hide();
+    });
     await expect
       .poll(() =>
         application.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0]?.isMinimized(),
+          (() => {
+            const window = BrowserWindow.getAllWindows()[0];
+            return Boolean(window?.isMinimized() || !window?.isVisible());
+          })(),
         ),
       )
       .toBe(true);

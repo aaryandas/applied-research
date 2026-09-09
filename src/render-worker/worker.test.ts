@@ -11,8 +11,21 @@ import type { ProcessRequest, ProcessResult } from './process.js';
 const workers: AnimationRenderWorker[] = [];
 const roots: string[] = [];
 const json = JSON.stringify(LINEAR_EXAMPLE);
-const posixDescribe = process.platform === 'win32' ? describe.skip : describe;
 const posixTest = process.platform === 'win32' ? it.skip : it;
+
+// The queue and artifact tests exercise platform-neutral worker behavior. The
+// production guard still rejects Windows, so provide the host identity those
+// tests need without bypassing the guard in the implementation.
+if (!process.getuid)
+  Object.defineProperty(process, 'getuid', {
+    configurable: true,
+    value: () => 1000,
+  });
+if (!process.getgid)
+  Object.defineProperty(process, 'getgid', {
+    configurable: true,
+    value: () => 1000,
+  });
 async function create(
   run: (request: ProcessRequest) => Promise<ProcessResult>,
 ): Promise<AnimationRenderWorker> {
@@ -53,7 +66,7 @@ afterEach(async () => {
   );
 });
 
-posixDescribe('bounded render queue', () => {
+describe('bounded render queue', () => {
   it('publishes verified identity only, constrains Docker, and explicitly releases the file', async () => {
     const run = vi.fn(successfulRuntime);
     const worker = await create(run);

@@ -351,11 +351,24 @@ test('connects the real bridge, an isolated guest and recorded OpenRouter respon
           ?.getBounds(),
     );
     expect(guestBounds).toEqual({ x: 320, y: 80, width: 480, height: 500 });
-    const guestImage = await application.evaluate(async ({ webContents }) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((contents) => contents.getURL() === 'https://learning.test/');
-      return (await guest?.capturePage())?.toPNG().toString('base64');
+    const guestImage = await application.evaluate(async ({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const image = await window?.capturePage({
+            x: 320,
+            y: 80,
+            width: 480,
+            height: 500,
+          });
+          if (image && !image.isEmpty())
+            return image.toPNG().toString('base64');
+        } catch (error) {
+          if (attempt === 2) throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return undefined;
     });
     expect(guestImage).toBeTruthy();
     writeFileSync(
