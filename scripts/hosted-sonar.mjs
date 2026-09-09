@@ -4,14 +4,17 @@ import {
   readFileSync,
   writeFileSync,
   mkdirSync,
-  readdirSync,
-  lstatSync,
   unlinkSync,
   existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { github, paginate, publishStatus } from './workflow-api.mjs';
-import { findingsOnDiff, validateAnalysis } from './hosted-sonar-rules.mjs';
+import {
+  findingsOnDiff,
+  validateAnalysis,
+  rejectSymlinks,
+  stageCoverage,
+} from './hosted-sonar-rules.mjs';
 
 const context = 'Sonar gate';
 const sha = process.env.SCAN_SHA;
@@ -26,7 +29,7 @@ async function select() {
     if (
       pr.draft ||
       pr.user.type !== 'User' ||
-      pr.head.repo.full_name !== process.env.GITHUB_REPOSITORY ||
+      pr.head.repo?.full_name !== process.env.GITHUB_REPOSITORY ||
       pr.base.ref !== 'main'
     )
       continue;
@@ -99,20 +102,6 @@ async function select() {
   );
 }
 
-function rejectSymlinks(directory) {
-  if (lstatSync(directory).isSymbolicLink())
-    throw new Error('Candidate source roots cannot be symlinks');
-  for (const name of readdirSync(directory)) {
-    const path = join(directory, name);
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink())
-      throw new Error(
-        'Candidate symlinks are not accepted by the credentialed scanner',
-      );
-    if (stat.isDirectory()) rejectSymlinks(path);
-  }
-}
-
 function prepare() {
   const host = new URL(process.env.SONAR_HOST_URL);
   if (
@@ -138,6 +127,7 @@ function prepare() {
   );
   rejectSymlinks(join(candidate, 'src'));
   rejectSymlinks(join(candidate, 'tests'));
+  stageCoverage({ candidate, coveragePath: process.env.COVERAGE_PATH });
   // Use fixed trusted compiler options instead of evaluating candidate tsconfig inheritance.
   writeFileSync(
     join(candidate, '.sonar-tsconfig.json'),

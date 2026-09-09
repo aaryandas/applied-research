@@ -32,6 +32,14 @@ jobs:
         run: npm run typecheck
       - name: Unit, renderer and integration tests with coverage
         run: npm run test:coverage
+      - name: Save coverage
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 7
       - name: Build Electron application
         run: npm run build
       - name: Desktop smoke test (Linux)
@@ -50,14 +58,6 @@ jobs:
       - name: Packaged smoke test (Windows/macOS)
         if: runner.os != 'Linux'
         run: npm run test:packaged
-      - name: Save coverage
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: coverage
-          path: coverage/lcov.info
-          if-no-files-found: error
-          retention-days: 7
       - name: Save test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

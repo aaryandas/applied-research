@@ -58,13 +58,14 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: coverage
-          path: candidate/coverage
+          path: ${{ runner.temp }}/sonar-untrusted-coverage
           run-id: ${{ steps.pick.outputs.run_id }}
           github-token: ${{ github.token }}
       - name: Prepare fixed scanner configuration
         if: steps.pick.outputs.sha != ''
         env:
           CANDIDATE_PATH: ${{ github.workspace }}/candidate
+          COVERAGE_PATH: ${{ runner.temp }}/sonar-untrusted-coverage
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
         run: node scripts/hosted-sonar.mjs prepare
       - name: Analyze on hosted Sonar and wait for server quality gate
@@ -103,4 +104,12 @@ jobs:
           name: sonar-${{ steps.pick.outputs.sha }}
           path: ${{ runner.temp }}/sonar-evidence
           if-no-files-found: error
+          retention-days: 14
+      - name: Preserve trusted gate receipts
+        if: always() && steps.pick.outputs.sha != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-receipts-${{ github.run_id }}
+          path: ${{ runner.temp }}/gate-receipts
+          if-no-files-found: ignore
           retention-days: 14

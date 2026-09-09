@@ -11,6 +11,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TARGET_TIME, planDispatch } from './dispatch-plan.mjs';
+import { addClaimWorktree } from './dispatch-worktree.mjs';
 import {
   canReserveInstall,
   seedDependencies,
@@ -147,8 +148,14 @@ try {
     Object.assign(state, JSON.parse(readFileSync(statePath, 'utf8')));
   const plan = planDispatch({ snapshot, claims: state.claims });
   for (const issue of plan.selected) {
-    if (!lanes.lanes[issue.lane.slice(5)])
-      throw new Error(`${issue.identifier}: unknown lane ${issue.lane}`);
+    if (!lanes.lanes[issue.lane.slice(5)]) {
+      events.push({
+        type: 'attention',
+        identifier: issue.identifier,
+        reason: `Unknown lane ${issue.lane}`,
+      });
+      continue;
+    }
     state.claims[issue.identifier] = {
       identifier: issue.identifier,
       issueId: issue.id,
@@ -161,176 +168,191 @@ try {
   }
   save();
   for (const claim of Object.values(state.claims)) {
-    const issue = snapshot.issues.find(
-      (candidate) => candidate.identifier === claim.identifier,
-    );
-    if (!issue) {
-      events.push({
-        type: 'attention',
-        identifier: claim.identifier,
-        reason: 'Claim missing from snapshot.',
-      });
-      continue;
-    }
-    if (['Done', 'Canceled', 'Duplicate'].includes(issue.status)) {
-      claim.phase = 'closed';
-      continue;
-    }
-    if (claim.phase === 'claimed' && issue.status === 'Todo') {
-      events.push({
-        type: 'transition',
-        identifier: issue.identifier,
-        issueId: issue.id,
-        from: 'Todo',
-        to: 'In Development',
-      });
-      continue;
-    }
-    if (claim.phase === 'claimed' && issue.status === 'In Development') {
-      const disk = statfsSync(root);
-      if (Number(disk.bavail) * Number(disk.bsize) < 2_000_000_000) {
+    try {
+      const issue = snapshot.issues.find(
+        (candidate) => candidate.identifier === claim.identifier,
+      );
+      if (!issue) {
         events.push({
           type: 'attention',
-          identifier: issue.identifier,
-          reason: 'Less than 2GB free; no new worktree launches.',
+          identifier: claim.identifier,
+          reason: 'Claim missing from snapshot.',
         });
         continue;
       }
-      if (!existsSync(claim.worktree)) {
-        command('git', ['fetch', 'origin', 'main']);
-        claim.baseSha = command('git', ['rev-parse', 'origin/main']);
-        mkdirSync(dirname(claim.worktree), { recursive: true });
-        command('git', [
-          'worktree',
-          'add',
-          '-b',
-          claim.branch,
-          claim.worktree,
-          claim.baseSha,
-        ]);
-        save();
+      if (['Done', 'Canceled', 'Duplicate'].includes(issue.status)) {
+        claim.phase = 'closed';
+        continue;
       }
-      claim.dependencies = seedDependencies({ root, worktree: claim.worktree });
-      save();
-      if (claim.dependencies.status === 'unseeded') {
-        const uninstalledWorkers = Object.values(state.claims).filter(
-          (other) =>
-            other.identifier !== claim.identifier &&
-            ['launching', 'running'].includes(other.phase) &&
-            !existsSync(join(other.worktree, 'node_modules')),
-        ).length;
-        const currentDisk = statfsSync(root);
-        if (
-          !canReserveInstall({
-            freeBytes: Number(currentDisk.bavail) * Number(currentDisk.bsize),
-            uninstalledWorkers,
-          })
-        ) {
-          events.push({
-            type: 'attention',
-            identifier: issue.identifier,
-            reason:
-              'Waiting for a 1GB installation reservation above the 2GB disk floor.',
-          });
-          continue;
-        }
-      }
-      launch(issue, claim);
-    }
-    if (!claim.jobPath) continue;
-    const job = JSON.parse(readFileSync(claim.jobPath, 'utf8'));
-    claim.threadId = job.threadId ?? claim.threadId;
-    claim.phase = job.status;
-    if (job.status === 'launching')
-      events.push({
-        type: 'attention',
-        identifier: issue.identifier,
-        reason: 'Launch receipt pending; do not relaunch blindly.',
-      });
-    if (job.status === 'running') {
-      try {
-        process.kill(job.workerPid, 0);
-      } catch {
-        events.push({
-          type: 'attention',
-          identifier: issue.identifier,
-          reason:
-            'Worker process disappeared; inspect private job record before recovery.',
-        });
-      }
-    }
-    if (job.status === 'failed')
-      events.push({
-        type: 'attention',
-        identifier: issue.identifier,
-        threadId: claim.threadId,
-        reason: `Worker failed with exit ${job.exitCode ?? 'unknown'}.`,
-      });
-    if (job.status === 'completed') {
-      const prs = JSON.parse(
-        command('gh', [
-          'pr',
-          'list',
-          '--repo',
-          'aaryandas/applied-research',
-          '--head',
-          claim.branch,
-          '--state',
-          'all',
-          '--json',
-          'url,state,isDraft,headRefOid,body',
-        ]),
-      );
-      const pr = prs.find((candidate) =>
-        new RegExp(`^Linear: ${issue.identifier}\\s*$`, 'm').test(
-          candidate.body,
-        ),
-      );
-      if (pr) {
-        claim.prUrl = pr.url;
-        claim.headSha = pr.headRefOid;
-      }
-      if (
-        pr?.state === 'OPEN' &&
-        !pr.isDraft &&
-        issue.status === 'In Development' &&
-        (!issue.repairRequest || issue.repairRequest.id === claim.lastRepairId)
-      ) {
+      if (claim.phase === 'claimed' && issue.status === 'Todo') {
         events.push({
           type: 'transition',
           identifier: issue.identifier,
           issueId: issue.id,
-          from: 'In Development',
-          to: 'In Testing',
-          prUrl: pr.url,
-          headSha: pr.headRefOid,
-          threadId: claim.threadId,
-        });
-      } else if (!pr)
-        events.push({
-          type: 'attention',
-          identifier: issue.identifier,
-          threadId: claim.threadId,
-          reason: 'Worker completed without a linked PR.',
-        });
-    }
-    if (
-      issue.repairRequest?.id &&
-      issue.repairRequest.id !== claim.lastRepairId &&
-      issue.status === 'In Development' &&
-      ['completed', 'failed'].includes(job.status)
-    ) {
-      if (!claim.threadId || claim.round >= 3) {
-        events.push({
-          type: 'attention',
-          identifier: issue.identifier,
-          reason: 'Repair requires existing task and fewer than three rounds.',
+          from: 'Todo',
+          to: 'In Development',
         });
         continue;
       }
-      claim.lastRepairId = issue.repairRequest.id;
-      claim.round += 1;
-      launch(issue, claim);
+      if (claim.phase === 'claimed' && issue.status === 'In Development') {
+        const disk = statfsSync(root);
+        if (Number(disk.bavail) * Number(disk.bsize) < 2_000_000_000) {
+          events.push({
+            type: 'attention',
+            identifier: issue.identifier,
+            reason: 'Less than 2GB free; no new worktree launches.',
+          });
+          continue;
+        }
+        if (!existsSync(claim.worktree)) {
+          command('git', ['fetch', 'origin', 'main']);
+          claim.baseSha = command('git', ['rev-parse', 'origin/main']);
+          claim.baseSha = addClaimWorktree({
+            repository: root,
+            claim,
+            baseSha: claim.baseSha,
+          });
+          save();
+        }
+        claim.dependencies = seedDependencies({
+          root,
+          worktree: claim.worktree,
+        });
+        save();
+        if (claim.dependencies.status === 'unseeded') {
+          const uninstalledWorkers = Object.values(state.claims).filter(
+            (other) =>
+              other.identifier !== claim.identifier &&
+              ['launching', 'running'].includes(other.phase) &&
+              !existsSync(join(other.worktree, 'node_modules')),
+          ).length;
+          const currentDisk = statfsSync(root);
+          if (
+            !canReserveInstall({
+              freeBytes: Number(currentDisk.bavail) * Number(currentDisk.bsize),
+              uninstalledWorkers,
+            })
+          ) {
+            events.push({
+              type: 'attention',
+              identifier: issue.identifier,
+              reason:
+                'Waiting for a 1GB installation reservation above the 2GB disk floor.',
+            });
+            continue;
+          }
+        }
+        launch(issue, claim);
+      }
+      if (!claim.jobPath) continue;
+      const job = JSON.parse(readFileSync(claim.jobPath, 'utf8'));
+      claim.threadId = job.threadId ?? claim.threadId;
+      claim.phase = job.status;
+      if (job.status === 'launching')
+        events.push({
+          type: 'attention',
+          identifier: issue.identifier,
+          reason: 'Launch receipt pending; do not relaunch blindly.',
+        });
+      if (job.status === 'running') {
+        try {
+          process.kill(job.workerPid, 0);
+        } catch {
+          events.push({
+            type: 'attention',
+            identifier: issue.identifier,
+            reason:
+              'Worker process disappeared; inspect private job record before recovery.',
+          });
+        }
+      }
+      if (job.status === 'failed')
+        events.push({
+          type: 'attention',
+          identifier: issue.identifier,
+          threadId: claim.threadId,
+          reason: `Worker failed with exit ${job.exitCode ?? 'unknown'}.`,
+        });
+      if (job.status === 'completed') {
+        const prs = JSON.parse(
+          command('gh', [
+            'pr',
+            'list',
+            '--repo',
+            'aaryandas/applied-research',
+            '--head',
+            claim.branch,
+            '--state',
+            'all',
+            '--json',
+            'url,state,isDraft,headRefOid,body',
+          ]),
+        );
+        const pr = prs.find((candidate) =>
+          new RegExp(`^Linear: ${issue.identifier}\\s*$`, 'm').test(
+            candidate.body,
+          ),
+        );
+        if (pr) {
+          claim.prUrl = pr.url;
+          claim.headSha = pr.headRefOid;
+        }
+        if (
+          pr?.state === 'OPEN' &&
+          !pr.isDraft &&
+          issue.status === 'In Development' &&
+          (!issue.repairRequest ||
+            issue.repairRequest.id === claim.lastRepairId)
+        ) {
+          events.push({
+            type: 'transition',
+            identifier: issue.identifier,
+            issueId: issue.id,
+            from: 'In Development',
+            to: 'In Testing',
+            prUrl: pr.url,
+            headSha: pr.headRefOid,
+            threadId: claim.threadId,
+          });
+        } else if (!pr)
+          events.push({
+            type: 'attention',
+            identifier: issue.identifier,
+            threadId: claim.threadId,
+            reason: 'Worker completed without a linked PR.',
+          });
+      }
+      if (
+        issue.repairRequest?.id &&
+        issue.repairRequest.id !== claim.lastRepairId &&
+        issue.status === 'In Development' &&
+        ['completed', 'failed'].includes(job.status)
+      ) {
+        if (!claim.threadId || claim.round >= 3) {
+          events.push({
+            type: 'attention',
+            identifier: issue.identifier,
+            reason:
+              'Repair requires existing task and fewer than three rounds.',
+          });
+          continue;
+        }
+        claim.lastRepairId = issue.repairRequest.id;
+        claim.round += 1;
+        launch(issue, claim);
+      }
+    } catch (error) {
+      claim.lastError = {
+        message: error.message,
+        at: new Date().toISOString(),
+      };
+      events.push({
+        type: 'attention',
+        identifier: claim.identifier,
+        reason: error.message,
+      });
+    } finally {
+      save();
     }
   }
   save();

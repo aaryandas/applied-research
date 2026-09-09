@@ -54,3 +54,36 @@ export function validateAnalysis(evidence) {
     evidence.findings.length === 0
   );
 }
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
+export function rejectSymlinks(directory) {
+  if (lstatSync(directory).isSymbolicLink())
+    throw new Error('Candidate scanner inputs cannot be symlinks');
+  for (const name of readdirSync(directory)) {
+    const path = join(directory, name);
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink())
+      throw new Error('Candidate scanner inputs cannot be symlinks');
+    if (stat.isDirectory()) rejectSymlinks(path);
+  }
+}
+
+export function stageCoverage({ candidate, coveragePath }) {
+  // Download outside both checkouts first: a candidate coverage symlink must
+  // never redirect artifact extraction over the trusted credentialed scripts.
+  rejectSymlinks(coveragePath);
+  const report = join(coveragePath, 'lcov.info');
+  if (!lstatSync(report).isFile())
+    throw new Error('Coverage must be a regular lcov.info file');
+  const destination = join(candidate, 'coverage');
+  if (existsSync(destination)) rejectSymlinks(destination);
+  mkdirSync(destination, { recursive: true });
+  copyFileSync(report, join(destination, 'lcov.info'));
+}

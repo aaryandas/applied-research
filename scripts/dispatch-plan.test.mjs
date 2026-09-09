@@ -219,3 +219,104 @@ test(
     }
   },
 );
+
+test('one corrupt job emits attention while another claim still transitions', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync } =
+    await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const directory = mkdtempSync(join(tmpdir(), 'dispatch-isolation-'));
+  const snapshotPath = join(directory, 'snapshot.json');
+  const jobPath = join(directory, 'broken-job.json');
+  writeFileSync(jobPath, '{broken json');
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      issues: [issue(1, { status: 'In Development' }), issue(2)],
+    }),
+  );
+  writeFileSync(
+    join(directory, 'claims.json'),
+    JSON.stringify({
+      version: 1,
+      claims: {
+        'AR-1': { identifier: 'AR-1', phase: 'running', jobPath },
+        'AR-2': { identifier: 'AR-2', phase: 'claimed' },
+      },
+    }),
+  );
+  try {
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./dispatch.mjs', import.meta.url)),
+          'tick',
+          '--state-dir',
+          directory,
+          '--snapshot',
+          snapshotPath,
+        ],
+        { encoding: 'utf8' },
+      ),
+    );
+    assert.equal(
+      result.events.find((event) => event.identifier === 'AR-1').type,
+      'attention',
+    );
+    assert.equal(
+      result.events.find((event) => event.identifier === 'AR-2').to,
+      'In Development',
+    );
+    assert.ok(
+      JSON.parse(readFileSync(join(directory, 'claims.json'), 'utf8')).claims[
+        'AR-1'
+      ].lastError.message,
+    );
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test('reattaches an existing claim branch without resetting saved commits', async () => {
+  const { addClaimWorktree } = await import('./dispatch-worktree.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = mkdtempSync(join(tmpdir(), 'dispatch-branch-'));
+  const repository = join(directory, 'repo');
+  mkdirSync(repository);
+  const git = (args, cwd = repository) =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
+  try {
+    git(['init']);
+    git([
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'base',
+    ]);
+    const baseSha = git(['rev-parse', 'HEAD']);
+    const claim = {
+      branch: 'codex/ar-1-20260908',
+      worktree: join(directory, 'worktree'),
+    };
+    git(['branch', claim.branch]);
+    assert.equal(addClaimWorktree({ repository, claim, baseSha }), baseSha);
+    assert.equal(
+      git(['branch', '--show-current'], claim.worktree),
+      claim.branch,
+    );
+    assert.equal(git(['rev-parse', 'HEAD'], claim.worktree), baseSha);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
