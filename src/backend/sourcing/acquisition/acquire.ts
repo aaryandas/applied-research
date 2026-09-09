@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { parse } from 'parse5';
+import { createParse5TreeAdapter } from './parse5-tree.js';
 import type {
   AcquiredCanonicalSourceRevision,
   AcquiredSource,
@@ -16,6 +18,7 @@ import {
   type AcquisitionSourceInput,
 } from './types.js';
 import { createSourcePassages } from '../corpus/passages.js';
+import { parseAcquireCanonicalSourceRequest } from '../contract-validation.js';
 
 export interface AcquisitionClock {
   now(): Date;
@@ -24,7 +27,7 @@ export interface AcquisitionClock {
 export class SourceAcquisitionAdapter {
   readonly #http: GuardedHttpsClient;
   readonly #clock: AcquisitionClock;
-  readonly #htmlParser: StructuredHtmlParser | undefined;
+  readonly #htmlParser: StructuredHtmlParser;
 
   constructor(options: {
     http: GuardedHttpsClient;
@@ -33,7 +36,7 @@ export class SourceAcquisitionAdapter {
   }) {
     this.#http = options.http;
     this.#clock = options.clock;
-    this.#htmlParser = options.htmlParser;
+    this.#htmlParser = options.htmlParser ?? createParse5TreeAdapter({ parse });
   }
 
   async acquire(
@@ -70,9 +73,7 @@ export class SourceAcquisitionAdapter {
       bytes: fetched.bytes,
       mediaType: fetched.mediaType,
       title: input.source.title,
-      ...(this.#htmlParser === undefined
-        ? {}
-        : { htmlParser: this.#htmlParser }),
+      htmlParser: this.#htmlParser,
     });
     if (canonicalized.outcome === 'unsupported') {
       return freezeAcquisitionResult({
@@ -112,10 +113,13 @@ export class SourceAcquisitionAdapter {
       outcome: 'success',
       requestId: input.request.requestId,
       source,
-      passages: createSourcePassages({
-        revision,
-        sections: canonicalized.document.sections,
-      }),
+      passages:
+        input.source.usePolicy.indexing.status === 'permitted'
+          ? createSourcePassages({
+              revision,
+              sections: canonicalized.document.sections,
+            })
+          : [],
       receipt: {
         requestedUrl: fetched.requestedUrl,
         acquiredUrl: fetched.acquiredUrl,
@@ -172,19 +176,27 @@ export function systemAcquisitionClock(): AcquisitionClock {
 function validateInput(
   input: AcquisitionSourceInput,
 ): AcquisitionAdapterResult | null {
+  try {
+    parseAcquireCanonicalSourceRequest(input.request);
+  } catch {
+    return {
+      outcome: 'invalid-source',
+      requestId: null,
+      message: ACQUISITION_PUBLIC_MESSAGES.invalidSource,
+    };
+  }
   const providerMatches = input.source.providerIds.some((identity) =>
     sameProviderIdentity(identity, input.request.providerIdentity),
   );
   if (
-    input.request.requestId.trim() === '' ||
     input.request.sourceId !== input.source.sourceId ||
     input.source.content.state !== 'metadata-only' ||
+    input.source.authorship.kind !== 'authored' ||
     !providerMatches
   ) {
     return {
       outcome: 'invalid-source',
-      requestId:
-        input.request.requestId.trim() === '' ? null : input.request.requestId,
+      requestId: input.request.requestId,
       message: ACQUISITION_PUBLIC_MESSAGES.invalidSource,
     };
   }
@@ -212,7 +224,14 @@ function createRevision(options: {
 }): AcquiredCanonicalSourceRevision {
   return {
     sourceId: options.input.source.sourceId,
-    revisionId: `revision_${options.canonicalSha256}`,
+    revisionId: `revision_${sha256(
+      JSON.stringify([
+        options.input.source.sourceId,
+        options.canonicalized.canonicalizationVersion,
+        options.canonicalized.extraction.method,
+        options.canonicalSha256,
+      ]),
+    )}`,
     title: options.input.source.title,
     canonicalText: options.canonicalized.text,
     sha256: options.canonicalSha256,

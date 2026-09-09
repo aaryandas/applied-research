@@ -53,6 +53,32 @@ function passage(revision: AcquiredCanonicalSourceRevision): SourcePassage {
 }
 
 describe('immutable corpus revision reconciliation', () => {
+  it('retains a new parser revision even when its canonical text is unchanged', () => {
+    const first = reconcileCorpusRevision({
+      snapshot: { revisions: [] },
+      revision: baseRevision,
+      passages: [passage(baseRevision)],
+    });
+    const reparsed = {
+      ...baseRevision,
+      revisionId: 'revision-parser-v2',
+      extraction: {
+        ...baseRevision.extraction,
+        method: 'exact-utf8-plain-text-v2',
+      },
+    };
+    const second = reconcileCorpusRevision({
+      snapshot: first.snapshot,
+      revision: reparsed,
+      passages: [passage(reparsed)],
+    });
+    expect(second.disposition).toBe('new-revision');
+    expect(second.snapshot.revisions).toHaveLength(2);
+    expect(second.snapshot.revisions[0]?.revision.revisionId).toBe(
+      'revision-a',
+    );
+  });
+
   it('does not duplicate a reingest of the same canonical content', () => {
     const first = reconcileCorpusRevision({
       snapshot: { revisions: [] },

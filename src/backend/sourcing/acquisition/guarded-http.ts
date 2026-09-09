@@ -2,7 +2,8 @@ import { Resolver } from 'node:dns/promises';
 import { request as httpsRequest, type RequestOptions } from 'node:https';
 import type { IncomingHttpHeaders } from 'node:http';
 import { isIP } from 'node:net';
-import { Readable } from 'node:stream';
+import { PassThrough, type Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import {
   hostnameForResolution,
@@ -128,7 +129,7 @@ export class GuardedHttpsClient {
           currentUrl = validatedRedirect(currentUrl, response.location);
           continue;
         }
-        if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode !== 200) {
           throw new GuardedHttpError();
         }
         const mediaType = supportedMediaType(response.contentType);
@@ -345,26 +346,32 @@ async function readBoundedBody(
   response: HttpsTransportResponse,
   signal: AbortSignal,
 ): Promise<Uint8Array> {
-  const compressed = Readable.from(countCompressedBytes(response.body, signal));
-  const decoded = decompressedStream(compressed, response.contentEncoding);
   const chunks: Uint8Array[] = [];
   let decompressedBytes = 0;
-  for await (const chunk of decoded) {
-    if (signal.aborted || !(chunk instanceof Uint8Array)) {
-      throw new GuardedHttpError();
-    }
-    decompressedBytes += chunk.byteLength;
-    if (decompressedBytes > GUARDED_HTTP_LIMITS.decompressedBytes) {
-      throw new GuardedHttpError();
-    }
-    chunks.push(chunk);
-  }
+  await pipeline(
+    countCompressedBytes(response.body, signal, response.contentLength),
+    decompressionTransform(response.contentEncoding),
+    async (decoded: AsyncIterable<unknown>) => {
+      for await (const chunk of decoded) {
+        if (signal.aborted || !(chunk instanceof Uint8Array)) {
+          throw new GuardedHttpError();
+        }
+        decompressedBytes += chunk.byteLength;
+        if (decompressedBytes > GUARDED_HTTP_LIMITS.decompressedBytes) {
+          throw new GuardedHttpError();
+        }
+        chunks.push(chunk);
+      }
+    },
+    { signal },
+  );
   return Buffer.concat(chunks, decompressedBytes);
 }
 
 async function* countCompressedBytes(
   body: AsyncIterable<Uint8Array>,
   signal: AbortSignal,
+  contentLength: string | null,
 ): AsyncGenerator<Uint8Array> {
   let compressedBytes = 0;
   for await (const chunk of body) {
@@ -375,16 +382,16 @@ async function* countCompressedBytes(
     }
     yield chunk;
   }
+  if (contentLength !== null && compressedBytes !== Number(contentLength)) {
+    throw new GuardedHttpError();
+  }
 }
 
-function decompressedStream(
-  compressed: Readable,
-  encodingValue: string | null,
-): Readable {
+function decompressionTransform(encodingValue: string | null): Transform {
   const encoding = encodingValue?.trim().toLowerCase() ?? 'identity';
-  if (encoding === 'identity') return compressed;
-  if (encoding === 'gzip') return compressed.pipe(createGunzip());
-  if (encoding === 'deflate') return compressed.pipe(createInflate());
-  if (encoding === 'br') return compressed.pipe(createBrotliDecompress());
+  if (encoding === 'identity') return new PassThrough();
+  if (encoding === 'gzip') return createGunzip();
+  if (encoding === 'deflate') return createInflate();
+  if (encoding === 'br') return createBrotliDecompress();
   throw new GuardedHttpError();
 }

@@ -1,4 +1,5 @@
 import type { SourceFormat } from '../../../contracts/learning-api.js';
+import { isRemoteText } from '../../text.js';
 import { ACQUISITION_CANONICALIZATION_VERSION } from './types.js';
 
 export type ParsedHtmlNode =
@@ -50,6 +51,7 @@ const EXCLUDED_ELEMENTS = new Set([
   'header',
   'iframe',
   'img',
+  'math',
   'nav',
   'noscript',
   'object',
@@ -65,6 +67,7 @@ const OMITTED_CONTENT_ELEMENTS = new Set([
   'embed',
   'iframe',
   'img',
+  'math',
   'object',
   'svg',
   'video',
@@ -107,7 +110,8 @@ export function canonicalizeSourceBytes(options: {
   htmlParser?: StructuredHtmlParser;
 }): CanonicalizationResult {
   const decoded = decodeExactUtf8(options.bytes);
-  if (decoded === null) return { outcome: 'malformed-content' };
+  if (decoded === null || !isRemoteText(decoded))
+    return { outcome: 'malformed-content' };
   if (options.mediaType === 'text/plain') {
     const text = normalizeLineEndings(decoded);
     if (text.trim().length === 0) return { outcome: 'malformed-content' };
@@ -164,7 +168,7 @@ function canonicalizeHtml(
         method: `structured-html-v1 (${parser.parserName} ${parser.parserVersion})`,
         coverage: omittedContent ? 'partial' : 'complete',
         note: omittedContent
-          ? 'Text was extracted; embedded visual or media content was omitted.'
+          ? 'Text was extracted; embedded visual, MathML or media content was omitted.'
           : 'Executable, navigation, form, style, and embedded media elements were excluded.',
       },
       sections: assembled.sections,

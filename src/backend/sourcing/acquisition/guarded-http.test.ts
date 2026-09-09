@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, deflateSync, brotliCompressSync } from 'node:zlib';
 import {
   GUARDED_HTTP_LIMITS,
   GuardedHttpsClient,
+  NodeDnsResolver,
   type DnsResolver,
   type HttpsTransport,
   type HttpsTransportRequest,
@@ -44,6 +45,63 @@ function response(options: {
 }
 
 describe('guarded HTTPS acquisition', () => {
+  it('rejects a truncated source whose received bytes differ from Content-Length', async () => {
+    const client = new GuardedHttpsClient({
+      resolver: resolverWith([publicAddress]),
+      transport: {
+        open: async () =>
+          response({
+            contentLength: '100',
+            chunks: [new TextEncoder().encode('Short')],
+          }),
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('contains a compressed response failure and closes its transport', async () => {
+    let cancelled = false;
+    const client = new GuardedHttpsClient({
+      resolver: resolverWith([publicAddress]),
+      transport: {
+        open: async () => ({
+          ...response({
+            contentEncoding: 'gzip',
+            onCancel: () => {
+              cancelled = true;
+            },
+          }),
+          body: (async function* () {
+            yield gzipSync('First chunk');
+            throw new Error('Synthetic socket failure');
+          })(),
+        }),
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toEqual({ outcome: 'unavailable' });
+    expect(cancelled).toBe(true);
+  }, 1000);
+
+  it('refuses an unsolicited partial HTTP response instead of treating a range as the complete source', async () => {
+    const client = new GuardedHttpsClient({
+      resolver: resolverWith([publicAddress]),
+      transport: {
+        open: async () =>
+          response({
+            statusCode: 206,
+            chunks: [new TextEncoder().encode('Only a fragment')],
+          }),
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
   it('pins the validated public address and returns bounded UTF-8 bytes', async () => {
     const opened: HttpsTransportRequest[] = [];
     const client = new GuardedHttpsClient({
@@ -241,5 +299,176 @@ describe('guarded HTTPS acquisition', () => {
     });
     expect(resolutions).toBe(0);
     expect(attempts).toBe(0);
+  });
+});
+
+describe('bounded transport outcomes', () => {
+  const fetchResponse = (reply: HttpsTransportResponse) =>
+    new GuardedHttpsClient({
+      resolver: resolverWith([publicAddress]),
+      transport: { open: async () => reply },
+    }).fetch('https://example.org/a', new AbortController().signal);
+
+  it.each([
+    null,
+    'application/octet-stream',
+    'application/x-executable',
+    'text/plain; charset=iso-8859-1',
+  ])('rejects unsupported MIME/charset %s', async (contentType) => {
+    await expect(
+      fetchResponse({ ...response({}), contentType }),
+    ).resolves.toMatchObject({ outcome: 'unsupported' });
+  });
+
+  it.each([
+    { encoding: 'gzip', bytes: gzipSync('Exact text') },
+    { encoding: 'deflate', bytes: deflateSync('Exact text') },
+    { encoding: 'br', bytes: brotliCompressSync('Exact text') },
+  ])(
+    'decodes bounded $encoding content with exact bytes',
+    async ({ encoding, bytes }) => {
+      const result = await fetchResponse(
+        response({
+          contentEncoding: encoding,
+          contentType: 'text/plain; charset="utf8"',
+          contentLength: String(bytes.byteLength),
+          chunks: [bytes],
+        }),
+      );
+      expect(result.outcome).toBe('success');
+      if (result.outcome === 'success')
+        expect(new TextDecoder().decode(result.bytes)).toBe('Exact text');
+    },
+  );
+
+  it.each([
+    '-1',
+    'not-a-length',
+    String(GUARDED_HTTP_LIMITS.compressedBytes + 1),
+  ])(
+    'rejects invalid declared length %s before reading',
+    async (contentLength) => {
+      await expect(fetchResponse(response({ contentLength }))).resolves.toEqual(
+        { outcome: 'unavailable' },
+      );
+    },
+  );
+
+  it.each(['gzip', 'unknown-encoding'])(
+    'contains malformed or unsupported %s encodings',
+    async (contentEncoding) => {
+      await expect(
+        fetchResponse(
+          response({
+            contentEncoding,
+            chunks: [new TextEncoder().encode('not compressed')],
+          }),
+        ),
+      ).resolves.toEqual({ outcome: 'unavailable' });
+    },
+  );
+
+  it('revalidates a relative redirect, retains the final URL and cancels each response', async () => {
+    let cancellations = 0;
+    const client = new GuardedHttpsClient({
+      resolver: resolverWith([publicAddress]),
+      transport: {
+        open: async ({ url }) =>
+          response({
+            ...(url.pathname === '/a'
+              ? { statusCode: 301, location: '/b' }
+              : { chunks: [new TextEncoder().encode('Final text')] }),
+            onCancel: () => {
+              cancellations += 1;
+            },
+          }),
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toMatchObject({
+      outcome: 'success',
+      acquiredUrl: 'https://example.org/b',
+      redirectCount: 1,
+    });
+    expect(cancellations).toBe(2);
+  });
+
+  it.each([null, '/a'])(
+    'bounds redirects with location %s',
+    async (location) => {
+      await expect(
+        fetchResponse(response({ statusCode: 302, location })),
+      ).resolves.toEqual({ outcome: 'unavailable' });
+    },
+  );
+
+  it('rejects a redirect whose public hostname resolves to a private address', async () => {
+    const client = new GuardedHttpsClient({
+      resolver: {
+        resolve: async (hostname) =>
+          hostname === 'example.org'
+            ? [publicAddress]
+            : [{ address: '10.0.0.1', family: 4 }],
+      },
+      transport: {
+        open: async () =>
+          response({ statusCode: 302, location: 'https://other.org/b' }),
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('does not open a connection after cancellation during DNS', async () => {
+    const controller = new AbortController();
+    let opened = false;
+    const client = new GuardedHttpsClient({
+      resolver: {
+        resolve: async () => {
+          controller.abort();
+          return [publicAddress];
+        },
+      },
+      transport: {
+        open: async () => {
+          opened = true;
+          return response({});
+        },
+      },
+    });
+    await expect(
+      client.fetch('https://example.org/a', controller.signal),
+    ).resolves.toEqual({ outcome: 'cancelled' });
+    expect(opened).toBe(false);
+  });
+
+  it('fails closed when a hostname has no DNS answers', async () => {
+    const client = new GuardedHttpsClient({
+      resolver: resolverWith([]),
+      transport: { open: async () => response({}) },
+    });
+    await expect(
+      client.fetch('https://example.org/a', new AbortController().signal),
+    ).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('handles literal addresses and pre-cancellation through the Node DNS boundary', async () => {
+    const resolver = new NodeDnsResolver();
+    await expect(
+      resolver.resolve('8.8.8.8', new AbortController().signal),
+    ).resolves.toEqual([{ address: '8.8.8.8', family: 4 }]);
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(
+      resolver.resolve('example.org', cancelled.signal),
+    ).rejects.toThrow();
+    await expect(
+      new GuardedHttpsClient({
+        resolver,
+        transport: { open: async () => response({}) },
+      }).fetch('https://example.org/a', cancelled.signal),
+    ).resolves.toEqual({ outcome: 'cancelled' });
   });
 });

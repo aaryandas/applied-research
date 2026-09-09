@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { isPublicAddress, parsePublicHttpsUrl } from './url-policy.js';
 
 describe('public source URL policy', () => {
+  it.each(['api_key', 'access_token', 'X-Amz-Signature', 'X-Goog-Credential'])(
+    'rejects credential-bearing query parameter %s',
+    (key) => {
+      expect(
+        parsePublicHttpsUrl(`https://example.org/a?${key}=synthetic-secret`),
+      ).toBeNull();
+    },
+  );
+
   it.each([
     { address: '10.0.0.1', family: 4 },
     { address: '100.64.0.1', family: 4 },

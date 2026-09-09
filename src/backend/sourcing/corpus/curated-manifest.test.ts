@@ -2,9 +2,41 @@ import { describe, expect, it } from 'vitest';
 import {
   CURATED_SOURCE_MANIFEST,
   CURATION_LINK_ONLY_CATEGORIES,
+  curatedSourceDescriptor,
 } from './curated-manifest.js';
 
 describe('curated source manifest', () => {
+  it('exposes the authorized chapter as an acquisition-ready descriptor with its parent and license evidence', () => {
+    const entry = CURATED_SOURCE_MANIFEST[0];
+    if (entry === undefined)
+      throw new Error('Missing curated acceptance source.');
+    const source = curatedSourceDescriptor(entry);
+    expect(source).toMatchObject({
+      sourceId: 'curated_python_floating_point_3_14_7',
+      authorship: {
+        kind: 'authored',
+        creators: ['Python Software Foundation'],
+      },
+      acquisitionLocation: {
+        url: 'https://docs.python.org/release/3.14.7/tutorial/floatingpoint.html',
+      },
+      relationships: [
+        {
+          kind: 'chapter-of-textbook',
+          parentSourceId: 'curated_python_tutorial_3_14_7',
+        },
+      ],
+      usePolicy: {
+        acquisition: {
+          status: 'permitted',
+          evidenceUrl: 'https://docs.python.org/3.14/license.html',
+        },
+        indexing: { status: 'permitted' },
+      },
+      content: { state: 'metadata-only' },
+    });
+  });
+
   it('records explicit eligibility and release-specific provenance', () => {
     expect(CURATED_SOURCE_MANIFEST).toHaveLength(1);
     const entry = CURATED_SOURCE_MANIFEST[0];

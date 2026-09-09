@@ -24,6 +24,7 @@ export function reconcileCorpusRevision(options: {
     ({ revision }) =>
       revision.sourceId === options.revision.sourceId &&
       revision.sha256 === options.revision.sha256 &&
+      revision.extraction.method === options.revision.extraction.method &&
       revision.canonicalizationVersion ===
         options.revision.canonicalizationVersion,
   );

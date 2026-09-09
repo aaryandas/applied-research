@@ -16,6 +16,13 @@ and the public account endpoint without yet adopting backend learning results.
 `context/mvp.md` owns the precise desktop scope, configuration and deferred work.
 No durable job engine, sync service or arbitrary-code runtime is implemented.
 
+The [AR-33 corpus acquisition checkpoint](corpus-acquisition.md) provides
+guarded HTTPS acquisition, canonical text and exact passages behind the reviewed
+sourcing contracts. It uses the backend's Node runtime and pinned parse5 parser;
+its immutable corpus snapshots do not add persistence, a job engine or a
+desktop adoption route. Corpus persistence and producer integration remain
+separate acceptance work.
+
 ## Accepted authority model
 
 The founder subsequently selected [app-managed AI credentials](credentials.md) in

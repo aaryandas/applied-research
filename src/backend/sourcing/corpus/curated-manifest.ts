@@ -1,4 +1,9 @@
 import { ACQUISITION_CANONICALIZATION_VERSION } from '../acquisition/types.js';
+import type {
+  MetadataOnlySource,
+  SourceKind,
+  SourceRelationship,
+} from '../../../contracts/sourcing.js';
 import {
   PARSE5_LICENSE,
   SUPPORTED_PARSE5_VERSION,
@@ -8,7 +13,8 @@ export interface CuratedSourceManifestEntry {
   id: string;
   sourceId: string;
   title: string;
-  kind: 'chapter';
+  kind: SourceKind;
+  relationships: readonly SourceRelationship[];
   publisher: string;
   authorAttribution: readonly string[];
   version: string;
@@ -66,6 +72,15 @@ export const CURATED_SOURCE_MANIFEST: readonly CuratedSourceManifestEntry[] = [
     sourceId: 'curated_python_floating_point_3_14_7',
     title: 'Floating-Point Arithmetic: Issues and Limitations',
     kind: 'chapter',
+    relationships: [
+      {
+        kind: 'chapter-of-textbook',
+        parentSourceId: 'curated_python_tutorial_3_14_7',
+        parentProviderIds: [
+          { provider: 'curated-catalog', id: 'python-tutorial-3-14-7' },
+        ],
+      },
+    ],
     publisher: 'Python Software Foundation',
     authorAttribution: ['Python Software Foundation'],
     version: '3.14.7',
@@ -131,3 +146,44 @@ export const CURATED_SOURCE_MANIFEST: readonly CuratedSourceManifestEntry[] = [
     ],
   },
 ];
+
+/** The manifest is an operator-reviewed allowlist, never a client permission claim. */
+export function curatedSourceDescriptor(
+  entry: CuratedSourceManifestEntry,
+): MetadataOnlySource {
+  const permission = {
+    status: 'permitted',
+    basis: 'license',
+    evidenceUrl: entry.license.fullLicenseUrl,
+  } as const;
+  return {
+    sourceId: entry.sourceId,
+    kind: entry.kind,
+    title: entry.title,
+    authorship: { kind: 'authored', creators: [...entry.authorAttribution] },
+    providerIds: [{ provider: 'curated-catalog', id: entry.id }],
+    scholarlyIdentity: { doi: null, arxivId: null },
+    originalLocation: { url: entry.landingUrl, trust: 'untrusted-public-url' },
+    acquisitionLocation: {
+      url: entry.acquisitionUrl,
+      trust: 'untrusted-public-url',
+    },
+    publicationDate: null,
+    discoveredAt: entry.acquiredAt,
+    metadataSummary: null,
+    relationships: structuredClone([...entry.relationships]),
+    usePolicy: {
+      access: 'public',
+      accessEvidenceUrl: entry.license.pageLicenseUrl,
+      license: {
+        status: 'known',
+        name: entry.license.name,
+        spdxId: entry.license.spdxId,
+        url: entry.license.fullLicenseUrl,
+      },
+      acquisition: { ...permission },
+      indexing: { ...permission },
+    },
+    content: { state: 'metadata-only' },
+  };
+}

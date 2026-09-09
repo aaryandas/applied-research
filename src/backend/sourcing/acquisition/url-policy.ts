@@ -17,6 +17,23 @@ const FORBIDDEN_HOST_SUFFIXES = [
   '.test',
 ] as const;
 
+const CREDENTIAL_PARAMETERS = new Set([
+  'api_key',
+  'apikey',
+  'access_token',
+  'token',
+  'authorization',
+  'password',
+  'secret',
+  'signature',
+  'sig',
+  'x-amz-signature',
+  'x-amz-credential',
+  'x-amz-security-token',
+  'x-goog-signature',
+  'x-goog-credential',
+]);
+
 export function parsePublicHttpsUrl(value: string): URL | null {
   let url: URL;
   try {
@@ -29,6 +46,9 @@ export function parsePublicHttpsUrl(value: string): URL | null {
     url.protocol !== 'https:' ||
     url.username !== '' ||
     url.password !== '' ||
+    [...url.searchParams.keys()].some((key) =>
+      CREDENTIAL_PARAMETERS.has(key.toLowerCase()),
+    ) ||
     (url.port !== '' && url.port !== '443') ||
     url.hash !== '' ||
     hostname === '' ||
