@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import {
   EXPLANATION_VERSION,
   type ExplanationSpec,
@@ -30,13 +30,19 @@ export function RetainedScene({
   const useful = explanation.attempts.find(
     (attempt) => attempt.attemptId === explanation.usefulAttemptId,
   );
-  const [trustedCapture, setTrustedCapture] =
-    useState<TrustedSceneCapture | null>(null);
-  const [captureError, setCaptureError] = useState<string | null>(null);
-  useEffect(() => {
-    setTrustedCapture(null);
-    setCaptureError(null);
-  }, [explanation.explanationId, explanation.usefulAttemptId]);
+  const captureIdentity = `${explanation.explanationId}:${explanation.usefulAttemptId ?? ''}`;
+  const [captureSlot, setCaptureSlot] = useState<{
+    identity: string;
+    trusted: TrustedSceneCapture | null;
+    error: string | null;
+  }>({ identity: captureIdentity, trusted: null, error: null });
+  if (captureSlot.identity !== captureIdentity) {
+    setCaptureSlot({ identity: captureIdentity, trusted: null, error: null });
+  }
+  const trustedCapture =
+    captureSlot.identity === captureIdentity ? captureSlot.trusted : null;
+  const captureError =
+    captureSlot.identity === captureIdentity ? captureSlot.error : null;
   if (useful?.result?.kind !== 'scene') return null;
   const parameters = scene?.parameters ?? useful.result.initialParameters;
   const origin = explanation.origin.sourceRevisionId
@@ -95,23 +101,33 @@ export function RetainedScene({
         }}
         onCapture={() => undefined}
         onRetainedCapture={(request) => {
+          const identity = captureIdentity;
           void Promise.resolve(onCaptureRequest(request)).then(
             (captured) => {
               if (captured && captured.kind === 'app-measured') {
-                setTrustedCapture(captured);
-                setCaptureError(null);
+                setCaptureSlot({
+                  identity,
+                  trusted: captured,
+                  error: null,
+                });
                 return;
               }
-              setCaptureError(
-                'Main did not return a trusted scene capture. Parameters are unchanged.',
-              );
+              setCaptureSlot({
+                identity,
+                trusted: null,
+                error:
+                  'Main did not return a trusted scene capture. Parameters are unchanged.',
+              });
             },
             (failure: unknown) => {
-              setCaptureError(
-                failure instanceof Error
-                  ? failure.message
-                  : 'Could not retain this capture. Parameters are unchanged.',
-              );
+              setCaptureSlot({
+                identity,
+                trusted: null,
+                error:
+                  failure instanceof Error
+                    ? failure.message
+                    : 'Could not retain this capture. Parameters are unchanged.',
+              });
             },
           );
         }}

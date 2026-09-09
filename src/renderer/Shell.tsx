@@ -119,12 +119,12 @@ export function Shell({
   const viewMoving = useRef(false);
   const goRef = useRef<(next: WorkspaceDestination) => void>(() => {});
   const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
   const lessonRequestEpoch = useRef(0);
   const selectedLessonRef = useRef<PathOrigin | null>(null);
   const pendingGeneratedOpen = useRef<
     (PathOrigin & { lessonId: string }) | null
   >(null);
+  const [seenProjectId, setSeenProjectId] = useState(workspace.project.id);
   const [lessonEnsureFailure, setLessonEnsureFailure] = useState<{
     path: PathOrigin & { lessonId: string };
     message: string;
@@ -178,14 +178,20 @@ export function Shell({
       pendingGeneratedOpen.current = null;
     };
   }, []);
-  const mountedProjectId = useRef(workspace.project.id);
-  if (mountedProjectId.current !== workspace.project.id) {
-    mountedProjectId.current = workspace.project.id;
+  /* eslint-disable react-hooks/refs --
+   * ensurePendingLesson compares epoch, project, and selection after await.
+   * A genuine workspace change must invalidate in this render so a deferred
+   * completion cannot resurrect the previous project or steal focus.
+   */
+  workspaceRef.current = workspace;
+  if (workspace.project.id !== seenProjectId) {
+    setSeenProjectId(workspace.project.id);
     lessonRequestEpoch.current += 1;
     pendingGeneratedOpen.current = null;
     selectedLessonRef.current = null;
     if (lessonEnsureFailure) setLessonEnsureFailure(null);
   }
+  /* eslint-enable react-hooks/refs */
   useEffect(() => {
     const pending = pendingGeneratedOpen.current;
     if (!pending) return;

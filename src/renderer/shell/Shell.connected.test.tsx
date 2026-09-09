@@ -726,7 +726,7 @@ function generatedLaterWorkspace(pending: LearningWorkspace): {
       requestId: 'ensure-later',
       generation: {
         author: 'ai' as const,
-        provider: 'openrouter',
+        provider: 'openrouter' as const,
         providerRequestId: 'prv-later',
         model: 'google/gemini-3.8-flash',
         requestVersion: '2026-09-09',
