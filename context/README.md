@@ -21,6 +21,8 @@ The [active presearch session](presearch.md) reopens earlier commitments and rec
 | [Releases](releases.md)                     | Installer candidates, signing and Sonar configuration            |
 | [Effect](effect.md)                         | Pinned upstream source, API lookup and adoption boundaries       |
 | [Knowledge base](knowledge-base.md)         | Obsidian indexes and lossless migration records                  |
+| [Current delivery](current-delivery.md)     | September 9 execution policy; supersedes conflicting older rules |
+| [AR56 CI checkpoint](ar-56-ci-handoff.md)   | First integration CI repair: App/Reader lifecycle, exact SHA     |
 
 Product and domain pages govern current product intent. Architecture and checked-in code/configuration distinguish implemented behavior from proposals. The design reference includes historical specimens; its visual guidance does not override current product scope. If code and accepted intent disagree, surface the discrepancy rather than treating it as a new decision.
 
