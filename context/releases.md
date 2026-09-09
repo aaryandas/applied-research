@@ -27,6 +27,12 @@ inline script, token display or browser storage is used. The bundle is a backend
 deployment asset and remains excluded from desktop installers with the rest of
 `out/backend/**`.
 
+The callback's Vite library build explicitly replaces `process.env.NODE_ENV`
+with `"production"`: library mode otherwise preserves Node-only references in
+browser dependencies and breaks the sign-in return. After `npm run build:backend`,
+run `node --test scripts/electron-auth-callback.test.mjs` to verify that the actual
+emitted bundle initializes without Node globals and handles its redirect cookie.
+
 Desktop packaging explicitly excludes `out/backend/**`. Server-only auth,
 accounting, provider adapters and system prompts remain deployment artifacts and
 must not ship inside the Electron installer. `drizzle/**` remains packaged for
