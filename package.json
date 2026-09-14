@@ -48,7 +48,7 @@
     "sonar:scan:native": "npm run test:coverage && sonar -Dsonar.projectKey=applied-research-local '-Dsonar.projectVersion=not provided' -Dsonar.scm.disabled=true -Dsonar.qualitygate.wait=true -Dsonar.typescript.tsconfigPaths=tsconfig.node.json,tsconfig.web.json"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "1.7.3",
+    "@better-auth/drizzle-adapter": "1.7.4",
     "@better-auth/electron": "1.7.3",
     "@react-three/fiber": "9.7.0",
     "@xyflow/react": "12.11.6",
